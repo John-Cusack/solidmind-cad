@@ -105,6 +105,56 @@ def _registry() -> dict[str, Resource]:
             mime_type="text/yaml",
             description="Small glossary of manufacturing terms used by prompts and the interviewer.",
         ),
+        # -- ME pattern library --
+        Resource(
+            uri="resource://me_patterns/index.yml",
+            path=data_path("me_patterns", "index.yml"),
+            name="ME patterns index",
+            mime_type="text/yaml",
+            description="Index of all mechanical engineering design patterns.",
+        ),
+        Resource(
+            uri="resource://me_patterns/brackets/mounting_bracket.yml",
+            path=data_path("me_patterns", "brackets", "mounting_bracket.yml"),
+            name="Mounting bracket pattern",
+            mime_type="text/yaml",
+            description="Design pattern for wall/panel-mounted brackets with fastener holes.",
+        ),
+        Resource(
+            uri="resource://me_patterns/brackets/l_bracket.yml",
+            path=data_path("me_patterns", "brackets", "l_bracket.yml"),
+            name="L-bracket pattern",
+            mime_type="text/yaml",
+            description="Design pattern for right-angle L-brackets.",
+        ),
+        Resource(
+            uri="resource://me_patterns/enclosures/rectangular_box.yml",
+            path=data_path("me_patterns", "enclosures", "rectangular_box.yml"),
+            name="Rectangular box enclosure pattern",
+            mime_type="text/yaml",
+            description="Design pattern for rectangular electronics/sensor enclosures.",
+        ),
+        Resource(
+            uri="resource://me_patterns/fastening/simple_gear.yml",
+            path=data_path("me_patterns", "fastening", "simple_gear.yml"),
+            name="Simple spur gear pattern",
+            mime_type="text/yaml",
+            description="Design pattern for involute spur gears.",
+        ),
+        Resource(
+            uri="resource://me_patterns/guides/design_for_cnc.yml",
+            path=data_path("me_patterns", "guides", "design_for_cnc.yml"),
+            name="Design for CNC guide",
+            mime_type="text/yaml",
+            description="CNC machining design guidelines and constraints.",
+        ),
+        Resource(
+            uri="resource://me_patterns/guides/design_for_fdm.yml",
+            path=data_path("me_patterns", "guides", "design_for_fdm.yml"),
+            name="Design for FDM guide",
+            mime_type="text/yaml",
+            description="FDM 3D printing design guidelines and constraints.",
+        ),
     ]
     return {r.uri: r for r in items}
 

@@ -1,0 +1,74 @@
+name: Simple Spur Gear
+description: >
+  A spur gear with involute tooth profile for transmitting rotational motion
+  between parallel shafts. The most common gear type — straight teeth parallel
+  to the axis of rotation. Used in gearboxes, actuators, clocks, and robotics.
+
+design_considerations:
+  - Module (or diametral pitch): defines tooth size; must match mating gear
+  - Pressure angle: typically 20 degrees (standard) or 14.5 degrees (legacy)
+  - Number of teeth: determines gear ratio; minimum ~12 teeth to avoid undercutting
+  - Face width: typically 8-12x module for adequate load distribution
+  - Bore and keyway: must match shaft diameter and torque transmission method
+  - Backlash: controlled by center distance and tooth thickness
+  - Hub: provides mounting surface and distributes stress from bore to teeth
+
+feature_sequence:
+  - step: 1
+    operation: sketch + pad
+    description: Hub cylinder — circle at origin on XY plane, pad to face width
+    notes: Hub diameter typically 2x bore diameter; face width = 10x module as starting point
+
+  - step: 2
+    operation: sketch + pad
+    description: Tooth ring — outer circle at pitch diameter, pad to same height
+    notes: Pitch diameter = module x number_of_teeth; addendum circle = pitch + module
+
+  - step: 3
+    operation: sketch + pocket
+    description: Involute tooth profile — cut tooth spaces from the blank
+    notes: >
+      For FreeCAD PartDesign, approximate involute with arc segments.
+      Tooth depth = 2.25x module (1.0 addendum + 1.25 dedendum).
+      This is the most complex step — consider using the FCGear workbench for precise involute profiles.
+
+  - step: 4
+    operation: hole
+    description: Center bore — through-hole for shaft
+    notes: Standard shaft sizes (5, 6, 8, 10 mm for small gears)
+
+  - step: 5
+    operation: sketch + pocket
+    description: Keyway — rectangular slot in bore for torque transmission
+    notes: Key size from standards (DIN 6885); depth = key height / 2
+
+  - step: 6
+    operation: chamfer
+    description: Tooth tip chamfers — slight break on tooth edges
+    notes: 0.3-0.5 mm; reduces stress concentration and burr formation
+
+  - step: 7
+    operation: fillet
+    description: Root fillets — at base of each tooth
+    notes: Radius = 0.3x module typical; critical for fatigue life
+
+typical_dimensions:
+  module_mm: [0.5, 1, 1.5, 2, 2.5, 3, 4, 5]
+  num_teeth: [12, 120]
+  pressure_angle_deg: [14.5, 20]
+  face_width_factor: [8, 12]
+  bore_mm: [3, 50]
+
+manufacturing_notes:
+  cnc:
+    - Gear teeth typically cut with gear hobbing or wire EDM, not standard end mills
+    - CNC milling can approximate gear teeth for low-precision applications
+    - Minimum tooth size limited by smallest available end mill
+    - Heat treatment (case hardening) common for steel gears after machining
+  fdm:
+    - Suitable for low-load, low-speed applications (prototyping, robotics, mechanisms)
+    - Print gear flat (teeth in XY plane) for best tooth accuracy
+    - Module > 1.5 mm recommended for reliable FDM printing
+    - PLA for prototyping; nylon or PETG for functional gears
+    - Add 0.1-0.15 mm backlash compensation for FDM shrinkage
+    - Bore should be undersized by 0.1-0.2 mm and reamed/drilled to final size

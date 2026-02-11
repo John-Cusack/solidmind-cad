@@ -1,0 +1,60 @@
+name: L-Bracket
+description: >
+  A right-angle bracket for joining two perpendicular surfaces.
+  Used in structural framing, shelf supports, furniture, and equipment mounting.
+  The simplest structural connector — two flat legs meeting at 90 degrees.
+
+design_considerations:
+  - Equal vs unequal legs: equal for symmetric loads, unequal when one surface needs more contact
+  - Gusset/web: triangular gusset dramatically increases stiffness and load capacity
+  - Grain direction: for machined parts, orient grain along primary load axis
+  - Hole pattern symmetry: symmetric patterns simplify assembly and reduce errors
+  - Corner stress: the inside corner is the highest-stress region; generous fillet is critical
+
+feature_sequence:
+  - step: 1
+    operation: sketch + pad
+    description: First leg — rectangular profile on XY plane, pad to width
+    notes: Width is the common dimension shared by both legs
+
+  - step: 2
+    operation: sketch + pad
+    description: Second leg — sketch on end face of first leg, pad perpendicular
+    notes: Creates the L-shape; both legs share the same width
+
+  - step: 3
+    operation: sketch + pad (optional)
+    description: Gusset — triangular profile in the inside corner for stiffness
+    notes: Hypotenuse length typically 60-80% of shorter leg; thickness equals bracket width
+
+  - step: 4
+    operation: hole
+    description: Fastener holes on both legs
+    notes: Minimum 2 holes per leg for rotation resistance; maintain 2D edge distance
+
+  - step: 5
+    operation: fillet
+    description: Inside corner radius — critical for stress relief
+    notes: Radius should be as large as clearance allows; min 2-3 mm for machined parts
+
+  - step: 6
+    operation: chamfer
+    description: Edge breaks on outer edges
+    notes: 0.5-1 mm typical; improves handling and paint adhesion
+
+typical_dimensions:
+  leg_length_mm: [20, 150]
+  width_mm: [15, 80]
+  thickness_mm: [3, 12]
+  inside_radius_mm: [2, 8]
+
+manufacturing_notes:
+  cnc:
+    - Can be machined from solid block (two setups) or bent from plate
+    - Inside corner radius limited by end mill diameter
+    - Gusset adds one additional pocket or profile operation
+  fdm:
+    - Print with one leg flat on bed; the other leg prints vertically
+    - Inside corner prints well (concave = no overhang)
+    - Gusset hypotenuse is a 45-degree overhang — printable without supports
+    - Consider printing solid (100% infill) for structural brackets

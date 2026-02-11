@@ -1,0 +1,30 @@
+patterns:
+  - id: mounting_bracket
+    path: brackets/mounting_bracket.yml
+    category: brackets
+    summary: Wall/panel-mounted bracket with fastener holes
+
+  - id: l_bracket
+    path: brackets/l_bracket.yml
+    category: brackets
+    summary: Right-angle L-bracket for joining perpendicular surfaces
+
+  - id: rectangular_box
+    path: enclosures/rectangular_box.yml
+    category: enclosures
+    summary: Rectangular enclosure with lid and mounting features
+
+  - id: simple_gear
+    path: fastening/simple_gear.yml
+    category: power_transmission
+    summary: Spur gear with involute tooth profile
+
+  - id: design_for_cnc
+    path: guides/design_for_cnc.yml
+    category: guides
+    summary: CNC machining design guidelines and constraints
+
+  - id: design_for_fdm
+    path: guides/design_for_fdm.yml
+    category: guides
+    summary: FDM 3D printing design guidelines and constraints

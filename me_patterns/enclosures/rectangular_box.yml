@@ -1,0 +1,75 @@
+name: Rectangular Box Enclosure
+description: >
+  A rectangular enclosure (box + lid) for housing electronics, mechanisms, or sensors.
+  The most common enclosure geometry — a hollow rectangular shell with mounting features.
+  Used in consumer electronics, industrial controls, sensor housings, and prototyping.
+
+design_considerations:
+  - Wall thickness: must support fasteners and provide EMI shielding (if metallic)
+  - Draft angles: needed for injection molding; not required for CNC or FDM
+  - Lid interface: lip/rabbet joint, screw bosses, or snap fits depending on process
+  - Cable/connector openings: position on sides to keep top/bottom surfaces clean
+  - Mounting: internal standoffs for PCBs; external flanges or DIN rail clips
+  - Sealing: gasket groove for IP-rated enclosures; simple overlap for indoor use
+  - Ventilation: slots or holes for heat dissipation if needed
+
+feature_sequence:
+  - step: 1
+    operation: sketch + pad
+    description: Outer shell — rectangular profile, pad to full box height
+    notes: Size from PCB dimensions + clearance (typically 3-5 mm per side)
+
+  - step: 2
+    operation: sketch + pocket
+    description: Hollow interior — offset rectangle on top face, pocket to wall thickness depth
+    notes: Leave floor thickness of 2-4 mm; wall thickness typically 2-3 mm (FDM) or 1.5-3 mm (CNC)
+
+  - step: 3
+    operation: sketch + pad
+    description: PCB standoffs — small cylinders on interior floor
+    notes: Height matches PCB-to-floor clearance; M2.5 or M3 typical for PCB mounting
+
+  - step: 4
+    operation: hole
+    description: Screw holes in standoffs
+    notes: Tap drill size for self-tapping (FDM) or threaded inserts
+
+  - step: 5
+    operation: sketch + pocket
+    description: Lid rabbet/lip — step cut around top rim for lid seating
+    notes: Lip depth 1-2 mm; width = lid wall thickness
+
+  - step: 6
+    operation: sketch + pocket
+    description: Cable/connector cutouts — rectangular or circular openings on side walls
+    notes: Position based on connector location on PCB
+
+  - step: 7
+    operation: fillet
+    description: External corner radii for aesthetics and strength
+    notes: 2-5 mm typical; consistent radius on all vertical edges
+
+  - step: 8
+    operation: fillet
+    description: Internal corner radii — stress relief and moldability
+    notes: Min 1 mm for CNC (tool radius); 0.5 mm for FDM
+
+typical_dimensions:
+  outer_length_mm: [40, 300]
+  outer_width_mm: [30, 200]
+  outer_height_mm: [15, 100]
+  wall_thickness_mm: [1.5, 4]
+  floor_thickness_mm: [2, 5]
+
+manufacturing_notes:
+  cnc:
+    - Typically machined from two halves (box + lid) in aluminum or ABS
+    - Internal corners limited by end mill radius (min 1 mm with 2 mm end mill)
+    - Deep pockets (depth > 4x width) may need specialized tooling
+    - Anodize after machining for aluminum enclosures
+  fdm:
+    - Print box upside-down (opening facing up) for best surface quality on outside
+    - Standoffs and bosses print well as vertical features
+    - Snap fits require flexible material (PETG, TPU) or careful PLA design
+    - Add 0.15-0.2 mm clearance on lid-to-box interface for good fit
+    - Threaded inserts (heat-set) recommended over self-tapping screws for reuse

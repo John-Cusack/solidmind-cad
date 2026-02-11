@@ -171,6 +171,57 @@ def cad_pad(
 
 
 @_wrap
+def cad_revolution(
+    sketch: str,
+    axis: str = "V",
+    angle: float = 360.0,
+    symmetric: bool = False,
+    reversed: bool = False,
+    doc: str | None = None,
+) -> dict[str, Any]:
+    """Revolve a sketch around an axis to create a solid of revolution."""
+    client = get_client()
+    kwargs: dict[str, Any] = {
+        "sketch": sketch,
+        "axis": axis,
+        "angle": angle,
+        "symmetric": symmetric,
+        "reversed": reversed,
+    }
+    if doc is not None:
+        kwargs["doc"] = doc
+    result = client.send_command("revolution", **kwargs)
+    return {"ok": True, **result}
+
+
+@_wrap
+def cad_polar_pattern(
+    features: list[str],
+    axis: str = "Base_Z",
+    occurrences: int = 6,
+    angle: float = 360.0,
+    reversed: bool = False,
+    body: str | None = None,
+    doc: str | None = None,
+) -> dict[str, Any]:
+    """Create a polar (circular) pattern of features around an axis."""
+    client = get_client()
+    kwargs: dict[str, Any] = {
+        "features": features,
+        "axis": axis,
+        "occurrences": occurrences,
+        "angle": angle,
+        "reversed": reversed,
+    }
+    if body is not None:
+        kwargs["body"] = body
+    if doc is not None:
+        kwargs["doc"] = doc
+    result = client.send_command("polar_pattern", **kwargs)
+    return {"ok": True, **result}
+
+
+@_wrap
 def cad_pocket(
     sketch: str,
     length: float = 0.0,

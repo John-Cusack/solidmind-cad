@@ -43,7 +43,9 @@ from server.tools_cad import (
     cad_new_document,
     cad_pad,
     cad_pocket,
+    cad_polar_pattern,
     cad_resolve_selection,
+    cad_revolution,
     cad_sketch,
     cad_undo,
 )
@@ -199,6 +201,65 @@ def _cad_tool_list() -> list[dict[str, Any]]:
                     "doc": {"type": "string", "description": "Document name (optional)"},
                 },
                 "required": ["sketch", "length"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "cad.revolution",
+            "description": (
+                "Revolve a sketch around an axis to create a solid of revolution. "
+                "Creates a PartDesign::Revolution feature."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "sketch": {"type": "string", "description": "Sketch name to revolve"},
+                    "axis": {
+                        "type": "string",
+                        "enum": ["V", "H", "Base_X", "Base_Y", "Base_Z"],
+                        "description": "Revolution axis: V (sketch vertical), H (sketch horizontal), or Base_X/Y/Z (document origin axes)",
+                        "default": "V",
+                    },
+                    "angle": {"type": "number", "description": "Revolution angle in degrees", "default": 360.0},
+                    "symmetric": {"type": "boolean", "description": "Revolve symmetrically from sketch plane", "default": False},
+                    "reversed": {"type": "boolean", "description": "Reverse revolution direction", "default": False},
+                    "doc": {"type": "string", "description": "Document name (optional)"},
+                },
+                "required": ["sketch"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "cad.polar_pattern",
+            "description": (
+                "Create a polar (circular) pattern of features around an axis. "
+                "Creates a PartDesign::PolarPattern feature."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "features": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Feature names to pattern (e.g., ['Pocket'])",
+                    },
+                    "axis": {
+                        "type": "string",
+                        "enum": ["Base_X", "Base_Y", "Base_Z", "V", "H"],
+                        "description": "Pattern axis: Base_X/Y/Z (document origin) or V/H (sketch axes)",
+                        "default": "Base_Z",
+                    },
+                    "occurrences": {
+                        "type": "integer",
+                        "description": "Total number of copies including the original",
+                        "default": 6,
+                    },
+                    "angle": {"type": "number", "description": "Total angle span in degrees", "default": 360.0},
+                    "reversed": {"type": "boolean", "description": "Reverse pattern direction", "default": False},
+                    "body": {"type": "string", "description": "Body name (optional)"},
+                    "doc": {"type": "string", "description": "Document name (optional)"},
+                },
+                "required": ["features"],
                 "additionalProperties": False,
             },
         },
@@ -617,6 +678,8 @@ _CAD_DISPATCH: dict[str, Any] = {
     "cad.new_body": cad_new_body,
     "cad.sketch": cad_sketch,
     "cad.pad": cad_pad,
+    "cad.revolution": cad_revolution,
+    "cad.polar_pattern": cad_polar_pattern,
     "cad.pocket": cad_pocket,
     "cad.hole": cad_hole,
     "cad.fillet": cad_fillet,

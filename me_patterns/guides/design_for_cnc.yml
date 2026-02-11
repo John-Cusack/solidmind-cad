@@ -1,0 +1,61 @@
+name: Design for CNC Machining
+description: >
+  Guidelines and constraints for designing parts to be manufactured by CNC milling.
+  Covers tool access, feature sizing, tolerances, and common pitfalls.
+
+general_rules:
+  - Design for 3-axis milling unless you know the shop has 4/5-axis capability
+  - Minimize the number of setups (orientations) — each adds cost and tolerance stack-up
+  - Avoid features that require special tooling (T-slots, dovetails, internal threads > M12)
+  - Prefer standard hole sizes that match drill bits (no arbitrary diameters)
+  - Flat bottom pockets are standard; radiused bottoms need ball end mills
+
+internal_corners:
+  rule: All internal corners have a radius equal to or larger than the cutting tool radius
+  minimum_radius_mm: 1.0
+  recommendation: >
+    Use corner radius = tool radius + 0.5 mm for clearance.
+    Standard end mills: 1, 1.5, 2, 3, 4, 5, 6, 8, 10 mm radius.
+    For mating parts requiring sharp corners, add relief cuts (dog-bone or T-bone).
+
+wall_thickness:
+  minimum_mm: 0.8
+  recommended_mm: 1.5
+  note: >
+    Thin walls deflect under cutting forces and may chatter.
+    Walls thinner than 1 mm need reduced feed rates and climb milling.
+
+hole_guidelines:
+  - Standard drill sizes are cheaper than interpolated holes
+  - Depth-to-diameter ratio should be < 10:1 (standard drills), < 20:1 (gun drills)
+  - Blind holes need a conical bottom allowance (118 or 135 degree drill point)
+  - Tapped holes — minimum 1.5x diameter thread engagement; blind taps need clearance depth
+
+pocket_guidelines:
+  - Depth-to-width ratio should be < 4:1 for standard tooling
+  - Deep narrow pockets cause tool deflection and chatter
+  - Leave corner radii (see internal_corners)
+  - Pocket floors are typically flat within 0.05 mm
+
+tolerances:
+  standard_mm: 0.1
+  precision_mm: 0.025
+  high_precision_mm: 0.01
+  note: >
+    Tighter tolerances increase cost exponentially.
+    Position tolerances are generally harder to hold than size tolerances.
+    GD&T is preferred over bilateral tolerances for critical features.
+
+surface_finish:
+  as_machined_ra_um: [1.6, 3.2]
+  fine_finish_ra_um: [0.4, 0.8]
+  note: >
+    Standard machining achieves Ra 1.6-3.2 um.
+    Mirror finish (Ra < 0.4) requires grinding or polishing.
+    Specify finish only on functional surfaces to reduce cost.
+
+material_considerations:
+  easy_to_machine: [6061-T6 aluminum, brass, delrin, nylon]
+  moderate: [304 stainless, carbon steel, PEEK]
+  difficult: [titanium, Inconel, hardened steel]
+  note: Material choice significantly affects machining time and tool wear.

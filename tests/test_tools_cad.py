@@ -25,7 +25,9 @@ from server.tools_cad import (
     cad_new_document,
     cad_pad,
     cad_pocket,
+    cad_polar_pattern,
     cad_resolve_selection,
+    cad_revolution,
     cad_sketch,
     cad_undo,
 )
@@ -128,6 +130,83 @@ class TestCadPad(unittest.TestCase):
         result = cad_pad(sketch="Sketch", length=20)
         self.assertTrue(result["ok"])
         self.assertEqual(result["name"], "Pad")
+
+
+class TestCadRevolution(unittest.TestCase):
+    @patch("server.tools_cad.get_client")
+    def test_revolution_defaults(self, mock_get: MagicMock) -> None:
+        client = _mock_client()
+        client.send_command.return_value = {
+            "name": "Revolution", "label": "Revolution", "type": "PartDesign::Revolution",
+            "bounding_box": {"x_len": 60, "y_len": 60, "z_len": 35},
+            "volume": 50000,
+        }
+        mock_get.return_value = client
+
+        result = cad_revolution(sketch="Sketch")
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["name"], "Revolution")
+        client.send_command.assert_called_once_with(
+            "revolution", sketch="Sketch", axis="V", angle=360.0,
+            symmetric=False, reversed=False,
+        )
+
+    @patch("server.tools_cad.get_client")
+    def test_revolution_with_all_params(self, mock_get: MagicMock) -> None:
+        client = _mock_client()
+        client.send_command.return_value = {
+            "name": "Revolution", "label": "Revolution", "type": "PartDesign::Revolution",
+        }
+        mock_get.return_value = client
+
+        result = cad_revolution(
+            sketch="Sketch", axis="Base_Z", angle=180.0,
+            symmetric=True, reversed=True, doc="MyDoc",
+        )
+        self.assertTrue(result["ok"])
+        client.send_command.assert_called_once_with(
+            "revolution", sketch="Sketch", axis="Base_Z", angle=180.0,
+            symmetric=True, reversed=True, doc="MyDoc",
+        )
+
+
+class TestCadPolarPattern(unittest.TestCase):
+    @patch("server.tools_cad.get_client")
+    def test_polar_pattern_defaults(self, mock_get: MagicMock) -> None:
+        client = _mock_client()
+        client.send_command.return_value = {
+            "name": "PolarPattern", "label": "PolarPattern",
+            "type": "PartDesign::PolarPattern",
+        }
+        mock_get.return_value = client
+
+        result = cad_polar_pattern(features=["Pocket"])
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["name"], "PolarPattern")
+        client.send_command.assert_called_once_with(
+            "polar_pattern", features=["Pocket"], axis="Base_Z",
+            occurrences=6, angle=360.0, reversed=False,
+        )
+
+    @patch("server.tools_cad.get_client")
+    def test_polar_pattern_with_all_params(self, mock_get: MagicMock) -> None:
+        client = _mock_client()
+        client.send_command.return_value = {
+            "name": "PolarPattern", "label": "PolarPattern",
+            "type": "PartDesign::PolarPattern",
+        }
+        mock_get.return_value = client
+
+        result = cad_polar_pattern(
+            features=["Pocket", "Pocket001"], axis="Base_X",
+            occurrences=11, angle=360.0, body="Body", doc="MyDoc",
+        )
+        self.assertTrue(result["ok"])
+        client.send_command.assert_called_once_with(
+            "polar_pattern", features=["Pocket", "Pocket001"],
+            axis="Base_X", occurrences=11, angle=360.0, reversed=False,
+            body="Body", doc="MyDoc",
+        )
 
 
 class TestCadPocket(unittest.TestCase):

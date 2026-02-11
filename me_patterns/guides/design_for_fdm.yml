@@ -1,0 +1,75 @@
+name: Design for FDM 3D Printing
+description: >
+  Guidelines and constraints for designing parts to be manufactured by FDM/FFF
+  (Fused Deposition Modeling) 3D printing. Covers orientation, supports, tolerances,
+  and common design patterns.
+
+general_rules:
+  - Design with print orientation in mind from the start
+  - Minimize support material — it wastes material and leaves rough surfaces
+  - Avoid large flat overhangs (> 45 degrees from vertical needs support)
+  - Round holes print slightly oval in XY — design for post-processing if precision needed
+  - First layer adhesion matters — large flat bottom surface is ideal
+
+orientation_guidelines:
+  - Strongest axis is XY (layer plane); weakest is Z (layer adhesion)
+  - Orient parts so primary loads are in XY plane
+  - Place cosmetic surfaces facing up or to the side (not on build plate or supports)
+  - Holes that need to be round should be oriented vertically (along Z axis)
+
+wall_thickness:
+  minimum_mm: 0.8
+  recommended_mm: 1.2
+  note: >
+    Minimum wall = 2x nozzle diameter (standard 0.4 mm nozzle → 0.8 mm min).
+    Single-wall features (1 nozzle width) are fragile.
+    3+ perimeters recommended for structural parts.
+
+overhang_and_bridges:
+  max_overhang_angle_deg: 45
+  max_bridge_length_mm: 10
+  note: >
+    Angles > 45 degrees from vertical need support material.
+    Bridges up to 10 mm work with cooling; longer bridges sag.
+    Use chamfers instead of fillets on bottom edges to avoid supports.
+
+hole_guidelines:
+  - Vertical holes (Z-axis) print round and accurate
+  - Horizontal holes are slightly oval; oversize by 0.2-0.3 mm
+  - Holes < 2 mm may close up during printing
+  - For precise holes, print undersized and drill to final diameter
+  - Teardrop shape for horizontal holes eliminates top overhang
+
+tolerances:
+  xy_tolerance_mm: 0.2
+  z_tolerance_mm: 0.1
+  fit_clearance_mm: 0.3
+  press_fit_interference_mm: -0.1
+  note: >
+    XY accuracy limited by nozzle width and flow rate.
+    Z accuracy is exact multiples of layer height.
+    For mating parts, add 0.3 mm clearance per side (0.6 mm total gap).
+
+support_strategies:
+  - Avoid supports when possible by redesigning geometry
+  - Use chamfers (45 deg) instead of fillets on bottom-facing edges
+  - Split parts at overhangs and glue/fasten after printing
+  - Design built-in support structures that break away cleanly
+  - Tree supports leave less scarring than linear supports
+
+common_features:
+  snap_fits:
+    note: Use PETG or nylon; PLA is too brittle. Cantilever deflection < 5% of length.
+  threaded_inserts:
+    note: Heat-set brass inserts (M2.5, M3, M4 common). Design hole = insert OD + 0.1 mm.
+  living_hinges:
+    note: Only with flexible filaments (TPU). PLA/PETG will break.
+  text_and_logos:
+    note: Embossed text min 0.6 mm height. Engraved text min 0.8 mm depth, 1 mm line width.
+
+material_selection:
+  pla: General purpose, easy to print, biodegradable. Brittle, low heat resistance (55C).
+  petg: Good balance of strength and printability. Chemical resistant. Strings more than PLA.
+  abs: Impact resistant, higher heat resistance (100C). Needs enclosed printer, warps easily.
+  nylon: Excellent toughness and wear resistance. Absorbs moisture, difficult to print.
+  tpu: Flexible/elastic. Good for gaskets, grips, bumpers. Slow to print.

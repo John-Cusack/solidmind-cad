@@ -78,9 +78,9 @@ The system runs as two processes connected by TCP:
 
 ## 3. MCP Protocol Surface
 
-### Tools (23 total)
+### Tools (32 total)
 
-#### CAD Tools (12) — `cad.*` in `server/tools_cad.py`
+#### CAD Tools (21) — `cad.*` in `server/tools_cad.py`
 
 | Tool | Purpose | Key Parameters |
 |------|---------|----------------|
@@ -88,12 +88,21 @@ The system runs as two processes connected by TCP:
 | `cad.new_body` | Create PartDesign Body | name, doc |
 | `cad.sketch` | Create sketch with geometry + constraints | body, plane, elements[], constraints[] |
 | `cad.pad` | Extrude sketch to solid | sketch, length, reversed, symmetric |
+| `cad.revolution` | Revolve sketch around axis | sketch, axis (V/H/Base_X/Y/Z), angle |
+| `cad.polar_pattern` | Circular pattern of features | features[], axis, occurrences, angle |
 | `cad.pocket` | Cut pocket from sketch | sketch, length, pocket_type |
 | `cad.hole` | Add hole on a face | face, diameter, depth, hole_type |
-| `cad.fillet` | Fillet (round) edges | edges[], radius |
-| `cad.chamfer` | Chamfer edges | edges[], size |
+| `cad.fillet` | Fillet (round) edges | edges[] or selection, radius |
+| `cad.chamfer` | Chamfer edges | edges[] or selection, size |
 | `cad.get_selection` | Get user's GUI selection | — |
 | `cad.get_model_tree` | Get feature tree + bounding boxes | doc |
+| `cad.get_dimensions` | Bounding box, volume, surface area, topology counts | object_name |
+| `cad.get_body_topology` | All faces/edges with geometric properties | body |
+| `cad.find_edges` | Find edges by geometric criteria | axis, curve_type, convexity, on_face, near_point, length bounds |
+| `cad.define_selection` | Define named edge selection query with invariants | name, query, invariants |
+| `cad.resolve_selection` | Re-resolve named selection against current geometry | name |
+| `cad.list_selections` | List all defined selection sets | — |
+| `cad.delete_selection` | Remove a named selection set | name |
 | `cad.undo` | Undo last operation | doc |
 | `cad.export` | Export to STEP/STL/FCStd | format, path, doc |
 
@@ -128,7 +137,7 @@ The system runs as two processes connected by TCP:
 | `spec_summary_formatter` | Formats spec for user confirmation |
 | `rfq_writer` | Writes RFQ-ready vendor summaries |
 
-### Resources (11)
+### Resources (18)
 
 | Category | Count | URIs |
 |----------|-------|------|
@@ -136,6 +145,7 @@ The system runs as two processes connected by TCP:
 | Question banks | 2 | `resource://question_bank/cnc.yml`, `resource://question_bank/print_3d.yml` |
 | Examples | 6 | `resource://examples/{cnc,print_3d}/{L1,L2,L3}.json` |
 | Glossary | 1 | `resource://glossary.yml` |
+| ME Patterns | 7 | `resource://me_patterns/index.yml`, `resource://me_patterns/brackets/{mounting_bracket,l_bracket}.yml`, `resource://me_patterns/enclosures/rectangular_box.yml`, `resource://me_patterns/fastening/simple_gear.yml`, `resource://me_patterns/guides/{design_for_cnc,design_for_fdm}.yml` |
 
 ---
 
@@ -150,20 +160,26 @@ The system runs as two processes connected by TCP:
  │     → cad.sketch (rect/circle/line/arc + constraints)              │
  │     → cad.pad (extrude to solid)                                   │
  │                                                                     │
- │  2. User clicks face/edge in FreeCAD                                │
+ │  2. User says "add a cylindrical boss"                              │
+ │     → cad.sketch (circle on face) → cad.revolution(axis="V")      │
+ │                                                                     │
+ │  3. User clicks face/edge in FreeCAD                                │
  │     → cad.get_selection → sees Face6, Edge3, etc.                  │
  │                                                                     │
- │  3. User says "add holes here"                                      │
+ │  4. User says "add holes here"                                      │
  │     → cad.hole(face="Face6", diameter=6.6, depth=20)               │
+ │     → cad.polar_pattern(features=["Hole"], occurrences=6)          │
  │                                                                     │
- │  4. User says "round these edges"                                   │
- │     → cad.fillet(edges=["Edge1","Edge3"], radius=2.0)              │
+ │  5. User says "round the vertical edges"                            │
+ │     → cad.find_edges(axis="Z", convexity="convex")                 │
+ │     → cad.define_selection(name="outer_verticals", query={...})    │
+ │     → cad.fillet(selection="outer_verticals", radius=2.0)          │
  │                                                                     │
- │  5. User says "check manufacturing readiness"                       │
+ │  6. User says "check manufacturing readiness"                       │
  │     → mfg.set_property(material_family="aluminum", ...)            │
  │     → mfg.readiness_check(process="cnc")                           │
  │                                                                     │
- │  6. User says "export for vendor"                                   │
+ │  7. User says "export for vendor"                                   │
  │     → cad.export(format="step")                                    │
  │     → mfg.export_rfq(...)                                          │
  └─────────────────────────────────────────────────────────────────────┘
@@ -175,14 +191,15 @@ The system runs as two processes connected by TCP:
 
 ### Command Handlers (`freecad_addon/commands.py`)
 
-The addon exposes 21 command handlers via the `COMMAND_HANDLERS` dict:
+The addon exposes 28 command handlers via the `COMMAND_HANDLERS` dict:
 
 | Category | Commands |
 |----------|----------|
 | Document | `new_document`, `new_body`, `get_model_tree`, `undo`, `redo` |
 | Sketcher | `new_sketch`, `sketch_rect`, `sketch_circle`, `sketch_line`, `sketch_arc`, `sketch_constrain`, `close_sketch` |
-| PartDesign | `pad`, `pocket`, `hole`, `fillet`, `chamfer` |
-| Query | `get_selection`, `get_dimensions` |
+| PartDesign | `pad`, `pocket`, `revolution`, `polar_pattern`, `hole`, `fillet`, `chamfer` |
+| Query | `get_selection`, `get_dimensions`, `get_body_topology`, `find_edges` |
+| Selection | `define_selection`, `resolve_selection`, `list_selections`, `delete_selection` |
 | Export | `export` |
 
 Note: The bridge's `cad.sketch` tool is a compound operation that calls
@@ -204,7 +221,50 @@ to `COMMAND_HANDLERS`, and returns JSON responses.
 
 ---
 
-## 6. Supported Manufacturing Processes
+## 6. Edge Selection Architecture
+
+Edge names in FreeCAD (e.g., `Edge1`, `Edge3`) are **unstable** — they change
+whenever the model topology changes (adding a fillet renumbers all edges). The
+named selection system solves this by storing **geometric queries** rather than
+edge names.
+
+### How It Works
+
+1. **Query**: `cad.find_edges(axis="Z", convexity="convex")` returns edges
+   matching geometric criteria (parallel to Z axis, outer corners).
+
+2. **Define**: `cad.define_selection(name="outer_verticals", query={axis: "Z",
+   convexity: "convex"}, invariants={expected_count: 4})` saves the query with
+   optional invariants.
+
+3. **Resolve**: `cad.resolve_selection(name="outer_verticals")` re-evaluates
+   the query against the current geometry and returns current edge names.
+
+4. **Use**: `cad.fillet(selection="outer_verticals", radius=2.0)` — fillet and
+   chamfer accept a `selection` parameter that resolves the named query
+   internally before applying the operation.
+
+### Invariant Checking
+
+Selections can include invariants (`expected_count`, `min_length`,
+`max_length`) that are checked on every resolve. If the resolved edges don't
+match the invariants (e.g., expected 4 edges but found 6), the system warns
+about potential geometry drift.
+
+### Edge Query Filters
+
+| Filter | Description |
+|--------|-------------|
+| `axis` | Straight edges parallel to X, Y, or Z |
+| `curve_type` | Line, Circle, BSplineCurve, Ellipse |
+| `convexity` | `convex` (outer corners) or `concave` (inner corners) |
+| `on_face` | Edges bounding a specific face |
+| `near_point` | Edges within distance of a 3D point |
+| `min_length` / `max_length` | Edge length bounds |
+
+---
+
+## 7. Supported Manufacturing Processes
 
 | Process    | Schema                      | Question Bank          | Rules Engine        | CAD Generator        |
 |------------|-----------------------------|------------------------|---------------------|----------------------|
@@ -216,7 +276,7 @@ Process-specific differences live in the **rules** and **question banks**.
 
 ---
 
-## 7. Module Dependency Map
+## 8. Module Dependency Map
 
 ```
                           main.py
@@ -225,7 +285,7 @@ Process-specific differences live in the **rules** and **question banks**.
           ┌───────────┼──────────┬──────────────┐
           │           │          │              │
      tools_cad.py  tools_mfg.py tools.py   prompts.py  resources.py
-     (12 cad.*     (3 mfg.*    (8 spec.*   (5 prompts) (11 resources)
+     (21 cad.*     (3 mfg.*    (8 spec.*   (5 prompts) (18 resources)
       tools)        tools)      tools)
           │                     │
           │          ┌──────────┼───────┬──────────┐
@@ -254,11 +314,20 @@ Process-specific differences live in the **rules** and **question banks**.
           │                STEP, STL, FCStd
           │
   ┌───────┴──────────────────┐
+  ┌───────────────────────────┐
   │  FreeCAD Addon            │
   │  socket_server.py         │  TCP server (localhost:9876)
-  │  commands.py              │  FreeCAD API handlers (21 commands)
+  │  commands.py              │  FreeCAD API handlers (28 commands)
   │  selection_observer.py    │  GUI selection tracking
   │  protocol.py              │  Newline-delimited JSON
+  └───────────────────────────┘
+
+  ┌───────────────────────────┐
+  │  ME Pattern Library        │
+  │  me_patterns/              │  7 YAML pattern files
+  │  (brackets, enclosures,   │  (mounting_bracket, l_bracket,
+  │   fastening, guides)      │   rectangular_box, simple_gear,
+  │                            │   design_for_cnc, design_for_fdm)
   └───────────────────────────┘
 
   ┌───────────────────────────┐
@@ -273,7 +342,7 @@ Process-specific differences live in the **rules** and **question banks**.
 
 ---
 
-## 8. Legacy Spec Interview Flow
+## 9. Legacy Spec Interview Flow
 
 Used by `spec.*` tools. The host LLM drives a structured interview, then
 generates CAD from the finalized spec via CadQuery.
@@ -392,7 +461,7 @@ conversation signals.
 
 ---
 
-## 9. Legacy CAD Generation Pipeline
+## 10. Legacy CAD Generation Pipeline
 
 Used by `spec.generate_cad` (requires CadQuery). Not used in live co-pilot mode.
 
@@ -442,7 +511,7 @@ Supported hole types: `clearance`, `tapped`, `through`, `counterbore`,
 
 ---
 
-## 10. Validation Architecture
+## 11. Validation Architecture
 
 Used by `spec.validate` in the legacy interview flow.
 
@@ -501,7 +570,7 @@ Used by `spec.validate` in the legacy interview flow.
 
 ---
 
-## 11. Determinism Guarantees (Legacy Spec Tools)
+## 12. Determinism Guarantees (Legacy Spec Tools)
 
 | Concern | Mechanism |
 |---------|-----------|
@@ -514,18 +583,18 @@ Used by `spec.validate` in the legacy interview flow.
 
 ---
 
-## 12. File Map
+## 13. File Map
 
 ```
 solidmind-cad/
 ├── server/
 │   ├── main.py              MCP JSON-RPC stdio server (registers all tool groups)
 │   ├── freecad_client.py    TCP socket client for FreeCAD addon
-│   ├── tools_cad.py         12 cad.* tool implementations
+│   ├── tools_cad.py         21 cad.* tool implementations
 │   ├── tools_mfg.py         3 mfg.* tool implementations
 │   ├── tools.py             8 legacy spec.* tool implementations
 │   ├── prompts.py           5 LLM prompt definitions
-│   ├── resources.py         MCP resource registry (11 resources)
+│   ├── resources.py         MCP resource registry (18 resources)
 │   ├── validation.py        Schema + coverage + rule dispatch
 │   ├── rules_cnc.py         CNC blocker/warning rules
 │   ├── rules_print_3d.py    3D print blocker/warning rules
@@ -543,7 +612,7 @@ solidmind-cad/
 ├── freecad_addon/
 │   ├── __init__.py          Package init, start() / stop() entry points
 │   ├── InitGui.py           FreeCAD workbench integration
-│   ├── commands.py          FreeCAD API command handlers (21 commands)
+│   ├── commands.py          FreeCAD API command handlers (28 commands)
 │   ├── protocol.py          Newline-delimited JSON protocol
 │   ├── selection_observer.py Selection tracking (singleton)
 │   └── socket_server.py     TCP server on localhost:9876
@@ -558,6 +627,18 @@ solidmind-cad/
 ├── examples/
 │   ├── cnc/                 L1, L2, L3 finalized specs + sensor_bracket_L2
 │   └── print_3d/            L1, L2, L3 finalized specs
+├── me_patterns/
+│   ├── index.yml              Pattern library index
+│   ├── brackets/
+│   │   ├── mounting_bracket.yml
+│   │   └── l_bracket.yml
+│   ├── enclosures/
+│   │   └── rectangular_box.yml
+│   ├── fastening/
+│   │   └── simple_gear.yml
+│   └── guides/
+│       ├── design_for_cnc.yml
+│       └── design_for_fdm.yml
 ├── tests/
 │   ├── helpers.py            make_base_spec_draft()
 │   ├── test_validation.py    Schema + rule tests
@@ -571,6 +652,7 @@ solidmind-cad/
 │   ├── test_tools_mfg.py     Manufacturing readiness tool tests
 │   ├── test_freecad_client.py TCP client tests (echo server)
 │   ├── test_protocol.py      Protocol serialization tests
+│   ├── test_me_patterns.py   ME pattern library + resource tests
 │   └── transcripts/          6 golden YAML transcripts
 │       ├── cnc_L1.yml
 │       ├── cnc_L2.yml
@@ -589,7 +671,7 @@ solidmind-cad/
 
 ---
 
-## 13. Key Design Tradeoffs
+## 14. Key Design Tradeoffs
 
 ### Why Two Processes?
 
