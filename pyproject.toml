@@ -3,9 +3,9 @@ requires = ["setuptools>=69"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "mcp-spec-gatherer"
-version = "0.1.0"
-description = "Deterministic spec gathering tools for 3D print + CNC exposed via MCP over stdio"
+name = "solidmind-cad"
+version = "0.2.0"
+description = "FreeCAD-integrated CAD co-pilot driven by MCP — PartDesign workbench + manufacturing readiness"
 readme = "README.md"
 requires-python = ">=3.12"
 license = { file = "LICENSE" }
@@ -16,11 +16,15 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# CadQuery is only needed for legacy spec-based CAD generation.
+cadquery = ["cadquery>=2.4,<3"]
 # Only needed if you want generated JSON Schemas from Pydantic v2 tool models.
 schemas = ["pydantic>=2.6,<3"]
 
 [project.scripts]
+solidmind-cad = "server.main:main"
+# Legacy entrypoint
 mcp-spec-gatherer = "server.main:main"
 
 [tool.setuptools]
-packages = ["server"]
+packages = ["server", "freecad_addon"]

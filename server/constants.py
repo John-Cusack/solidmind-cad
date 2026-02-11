@@ -15,3 +15,7 @@ COVERAGE_THRESHOLDS = {
 
 # Canonical hash algorithm label promised by the spec.
 HASH_ALGO = "sha256_jcs_rfc8785"
+
+# FreeCAD addon socket defaults.
+FREECAD_HOST = "127.0.0.1"
+FREECAD_PORT = 9876

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+from pathlib import Path
 from typing import Any, Literal
 
 from server.constants import (
@@ -584,3 +585,86 @@ def spec_export_rfq_summary(*, spec: dict) -> dict[str, Any]:
     if process == "cnc":
         return _export_rfq_summary_cnc(spec)
     return _export_rfq_summary_print_3d(spec)
+
+
+def spec_generate_cad(
+    *,
+    spec: dict[str, Any],
+    output_format: str,
+    output_path: str | None = None,
+    options: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Generate CAD geometry from a finalized spec."""
+    opts = options or {}
+    errors: list[dict[str, Any]] = []
+
+    # Precondition 1: must be finalized (no internal fields)
+    if "_interview" in spec or "_audit" in spec:
+        errors.append(
+            _tool_error(
+                "NOT_FINALIZED",
+                "Spec contains internal fields (_interview/_audit). "
+                "Run spec.finalize first.",
+            ).to_dict()
+        )
+        return {"file_path": None, "cad_data": None, "metadata": {}, "warnings": [], "errors": errors}
+
+    meta = spec.get("meta", {}) if isinstance(spec, dict) else {}
+    maturity = meta.get("maturity_level", "L1")
+    coverage = float(meta.get("coverage_score", 0.0))
+    threshold = float(COVERAGE_THRESHOLDS.get(maturity, 1.0))
+
+    # Precondition 2: coverage above maturity threshold
+    if coverage < threshold:
+        errors.append(
+            _tool_error(
+                "INSUFFICIENT_COVERAGE",
+                f"Coverage {coverage:.0%} is below {maturity} threshold {threshold:.0%}.",
+                details={"coverage_score": coverage, "threshold": threshold, "maturity_level": maturity},
+            ).to_dict()
+        )
+        return {"file_path": None, "cad_data": None, "metadata": {}, "warnings": [], "errors": errors}
+
+    # Precondition 3: optional hash verification
+    expected_hash = opts.get("spec_hash")
+    if expected_hash is not None:
+        try:
+            canonical = canonicalize(spec).encode("utf-8")
+            actual_hash = hashlib.sha256(canonical).hexdigest()
+        except JcsError:
+            actual_hash = hashlib.sha256(repr(spec).encode("utf-8")).hexdigest()
+
+        if actual_hash != expected_hash:
+            errors.append(
+                _tool_error(
+                    "HASH_MISMATCH",
+                    "Spec hash does not match expected value.",
+                    details={"expected": expected_hash, "actual": actual_hash},
+                ).to_dict()
+            )
+            return {"file_path": None, "cad_data": None, "metadata": {}, "warnings": [], "errors": errors}
+
+    # Lazy import to avoid pulling cadquery at module level
+    from server.cad_gen import generate
+
+    resolved_path = Path(output_path) if output_path else None
+
+    try:
+        result = generate(spec, output_format, resolved_path, opts)
+    except RuntimeError as e:
+        errors.append(_tool_error("CAD_UNAVAILABLE", str(e)).to_dict())
+        return {"file_path": None, "cad_data": None, "metadata": {}, "warnings": [], "errors": errors}
+    except ValueError as e:
+        errors.append(_tool_error("INVALID_INPUT", str(e)).to_dict())
+        return {"file_path": None, "cad_data": None, "metadata": {}, "warnings": [], "errors": errors}
+    except Exception as e:
+        errors.append(_tool_error("INTERNAL_ERROR", f"CAD generation failed: {e}").to_dict())
+        return {"file_path": None, "cad_data": None, "metadata": {}, "warnings": [], "errors": errors}
+
+    return {
+        "file_path": str(result.file_path),
+        "cad_data": result.cad_data,
+        "metadata": result.metadata,
+        "warnings": result.warnings,
+        "errors": [],
+    }
