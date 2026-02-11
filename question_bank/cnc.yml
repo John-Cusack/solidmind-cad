@@ -1,0 +1,141 @@
+question_bank_id: cnc_v1
+
+questions:
+  - id: part_description
+    process: cnc
+    field_paths:
+      - /part/description
+    required: { L1: true, L2: true, L3: true }
+    weight: { L1: 1.0, L2: 1.0, L3: 1.0 }
+    priority: 600
+    technical: "Describe the part's function, interfaces, and critical-to-function requirements."
+    plain: "What does this part do, and what matters most for it to work?"
+    examples:
+      - "Holds a sensor; must locate it within 0.1mm to a datum face."
+      - "Mounting bracket; must survive vibration and not corrode."
+    why: "Intent and CTQs drive feature design, tolerances, and inspection."
+    depends_on: []
+
+  - id: envelope
+    process: cnc
+    field_paths:
+      - /part/envelope/x
+      - /part/envelope/y
+      - /part/envelope/z
+    required: { L1: true, L2: true, L3: true }
+    weight: { L1: 1.0, L2: 1.0, L3: 1.0 }
+    priority: 1000
+    technical: "What is the maximum bounding box (X, Y, Z) for the part?"
+    plain: "How big can the part be (length, width, height)?"
+    examples: ["100 x 60 x 12 mm", "4 x 2 x 0.5 in"]
+    why: "Envelope drives process feasibility, stock size, and machine selection."
+    depends_on: []
+
+  - id: quantity
+    process: cnc
+    field_paths:
+      - /part/quantity
+    required: { L1: true, L2: true, L3: true }
+    weight: { L1: 0.3, L2: 0.3, L3: 0.3 }
+    priority: 550
+    technical: "What quantity do you need (and is this per batch or total)?"
+    plain: "How many do you need?"
+    examples: ["1", "10", "250"]
+    why: "Quantity changes cost drivers and may change process/inspection strategy."
+    depends_on: []
+
+  - id: material_grade
+    process: cnc
+    field_paths:
+      - /manufacturing/material/grade
+      - /manufacturing/material/family
+    required: { L1: false, L2: true, L3: true }
+    weight: { L1: 0.2, L2: 1.0, L3: 1.0 }
+    priority: 900
+    technical: "What is the material grade?"
+    plain: "What material should this be made from? (example: 6061-T6 aluminum)"
+    examples: ["6061-T6", "7075-T6", "1018", "4140", "304", "316"]
+    why: "Material affects strength, corrosion, machinability, finish, and cost."
+    depends_on: []
+
+  - id: interfaces
+    process: cnc
+    field_paths:
+      - /part/interfaces
+    required: { L1: false, L2: true, L3: true }
+    weight: { L1: 0.2, L2: 1.0, L3: 1.0 }
+    priority: 850
+    technical: "Describe the mating interfaces and any datum scheme (holes, slots, sealing faces)."
+    plain: "What does it connect to, and which features need to line up (holes, faces, patterns)?"
+    examples:
+      - "4x M6 holes on 50x30 pattern, aligned to bottom face."
+      - "Seals to an O-ring groove on the top face."
+    why: "Interfaces define CTQs, datum selection, and tolerance allocation."
+    depends_on: []
+
+  - id: cad_formats
+    process: cnc
+    field_paths:
+      - /deliverables/cad_formats
+    required: { L1: false, L2: true, L3: true }
+    weight: { L1: 0.1, L2: 0.8, L3: 0.8 }
+    priority: 800
+    technical: "Which CAD formats do you need delivered?"
+    plain: "What CAD files do you want back? (example: STEP)"
+    examples: ["STEP", "Parasolid", "SolidWorks", "Fusion 360"]
+    why: "Deliverables affect vendor handoff and revision control."
+    depends_on: []
+
+  - id: drawing_required
+    process: cnc
+    field_paths:
+      - /deliverables/drawing_required
+    required: { L1: false, L2: true, L3: true }
+    weight: { L1: 0.1, L2: 0.2, L3: 0.2 }
+    priority: 300
+    technical: "Is a drawing required (PDF) in addition to CAD?"
+    plain: "Do you need a drawing (PDF) too, or is CAD-only OK?"
+    examples: ["true", "false"]
+    why: "Drawings are usually required for production release and inspection definition."
+    depends_on: []
+
+  - id: tolerance_general
+    process: cnc
+    field_paths:
+      - /manufacturing/tolerances/general
+    required: { L1: false, L2: false, L3: true }
+    weight: { L1: 0.1, L2: 0.3, L3: 1.0 }
+    priority: 780
+    technical: "What is the general tolerance scheme (e.g., ISO 2768-m)?"
+    plain: "How precise does the part need to be overall? If you don't know, we can pick a common default and you confirm."
+    examples: ["ISO 2768-m", "ISO 2768-f", "ASME Y14.5 general notes"]
+    why: "A general tolerance avoids ambiguity for non-critical dimensions."
+    depends_on: []
+
+  - id: surface_finish
+    process: cnc
+    field_paths:
+      - /manufacturing/surface_finish/ra_um
+      - /manufacturing/surface_finish/coating
+    required: { L1: false, L2: false, L3: true }
+    weight: { L1: 0.1, L2: 0.3, L3: 1.0 }
+    priority: 770
+    technical: "What surface finish (Ra, um) and coating/anodize/plating is required?"
+    plain: "How smooth should it be, and does it need a coating (anodize/plate/paint)?"
+    examples: ["Ra 3.2 um, none", "Ra 1.6 um, anodize clear"]
+    why: "Finish and coating impact function, cosmetics, corrosion, and cost."
+    depends_on: []
+
+  - id: inspection_method
+    process: cnc
+    field_paths:
+      - /inspection/method
+    required: { L1: false, L2: false, L3: true }
+    weight: { L1: 0.0, L2: 0.2, L3: 1.0 }
+    priority: 760
+    technical: "What inspection method is required for CTQs (calipers, CMM, go/no-go)?"
+    plain: "How should the critical dimensions be checked (calipers, CMM, gauge)?"
+    examples: ["calipers", "CMM", "go/no-go"]
+    why: "Inspection drives cost and informs how tolerances are specified."
+    depends_on: []
+

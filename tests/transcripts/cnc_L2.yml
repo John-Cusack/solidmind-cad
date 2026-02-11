@@ -1,0 +1,114 @@
+spec_draft:
+  meta:
+    spec_version: "1.0.0"
+    created_at: "2026-02-10T00:00:00Z"
+    process: "cnc"
+    maturity_level: "L2"
+    units: "mm"
+  part:
+    name: ""
+    description: ""
+    quantity: 1
+    envelope: { x: 0, y: 0, z: 0 }
+    interfaces: []
+    critical_features: []
+  manufacturing:
+    process_notes: ""
+    material: { family: "", grade: "" }
+    tolerances: { general: "", critical: [] }
+    surface_finish: { ra_um: null, coating: "none" }
+    cosmetics: { visible_surfaces: "" }
+  inspection: { ctq: [], method: "", requirements: [] }
+  deliverables: { cad_formats: [], drawing_required: false }
+  open_questions: []
+  assumptions: []
+  _interview: { answered: {}, skipped: {}, _counter: 0 }
+  _audit: []
+
+steps:
+  - tool: spec.validate
+    expect_subset:
+      blockers:
+        - question_id: envelope
+
+  - tool: spec.next_question
+    expect_subset:
+      question_id: envelope
+
+  - tool: spec.apply_answer
+    params:
+      op: set
+      path: /part/envelope
+      value: { x: 120, y: 60, z: 20 }
+      question_id: envelope
+      source: user
+
+  - tool: spec.next_question
+    expect_subset:
+      question_id: material_grade
+
+  - tool: spec.apply_answer
+    params:
+      op: set
+      path: /manufacturing/material
+      value: { family: "aluminum", grade: "6061-T6" }
+      question_id: material_grade
+      source: user
+
+  - tool: spec.next_question
+    expect_subset:
+      question_id: interfaces
+
+  - tool: spec.apply_answer
+    params:
+      op: set
+      path: /part/interfaces
+      value: ["4x M6 clearance holes on 50x30 pattern, datum A = bottom face"]
+      question_id: interfaces
+      source: user
+
+  - tool: spec.apply_answer
+    params:
+      op: set
+      path: /deliverables/cad_formats
+      value: ["STEP"]
+      question_id: cad_formats
+      source: user
+
+  - tool: spec.apply_answer
+    params:
+      op: set
+      path: /deliverables/drawing_required
+      value: true
+      question_id: drawing_required
+      source: user
+
+  - tool: spec.apply_answer
+    params:
+      op: set
+      path: /part/quantity
+      value: 10
+      question_id: quantity
+      source: user
+
+  - tool: spec.apply_answer
+    params:
+      op: set
+      path: /part/description
+      value: "Prototype mounting bracket for an instrument."
+      question_id: part_description
+      source: user
+
+  - tool: spec.validate
+    expect_subset:
+      shape_valid: true
+      blockers: []
+      coverage_threshold: 0.8
+
+  - tool: spec.finalize
+    expect_subset:
+      hash_algo: sha256_jcs_rfc8785
+      spec:
+        meta:
+          maturity_level: L2
+

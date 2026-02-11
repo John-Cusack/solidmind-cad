@@ -1,0 +1,145 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cnc.schema.json",
+  "title": "CNC Spec Draft/Final Schema (MVP)",
+  "type": "object",
+  "properties": {
+    "meta": {
+      "type": "object",
+      "properties": {
+        "spec_version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+        "created_at": { "type": "string" },
+        "process": { "type": "string", "enum": ["cnc"] },
+        "maturity_level": { "type": "string", "enum": ["L1", "L2", "L3"] },
+        "units": { "type": "string", "enum": ["mm", "in"] },
+        "coverage_score": { "type": "number", "minimum": 0, "maximum": 1 }
+      },
+      "required": ["spec_version", "created_at", "process", "maturity_level", "units"],
+      "additionalProperties": false
+    },
+    "part": {
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "quantity": { "type": "integer", "minimum": 1 },
+        "envelope": {
+          "type": "object",
+          "properties": {
+            "x": { "type": "number", "exclusiveMinimum": 0 },
+            "y": { "type": "number", "exclusiveMinimum": 0 },
+            "z": { "type": "number", "exclusiveMinimum": 0 }
+          },
+          "required": ["x", "y", "z"],
+          "additionalProperties": false
+        },
+        "interfaces": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "critical_features": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      },
+      "required": ["name", "description", "quantity", "envelope", "interfaces", "critical_features"],
+      "additionalProperties": false
+    },
+    "manufacturing": {
+      "type": "object",
+      "properties": {
+        "process_notes": { "type": "string" },
+        "material": {
+          "type": "object",
+          "properties": {
+            "family": { "type": "string" },
+            "grade": { "type": "string" }
+          },
+          "required": ["family", "grade"],
+          "additionalProperties": false
+        },
+        "tolerances": {
+          "type": "object",
+          "properties": {
+            "general": { "type": "string" },
+            "critical": {
+              "type": "array",
+              "items": { "type": "string" }
+            }
+          },
+          "required": ["general", "critical"],
+          "additionalProperties": false
+        },
+        "surface_finish": {
+          "type": "object",
+          "properties": {
+            "ra_um": { "type": ["number", "null"], "minimum": 0 },
+            "coating": { "type": "string" }
+          },
+          "required": ["ra_um", "coating"],
+          "additionalProperties": false
+        },
+        "cosmetics": {
+          "type": "object",
+          "properties": {
+            "visible_surfaces": { "type": "string" }
+          },
+          "required": ["visible_surfaces"],
+          "additionalProperties": false
+        }
+      },
+      "required": ["process_notes", "material", "tolerances", "surface_finish", "cosmetics"],
+      "additionalProperties": false
+    },
+    "inspection": {
+      "type": "object",
+      "properties": {
+        "ctq": { "type": "array", "items": { "type": "string" } },
+        "method": { "type": "string" },
+        "requirements": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["ctq", "method", "requirements"],
+      "additionalProperties": false
+    },
+    "deliverables": {
+      "type": "object",
+      "properties": {
+        "cad_formats": { "type": "array", "items": { "type": "string" } },
+        "drawing_required": { "type": "boolean" }
+      },
+      "required": ["cad_formats", "drawing_required"],
+      "additionalProperties": false
+    },
+    "open_questions": { "type": "array", "items": { "type": "string" } },
+    "assumptions": { "type": "array", "items": { "type": "string" } },
+    "_interview": {
+      "type": "object",
+      "properties": {
+        "answered": { "type": "object", "additionalProperties": { "type": "string" } },
+        "skipped": { "type": "object", "additionalProperties": { "type": "string" } },
+        "_counter": { "type": "integer", "minimum": 0 }
+      },
+      "required": ["answered", "skipped", "_counter"],
+      "additionalProperties": false
+    },
+    "_audit": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "ts": { "type": "string" },
+          "op": { "type": "string", "enum": ["set", "append", "remove"] },
+          "path": { "type": "string" },
+          "value": {},
+          "source": { "type": "string" },
+          "question_id": { "type": "string" }
+        },
+        "required": ["ts", "op", "path", "source"],
+        "additionalProperties": true
+      }
+    }
+  },
+  "required": ["meta", "part", "manufacturing", "inspection", "deliverables", "open_questions", "assumptions"],
+  "additionalProperties": false
+}
+

@@ -1,0 +1,12 @@
+terms:
+  - term: "CTQ"
+    meaning: "Critical-to-quality / critical-to-function features that must meet tighter requirements."
+  - term: "Datum"
+    meaning: "A reference feature/surface used to measure and locate other features."
+  - term: "GD&T"
+    meaning: "Geometric Dimensioning and Tolerancing (ASME Y14.5)."
+  - term: "Ra"
+    meaning: "Arithmetic average surface roughness, commonly specified in micrometers (um) or microinches."
+  - term: "ISO 2768"
+    meaning: "A common general tolerance standard for dimensions and geometry when not otherwise specified."
+

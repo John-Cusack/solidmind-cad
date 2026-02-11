@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mcp-spec-gatherer"
+version = "0.1.0"
+description = "Deterministic spec gathering tools (CNC MVP) exposed via MCP over stdio"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { file = "LICENSE" }
+dependencies = [
+  "jsonschema>=4.10,<5",
+  "orjson>=3.9,<4",
+  "PyYAML>=6.0,<7",
+]
+
+[project.optional-dependencies]
+# Only needed if you want generated JSON Schemas from Pydantic v2 tool models.
+schemas = ["pydantic>=2.6,<3"]
+
+[project.scripts]
+mcp-spec-gatherer = "server.main:main"
+
+[tool.setuptools]
+packages = ["server"]

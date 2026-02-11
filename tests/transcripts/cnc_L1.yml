@@ -1,0 +1,66 @@
+spec_draft:
+  meta:
+    spec_version: "1.0.0"
+    created_at: "2026-02-10T00:00:00Z"
+    process: "cnc"
+    maturity_level: "L1"
+    units: "mm"
+  part:
+    name: ""
+    description: ""
+    quantity: 1
+    envelope: { x: 0, y: 0, z: 0 }
+    interfaces: []
+    critical_features: []
+  manufacturing:
+    process_notes: ""
+    material: { family: "", grade: "" }
+    tolerances: { general: "", critical: [] }
+    surface_finish: { ra_um: null, coating: "none" }
+    cosmetics: { visible_surfaces: "" }
+  inspection: { ctq: [], method: "", requirements: [] }
+  deliverables: { cad_formats: [], drawing_required: false }
+  open_questions: []
+  assumptions: []
+  _interview: { answered: {}, skipped: {}, _counter: 0 }
+  _audit: []
+
+steps:
+  - tool: spec.validate
+    expect_subset:
+      shape_valid: false
+      blockers:
+        - question_id: envelope
+
+  - tool: spec.next_question
+    params:
+      conversation_signals: { language_preference: plain }
+    expect_subset:
+      question_id: envelope
+
+  - tool: spec.apply_answer
+    params:
+      op: set
+      path: /part/envelope
+      value: { x: 80, y: 40, z: 12 }
+      question_id: envelope
+      source: user
+    expect_subset:
+      applied: true
+
+  - tool: spec.apply_answer
+    params:
+      op: set
+      path: /part/description
+      value: "Simple CNC concept part."
+      question_id: part_description
+      source: user
+    expect_subset:
+      applied: true
+
+  - tool: spec.validate
+    expect_subset:
+      shape_valid: true
+      blockers: []
+      coverage_threshold: 0.6
+
