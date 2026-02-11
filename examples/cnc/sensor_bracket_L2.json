@@ -1,0 +1,40 @@
+{
+  "meta": {
+    "spec_version": "1.0.0",
+    "created_at": "2026-02-10T00:00:00Z",
+    "process": "cnc",
+    "maturity_level": "L2",
+    "units": "mm",
+    "coverage_score": 0.85
+  },
+  "part": {
+    "name": "Sensor mounting bracket",
+    "description": "CNC-machined bracket for mounting a sensor. Must locate sensor precisely relative to a reference surface. Single prototype for fit check.",
+    "quantity": 1,
+    "envelope": { "x": 50, "y": 30, "z": 10 },
+    "interfaces": [
+      "2x M3 clearance holes for bolting bracket to base"
+    ],
+    "critical_features": [
+      "M3 hole spacing and position relative to mounting face"
+    ]
+  },
+  "manufacturing": {
+    "process_notes": "CNC mill, 3-axis acceptable. Deburr all edges.",
+    "material": { "family": "aluminum", "grade": "6061-T6" },
+    "tolerances": { "general": "ISO 2768-m", "critical": [] },
+    "surface_finish": { "ra_um": 3.2, "coating": "none" },
+    "cosmetics": { "visible_surfaces": "" }
+  },
+  "inspection": { "ctq": ["M3 hole positions"], "method": "calipers", "requirements": [] },
+  "deliverables": { "cad_formats": ["STEP"], "drawing_required": false },
+  "open_questions": [
+    "Sensor type and mounting footprint not yet defined — needed for detailed hole pattern",
+    "Does the bracket need to locate the sensor in Z (shimming) or just X/Y?"
+  ],
+  "assumptions": [
+    "3-axis CNC milling is sufficient (no undercuts or complex 5-axis features)",
+    "Standard M3 clearance holes (3.4mm through)",
+    "No coating or surface treatment required for prototype"
+  ]
+}

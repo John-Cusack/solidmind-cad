@@ -21,7 +21,15 @@ class TestTranscripts(unittest.TestCase):
     def test_cnc_L3(self) -> None:
         self._run("tests/transcripts/cnc_L3.yml")
 
+    def test_print_3d_L1(self) -> None:
+        self._run("tests/transcripts/print_3d_L1.yml")
+
+    def test_print_3d_L2(self) -> None:
+        self._run("tests/transcripts/print_3d_L2.yml")
+
+    def test_print_3d_L3(self) -> None:
+        self._run("tests/transcripts/print_3d_L3.yml")
+
 
 if __name__ == "__main__":
     unittest.main()
-

@@ -21,7 +21,7 @@ class TestApplyAnswer(unittest.TestCase):
         self.assertEqual(out["spec_draft_updated"], spec)
 
     def test_set_allows_null_value(self) -> None:
-        spec = make_base_spec_draft(maturity_level="L3")
+        spec = make_base_spec_draft(maturity_level="L3", process="cnc")
         out = spec_apply_answer(
             spec_draft=spec,
             op="set",
@@ -120,4 +120,3 @@ class TestApplyAnswer(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

@@ -1,0 +1,44 @@
+{
+  "meta": {
+    "spec_version": "1.0.0",
+    "created_at": "2026-02-10T00:00:00Z",
+    "process": "print_3d",
+    "maturity_level": "L1",
+    "units": "mm",
+    "coverage_score": 0.7
+  },
+  "part": {
+    "name": "Example cover (L1)",
+    "description": "Concept protective cover for an electronics board. Details still evolving.",
+    "quantity": 1,
+    "envelope": { "x": 90, "y": 65, "z": 20 },
+    "interfaces": [],
+    "critical_features": []
+  },
+  "manufacturing": {
+    "process_notes": "FDM concept print for early fit checks.",
+    "technology": "fdm",
+    "output_target": "vendor",
+    "material": { "family": "thermoplastic", "grade": "" },
+    "tolerances": { "general": "", "critical": [] },
+    "appearance": {
+      "color": "",
+      "finish": "",
+      "support_marks_ok": true,
+      "cosmetic_surfaces": []
+    },
+    "post_processing": [],
+    "in_house_settings": {
+      "notes": "",
+      "layer_height_mm": null,
+      "nozzle_diameter_mm": null,
+      "wall_count": null,
+      "infill_percent": null,
+      "support_policy": ""
+    }
+  },
+  "inspection": { "ctq": [], "method": "", "requirements": [] },
+  "deliverables": { "cad_formats": [], "drawing_required": false },
+  "open_questions": [],
+  "assumptions": []
+}

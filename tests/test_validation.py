@@ -9,7 +9,7 @@ from tests.helpers import make_base_spec_draft
 
 class TestValidation(unittest.TestCase):
     def test_shape_invalid_until_envelope_set(self) -> None:
-        spec = make_base_spec_draft(maturity_level="L1")
+        spec = make_base_spec_draft(maturity_level="L1", process="print_3d")
         out = spec_validate(spec_draft=spec)
         self.assertFalse(out["shape_valid"])
         self.assertGreaterEqual(len(out["errors"]), 1)
@@ -20,7 +20,7 @@ class TestValidation(unittest.TestCase):
         self.assertTrue(out2["shape_valid"])
 
     def test_rules_blockers_l2(self) -> None:
-        spec = make_base_spec_draft(maturity_level="L2")
+        spec = make_base_spec_draft(maturity_level="L2", process="cnc")
         spec["part"]["envelope"] = {"x": 10, "y": 10, "z": 10}
         out = spec_validate(spec_draft=spec)
         blocker_qids = {b.get("question_id") for b in out["blockers"]}
@@ -28,8 +28,28 @@ class TestValidation(unittest.TestCase):
         self.assertIn("interfaces", blocker_qids)
         self.assertIn("cad_formats", blocker_qids)
 
+    def test_rules_blockers_l2_print_3d(self) -> None:
+        spec = make_base_spec_draft(maturity_level="L2", process="print_3d")
+        spec["part"]["envelope"] = {"x": 10, "y": 10, "z": 10}
+        out = spec_validate(spec_draft=spec)
+        blocker_qids = {b.get("question_id") for b in out["blockers"]}
+        self.assertIn("material_grade", blocker_qids)
+        self.assertIn("interfaces", blocker_qids)
+        self.assertIn("cad_formats", blocker_qids)
+
+    def test_rules_blockers_l2_print_3d_in_house(self) -> None:
+        spec = make_base_spec_draft(maturity_level="L2", process="print_3d")
+        spec["part"]["envelope"] = {"x": 10, "y": 10, "z": 10}
+        spec["manufacturing"]["material"] = {"family": "thermoplastic", "grade": "PETG"}
+        spec["part"]["interfaces"] = ["Mates to rail"]
+        spec["deliverables"]["cad_formats"] = ["STL"]
+        spec["manufacturing"]["output_target"] = "in_house"
+        out = spec_validate(spec_draft=spec)
+        blocker_qids = {b.get("question_id") for b in out["blockers"]}
+        self.assertIn("in_house_settings", blocker_qids)
+
     def test_coverage_score_1_when_all_answered(self) -> None:
-        spec = make_base_spec_draft(maturity_level="L2")
+        spec = make_base_spec_draft(maturity_level="L2", process="cnc")
         spec["part"]["envelope"] = {"x": 10, "y": 10, "z": 10}
 
         qb = load_question_bank("cnc")
@@ -41,4 +61,3 @@ class TestValidation(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

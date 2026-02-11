@@ -1,0 +1,154 @@
+spec_draft:
+  meta:
+    spec_version: "1.0.0"
+    created_at: "2026-02-10T00:00:00Z"
+    process: "print_3d"
+    maturity_level: "L3"
+    units: "mm"
+  part:
+    name: ""
+    description: ""
+    quantity: 1
+    envelope: { x: 0, y: 0, z: 0 }
+    interfaces: []
+    critical_features: []
+  manufacturing:
+    process_notes: ""
+    technology: "fdm"
+    output_target: "vendor"
+    material: { family: "", grade: "" }
+    tolerances: { general: "", critical: [] }
+    appearance: { color: "", finish: "", support_marks_ok: true, cosmetic_surfaces: [] }
+    post_processing: []
+    in_house_settings:
+      notes: ""
+      layer_height_mm: null
+      nozzle_diameter_mm: null
+      wall_count: null
+      infill_percent: null
+      support_policy: ""
+  inspection: { ctq: [], method: "", requirements: [] }
+  deliverables: { cad_formats: [], drawing_required: false }
+  open_questions: []
+  assumptions: []
+  _interview: { answered: {}, skipped: {}, _counter: 0 }
+  _audit: []
+
+steps:
+  - tool: spec.next_question
+    expect_subset:
+      question_id: envelope
+
+  - tool: spec.apply_answer
+    params:
+      op: set
+      path: /part/envelope
+      value: { x: 150, y: 80, z: 25 }
+      question_id: envelope
+      source: user
+
+  - tool: spec.apply_answer
+    params:
+      op: set
+      path: /manufacturing/material
+      value: { family: "thermoplastic", grade: "Nylon" }
+      question_id: material_grade
+      source: user
+
+  - tool: spec.apply_answer
+    params:
+      op: set
+      path: /part/interfaces
+      value:
+        - "Rail interface: sliding fit with 0.2mm clearance target"
+        - "4x M3 heat-set insert locations"
+      question_id: interfaces
+      source: user
+
+  - tool: spec.apply_answer
+    params:
+      op: set
+      path: /deliverables/cad_formats
+      value: ["STL", "3MF", "STEP"]
+      question_id: cad_formats
+      source: user
+
+  - tool: spec.apply_answer
+    params:
+      op: set
+      path: /deliverables/drawing_required
+      value: true
+      question_id: drawing_required
+      source: user
+
+  - tool: spec.apply_answer
+    params:
+      op: set
+      path: /manufacturing/output_target
+      value: "vendor"
+      question_id: output_target
+      source: user
+
+  - tool: spec.apply_answer
+    params:
+      op: set
+      path: /manufacturing/tolerances
+      value:
+        general: "Sliding fit on rail features with 0.2mm clearance."
+        critical: ["Insert center spacing +/-0.15mm"]
+      question_id: fit_tolerances
+      source: user
+
+  - tool: spec.apply_answer
+    params:
+      op: set
+      path: /manufacturing/appearance
+      value:
+        color: "black"
+        finish: "sanded"
+        support_marks_ok: false
+        cosmetic_surfaces: ["Front face", "Top chamfer"]
+      question_id: appearance
+      source: user
+
+  - tool: spec.apply_answer
+    params:
+      op: set
+      path: /manufacturing/post_processing
+      value:
+        - "Remove supports"
+        - "Deburr"
+        - "Install M3 heat-set inserts"
+        - "Sand cosmetic faces"
+      question_id: post_processing
+      source: user
+
+  - tool: spec.apply_answer
+    params:
+      op: set
+      path: /part/quantity
+      value: 250
+      question_id: quantity
+      source: user
+
+  - tool: spec.apply_answer
+    params:
+      op: set
+      path: /part/description
+      value: "Production FDM part with explicit fit notes, appearance, and post-processing."
+      question_id: part_description
+      source: user
+
+  - tool: spec.validate
+    expect_subset:
+      shape_valid: true
+      blockers: []
+      coverage_threshold: 0.9
+
+  - tool: spec.finalize
+    expect_subset:
+      hash_algo: sha256_jcs_rfc8785
+      spec:
+        meta:
+          process: print_3d
+          maturity_level: L3

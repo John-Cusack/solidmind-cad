@@ -6,7 +6,7 @@ from typing import Any
 
 import yaml
 
-from server.constants import MATURITY_LEVELS, SUPPORTED_PROCESS
+from server.constants import MATURITY_LEVELS, SUPPORTED_PROCESSES
 from server.paths import data_path
 
 
@@ -96,7 +96,7 @@ def _require_int(d: dict[str, Any], key: str, default: int = 0) -> int:
 
 @lru_cache(maxsize=8)
 def load_question_bank(process: str) -> QuestionBank:
-    if process != SUPPORTED_PROCESS:
+    if process not in SUPPORTED_PROCESSES:
         raise QuestionBankError(f"Unsupported process: {process}")
 
     path = data_path("question_bank", f"{process}.yml")
@@ -154,4 +154,3 @@ def compute_coverage(spec_draft: dict, question_bank: QuestionBank, maturity_lev
     if total <= 0:
         return 0.0
     return max(0.0, min(1.0, done / total))
-

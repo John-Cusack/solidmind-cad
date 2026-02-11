@@ -5,12 +5,13 @@ from functools import lru_cache
 from typing import Any
 from jsonschema import Draft202012Validator
 
-from server.constants import COVERAGE_THRESHOLDS, MATURITY_LEVELS, SUPPORTED_PROCESS, SUPPORTED_SPEC_MAJOR
+from server.constants import COVERAGE_THRESHOLDS, MATURITY_LEVELS, SUPPORTED_PROCESSES, SUPPORTED_SPEC_MAJOR
 from server.jsonutil import loads as json_loads
 from server.models import Finding, Severity, ToolError
 from server.paths import data_path
 from server.question_bank import compute_coverage, load_question_bank
 from server.rules_cnc import run as run_rules_cnc
+from server.rules_print_3d import run as run_rules_print_3d
 
 
 def _parse_semver_major(version: str) -> int | None:
@@ -72,13 +73,13 @@ def validate_shape(spec_draft: dict) -> tuple[bool, list[ToolError]]:
         ]
 
     process = meta.get("process") if isinstance(meta, dict) else None
-    if process != SUPPORTED_PROCESS:
+    if process not in SUPPORTED_PROCESSES:
         return False, [
             ToolError(
                 code="UNSUPPORTED_PROCESS",
                 message=f"Unsupported process: {process!r}",
                 field="/meta/process",
-                details={"supported_process": SUPPORTED_PROCESS},
+                details={"supported_processes": list(SUPPORTED_PROCESSES)},
             )
         ]
 
@@ -104,8 +105,14 @@ def coverage_threshold(maturity_level: str) -> float:
 
 
 def run_rules(spec_draft: dict) -> tuple[list[Finding], list[Finding]]:
-    # MVP: cnc only.
-    findings = run_rules_cnc(spec_draft)
+    meta = spec_draft.get("meta") if isinstance(spec_draft, dict) else None
+    process = meta.get("process") if isinstance(meta, dict) else None
+    if process == "cnc":
+        findings = run_rules_cnc(spec_draft)
+    elif process == "print_3d":
+        findings = run_rules_print_3d(spec_draft)
+    else:
+        findings = []
     blockers = [f for f in findings if f.severity == Severity.BLOCK]
     warnings = [f for f in findings if f.severity != Severity.BLOCK]
 
@@ -131,8 +138,12 @@ def validate_all(spec_draft: dict) -> ValidateResult:
     maturity = meta.get("maturity_level") if isinstance(meta, dict) else None
     maturity_level = maturity if maturity in MATURITY_LEVELS else "L1"
 
-    qb = load_question_bank(SUPPORTED_PROCESS)
-    coverage = compute_coverage(spec_draft, qb, maturity_level)
+    process = meta.get("process") if isinstance(meta, dict) else None
+    if process in SUPPORTED_PROCESSES:
+        qb = load_question_bank(process)
+        coverage = compute_coverage(spec_draft, qb, maturity_level)
+    else:
+        coverage = 0.0
     threshold = coverage_threshold(maturity_level)
 
     blockers, warnings = run_rules(spec_draft)

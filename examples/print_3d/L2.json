@@ -1,0 +1,50 @@
+{
+  "meta": {
+    "spec_version": "1.0.0",
+    "created_at": "2026-02-10T00:00:00Z",
+    "process": "print_3d",
+    "maturity_level": "L2",
+    "units": "mm",
+    "coverage_score": 0.9
+  },
+  "part": {
+    "name": "Instrument bracket (L2)",
+    "description": "Prototype bracket to mount an instrument. Includes two heat-set inserts and one alignment face.",
+    "quantity": 10,
+    "envelope": { "x": 120, "y": 60, "z": 20 },
+    "interfaces": [
+      "2x M3 heat-set inserts for mounting",
+      "Bottom face aligns against fixture datum"
+    ],
+    "critical_features": [
+      "Insert boss alignment to datum face",
+      "Clearance slot for cable routing"
+    ]
+  },
+  "manufacturing": {
+    "process_notes": "Functional prototype for fit and assembly checks.",
+    "technology": "fdm",
+    "output_target": "both",
+    "material": { "family": "thermoplastic", "grade": "PETG" },
+    "tolerances": { "general": "", "critical": [] },
+    "appearance": {
+      "color": "black",
+      "finish": "as-printed",
+      "support_marks_ok": true,
+      "cosmetic_surfaces": []
+    },
+    "post_processing": ["Remove supports", "Install M3 heat-set inserts"],
+    "in_house_settings": {
+      "notes": "Use PETG profile and orient with datum face on build plate.",
+      "layer_height_mm": 0.2,
+      "nozzle_diameter_mm": 0.4,
+      "wall_count": 4,
+      "infill_percent": 35,
+      "support_policy": "buildplate"
+    }
+  },
+  "inspection": { "ctq": ["Insert spacing"], "method": "calipers", "requirements": [] },
+  "deliverables": { "cad_formats": ["STEP", "STL"], "drawing_required": false },
+  "open_questions": [],
+  "assumptions": []
+}

@@ -3,7 +3,7 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any
 
-from server.constants import MATURITY_LEVELS, SUPPORTED_PROCESS
+from server.constants import DEFAULT_PROCESS, MATURITY_LEVELS
 
 
 def deep_copy_spec_draft(spec_draft: dict) -> dict:
@@ -26,7 +26,7 @@ def ensure_defaults(spec_draft: dict) -> dict:
 
     meta.setdefault("spec_version", "1.0.0")
     meta.setdefault("created_at", "1970-01-01T00:00:00Z")
-    meta.setdefault("process", SUPPORTED_PROCESS)
+    meta.setdefault("process", DEFAULT_PROCESS)
     meta.setdefault("maturity_level", "L1")
     meta.setdefault("units", "mm")
 
@@ -44,14 +44,44 @@ def ensure_defaults(spec_draft: dict) -> dict:
     part.setdefault("interfaces", [])
     part.setdefault("critical_features", [])
 
+    process = meta.get("process")
+    if not isinstance(process, str):
+        process = DEFAULT_PROCESS
+
     manufacturing = spec_draft.setdefault("manufacturing", {})
     if not isinstance(manufacturing, dict):
         raise TypeError("spec_draft.manufacturing must be a dict")
     manufacturing.setdefault("process_notes", "")
     manufacturing.setdefault("material", {"family": "", "grade": ""})
     manufacturing.setdefault("tolerances", {"general": "", "critical": []})
-    manufacturing.setdefault("surface_finish", {"ra_um": None, "coating": "none"})
-    manufacturing.setdefault("cosmetics", {"visible_surfaces": ""})
+
+    if process == "cnc":
+        manufacturing.setdefault("surface_finish", {"ra_um": None, "coating": "none"})
+        manufacturing.setdefault("cosmetics", {"visible_surfaces": ""})
+    else:
+        manufacturing.setdefault("technology", "fdm")
+        manufacturing.setdefault("output_target", "vendor")
+        manufacturing.setdefault(
+            "appearance",
+            {
+                "color": "",
+                "finish": "",
+                "support_marks_ok": True,
+                "cosmetic_surfaces": [],
+            },
+        )
+        manufacturing.setdefault("post_processing", [])
+        manufacturing.setdefault(
+            "in_house_settings",
+            {
+                "notes": "",
+                "layer_height_mm": None,
+                "nozzle_diameter_mm": None,
+                "wall_count": None,
+                "infill_percent": None,
+                "support_policy": "",
+            },
+        )
 
     inspection = spec_draft.setdefault("inspection", {})
     if not isinstance(inspection, dict):
@@ -95,4 +125,3 @@ def strip_internal_fields(spec: dict) -> dict:
     cleaned.pop("_interview", None)
     cleaned.pop("_audit", None)
     return cleaned
-

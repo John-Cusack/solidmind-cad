@@ -3,7 +3,14 @@ from __future__ import annotations
 import hashlib
 from typing import Any, Literal
 
-from server.constants import COVERAGE_THRESHOLDS, HASH_ALGO, MATURITY_LEVELS, SUPPORTED_PROCESS, SUPPORTED_SPEC_MAJOR
+from server.constants import (
+    COVERAGE_THRESHOLDS,
+    DEFAULT_PROCESS,
+    HASH_ALGO,
+    MATURITY_LEVELS,
+    SUPPORTED_PROCESSES,
+    SUPPORTED_SPEC_MAJOR,
+)
 from server.jcs import JcsError, canonicalize
 from server.json_pointer import JsonPointerError, get as jp_get, remove_value as jp_remove, set_value as jp_set
 from server.models import ConversationSignals, ToolError
@@ -20,6 +27,15 @@ _MISSING = object()
 
 def _tool_error(code: str, message: str, field: str | None = None, details: dict | None = None) -> ToolError:
     return ToolError(code=code, message=message, field=field, details=details or {})
+
+
+def _process_from_spec(spec_obj: dict[str, Any]) -> str:
+    meta = spec_obj.get("meta") if isinstance(spec_obj, dict) else None
+    process = meta.get("process") if isinstance(meta, dict) else None
+    if process in SUPPORTED_PROCESSES:
+        return process
+    # Fallback keeps tools deterministic when a host sends an incomplete draft.
+    return DEFAULT_PROCESS
 
 
 def spec_select_schema(*, process: str, maturity_level: str, spec_version: str) -> dict[str, Any]:
@@ -39,7 +55,7 @@ def spec_select_schema(*, process: str, maturity_level: str, spec_version: str) 
             ],
         }
 
-    if process != SUPPORTED_PROCESS:
+    if process not in SUPPORTED_PROCESSES:
         return {
             "schema_id": None,
             "question_bank_id": None,
@@ -49,7 +65,7 @@ def spec_select_schema(*, process: str, maturity_level: str, spec_version: str) 
                     "UNSUPPORTED_PROCESS",
                     f"Unsupported process: {process!r}",
                     field="/process",
-                    details={"supported_process": SUPPORTED_PROCESS},
+                    details={"supported_processes": list(SUPPORTED_PROCESSES)},
                 ).to_dict()
             ],
         }
@@ -242,8 +258,9 @@ def spec_next_question(*, spec_draft: dict, conversation_signals: dict | None = 
     meta = spec_draft.get("meta") if isinstance(spec_draft, dict) else None
     maturity = meta.get("maturity_level") if isinstance(meta, dict) else None
     maturity_level = maturity if maturity in MATURITY_LEVELS else "L1"
+    process = _process_from_spec(spec_draft)
 
-    qb = load_question_bank(SUPPORTED_PROCESS)
+    qb = load_question_bank(process)
     q_by_id = qb.by_id()
 
     interview = spec_draft.get("_interview", {}) if isinstance(spec_draft, dict) else {}
@@ -368,7 +385,22 @@ def spec_finalize(*, spec_draft: dict) -> dict[str, Any]:
     }
 
 
-def spec_export_brief(*, spec: dict) -> dict[str, Any]:
+def _append_common_tail(lines: list[str], spec: dict) -> None:
+    open_q = spec.get("open_questions", []) if isinstance(spec, dict) else []
+    assumptions = spec.get("assumptions", []) if isinstance(spec, dict) else []
+    if open_q:
+        lines.append("## Open Questions")
+        for q in open_q:
+            lines.append(f"- {q}")
+        lines.append("")
+    if assumptions:
+        lines.append("## Assumptions")
+        for a in assumptions:
+            lines.append(f"- {a}")
+        lines.append("")
+
+
+def _export_brief_cnc(spec: dict) -> dict[str, Any]:
     meta = spec.get("meta", {}) if isinstance(spec, dict) else {}
     part = spec.get("part", {}) if isinstance(spec, dict) else {}
     mfg = spec.get("manufacturing", {}) if isinstance(spec, dict) else {}
@@ -406,24 +438,77 @@ def spec_export_brief(*, spec: dict) -> dict[str, Any]:
     lines.append(f"- CAD formats: {', '.join(deliv.get('cad_formats', []) or [])}")
     lines.append(f"- Drawing required: {deliv.get('drawing_required','')}")
     lines.append("")
-
-    open_q = spec.get("open_questions", []) if isinstance(spec, dict) else []
-    assumptions = spec.get("assumptions", []) if isinstance(spec, dict) else []
-    if open_q:
-        lines.append("## Open Questions")
-        for q in open_q:
-            lines.append(f"- {q}")
-        lines.append("")
-    if assumptions:
-        lines.append("## Assumptions")
-        for a in assumptions:
-            lines.append(f"- {a}")
-        lines.append("")
-
+    _append_common_tail(lines, spec)
     return {"markdown": "\n".join(lines).rstrip() + "\n"}
 
 
-def spec_export_rfq_summary(*, spec: dict) -> dict[str, Any]:
+def _export_brief_print_3d(spec: dict) -> dict[str, Any]:
+    meta = spec.get("meta", {}) if isinstance(spec, dict) else {}
+    part = spec.get("part", {}) if isinstance(spec, dict) else {}
+    mfg = spec.get("manufacturing", {}) if isinstance(spec, dict) else {}
+    insp = spec.get("inspection", {}) if isinstance(spec, dict) else {}
+    deliv = spec.get("deliverables", {}) if isinstance(spec, dict) else {}
+
+    env = part.get("envelope", {}) if isinstance(part, dict) else {}
+    material = mfg.get("material", {}) if isinstance(mfg, dict) else {}
+    tolerances = mfg.get("tolerances", {}) if isinstance(mfg, dict) else {}
+    appearance = mfg.get("appearance", {}) if isinstance(mfg, dict) else {}
+    in_house_settings = mfg.get("in_house_settings", {}) if isinstance(mfg, dict) else {}
+
+    lines: list[str] = []
+    lines.append("# Design Brief")
+    lines.append("")
+    lines.append(f"- Process: {meta.get('process', '')}")
+    lines.append(f"- Maturity: {meta.get('maturity_level', '')}")
+    lines.append(f"- Units: {meta.get('units', '')}")
+    lines.append(f"- Quantity: {part.get('quantity', '')}")
+    lines.append("")
+    lines.append("## Part")
+    lines.append(f"- Name: {part.get('name', '')}")
+    lines.append(f"- Description: {part.get('description', '')}")
+    lines.append(f"- Envelope: x={env.get('x','')}, y={env.get('y','')}, z={env.get('z','')}")
+    lines.append("")
+    lines.append("## Manufacturing")
+    lines.append(f"- Technology: {mfg.get('technology', '')}")
+    lines.append(f"- Output target: {mfg.get('output_target', '')}")
+    lines.append(f"- Material: {material.get('grade','')} ({material.get('family','')})")
+    lines.append(f"- Fit tolerance notes: {tolerances.get('general', '')}")
+    lines.append(f"- Appearance color: {appearance.get('color', '')}")
+    lines.append(f"- Appearance finish: {appearance.get('finish', '')}")
+    lines.append(f"- Support marks acceptable: {appearance.get('support_marks_ok', '')}")
+    cosmetic_surfaces = appearance.get("cosmetic_surfaces", []) if isinstance(appearance, dict) else []
+    lines.append(f"- Cosmetic surfaces: {', '.join(cosmetic_surfaces or [])}")
+    post_processing = mfg.get("post_processing", []) if isinstance(mfg, dict) else []
+    lines.append(f"- Post processing: {', '.join(post_processing or [])}")
+    lines.append("")
+    if mfg.get("output_target") in ("in_house", "both"):
+        lines.append("## In-House Print Settings")
+        lines.append(f"- Notes: {in_house_settings.get('notes', '')}")
+        lines.append(f"- Layer height (mm): {in_house_settings.get('layer_height_mm', '')}")
+        lines.append(f"- Nozzle diameter (mm): {in_house_settings.get('nozzle_diameter_mm', '')}")
+        lines.append(f"- Wall count: {in_house_settings.get('wall_count', '')}")
+        lines.append(f"- Infill (%): {in_house_settings.get('infill_percent', '')}")
+        lines.append(f"- Support policy: {in_house_settings.get('support_policy', '')}")
+        lines.append("")
+    lines.append("## Inspection")
+    lines.append(f"- Method: {insp.get('method', '')}")
+    lines.append("")
+    lines.append("## Deliverables")
+    lines.append(f"- CAD formats: {', '.join(deliv.get('cad_formats', []) or [])}")
+    lines.append(f"- Drawing required: {deliv.get('drawing_required','')}")
+    lines.append("")
+    _append_common_tail(lines, spec)
+    return {"markdown": "\n".join(lines).rstrip() + "\n"}
+
+
+def spec_export_brief(*, spec: dict) -> dict[str, Any]:
+    process = _process_from_spec(spec)
+    if process == "cnc":
+        return _export_brief_cnc(spec)
+    return _export_brief_print_3d(spec)
+
+
+def _export_rfq_summary_cnc(spec: dict) -> dict[str, Any]:
     meta = spec.get("meta", {}) if isinstance(spec, dict) else {}
     part = spec.get("part", {}) if isinstance(spec, dict) else {}
     mfg = spec.get("manufacturing", {}) if isinstance(spec, dict) else {}
@@ -449,3 +534,53 @@ def spec_export_rfq_summary(*, spec: dict) -> dict[str, Any]:
     lines.append(f"- Drawing required: {deliv.get('drawing_required','')}")
     lines.append("")
     return {"markdown": "\n".join(lines).rstrip() + "\n"}
+
+
+def _export_rfq_summary_print_3d(spec: dict) -> dict[str, Any]:
+    meta = spec.get("meta", {}) if isinstance(spec, dict) else {}
+    part = spec.get("part", {}) if isinstance(spec, dict) else {}
+    mfg = spec.get("manufacturing", {}) if isinstance(spec, dict) else {}
+    deliv = spec.get("deliverables", {}) if isinstance(spec, dict) else {}
+
+    env = part.get("envelope", {}) if isinstance(part, dict) else {}
+    material = mfg.get("material", {}) if isinstance(mfg, dict) else {}
+    tolerances = mfg.get("tolerances", {}) if isinstance(mfg, dict) else {}
+    appearance = mfg.get("appearance", {}) if isinstance(mfg, dict) else {}
+    in_house_settings = mfg.get("in_house_settings", {}) if isinstance(mfg, dict) else {}
+
+    lines: list[str] = []
+    lines.append("# RFQ Summary (3D Printing)")
+    lines.append("")
+    lines.append(f"- Quantity: {part.get('quantity', '')}")
+    lines.append(f"- Units: {meta.get('units', '')}")
+    lines.append(f"- Envelope: x={env.get('x','')}, y={env.get('y','')}, z={env.get('z','')}")
+    lines.append(f"- Technology: {mfg.get('technology', '')}")
+    lines.append(f"- Output target: {mfg.get('output_target', '')}")
+    lines.append(f"- Material: {material.get('grade', '')} ({material.get('family', '')})")
+    lines.append(f"- Fit tolerance notes: {tolerances.get('general', '')}")
+    lines.append(f"- Appearance color: {appearance.get('color', '')}")
+    lines.append(f"- Appearance finish: {appearance.get('finish', '')}")
+    lines.append(f"- Support marks acceptable: {appearance.get('support_marks_ok', '')}")
+    lines.append(f"- Post processing: {', '.join(mfg.get('post_processing', []) or [])}")
+    lines.append("")
+    if mfg.get("output_target") in ("in_house", "both"):
+        lines.append("## In-House Settings")
+        lines.append(f"- Notes: {in_house_settings.get('notes', '')}")
+        lines.append(f"- Layer height (mm): {in_house_settings.get('layer_height_mm', '')}")
+        lines.append(f"- Nozzle diameter (mm): {in_house_settings.get('nozzle_diameter_mm', '')}")
+        lines.append(f"- Wall count: {in_house_settings.get('wall_count', '')}")
+        lines.append(f"- Infill (%): {in_house_settings.get('infill_percent', '')}")
+        lines.append(f"- Support policy: {in_house_settings.get('support_policy', '')}")
+        lines.append("")
+    lines.append("## Files Requested")
+    lines.append(f"- CAD: {', '.join(deliv.get('cad_formats', []) or [])}")
+    lines.append(f"- Drawing required: {deliv.get('drawing_required','')}")
+    lines.append("")
+    return {"markdown": "\n".join(lines).rstrip() + "\n"}
+
+
+def spec_export_rfq_summary(*, spec: dict) -> dict[str, Any]:
+    process = _process_from_spec(spec)
+    if process == "cnc":
+        return _export_rfq_summary_cnc(spec)
+    return _export_rfq_summary_print_3d(spec)

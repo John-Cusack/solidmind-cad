@@ -62,7 +62,7 @@ def build_freecad_model(spec: dict[str, Any], out_path: str) -> None:
                 f"Import error: {e}\n"
                 "\n"
                 "Example (Ubuntu packages):\n"
-                "  PYTHONPATH=/usr/lib/freecad-python3/lib python3 scripts/freecad_from_spec.py --spec examples/cnc/L2.json --out /tmp/part.step\n"
+                "  PYTHONPATH=/usr/lib/freecad-python3/lib python3 scripts/freecad_from_spec.py --spec examples/print_3d/L2.json --out /tmp/part.step\n"
             )
 
     try:

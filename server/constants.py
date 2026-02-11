@@ -1,4 +1,5 @@
-SUPPORTED_PROCESS = "cnc"
+DEFAULT_PROCESS = "print_3d"
+SUPPORTED_PROCESSES = ("cnc", "print_3d")
 
 SUPPORTED_SPEC_MAJOR = 1
 
@@ -14,4 +15,3 @@ COVERAGE_THRESHOLDS = {
 
 # Canonical hash algorithm label promised by the spec.
 HASH_ALGO = "sha256_jcs_rfc8785"
-

@@ -1,0 +1,62 @@
+{
+  "meta": {
+    "spec_version": "1.0.0",
+    "created_at": "2026-02-10T00:00:00Z",
+    "process": "print_3d",
+    "maturity_level": "L3",
+    "units": "mm",
+    "coverage_score": 0.95
+  },
+  "part": {
+    "name": "Production enclosure bracket (L3)",
+    "description": "Production-ready FDM bracket with controlled fit on mating rails and cosmetic front surface.",
+    "quantity": 250,
+    "envelope": { "x": 145, "y": 82, "z": 24 },
+    "interfaces": [
+      "Rail interface: sliding fit to mating channel",
+      "4x M3 insert locations for enclosure assembly"
+    ],
+    "critical_features": [
+      "Rail width and straightness for slide fit",
+      "Insert hole center distances"
+    ]
+  },
+  "manufacturing": {
+    "process_notes": "Print flat on datum side, supports from build plate only.",
+    "technology": "fdm",
+    "output_target": "vendor",
+    "material": { "family": "thermoplastic", "grade": "Nylon" },
+    "tolerances": {
+      "general": "Sliding rail fit target: 0.20 mm clearance per side after support cleanup.",
+      "critical": ["Insert center distance +/-0.15 mm to datum edge"]
+    },
+    "appearance": {
+      "color": "black",
+      "finish": "sanded",
+      "support_marks_ok": false,
+      "cosmetic_surfaces": ["Front face", "Top chamfer"]
+    },
+    "post_processing": [
+      "Remove supports",
+      "Deburr all edges",
+      "Install M3 heat-set inserts",
+      "Light sand on cosmetic faces"
+    ],
+    "in_house_settings": {
+      "notes": "",
+      "layer_height_mm": null,
+      "nozzle_diameter_mm": null,
+      "wall_count": null,
+      "infill_percent": null,
+      "support_policy": ""
+    }
+  },
+  "inspection": {
+    "ctq": ["Rail width", "Insert spacing"],
+    "method": "go/no-go gauge + calipers",
+    "requirements": ["Check rail fit gauge each lot", "Sample 5 parts per batch for insert spacing"]
+  },
+  "deliverables": { "cad_formats": ["STEP", "STL", "3MF"], "drawing_required": true },
+  "open_questions": [],
+  "assumptions": []
+}

@@ -36,11 +36,25 @@ def _registry() -> dict[str, Resource]:
             description="Question bank used for coverage scoring and next-question selection.",
         ),
         Resource(
+            uri="resource://question_bank/print_3d.yml",
+            path=data_path("question_bank", "print_3d.yml"),
+            name="3D Print question bank",
+            mime_type="text/yaml",
+            description="Question bank used for FDM print spec coverage and next-question selection.",
+        ),
+        Resource(
             uri="resource://schemas/cnc.schema.json",
             path=data_path("schemas", "cnc.schema.json"),
             name="CNC JSON Schema",
             mime_type="application/json",
             description="Shape schema for CNC specs (draft and final).",
+        ),
+        Resource(
+            uri="resource://schemas/print_3d.schema.json",
+            path=data_path("schemas", "print_3d.schema.json"),
+            name="3D Print JSON Schema",
+            mime_type="application/json",
+            description="Shape schema for print_3d specs (draft and final).",
         ),
         Resource(
             uri="resource://examples/cnc/L1.json",
@@ -64,6 +78,27 @@ def _registry() -> dict[str, Resource]:
             description="Example finalized spec for CNC L3.",
         ),
         Resource(
+            uri="resource://examples/print_3d/L1.json",
+            path=data_path("examples", "print_3d", "L1.json"),
+            name="3D Print L1 example",
+            mime_type="application/json",
+            description="Example finalized spec for print_3d L1.",
+        ),
+        Resource(
+            uri="resource://examples/print_3d/L2.json",
+            path=data_path("examples", "print_3d", "L2.json"),
+            name="3D Print L2 example",
+            mime_type="application/json",
+            description="Example finalized spec for print_3d L2.",
+        ),
+        Resource(
+            uri="resource://examples/print_3d/L3.json",
+            path=data_path("examples", "print_3d", "L3.json"),
+            name="3D Print L3 example",
+            mime_type="application/json",
+            description="Example finalized spec for print_3d L3.",
+        ),
+        Resource(
             uri="resource://glossary.yml",
             path=data_path("question_bank", "glossary.yml"),
             name="Glossary",
@@ -85,4 +120,3 @@ def read_resource(uri: str) -> dict[str, Any]:
         raise KeyError(f"Unknown resource uri: {uri}")
     text = r.path.read_text(encoding="utf-8")
     return {"uri": uri, "mimeType": r.mime_type, "text": text}
-

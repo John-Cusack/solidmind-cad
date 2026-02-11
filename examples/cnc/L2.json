@@ -1,0 +1,34 @@
+{
+  "meta": {
+    "spec_version": "1.0.0",
+    "created_at": "2026-02-10T00:00:00Z",
+    "process": "cnc",
+    "maturity_level": "L2",
+    "units": "mm",
+    "coverage_score": 0.9
+  },
+  "part": {
+    "name": "Example bracket (L2)",
+    "description": "Prototype mounting bracket for an instrument; must align a 4-hole pattern to a datum face.",
+    "quantity": 10,
+    "envelope": { "x": 120, "y": 60, "z": 20 },
+    "interfaces": [
+      "4x M6 clearance holes on 50x30 pattern, datum A = bottom face"
+    ],
+    "critical_features": [
+      "Hole pattern true position relative to datum A"
+    ]
+  },
+  "manufacturing": {
+    "process_notes": "CNC mill, deburr all edges.",
+    "material": { "family": "aluminum", "grade": "6061-T6" },
+    "tolerances": { "general": "ISO 2768-m", "critical": ["Hole pattern true position 0.2mm"] },
+    "surface_finish": { "ra_um": 3.2, "coating": "none" },
+    "cosmetics": { "visible_surfaces": "B" }
+  },
+  "inspection": { "ctq": ["Hole pattern location"], "method": "calipers", "requirements": [] },
+  "deliverables": { "cad_formats": ["STEP"], "drawing_required": true },
+  "open_questions": [],
+  "assumptions": []
+}
+

@@ -205,7 +205,7 @@ def serve() -> int:
 
 
 def main(argv: list[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(description="MCP spec gatherer (CNC MVP) JSON-RPC server over stdio.")
+    parser = argparse.ArgumentParser(description="MCP spec gatherer (CNC + 3D print) JSON-RPC server over stdio.")
     parser.add_argument("--serve", action="store_true", help="Run the stdio server (default).")
     args = parser.parse_args(argv)
 

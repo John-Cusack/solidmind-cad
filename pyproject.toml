@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "mcp-spec-gatherer"
 version = "0.1.0"
-description = "Deterministic spec gathering tools (CNC MVP) exposed via MCP over stdio"
+description = "Deterministic spec gathering tools for 3D print + CNC exposed via MCP over stdio"
 readme = "README.md"
 requires-python = ">=3.12"
 license = { file = "LICENSE" }

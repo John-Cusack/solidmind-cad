@@ -1,0 +1,131 @@
+spec_draft:
+  meta:
+    spec_version: "1.0.0"
+    created_at: "2026-02-10T00:00:00Z"
+    process: "print_3d"
+    maturity_level: "L2"
+    units: "mm"
+  part:
+    name: ""
+    description: ""
+    quantity: 1
+    envelope: { x: 0, y: 0, z: 0 }
+    interfaces: []
+    critical_features: []
+  manufacturing:
+    process_notes: ""
+    technology: "fdm"
+    output_target: "vendor"
+    material: { family: "", grade: "" }
+    tolerances: { general: "", critical: [] }
+    appearance: { color: "", finish: "", support_marks_ok: true, cosmetic_surfaces: [] }
+    post_processing: []
+    in_house_settings:
+      notes: ""
+      layer_height_mm: null
+      nozzle_diameter_mm: null
+      wall_count: null
+      infill_percent: null
+      support_policy: ""
+  inspection: { ctq: [], method: "", requirements: [] }
+  deliverables: { cad_formats: [], drawing_required: false }
+  open_questions: []
+  assumptions: []
+  _interview: { answered: {}, skipped: {}, _counter: 0 }
+  _audit: []
+
+steps:
+  - tool: spec.validate
+    expect_subset:
+      blockers:
+        - question_id: envelope
+
+  - tool: spec.next_question
+    expect_subset:
+      question_id: envelope
+
+  - tool: spec.apply_answer
+    params:
+      op: set
+      path: /part/envelope
+      value: { x: 120, y: 60, z: 20 }
+      question_id: envelope
+      source: user
+
+  - tool: spec.next_question
+    expect_subset:
+      question_id: material_grade
+
+  - tool: spec.apply_answer
+    params:
+      op: set
+      path: /manufacturing/material
+      value: { family: "thermoplastic", grade: "PETG" }
+      question_id: material_grade
+      source: user
+
+  - tool: spec.next_question
+    expect_subset:
+      question_id: interfaces
+
+  - tool: spec.apply_answer
+    params:
+      op: set
+      path: /part/interfaces
+      value: ["2x M3 heat-set inserts; bottom face aligns to datum A"]
+      question_id: interfaces
+      source: user
+
+  - tool: spec.apply_answer
+    params:
+      op: set
+      path: /deliverables/cad_formats
+      value: ["STL", "STEP"]
+      question_id: cad_formats
+      source: user
+
+  - tool: spec.apply_answer
+    params:
+      op: set
+      path: /manufacturing/output_target
+      value: "vendor"
+      question_id: output_target
+      source: user
+
+  - tool: spec.apply_answer
+    params:
+      op: set
+      path: /deliverables/drawing_required
+      value: true
+      question_id: drawing_required
+      source: user
+
+  - tool: spec.apply_answer
+    params:
+      op: set
+      path: /part/quantity
+      value: 10
+      question_id: quantity
+      source: user
+
+  - tool: spec.apply_answer
+    params:
+      op: set
+      path: /part/description
+      value: "Prototype instrument bracket with inserts and alignment face."
+      question_id: part_description
+      source: user
+
+  - tool: spec.validate
+    expect_subset:
+      shape_valid: true
+      blockers: []
+      coverage_threshold: 0.8
+
+  - tool: spec.finalize
+    expect_subset:
+      hash_algo: sha256_jcs_rfc8785
+      spec:
+        meta:
+          process: print_3d
+          maturity_level: L2

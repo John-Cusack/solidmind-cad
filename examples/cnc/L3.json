@@ -1,0 +1,37 @@
+{
+  "meta": {
+    "spec_version": "1.0.0",
+    "created_at": "2026-02-10T00:00:00Z",
+    "process": "cnc",
+    "maturity_level": "L3",
+    "units": "mm",
+    "coverage_score": 0.95
+  },
+  "part": {
+    "name": "Example production part (L3)",
+    "description": "Production CNC part with explicit tolerance scheme, finish, and inspection method.",
+    "quantity": 250,
+    "envelope": { "x": 150, "y": 80, "z": 25 },
+    "interfaces": [
+      "Datums: A=bottom face, B=rear face, C=left face",
+      "2x dowel holes: 6H7, positional to A|B|C",
+      "4x M6 tapped holes, positional to A|B|C"
+    ],
+    "critical_features": [
+      "Dowel hole position",
+      "Mounting face flatness"
+    ]
+  },
+  "manufacturing": {
+    "process_notes": "CNC mill, deburr, protect critical faces.",
+    "material": { "family": "stainless_steel", "grade": "316" },
+    "tolerances": { "general": "ISO 2768-m", "critical": ["Dowel holes 6H7", "Flatness 0.05mm on datum A"] },
+    "surface_finish": { "ra_um": 1.6, "coating": "none" },
+    "cosmetics": { "visible_surfaces": "A" }
+  },
+  "inspection": { "ctq": ["Dowel holes", "Datum A flatness"], "method": "CMM", "requirements": ["CMM report on CTQs"] },
+  "deliverables": { "cad_formats": ["STEP"], "drawing_required": true },
+  "open_questions": [],
+  "assumptions": []
+}
+

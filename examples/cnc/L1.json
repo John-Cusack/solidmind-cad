@@ -1,0 +1,30 @@
+{
+  "meta": {
+    "spec_version": "1.0.0",
+    "created_at": "2026-02-10T00:00:00Z",
+    "process": "cnc",
+    "maturity_level": "L1",
+    "units": "mm",
+    "coverage_score": 0.7
+  },
+  "part": {
+    "name": "Example part (L1)",
+    "description": "Simple CNC concept part; interfaces and tolerances are not finalized.",
+    "quantity": 1,
+    "envelope": { "x": 80, "y": 40, "z": 12 },
+    "interfaces": [],
+    "critical_features": []
+  },
+  "manufacturing": {
+    "process_notes": "CNC mill, 3-axis acceptable.",
+    "material": { "family": "aluminum", "grade": "6061-T6" },
+    "tolerances": { "general": "", "critical": [] },
+    "surface_finish": { "ra_um": null, "coating": "none" },
+    "cosmetics": { "visible_surfaces": "" }
+  },
+  "inspection": { "ctq": [], "method": "", "requirements": [] },
+  "deliverables": { "cad_formats": ["STEP"], "drawing_required": false },
+  "open_questions": [],
+  "assumptions": []
+}
+

@@ -1,0 +1,175 @@
+question_bank_id: print_3d_v1
+
+questions:
+  - id: part_description
+    process: print_3d
+    field_paths:
+      - /part/description
+    required: { L1: true, L2: true, L3: true }
+    weight: { L1: 1.0, L2: 1.0, L3: 1.0 }
+    priority: 600
+    technical: "Describe the part's function, interfaces, and critical-to-function requirements."
+    plain: "What does this part do, and what matters most for it to work?"
+    examples:
+      - "Sensor mount with two heat-set inserts and one alignment face."
+      - "Protective cover that must snap onto an existing housing."
+    why: "Intent and CTQs drive geometry, fit strategy, and post-processing."
+    depends_on: []
+
+  - id: envelope
+    process: print_3d
+    field_paths:
+      - /part/envelope/x
+      - /part/envelope/y
+      - /part/envelope/z
+    required: { L1: true, L2: true, L3: true }
+    weight: { L1: 1.0, L2: 1.0, L3: 1.0 }
+    priority: 1000
+    technical: "What is the maximum bounding box (X, Y, Z) for the part?"
+    plain: "How big can the part be (length, width, height)?"
+    examples: ["120 x 60 x 20 mm", "5 x 3 x 1 in"]
+    why: "Envelope drives printability, orientation options, and machine fit."
+    depends_on: []
+
+  - id: quantity
+    process: print_3d
+    field_paths:
+      - /part/quantity
+    required: { L1: true, L2: true, L3: true }
+    weight: { L1: 0.3, L2: 0.3, L3: 0.3 }
+    priority: 550
+    technical: "What quantity do you need (single build, batch, or total)?"
+    plain: "How many parts do you need?"
+    examples: ["1", "10", "100"]
+    why: "Quantity impacts process planning, print farm strategy, and cost."
+    depends_on: []
+
+  - id: output_target
+    process: print_3d
+    field_paths:
+      - /manufacturing/output_target
+    required: { L1: true, L2: true, L3: true }
+    weight: { L1: 0.4, L2: 0.4, L3: 0.4 }
+    priority: 900
+    technical: "Is this for vendor RFQ, in-house printing, or both?"
+    plain: "Are you sending this to a print service, printing it yourself, or both?"
+    examples: ["vendor", "in_house", "both"]
+    why: "Output target determines how detailed printer settings must be."
+    depends_on: []
+
+  - id: material_grade
+    process: print_3d
+    field_paths:
+      - /manufacturing/material/grade
+      - /manufacturing/material/family
+    required: { L1: false, L2: true, L3: true }
+    weight: { L1: 0.2, L2: 1.0, L3: 1.0 }
+    priority: 850
+    technical: "What 3D printing material and grade is required?"
+    plain: "What material should this be printed in (for example PLA, PETG, ABS, Nylon, TPU)?"
+    examples: ["PLA", "PETG", "ABS", "ASA", "Nylon", "TPU"]
+    why: "Material controls strength, heat resistance, chemical resistance, and printability."
+    depends_on: []
+
+  - id: interfaces
+    process: print_3d
+    field_paths:
+      - /part/interfaces
+    required: { L1: false, L2: true, L3: true }
+    weight: { L1: 0.2, L2: 1.0, L3: 1.0 }
+    priority: 820
+    technical: "Describe mating features and fit requirements (inserts, threads, snaps, alignment faces)."
+    plain: "What does this connect to, and what needs to fit tightly or align?"
+    examples:
+      - "Two M3 heat-set inserts and one snap tab to a mating cover."
+      - "Slides into a rail with light friction fit."
+    why: "Interfaces define CTQs and practical tolerance strategy for printed parts."
+    depends_on: []
+
+  - id: cad_formats
+    process: print_3d
+    field_paths:
+      - /deliverables/cad_formats
+    required: { L1: false, L2: true, L3: true }
+    weight: { L1: 0.1, L2: 0.8, L3: 0.8 }
+    priority: 800
+    technical: "Which delivery formats are required (STL, 3MF, STEP)?"
+    plain: "What files do you need back (STL, 3MF, STEP)?"
+    examples: ["STL", "3MF", "STEP"]
+    why: "Deliverables drive handoff quality and compatibility."
+    depends_on: []
+
+  - id: drawing_required
+    process: print_3d
+    field_paths:
+      - /deliverables/drawing_required
+    required: { L1: false, L2: true, L3: true }
+    weight: { L1: 0.1, L2: 0.2, L3: 0.2 }
+    priority: 300
+    technical: "Is a drawing required (PDF) in addition to 3D files?"
+    plain: "Do you also need a drawing PDF, or are 3D files enough?"
+    examples: ["true", "false"]
+    why: "Drawings are often needed for controlled releases and inspections."
+    depends_on: []
+
+  - id: fit_tolerances
+    process: print_3d
+    field_paths:
+      - /manufacturing/tolerances/general
+      - /manufacturing/tolerances/critical
+    required: { L1: false, L2: false, L3: true }
+    weight: { L1: 0.1, L2: 0.3, L3: 1.0 }
+    priority: 780
+    technical: "What fit and functional tolerance notes are required?"
+    plain: "How much fit/play is acceptable for holes, slots, snaps, and mating surfaces?"
+    examples:
+      - "Press-fit insert bores to be reamed after print."
+      - "Sliding fit with 0.2 mm clearance on rail features."
+    why: "Printed parts need explicit fit expectations because process variation is higher."
+    depends_on: []
+
+  - id: appearance
+    process: print_3d
+    field_paths:
+      - /manufacturing/appearance
+    required: { L1: false, L2: false, L3: true }
+    weight: { L1: 0.1, L2: 0.3, L3: 0.9 }
+    priority: 770
+    technical: "Specify appearance requirements: color, finish, support marks, and cosmetic surfaces."
+    plain: "What should it look like (color/finish), and which surfaces must look clean?"
+    examples:
+      - "Black, as-printed, support marks acceptable except front face."
+      - "Gray, sanded finish, no marks on top cosmetic surfaces."
+    why: "Appearance requirements drive orientation, supports, and post-processing."
+    depends_on: []
+
+  - id: post_processing
+    process: print_3d
+    field_paths:
+      - /manufacturing/post_processing
+    required: { L1: false, L2: false, L3: true }
+    weight: { L1: 0.0, L2: 0.3, L3: 0.5 }
+    priority: 740
+    technical: "What post-processing steps are required?"
+    plain: "What should happen after printing (support removal, sanding, inserts, tapping, painting)?"
+    examples:
+      - "Remove supports, install M3 heat-set inserts."
+      - "Deburr and sand cosmetic top face."
+    why: "Post-processing can dominate final fit, function, and cost."
+    depends_on: []
+
+  - id: in_house_settings
+    process: print_3d
+    field_paths:
+      - /manufacturing/in_house_settings
+    required: { L1: false, L2: false, L3: false }
+    weight: { L1: 0.0, L2: 0.0, L3: 0.0 }
+    priority: 500
+    technical: "Provide in-house print settings notes (layer height, nozzle, walls, infill, supports)."
+    plain: "If you are printing this yourself, what settings should be used?"
+    examples:
+      - "0.2 mm layer, 0.4 nozzle, 4 walls, 35% gyroid infill, supports from build plate."
+      - "Use standard PETG profile with notes in slicer."
+    why: "In-house targets require explicit print settings to reproduce results."
+    depends_on:
+      - output_target

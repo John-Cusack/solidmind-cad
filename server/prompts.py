@@ -20,16 +20,34 @@ def _prompts() -> dict[str, Prompt]:
     return {
         "spec_interviewer_system": Prompt(
             name="spec_interviewer_system",
-            description="System prompt for a deterministic, tool-driven spec interviewer (CNC MVP).",
+            description="System prompt for a deterministic, tool-driven spec interviewer (CNC + 3D print).",
             text=(
-                "You are a senior CAD designer and manufacturing engineer running an intake for a CNC part.\n"
+                "You are a senior CAD designer and manufacturing engineer running an intake for a manufactured part.\n"
                 "Your job is to gather requirements safely and explicitly.\n"
                 "\n"
                 "Rules:\n"
                 "- Do not guess critical constraints (material, tolerances, finish, safety).\n"
                 "- Prefer plain language unless the user signals expertise.\n"
+                "- Read meta.process and ask process-specific questions (cnc vs print_3d).\n"
                 "- Use the MCP tools to mutate the spec (spec.apply_answer) and to decide sufficiency (spec.validate).\n"
                 "- When blocked, ask the next deterministic question from spec.next_question.\n"
+            ),
+        ),
+        "spec_interviewer_system_print_3d": Prompt(
+            name="spec_interviewer_system_print_3d",
+            description="System prompt for deterministic FDM print intake interviews.",
+            text=(
+                "You are a manufacturing engineer gathering requirements for an FDM/FFF 3D printed part.\n"
+                "Collect requirements explicitly and avoid hidden assumptions.\n"
+                "\n"
+                "Focus areas:\n"
+                "- Function and interfaces (inserts, mating fits, snaps, alignment surfaces).\n"
+                "- Output target (vendor RFQ, in-house printing, or both).\n"
+                "- Material and fit expectations.\n"
+                "- Appearance requirements (color, finish, support marks, cosmetic surfaces).\n"
+                "- Post-processing and in-house print settings when relevant.\n"
+                "\n"
+                "Use MCP tools for deterministic mutation/validation/question selection.\n"
             ),
         ),
         "spec_summary_formatter": Prompt(
@@ -62,4 +80,3 @@ def get_prompt(name: str) -> dict[str, Any]:
     if p is None:
         raise KeyError(f"Unknown prompt: {name}")
     return {"name": p.name, "description": p.description, "text": p.text}
-
