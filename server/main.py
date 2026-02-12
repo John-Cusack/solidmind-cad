@@ -18,6 +18,7 @@ from server.prompts import get_prompt, list_prompts
 from server.resources import list_resources, read_resource
 from server.tools import (
     spec_apply_answer,
+    spec_assess_design_path,
     spec_export_brief,
     spec_export_rfq_summary,
     spec_finalize,
@@ -53,6 +54,18 @@ from server.tools_mfg import (
     mfg_export_rfq,
     mfg_readiness_check,
     mfg_set_property,
+)
+from server.tools_me import (
+    me_apply_risk_gates,
+    me_build_traceability,
+    me_design_loop,
+    me_get_archetype_card,
+    me_get_knowledge_policy,
+    me_instantiate_constraint_sheet,
+    me_list_archetypes,
+    me_list_domain_tags,
+    me_route_request,
+    me_validate_constraint_sheet,
 )
 
 
@@ -601,16 +614,16 @@ def _mfg_tool_list() -> list[dict[str, Any]]:
 
 
 def _spec_tool_list() -> list[dict[str, Any]]:
-    """Legacy spec interview tools (kept for backward compatibility)."""
+    """Deterministic specification interview + finalization tools."""
     return [
         {
             "name": "spec.select_schema",
-            "description": "Select schema/question bank and coverage threshold for a process+maturity.",
+            "description": "Select schema/question-bank/coverage threshold by process + maturity level.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "process": {"type": "string"},
-                    "maturity_level": {"type": "string"},
+                    "process": {"type": "string", "enum": ["cnc", "print_3d"]},
+                    "maturity_level": {"type": "string", "enum": ["L1", "L2", "L3"]},
                     "spec_version": {"type": "string"},
                 },
                 "required": ["process", "maturity_level", "spec_version"],
@@ -619,37 +632,96 @@ def _spec_tool_list() -> list[dict[str, Any]]:
         },
         {
             "name": "spec.apply_answer",
-            "description": "Atomically mutate spec_draft via JSON Pointer + op (set|append|remove).",
-            "inputSchema": {"type": "object"},
+            "description": "Apply a deterministic mutation to spec_draft using JSON-pointer addressing.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "spec_draft": {"type": "object"},
+                    "op": {"type": "string", "enum": ["set", "append", "remove"]},
+                    "path": {"type": "string"},
+                    "value": {},
+                    "question_id": {"type": "string"},
+                    "source": {"type": "string", "enum": ["user", "llm_proposal", "default", "import", "user_skip"]},
+                },
+                "required": ["spec_draft", "op", "path", "source"],
+                "additionalProperties": False,
+            },
         },
         {
             "name": "spec.validate",
-            "description": "Validate shape + compute coverage + run deterministic rules.",
-            "inputSchema": {"type": "object"},
+            "description": "Validate draft shape + coverage + deterministic blocker/warning rules.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {"spec_draft": {"type": "object"}},
+                "required": ["spec_draft"],
+                "additionalProperties": False,
+            },
         },
         {
             "name": "spec.next_question",
-            "description": "Deterministically select the next best question (skip-aware).",
-            "inputSchema": {"type": "object"},
+            "description": "Pick the next best interview question from blockers, required fields, and weighted gaps.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "spec_draft": {"type": "object"},
+                    "conversation_signals": {
+                        "type": "object",
+                        "properties": {
+                            "user_expertise": {"type": "string", "enum": ["novice", "intermediate", "expert", "unknown"]},
+                            "language_preference": {"type": "string", "enum": ["plain", "technical", "auto"]},
+                            "previous_question_id": {"type": "string"},
+                            "allow_revisit_skipped": {"type": "boolean"},
+                        },
+                        "additionalProperties": False,
+                    },
+                },
+                "required": ["spec_draft"],
+                "additionalProperties": False,
+            },
         },
         {
             "name": "spec.finalize",
-            "description": "Freeze spec (strip internals), compute deterministic hash, changelog, provenance.",
-            "inputSchema": {"type": "object"},
+            "description": "Finalize spec_draft into canonical spec plus deterministic hash/provenance sidecar.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {"spec_draft": {"type": "object"}},
+                "required": ["spec_draft"],
+                "additionalProperties": False,
+            },
         },
         {
             "name": "spec.export_brief",
-            "description": "Export a CAD/design brief as Markdown from a finalized spec.",
-            "inputSchema": {"type": "object"},
+            "description": "Export human-readable design brief markdown from finalized spec.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {"spec": {"type": "object"}},
+                "required": ["spec"],
+                "additionalProperties": False,
+            },
         },
         {
             "name": "spec.export_rfq_summary",
-            "description": "Export an RFQ-ready summary as Markdown from a finalized spec.",
-            "inputSchema": {"type": "object"},
+            "description": "Export process-specific RFQ summary markdown from finalized spec.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {"spec": {"type": "object"}},
+                "required": ["spec"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "spec.assess_design_path",
+            "description": "Classify a draft as basic_box vs spec_driven for coverage-gating behavior.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {"spec_draft": {"type": "object"}},
+                "required": ["spec_draft"],
+                "additionalProperties": False,
+            },
         },
         {
             "name": "spec.generate_cad",
-            "description": "Generate CAD geometry (STEP/STL/FCStd) for FreeCAD from a finalized spec.",
+            "description": "Generate CAD geometry from finalized spec with deterministic precondition checks.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -665,8 +737,120 @@ def _spec_tool_list() -> list[dict[str, Any]]:
     ]
 
 
+def _me_tool_list() -> list[dict[str, Any]]:
+    """ME-grade archetype/constraint/validation tools."""
+    return [
+        {
+            "name": "me.list_domain_tags",
+            "description": "List the controlled ME domain-tag vocabulary used for routing and validator selection.",
+            "inputSchema": {"type": "object", "additionalProperties": False},
+        },
+        {
+            "name": "me.list_archetypes",
+            "description": "List available archetype card IDs.",
+            "inputSchema": {"type": "object", "additionalProperties": False},
+        },
+        {
+            "name": "me.get_archetype_card",
+            "description": "Load a specific archetype card by archetype_id.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {"archetype_id": {"type": "string"}},
+                "required": ["archetype_id"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "me.route_request",
+            "description": (
+                "Route user request text to best-matching archetype and domain tags. "
+                "Useful as a lightweight preflight signal before deciding whether to run me.design_loop."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {"request_text": {"type": "string"}},
+                "required": ["request_text"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "me.instantiate_constraint_sheet",
+            "description": "Instantiate an archetype constraint sheet with optional overrides and assumptions.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "archetype_id": {"type": "string"},
+                    "overrides": {"type": "object"},
+                    "assumptions": {"type": "array", "items": {"type": "string"}},
+                },
+                "required": ["archetype_id"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "me.validate_constraint_sheet",
+            "description": "Run deterministic Tier 0/1 proxy validators over a constraint sheet.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {"constraint_sheet": {"type": "object"}},
+                "required": ["constraint_sheet"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "me.build_traceability",
+            "description": "Build requirement-to-evidence traceability matrix from constraints + validation report.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "constraint_sheet": {"type": "object"},
+                    "validation_report": {"type": "object"},
+                },
+                "required": ["constraint_sheet", "validation_report"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "me.apply_risk_gates",
+            "description": "Assign risk class and signoff gates from constraints + validation findings.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "constraint_sheet": {"type": "object"},
+                    "validation_report": {"type": "object"},
+                },
+                "required": ["constraint_sheet", "validation_report"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "me.design_loop",
+            "description": (
+                "Optional ME preflight for complex/high-risk parts. "
+                "Runs full loop: route -> constrain -> validate -> traceability -> risk gates. "
+                "Call when needed, then continue geometry with cad.*."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "request_text": {"type": "string"},
+                    "overrides": {"type": "object"},
+                    "assumptions": {"type": "array", "items": {"type": "string"}},
+                },
+                "required": ["request_text"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "me.get_knowledge_policy",
+            "description": "Return standards/materials source policy and authority ordering metadata.",
+            "inputSchema": {"type": "object", "additionalProperties": False},
+        },
+    ]
+
+
 def _tool_list() -> list[dict[str, Any]]:
-    return _cad_tool_list() + _mfg_tool_list() + _spec_tool_list()
+    return _cad_tool_list() + _mfg_tool_list() + _spec_tool_list() + _me_tool_list()
 
 
 # ---------------------------------------------------------------------------
@@ -711,12 +895,31 @@ _SPEC_DISPATCH: dict[str, Any] = {
     "spec.finalize": spec_finalize,
     "spec.export_brief": spec_export_brief,
     "spec.export_rfq_summary": spec_export_rfq_summary,
+    "spec.assess_design_path": spec_assess_design_path,
     "spec.generate_cad": spec_generate_cad,
+}
+
+_ME_DISPATCH: dict[str, Any] = {
+    "me.list_domain_tags": me_list_domain_tags,
+    "me.list_archetypes": me_list_archetypes,
+    "me.get_archetype_card": me_get_archetype_card,
+    "me.route_request": me_route_request,
+    "me.instantiate_constraint_sheet": me_instantiate_constraint_sheet,
+    "me.validate_constraint_sheet": me_validate_constraint_sheet,
+    "me.build_traceability": me_build_traceability,
+    "me.apply_risk_gates": me_apply_risk_gates,
+    "me.design_loop": me_design_loop,
+    "me.get_knowledge_policy": me_get_knowledge_policy,
 }
 
 
 def _call_tool(name: str, arguments: dict[str, Any]) -> Any:
-    handler = _CAD_DISPATCH.get(name) or _MFG_DISPATCH.get(name) or _SPEC_DISPATCH.get(name)
+    handler = (
+        _CAD_DISPATCH.get(name)
+        or _MFG_DISPATCH.get(name)
+        or _SPEC_DISPATCH.get(name)
+        or _ME_DISPATCH.get(name)
+    )
     if handler is None:
         raise KeyError(f"Unknown tool: {name}")
     return handler(**arguments)

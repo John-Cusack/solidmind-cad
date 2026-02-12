@@ -28,83 +28,6 @@ class Resource:
 @lru_cache(maxsize=1)
 def _registry() -> dict[str, Resource]:
     items = [
-        Resource(
-            uri="resource://question_bank/cnc.yml",
-            path=data_path("question_bank", "cnc.yml"),
-            name="CNC question bank",
-            mime_type="text/yaml",
-            description="Question bank used for coverage scoring and next-question selection.",
-        ),
-        Resource(
-            uri="resource://question_bank/print_3d.yml",
-            path=data_path("question_bank", "print_3d.yml"),
-            name="3D Print question bank",
-            mime_type="text/yaml",
-            description="Question bank used for FDM print spec coverage and next-question selection.",
-        ),
-        Resource(
-            uri="resource://schemas/cnc.schema.json",
-            path=data_path("schemas", "cnc.schema.json"),
-            name="CNC JSON Schema",
-            mime_type="application/json",
-            description="Shape schema for CNC specs (draft and final).",
-        ),
-        Resource(
-            uri="resource://schemas/print_3d.schema.json",
-            path=data_path("schemas", "print_3d.schema.json"),
-            name="3D Print JSON Schema",
-            mime_type="application/json",
-            description="Shape schema for print_3d specs (draft and final).",
-        ),
-        Resource(
-            uri="resource://examples/cnc/L1.json",
-            path=data_path("examples", "cnc", "L1.json"),
-            name="CNC L1 example",
-            mime_type="application/json",
-            description="Example finalized spec for CNC L1.",
-        ),
-        Resource(
-            uri="resource://examples/cnc/L2.json",
-            path=data_path("examples", "cnc", "L2.json"),
-            name="CNC L2 example",
-            mime_type="application/json",
-            description="Example finalized spec for CNC L2.",
-        ),
-        Resource(
-            uri="resource://examples/cnc/L3.json",
-            path=data_path("examples", "cnc", "L3.json"),
-            name="CNC L3 example",
-            mime_type="application/json",
-            description="Example finalized spec for CNC L3.",
-        ),
-        Resource(
-            uri="resource://examples/print_3d/L1.json",
-            path=data_path("examples", "print_3d", "L1.json"),
-            name="3D Print L1 example",
-            mime_type="application/json",
-            description="Example finalized spec for print_3d L1.",
-        ),
-        Resource(
-            uri="resource://examples/print_3d/L2.json",
-            path=data_path("examples", "print_3d", "L2.json"),
-            name="3D Print L2 example",
-            mime_type="application/json",
-            description="Example finalized spec for print_3d L2.",
-        ),
-        Resource(
-            uri="resource://examples/print_3d/L3.json",
-            path=data_path("examples", "print_3d", "L3.json"),
-            name="3D Print L3 example",
-            mime_type="application/json",
-            description="Example finalized spec for print_3d L3.",
-        ),
-        Resource(
-            uri="resource://glossary.yml",
-            path=data_path("question_bank", "glossary.yml"),
-            name="Glossary",
-            mime_type="text/yaml",
-            description="Small glossary of manufacturing terms used by prompts and the interviewer.",
-        ),
         # -- ME pattern library --
         Resource(
             uri="resource://me_patterns/index.yml",
@@ -154,6 +77,42 @@ def _registry() -> dict[str, Resource]:
             name="Design for FDM guide",
             mime_type="text/yaml",
             description="FDM 3D printing design guidelines and constraints.",
+        ),
+        # -- ME design intelligence registry --
+        Resource(
+            uri="resource://me_knowledge/index.yml",
+            path=data_path("me_knowledge", "index.yml"),
+            name="ME knowledge index",
+            mime_type="text/yaml",
+            description="Index of ME domain tags, archetypes, templates, and source policies.",
+        ),
+        Resource(
+            uri="resource://me_knowledge/domain_tags.yml",
+            path=data_path("me_knowledge", "domain_tags.yml"),
+            name="ME domain tags registry",
+            mime_type="text/yaml",
+            description="Controlled vocabulary for ME request routing, validation, and retrieval triggers.",
+        ),
+        Resource(
+            uri="resource://me_knowledge/archetypes/turbocharger_turbine_wheel_v1.yml",
+            path=data_path("me_knowledge", "archetypes", "turbocharger_turbine_wheel_v1.yml"),
+            name="Turbocharger turbine wheel archetype card",
+            mime_type="text/yaml",
+            description="Archetype card for radial turbocharger turbine wheel v1.",
+        ),
+        Resource(
+            uri="resource://me_knowledge/constraint_templates/turbocharger_turbine_wheel_v1.yml",
+            path=data_path("me_knowledge", "constraint_templates", "turbocharger_turbine_wheel_v1.yml"),
+            name="Turbocharger turbine wheel constraint template",
+            mime_type="text/yaml",
+            description="Constraint sheet template for radial turbocharger turbine wheel v1.",
+        ),
+        Resource(
+            uri="resource://me_knowledge/standards_sources.yml",
+            path=data_path("me_knowledge", "standards_sources.yml"),
+            name="ME standards and sources policy",
+            mime_type="text/yaml",
+            description="Authority ranking and provenance policy for engineering sources.",
         ),
     ]
     return {r.uri: r for r in items}

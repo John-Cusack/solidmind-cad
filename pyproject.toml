@@ -16,15 +16,13 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# CadQuery is only needed for legacy spec-based CAD generation.
+# CadQuery support is optional and only needed for standalone CAD generation helpers.
 cadquery = ["cadquery>=2.4,<3"]
 # Only needed if you want generated JSON Schemas from Pydantic v2 tool models.
 schemas = ["pydantic>=2.6,<3"]
 
 [project.scripts]
 solidmind-cad = "server.main:main"
-# Legacy entrypoint
-mcp-spec-gatherer = "server.main:main"
 
 [tool.setuptools]
 packages = ["server", "freecad_addon"]

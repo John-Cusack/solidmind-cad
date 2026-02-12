@@ -39,6 +39,158 @@ def _process_from_spec(spec_obj: dict[str, Any]) -> str:
     return DEFAULT_PROCESS
 
 
+def _is_non_blank_string(value: Any) -> bool:
+    return isinstance(value, str) and bool(value.strip())
+
+
+def _has_non_default_print_3d_settings(settings: Any) -> bool:
+    if not isinstance(settings, dict):
+        return False
+
+    if _is_non_blank_string(settings.get("notes")):
+        return True
+    if _is_non_blank_string(settings.get("support_policy")):
+        return True
+
+    for key in ("layer_height_mm", "nozzle_diameter_mm", "wall_count", "infill_percent"):
+        value = settings.get(key)
+        if isinstance(value, bool):
+            continue
+        if isinstance(value, (int, float)):
+            return True
+    return False
+
+
+def _assess_design_path(spec_obj: dict[str, Any]) -> dict[str, Any]:
+    """Classify design path as basic_box vs spec_driven for deterministic gating."""
+    process = _process_from_spec(spec_obj)
+    if process != "print_3d":
+        return {
+            "process": process,
+            "design_path": "spec_driven",
+            "requires_full_spec": True,
+            "reason_codes": ["non_print_3d_process"],
+            "reasons": [f"Process {process!r} uses full specification gating."],
+        }
+
+    meta = spec_obj.get("meta", {}) if isinstance(spec_obj, dict) else {}
+    part = spec_obj.get("part", {}) if isinstance(spec_obj, dict) else {}
+    mfg = spec_obj.get("manufacturing", {}) if isinstance(spec_obj, dict) else {}
+    inspection = spec_obj.get("inspection", {}) if isinstance(spec_obj, dict) else {}
+
+    maturity = meta.get("maturity_level", "L1") if isinstance(meta, dict) else "L1"
+
+    blockers: list[tuple[str, str]] = []
+
+    if maturity != "L1":
+        blockers.append((
+            "maturity_not_l1",
+            f"Maturity {maturity!r} requires full specification gating.",
+        ))
+
+    interfaces = part.get("interfaces", []) if isinstance(part, dict) else []
+    if isinstance(interfaces, list):
+        if interfaces:
+            blockers.append(("interfaces_present", "Part interfaces are specified."))
+    elif interfaces is not None:
+        blockers.append(("interfaces_malformed", "Part interfaces field is not a list."))
+
+    critical_features = part.get("critical_features", []) if isinstance(part, dict) else []
+    if isinstance(critical_features, list):
+        if critical_features:
+            blockers.append(("critical_features_present", "Critical features are specified."))
+    elif critical_features is not None:
+        blockers.append(("critical_features_malformed", "Part critical_features field is not a list."))
+
+    output_target = mfg.get("output_target", "vendor") if isinstance(mfg, dict) else "vendor"
+    if output_target != "vendor":
+        blockers.append((
+            "non_vendor_output_target",
+            f"Output target {output_target!r} requires explicit print settings/spec detail.",
+        ))
+
+    tolerances = mfg.get("tolerances", {}) if isinstance(mfg, dict) else {}
+    if isinstance(tolerances, dict):
+        if _is_non_blank_string(tolerances.get("general")):
+            blockers.append(("tolerances_general_present", "General tolerance notes are specified."))
+        critical_tolerances = tolerances.get("critical", [])
+        if isinstance(critical_tolerances, list):
+            if critical_tolerances:
+                blockers.append(("tolerances_critical_present", "Critical tolerance notes are specified."))
+        elif critical_tolerances is not None:
+            blockers.append(("tolerances_critical_malformed", "Critical tolerance field is not a list."))
+    elif tolerances is not None:
+        blockers.append(("tolerances_malformed", "Tolerance section is malformed."))
+
+    appearance = mfg.get("appearance", {}) if isinstance(mfg, dict) else {}
+    if isinstance(appearance, dict):
+        if _is_non_blank_string(appearance.get("color")):
+            blockers.append(("appearance_color_present", "Appearance color requirement is specified."))
+        if _is_non_blank_string(appearance.get("finish")):
+            blockers.append(("appearance_finish_present", "Appearance finish requirement is specified."))
+        if appearance.get("support_marks_ok") is False:
+            blockers.append(("appearance_support_marks_strict", "Support-mark restriction is specified."))
+        cosmetic_surfaces = appearance.get("cosmetic_surfaces", [])
+        if isinstance(cosmetic_surfaces, list):
+            if cosmetic_surfaces:
+                blockers.append(("appearance_cosmetic_surfaces_present", "Cosmetic surfaces are specified."))
+        elif cosmetic_surfaces is not None:
+            blockers.append(("appearance_cosmetic_surfaces_malformed", "Cosmetic surfaces field is not a list."))
+    elif appearance is not None:
+        blockers.append(("appearance_malformed", "Appearance section is malformed."))
+
+    post_processing = mfg.get("post_processing", []) if isinstance(mfg, dict) else []
+    if isinstance(post_processing, list):
+        if post_processing:
+            blockers.append(("post_processing_present", "Post-processing requirements are specified."))
+    elif post_processing is not None:
+        blockers.append(("post_processing_malformed", "Post-processing field is not a list."))
+
+    in_house_settings = mfg.get("in_house_settings", {}) if isinstance(mfg, dict) else {}
+    if _has_non_default_print_3d_settings(in_house_settings):
+        blockers.append(("in_house_settings_present", "In-house print settings are specified."))
+
+    if isinstance(inspection, dict):
+        if _is_non_blank_string(inspection.get("method")):
+            blockers.append(("inspection_method_present", "Inspection method is specified."))
+        ctq = inspection.get("ctq", [])
+        if isinstance(ctq, list):
+            if ctq:
+                blockers.append(("inspection_ctq_present", "CTQ requirements are specified."))
+        elif ctq is not None:
+            blockers.append(("inspection_ctq_malformed", "Inspection ctq field is not a list."))
+        reqs = inspection.get("requirements", [])
+        if isinstance(reqs, list):
+            if reqs:
+                blockers.append(("inspection_requirements_present", "Inspection requirements are specified."))
+        elif reqs is not None:
+            blockers.append(("inspection_requirements_malformed", "Inspection requirements field is not a list."))
+    elif inspection is not None:
+        blockers.append(("inspection_malformed", "Inspection section is malformed."))
+
+    if blockers:
+        return {
+            "process": process,
+            "design_path": "spec_driven",
+            "requires_full_spec": True,
+            "reason_codes": [code for code, _ in blockers],
+            "reasons": [message for _, message in blockers],
+        }
+
+    return {
+        "process": process,
+        "design_path": "basic_box",
+        "requires_full_spec": False,
+        "reason_codes": [],
+        "reasons": ["Eligible for basic envelope-box generation path."],
+    }
+
+
+def spec_assess_design_path(*, spec_draft: dict) -> dict[str, Any]:
+    """Return deterministic design-path classification for downstream gating."""
+    return _assess_design_path(spec_draft)
+
+
 def spec_select_schema(*, process: str, maturity_level: str, spec_version: str) -> dict[str, Any]:
     major = _parse_semver_major(spec_version) if isinstance(spec_version, str) else None
     if major != SUPPORTED_SPEC_MAJOR:
@@ -597,6 +749,7 @@ def spec_generate_cad(
     """Generate CAD geometry from a finalized spec."""
     opts = options or {}
     errors: list[dict[str, Any]] = []
+    precondition_warnings: list[str] = []
 
     # Precondition 1: must be finalized (no internal fields)
     if "_interview" in spec or "_audit" in spec:
@@ -613,17 +766,31 @@ def spec_generate_cad(
     maturity = meta.get("maturity_level", "L1")
     coverage = float(meta.get("coverage_score", 0.0))
     threshold = float(COVERAGE_THRESHOLDS.get(maturity, 1.0))
+    design_gate = _assess_design_path(spec)
 
     # Precondition 2: coverage above maturity threshold
-    if coverage < threshold:
+    if coverage < threshold and bool(design_gate.get("requires_full_spec", True)):
         errors.append(
             _tool_error(
                 "INSUFFICIENT_COVERAGE",
                 f"Coverage {coverage:.0%} is below {maturity} threshold {threshold:.0%}.",
-                details={"coverage_score": coverage, "threshold": threshold, "maturity_level": maturity},
+                details={
+                    "coverage_score": coverage,
+                    "threshold": threshold,
+                    "maturity_level": maturity,
+                    "design_path": design_gate.get("design_path"),
+                    "reason_codes": list(design_gate.get("reason_codes", [])),
+                },
             ).to_dict()
         )
         return {"file_path": None, "cad_data": None, "metadata": {}, "warnings": [], "errors": errors}
+    if coverage < threshold and not bool(design_gate.get("requires_full_spec", True)):
+        precondition_warnings.append(
+            (
+                f"Coverage {coverage:.0%} is below {maturity} threshold {threshold:.0%}, "
+                "but basic_box path allows generation."
+            )
+        )
 
     # Precondition 3: optional hash verification
     expected_hash = opts.get("spec_hash")
@@ -661,10 +828,15 @@ def spec_generate_cad(
         errors.append(_tool_error("INTERNAL_ERROR", f"CAD generation failed: {e}").to_dict())
         return {"file_path": None, "cad_data": None, "metadata": {}, "warnings": [], "errors": errors}
 
+    metadata = dict(result.metadata)
+    metadata["design_path"] = design_gate.get("design_path")
+    metadata["requires_full_spec"] = bool(design_gate.get("requires_full_spec", True))
+    metadata["design_path_reason_codes"] = list(design_gate.get("reason_codes", []))
+
     return {
         "file_path": str(result.file_path),
         "cad_data": result.cad_data,
-        "metadata": result.metadata,
-        "warnings": result.warnings,
+        "metadata": metadata,
+        "warnings": precondition_warnings + list(result.warnings),
         "errors": [],
     }

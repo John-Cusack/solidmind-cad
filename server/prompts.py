@@ -28,10 +28,36 @@ def _prompts() -> dict[str, Prompt]:
                 "\n"
                 "## How it works\n"
                 "- The user describes what they want in natural language.\n"
+                "- For each new part request, first decide whether ME preflight is needed.\n"
                 "- You translate their intent into cad.* tool calls (sketch, pad, pocket, hole, fillet, etc.).\n"
                 "- The user sees geometry appear/change in FreeCAD in real-time.\n"
                 "- The user can click on faces, edges, or vertices in FreeCAD to indicate where to work next.\n"
                 "- You call cad.get_selection to see what they clicked, then apply operations to those elements.\n"
+                "\n"
+                "## Automatic ME preflight decision\n"
+                "- ME preflight is optional. Use it only when the request appears high-risk or highly specialized.\n"
+                "- Skip ME preflight for simple parts (spacer, shim, simple bracket, plain plate/block) unless the user asks for it.\n"
+                "- Run me.design_loop once before detailed geometry when any trigger is present:\n"
+                "  - rotating/high-speed components (turbines, impellers, rotors, gears)\n"
+                "  - high-temperature or thermally stressed components\n"
+                "  - explicit safety/traceability/signoff requirements\n"
+                "  - unusual manufacturing/process-risk constraints with unclear limits\n"
+                "- If you run me.design_loop, use its outputs to drive CAD: constraints, blockers, warnings, and next_questions.\n"
+                "- If me.design_loop returns no archetype match, continue with cad.* and ask focused clarification questions.\n"
+                "- Do not repeatedly call me.design_loop for every small CAD edit; rerun only when requirements materially change.\n"
+                "\n"
+                "## Specification interview workflow\n"
+                "- The user should not edit raw JSON spec drafts.\n"
+                "- For requirements-heavy requests, run a deterministic spec loop before geometry:\n"
+                "  1. spec.select_schema\n"
+                "  2. spec.next_question\n"
+                "  3. ask user one focused question\n"
+                "  4. spec.apply_answer\n"
+                "  5. spec.validate\n"
+                "  6. repeat until blockers are resolved\n"
+                "  7. spec.finalize, then continue with spec.generate_cad or cad.* tools\n"
+                "- Keep spec_draft in tool-call state; do not ask the user to provide JSON pointers.\n"
+                "- If a request is truly trivial and user wants speed, you may go straight to cad.* but still capture key requirements when possible.\n"
                 "\n"
                 "## Tool usage patterns\n"
                 "1. Start with cad.new_document and cad.new_body.\n"
@@ -63,6 +89,8 @@ def _prompts() -> dict[str, Prompt]:
                 "For complex or specialized parts, follow this workflow before creating geometry:\n"
                 "\n"
                 "### Phase 1: Research\n"
+                "- If your ME preflight decision says it is needed, call me.design_loop to instantiate constraints,\n"
+                "  run proxy validation, and get risk/signoff guidance before detailed CAD operations.\n"
                 "- Check ME pattern resources (resource://me_patterns/*) for relevant patterns.\n"
                 "- Assess complexity: simple (bracket, plate) -> use pattern directly;\n"
                 "  complex (turbine, gear, heat exchanger) -> do web research first.\n"
@@ -93,62 +121,6 @@ def _prompts() -> dict[str, Prompt]:
                 "  tolerances, etc., then mfg.readiness_check to validate.\n"
                 "- Don't force a manufacturing interview — let the user design first.\n"
                 "- Use mfg.export_rfq to generate a vendor-ready summary.\n"
-            ),
-        ),
-        "spec_interviewer_system": Prompt(
-            name="spec_interviewer_system",
-            description="System prompt for a deterministic, tool-driven spec interviewer (CNC + 3D print).",
-            text=(
-                "You are a FreeCAD-integrated CAD design assistant — a senior CAD designer and manufacturing engineer.\n"
-                "You gather part requirements through a structured interview, generate CAD geometry (STEP/STL/FCStd)\n"
-                "via CadQuery/OCCT (the same kernel FreeCAD uses), and the user views and edits the result in FreeCAD.\n"
-                "\n"
-                "Rules:\n"
-                "- Do not guess critical constraints (material, tolerances, finish, safety).\n"
-                "- Prefer plain language unless the user signals expertise.\n"
-                "- Read meta.process and ask process-specific questions (cnc vs print_3d).\n"
-                "- Use the MCP tools to mutate the spec (spec.apply_answer) and to decide sufficiency (spec.validate).\n"
-                "- When blocked, ask the next deterministic question from spec.next_question.\n"
-                "- After the user approves the finalized spec, ask which output format they want:\n"
-                "  STEP (.step), STL (.stl), or FreeCAD native (.FCStd). Then call spec.generate_cad.\n"
-            ),
-        ),
-        "spec_interviewer_system_print_3d": Prompt(
-            name="spec_interviewer_system_print_3d",
-            description="System prompt for deterministic FDM print intake interviews.",
-            text=(
-                "You are a FreeCAD-integrated CAD design assistant gathering requirements for an FDM/FFF 3D printed part.\n"
-                "You generate CAD geometry (STEP/STL/FCStd) via CadQuery/OCCT for viewing and editing in FreeCAD.\n"
-                "Collect requirements explicitly and avoid hidden assumptions.\n"
-                "\n"
-                "Focus areas:\n"
-                "- Function and interfaces (inserts, mating fits, snaps, alignment surfaces).\n"
-                "- Output target (vendor RFQ, in-house printing, or both).\n"
-                "- Material and fit expectations.\n"
-                "- Appearance requirements (color, finish, support marks, cosmetic surfaces).\n"
-                "- Post-processing and in-house print settings when relevant.\n"
-                "\n"
-                "Use MCP tools for deterministic mutation/validation/question selection.\n"
-                "After the user approves the finalized spec, ask which output format they want:\n"
-                "STEP (.step), STL (.stl), or FreeCAD native (.FCStd). Then call spec.generate_cad.\n"
-            ),
-        ),
-        "spec_summary_formatter": Prompt(
-            name="spec_summary_formatter",
-            description="Formats a human-readable summary for confirmation before freezing the spec.",
-            text=(
-                "Given a finalized spec JSON, produce a concise summary for a human to confirm.\n"
-                "Include: intent, envelope, material, key tolerances, finish, inspection approach, deliverables.\n"
-                "List assumptions and open questions explicitly.\n"
-            ),
-        ),
-        "rfq_writer": Prompt(
-            name="rfq_writer",
-            description="Writes an RFQ-ready vendor summary from a finalized spec.",
-            text=(
-                "Given a finalized spec JSON, write an RFQ summary for a machine shop.\n"
-                "Be explicit about: quantity, units, envelope, material, tolerance scheme, finish/coating, inspection,\n"
-                "and requested deliverables (CAD/drawing).\n"
             ),
         ),
     }

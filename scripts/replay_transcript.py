@@ -15,6 +15,7 @@ if str(_ROOT) not in sys.path:
 
 from server.tools import (
     spec_apply_answer,
+    spec_assess_design_path,
     spec_export_brief,
     spec_export_rfq_summary,
     spec_finalize,
@@ -27,6 +28,7 @@ from server.tools import (
 TOOL_CALLS = {
     "spec.select_schema": spec_select_schema,
     "spec.apply_answer": spec_apply_answer,
+    "spec.assess_design_path": spec_assess_design_path,
     "spec.validate": spec_validate,
     "spec.next_question": spec_next_question,
     "spec.finalize": spec_finalize,
