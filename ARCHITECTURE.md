@@ -49,9 +49,13 @@ modeling:
 - instantiate constraint sheet (`me.instantiate_constraint_sheet`)
 - run proxy validators (`me.validate_constraint_sheet`)
 - generate traceability matrix (`me.build_traceability`)
-- apply risk/signoff gates (`me.apply_risk_gates`)
+- compute risk/signoff notices (`me.apply_risk_gates`)
 
 This flow is also available as a single call via `me.design_loop`.
+
+Current runtime policy (as of 2026-02-12):
+- `spec.generate_cad` treats low coverage as a warning (notify-only), not a hard error.
+- `me.apply_risk_gates` returns advisory risk/signoff notices and required actions; it does not hard-block generation.
 
 ---
 
@@ -133,7 +137,7 @@ The system runs as two processes connected by TCP:
 | `spec.export_brief` | Export human-readable design brief | spec |
 | `spec.export_rfq_summary` | Export process-specific RFQ summary | spec |
 | `spec.assess_design_path` | Classify basic_box vs spec_driven | spec_draft |
-| `spec.generate_cad` | Generate CAD from finalized spec with precondition gates | spec, output_format, output_path, options |
+| `spec.generate_cad` | Generate CAD from finalized spec with precondition notices (notify-only) | spec, output_format, output_path, options |
 
 #### ME Design Loop Tools (10) — `me.*` in `server/tools_me.py`
 
@@ -146,8 +150,8 @@ The system runs as two processes connected by TCP:
 | `me.instantiate_constraint_sheet` | Instantiate template with overrides | archetype_id, overrides, assumptions |
 | `me.validate_constraint_sheet` | Run deterministic Tier 0/1 proxy validators | constraint_sheet |
 | `me.build_traceability` | Build requirement-to-evidence matrix | constraint_sheet, validation_report |
-| `me.apply_risk_gates` | Assign risk class + signoff gate decision | constraint_sheet, validation_report |
-| `me.design_loop` | Full ME flow (route → constrain → validate → trace → gates) | request_text, overrides, assumptions |
+| `me.apply_risk_gates` | Assign risk class + signoff notices (notify-only) | constraint_sheet, validation_report |
+| `me.design_loop` | Full ME flow (route → constrain → validate → trace → notices) | request_text, overrides, assumptions |
 | `me.get_knowledge_policy` | Return standards/material source policy | — |
 
 ### Prompts (1)
@@ -207,12 +211,12 @@ Before detailed CAD operations for complex components (e.g., rotating,
 high-temperature parts), the host can run:
 
 1. `me.design_loop(request_text, overrides?, assumptions?)`
-2. Review `summary`, `validation`, `traceability`, and `risk_gates`
-3. Resolve `next_questions` / `TBD` fields
+2. Review `summary`, `validation`, `traceability`, and `risk_gates` notices
+3. Resolve `next_questions` / `TBD` fields as iteration guidance
 4. Iterate with updated overrides
 5. Continue geometry execution with `cad.*`
 
-This keeps engineering constraints and risk decisions explicit while preserving
+This keeps engineering constraints and risk notices explicit while preserving
 the interactive CAD workflow.
 
 ---
@@ -349,7 +353,7 @@ ME design-loop tooling is archetype-driven and currently ships with:
 | ME routing/scoring | Deterministic lexical signal matching (no randomness) |
 | ME validation outputs | Stable rule ordering, deterministic thresholds, sorted findings |
 | ME traceability matrix | Requirement rows sorted by `requirement_id` |
-| ME risk gating | Fixed score thresholds + deterministic gate decision logic |
+| ME risk notices | Fixed score thresholds + deterministic notice decision logic |
 | CAD command transport | Strict newline-delimited JSON request/response protocol |
 | Selection queries | Deterministic geometric query filters + invariant checks |
 | Golden tests | Stable `unittest` assertions over tool outputs and registries |
@@ -404,7 +408,7 @@ iteration than delayed, end-of-flow generation.
 ### Why Add ME Design-Loop Tools?
 
 `me.*` tools provide deterministic constraint capture, early validation,
-traceability, and explicit release/risk gates for high-consequence components.
+traceability, and explicit release/risk notices for high-consequence components.
 
 ### Why Remove Legacy Spec Compatibility?
 

@@ -381,8 +381,12 @@ class TestSpecGenerateCadTool(unittest.TestCase):
         spec["meta"]["coverage_score"] = 0.10
         spec["meta"]["maturity_level"] = "L2"
         result = self._call(spec=spec, output_format="step")
-        self.assertTrue(len(result["errors"]) > 0)
-        self.assertEqual(result["errors"][0]["code"], "INSUFFICIENT_COVERAGE")
+        error_codes = [e.get("code") for e in result["errors"]]
+        self.assertNotIn("INSUFFICIENT_COVERAGE", error_codes)
+        warning_text = " ".join(result.get("warnings", []))
+        self.assertIn("notify-only mode", warning_text)
+        if not CAD_AVAILABLE:
+            self.assertEqual(error_codes[0], "CAD_UNAVAILABLE")
 
     def test_print_3d_basic_box_path_allows_low_coverage(self) -> None:
         spec = make_base_spec_draft(maturity_level="L1", process="print_3d")
@@ -398,7 +402,7 @@ class TestSpecGenerateCadTool(unittest.TestCase):
         if not CAD_AVAILABLE:
             self.assertEqual(error_codes[0], "CAD_UNAVAILABLE")
 
-    def test_print_3d_interfaces_force_spec_driven_coverage_gate(self) -> None:
+    def test_print_3d_interfaces_force_spec_driven_coverage_notice(self) -> None:
         spec = make_base_spec_draft(maturity_level="L1", process="print_3d")
         spec["part"]["envelope"] = {"x": 40, "y": 30, "z": 20}
         spec["part"]["interfaces"] = ["2x M3 heat-set inserts"]
@@ -407,11 +411,13 @@ class TestSpecGenerateCadTool(unittest.TestCase):
         spec.pop("_audit", None)
 
         result = self._call(spec=spec, output_format="step")
-        self.assertTrue(len(result["errors"]) > 0)
-        self.assertEqual(result["errors"][0]["code"], "INSUFFICIENT_COVERAGE")
-        details = result["errors"][0].get("details", {})
-        self.assertEqual(details.get("design_path"), "spec_driven")
-        self.assertIn("interfaces_present", details.get("reason_codes", []))
+        error_codes = [e.get("code") for e in result["errors"]]
+        self.assertNotIn("INSUFFICIENT_COVERAGE", error_codes)
+        warning_text = " ".join(result.get("warnings", []))
+        self.assertIn("design_path=spec_driven", warning_text)
+        self.assertIn("interfaces_present", warning_text)
+        if not CAD_AVAILABLE:
+            self.assertEqual(error_codes[0], "CAD_UNAVAILABLE")
 
     def test_hash_mismatch(self) -> None:
         spec = _make_finalized_spec()

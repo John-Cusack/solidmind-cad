@@ -61,6 +61,8 @@ class TestMEConstraintAndValidation(unittest.TestCase):
         self.assertTrue(gates["ok"])
         self.assertIn(gates["risk_class"], {"high", "critical"})
         self.assertTrue(gates["requires_signoff"])
+        self.assertFalse(gates["blocked"])
+        self.assertEqual(gates["gate_decision"], "proceed_with_notices")
 
 
 class TestMEDesignLoop(unittest.TestCase):

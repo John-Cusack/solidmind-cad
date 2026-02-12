@@ -553,7 +553,7 @@ def build_traceability_matrix(
 
 
 def apply_risk_gates(constraint_sheet: dict[str, Any], validation_report: dict[str, Any]) -> dict[str, Any]:
-    """Assign risk class and compute gate decisions for release readiness."""
+    """Assign risk class and emit notify-only gate guidance."""
     env = constraint_sheet.get("operating_envelope", {}) if isinstance(constraint_sheet, dict) else {}
     max_rpm = _as_float(env.get("max_rpm")) if isinstance(env, dict) else None
     gas_temp = _as_float(env.get("gas_temp_max_c")) if isinstance(env, dict) else None
@@ -604,13 +604,19 @@ def apply_risk_gates(constraint_sheet: dict[str, Any], validation_report: dict[s
         risk_class = "critical"
 
     requires_signoff = risk_class in ("high", "critical")
-    blocked = len(blockers) > 0
+    has_blockers = len(blockers) > 0
+    has_warnings = len(warnings) > 0
+    blocked = False
 
     gate_decision = "proceed"
-    if blocked:
-        gate_decision = "blocked"
-    elif requires_signoff:
-        gate_decision = "requires_signoff"
+    if has_blockers or has_warnings or requires_signoff:
+        gate_decision = "proceed_with_notices"
+
+    required_actions: list[str] = []
+    if has_blockers:
+        required_actions.append("Release risk is elevated: resolve validation blockers as soon as possible.")
+    if requires_signoff:
+        required_actions.append("Obtain human engineering signoff before release.")
 
     return {
         "ok": True,
@@ -620,11 +626,7 @@ def apply_risk_gates(constraint_sheet: dict[str, Any], validation_report: dict[s
         "requires_signoff": requires_signoff,
         "blocked": blocked,
         "gate_decision": gate_decision,
-        "required_actions": (
-            ["Resolve all blockers before release."] if blocked else []
-        ) + (
-            ["Obtain human engineering signoff before release."] if requires_signoff else []
-        ),
+        "required_actions": required_actions,
     }
 
 

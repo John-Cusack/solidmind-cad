@@ -18,7 +18,7 @@ It uses deterministic spec flow, ME archetypes, constraint templates, and a sour
 Before geometry, the system builds a concrete list of requirements: function, materials, dimensions, interfaces, tolerances, manufacturing constraints, and risks.
 
 4. Validate before building.
-The ME loop runs deterministic checks, creates traceability, and applies risk gates so unresolved blockers are visible.
+The ME loop runs deterministic checks, creates traceability, and emits risk notices so unresolved issues are visible without hard blocking generation.
 
 5. Build to the constraints.
 For constrained workflows, the CAD flow executes `cad.*` operations after spec and ME preflight; for fast iteration, live `cad.*` co-pilot operation is also available directly.
@@ -35,10 +35,10 @@ flowchart TD
     F --> G[Match request to relevant engineering domain pattern<br/>Why: apply domain-specific thinking early]
     G --> H[Create a structured constraint sheet<br/>Why: design against real limits like loads materials tolerances and process constraints]
     H --> I[Validate constraints build traceability and assess risk<br/>Why: catch failures early and justify decisions]
-    I --> J{Are key unknowns resolved and risk acceptable?<br/>Why: prevent unsafe or low-confidence design progression}
-    J -->|No| K[Ask targeted follow-up questions and update constraints<br/>Why: close gaps instead of guessing]
+    I --> J{Are key unknowns or risks still present?<br/>Why: surface uncertainty while still allowing iteration}
+    J -->|Yes| K[Ask targeted follow-up questions and update constraints<br/>Why: close gaps instead of guessing]
     K --> F
-    J -->|Yes| C
+    J -->|No| C
     D --> L[Deliver final outputs<br/>Why: provide production-ready CAD files and vendor-facing summary]
 ```
 
@@ -57,7 +57,11 @@ flowchart LR
 1. Live CAD co-pilot in FreeCAD (`cad.*` tools).
 2. Manufacturing readiness and RFQ export (`mfg.*` tools).
 3. LLM-managed spec interview and finalization (`spec.*` tools).
-4. ME preflight design loop (`me.*` tools) with routing, constraints, validation, traceability, and risk gates.
+4. ME preflight design loop (`me.*` tools) with routing, constraints, validation, traceability, and risk notices.
+
+Current policy:
+- Coverage and ME risk outputs are notify-only by default.
+- Geometry generation continues while warnings/required actions are returned for review.
 
 ## Requirements
 
@@ -113,5 +117,6 @@ python3 scripts/freecad_from_spec.py --spec examples/print_3d/L2.json --out /tmp
 ## Documentation
 
 - `ARCHITECTURE.md`: system architecture and protocol surface
+- `GENERIC_GEOMETRY_ENGINE_ARCHITECTURE.md`: target architecture for a richer generic requirements-to-geometry engine
 - `ME_IMPLEMENTATION_GUIDE.md`: ME design-loop implementation details
-- `SPEC_GUIDE.md`: spec interview model and sufficiency gates
+- `SPEC_GUIDE.md`: spec interview model and sufficiency guidance

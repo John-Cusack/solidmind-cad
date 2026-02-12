@@ -768,27 +768,15 @@ def spec_generate_cad(
     threshold = float(COVERAGE_THRESHOLDS.get(maturity, 1.0))
     design_gate = _assess_design_path(spec)
 
-    # Precondition 2: coverage above maturity threshold
-    if coverage < threshold and bool(design_gate.get("requires_full_spec", True)):
-        errors.append(
-            _tool_error(
-                "INSUFFICIENT_COVERAGE",
-                f"Coverage {coverage:.0%} is below {maturity} threshold {threshold:.0%}.",
-                details={
-                    "coverage_score": coverage,
-                    "threshold": threshold,
-                    "maturity_level": maturity,
-                    "design_path": design_gate.get("design_path"),
-                    "reason_codes": list(design_gate.get("reason_codes", [])),
-                },
-            ).to_dict()
-        )
-        return {"file_path": None, "cad_data": None, "metadata": {}, "warnings": [], "errors": errors}
-    if coverage < threshold and not bool(design_gate.get("requires_full_spec", True)):
+    # Precondition 2: coverage threshold is notify-only (never blocks generation).
+    if coverage < threshold:
+        mode = "spec_driven" if bool(design_gate.get("requires_full_spec", True)) else "basic_box"
+        reasons = list(design_gate.get("reason_codes", []))
+        reason_text = f" reason_codes={','.join(reasons)}" if reasons else ""
         precondition_warnings.append(
             (
-                f"Coverage {coverage:.0%} is below {maturity} threshold {threshold:.0%}, "
-                "but basic_box path allows generation."
+                f"Coverage {coverage:.0%} is below {maturity} threshold {threshold:.0%}; "
+                f"proceeding in notify-only mode on design_path={mode}.{reason_text}"
             )
         )
 
@@ -809,7 +797,13 @@ def spec_generate_cad(
                     details={"expected": expected_hash, "actual": actual_hash},
                 ).to_dict()
             )
-            return {"file_path": None, "cad_data": None, "metadata": {}, "warnings": [], "errors": errors}
+            return {
+                "file_path": None,
+                "cad_data": None,
+                "metadata": {},
+                "warnings": precondition_warnings,
+                "errors": errors,
+            }
 
     # Lazy import to avoid pulling cadquery at module level
     from server.cad_gen import generate
@@ -820,13 +814,31 @@ def spec_generate_cad(
         result = generate(spec, output_format, resolved_path, opts)
     except RuntimeError as e:
         errors.append(_tool_error("CAD_UNAVAILABLE", str(e)).to_dict())
-        return {"file_path": None, "cad_data": None, "metadata": {}, "warnings": [], "errors": errors}
+        return {
+            "file_path": None,
+            "cad_data": None,
+            "metadata": {},
+            "warnings": precondition_warnings,
+            "errors": errors,
+        }
     except ValueError as e:
         errors.append(_tool_error("INVALID_INPUT", str(e)).to_dict())
-        return {"file_path": None, "cad_data": None, "metadata": {}, "warnings": [], "errors": errors}
+        return {
+            "file_path": None,
+            "cad_data": None,
+            "metadata": {},
+            "warnings": precondition_warnings,
+            "errors": errors,
+        }
     except Exception as e:
         errors.append(_tool_error("INTERNAL_ERROR", f"CAD generation failed: {e}").to_dict())
-        return {"file_path": None, "cad_data": None, "metadata": {}, "warnings": [], "errors": errors}
+        return {
+            "file_path": None,
+            "cad_data": None,
+            "metadata": {},
+            "warnings": precondition_warnings,
+            "errors": errors,
+        }
 
     metadata = dict(result.metadata)
     metadata["design_path"] = design_gate.get("design_path")
