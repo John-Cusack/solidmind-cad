@@ -66,6 +66,48 @@ class TestMainSpecTools(unittest.TestCase):
         self.assertNotIn("_interview", out["spec"])
         self.assertNotIn("_audit", out["spec"])
 
+    def test_call_tool_spec_plan_geometry_with_options(self) -> None:
+        spec = {
+            "meta": {"process": "cnc", "units": "mm"},
+            "part": {"envelope": {"x": 100, "y": 50, "z": 20}},
+            "geometry": {},
+        }
+        out = mcp_main._call_tool(
+            "spec.plan_geometry",
+            {"spec": spec, "options": {"planning_mode": "policy_v1"}},
+        )
+        self.assertIn("gir", out)
+        self.assertIn("eir", out)
+        self.assertIn("planning_plan", out)
+
+    def test_call_tool_spec_generate_cad_policy_v1_metadata(self) -> None:
+        spec = {
+            "meta": {"process": "cnc", "units": "mm", "maturity_level": "L2"},
+            "part": {"envelope": {"x": 100, "y": 50, "z": 20}},
+            "geometry": {
+                "hole_features": [
+                    {
+                        "id": "h1",
+                        "diameter": {"value": 5, "unit": "mm"},
+                        "depth": {"value": 20, "unit": "mm"},
+                    }
+                ]
+            },
+        }
+        out = mcp_main._call_tool(
+            "spec.generate_cad",
+            {
+                "spec": spec,
+                "output_format": "step",
+                "options": {"planning_mode": "policy_v1"},
+            },
+        )
+        self.assertEqual(out["errors"], [])
+        self.assertIn("planning_plan_hash", out["metadata"])
+        self.assertIn("policy_key", out["metadata"])
+        self.assertIn("checkpoint_summary", out["metadata"])
+        self.assertIn("repair_recommendations_present", out["metadata"])
+
 
 if __name__ == "__main__":
     unittest.main()

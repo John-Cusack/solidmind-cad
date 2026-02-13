@@ -243,6 +243,24 @@ class TestE2ECADFlow(unittest.TestCase):
         op_types = [op["op_type"] for op in eir["operations"]]
         self.assertIn("hole", op_types)
 
+    def test_policy_v1_fdm_flow_produces_planning_artifact(self) -> None:
+        spec = {
+            "meta": {"process": "print_3d", "units": "mm"},
+            "part": {"envelope": {"x": 80, "y": 40, "z": 30}},
+            "manufacturing": {
+                "technology": "fdm",
+                "in_house_settings": {
+                    "layer_height_mm": 0.2,
+                    "nozzle_diameter_mm": 0.4,
+                },
+            },
+            "planning": {"max_overhang_angle_deg": 50, "max_bridge_span_mm": 12},
+        }
+        result = plan_geometry(spec, options={"planning_mode": "policy_v1"})
+        self.assertIn("planning_plan", result)
+        self.assertIn("planning_plan_hash", result)
+        self.assertIn("archetype", result)
+
 
 if __name__ == "__main__":
     unittest.main()

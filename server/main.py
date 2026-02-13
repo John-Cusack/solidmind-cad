@@ -242,7 +242,7 @@ def _cad_tool_list() -> list[dict[str, Any]]:
             "name": "cad.revolution",
             "description": (
                 "Revolve a sketch around an axis to create a solid of revolution. "
-                "Creates a PartDesign::Revolution feature."
+                "Creates a PartDesign::Revolution feature, or a PartDesign::Groove (subtractive cut) when subtractive=true."
             ),
             "inputSchema": {
                 "type": "object",
@@ -257,6 +257,7 @@ def _cad_tool_list() -> list[dict[str, Any]]:
                     "angle": {"type": "number", "description": "Revolution angle in degrees", "default": 360.0},
                     "symmetric": {"type": "boolean", "description": "Revolve symmetrically from sketch plane", "default": False},
                     "reversed": {"type": "boolean", "description": "Reverse revolution direction", "default": False},
+                    "subtractive": {"type": "boolean", "description": "If true, create a subtractive revolution (Groove) that cuts material", "default": False},
                     "verify": _VERIFY_PROP,
                     "doc": {"type": "string", "description": "Document name (optional)"},
                 },
@@ -960,6 +961,14 @@ def _spec_tool_list() -> list[dict[str, Any]]:
                 "type": "object",
                 "properties": {
                     "spec": {"type": "object"},
+                    "options": {
+                        "type": "object",
+                        "properties": {
+                            "planning_mode": {"type": "string", "enum": ["legacy", "policy_v1"]},
+                            "strict_mode": {"type": "boolean"},
+                            "question_budget_override": {"type": "integer", "minimum": 0},
+                        },
+                    },
                 },
                 "required": ["spec"],
                 "additionalProperties": False,
@@ -1061,9 +1070,8 @@ def _knowledge_tool_list() -> list[dict[str, Any]]:
             "name": "knowledge.ingest",
             "description": (
                 "Submit a file OR directory for ingestion into the knowledge base. "
-                "Single files return a task_id. Directories are walked recursively "
-                "for PDF/DOCX/MD files — returns a list of task_ids. "
-                "Use knowledge.ingest_status to poll completion."
+                "Ingestion is synchronous and in-process (no polling needed). "
+                "Directories are walked recursively for PDF/DOCX/MD files."
             ),
             "inputSchema": {
                 "type": "object",
@@ -1083,7 +1091,7 @@ def _knowledge_tool_list() -> list[dict[str, Any]]:
             "name": "knowledge.ingest_status",
             "description": (
                 "Poll ingestion status for one or more task IDs. "
-                "Returns status (processing/complete/failed) and document metadata when done."
+                "Ingestion is now synchronous, so this always returns 'complete'."
             ),
             "inputSchema": {
                 "type": "object",
@@ -1103,7 +1111,7 @@ def _knowledge_tool_list() -> list[dict[str, Any]]:
             "description": (
                 "Semantic search across all ingested docs. Returns ranked results "
                 "with source, score, and relevant chunks. Falls back to listing "
-                "local me_knowledge/notes/ files when OpenRAG is unavailable."
+                "local me_knowledge/notes/ files when the knowledge store is unavailable."
             ),
             "inputSchema": {
                 "type": "object",
@@ -1118,7 +1126,7 @@ def _knowledge_tool_list() -> list[dict[str, Any]]:
         },
         {
             "name": "knowledge.status",
-            "description": "Check OpenRAG health, document count, index info.",
+            "description": "Check knowledge store health, document count, index info.",
             "inputSchema": {
                 "type": "object",
                 "additionalProperties": False,

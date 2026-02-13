@@ -395,5 +395,29 @@ class TestSweepLoftEIRGeneration(unittest.TestCase):
             self.assertIn(sid, loft_op.depends_on)
 
 
+class TestPolicyV1PlanningMode(unittest.TestCase):
+    def test_policy_v1_returns_phase_metadata(self) -> None:
+        spec = {
+            "meta": {"process": "cnc", "units": "mm"},
+            "part": {"envelope": {"x": 120, "y": 60, "z": 20}},
+            "geometry": {
+                "hole_features": [
+                    {
+                        "id": "h1",
+                        "diameter": {"value": 5, "unit": "mm"},
+                        "depth": {"value": 20, "unit": "mm"},
+                    },
+                ],
+            },
+        }
+        result = plan_geometry(spec, options={"planning_mode": "policy_v1"})
+        self.assertIn("planning_plan", result)
+        self.assertIn("planning_plan_hash", result)
+        self.assertIn("policy_key", result)
+        self.assertLessEqual(len(result["question_budget"]["questions_asked"]), 2)
+        ops = result["eir"]["operations"]
+        self.assertTrue(any("phase_id" in op for op in ops))
+
+
 if __name__ == "__main__":
     unittest.main()

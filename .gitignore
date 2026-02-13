@@ -210,3 +210,6 @@ __marimo__/
 me_knowledge/corpus/raw/
 me_knowledge/corpus/text/
 me_knowledge/corpus/index.json
+
+# LanceDB knowledge store (local embeddings + chunks)
+me_knowledge/lancedb/

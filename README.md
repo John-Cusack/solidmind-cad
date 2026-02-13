@@ -63,6 +63,56 @@ Current policy:
 - Coverage and ME risk outputs are notify-only by default.
 - Geometry generation continues while warnings/required actions are returned for review.
 
+## Policy-Driven Planning (V1)
+
+The geometry pipeline now supports an opt-in policy layer between spec input and GIR/EIR generation.
+
+- Default mode: `legacy` (existing behavior).
+- New mode: `policy_v1` (process/archetype-aware planning).
+- V1 process scope: CNC + FDM.
+- V1 policy keys:
+  - `cnc_prismatic`
+  - `cnc_revolved`
+  - `fdm_prismatic`
+  - `fdm_thin_wall`
+
+In `policy_v1`, planning includes deterministic phase/checkpoint planning:
+- `BASE`
+- `INTERFACES`
+- `STRUCTURE`
+- `PATTERNS`
+- `FINISH`
+
+Planning-question budget notes:
+- Default budget is loaded from `feature_support/planning_policy.yml`.
+- The "max 2 questions" rule applies only to planning runs (not the full interview flow).
+
+## Spec Geometry Planning API Notes
+
+`spec.plan_geometry` now accepts optional `options`:
+
+```json
+{
+  "planning_mode": "legacy | policy_v1",
+  "strict_mode": false,
+  "question_budget_override": 2
+}
+```
+
+When `planning_mode=policy_v1`, additional output fields are returned:
+- `planning_plan`
+- `planning_plan_hash`
+- `policy_key`
+- `archetype`
+- `assumptions`
+- `question_budget`
+
+`spec.generate_cad` metadata now includes:
+- `planning_plan_hash`
+- `policy_key`
+- `checkpoint_summary`
+- `repair_recommendations_present`
+
 ## Requirements
 
 - Python `>= 3.12`
@@ -88,6 +138,12 @@ Run unit tests:
 python3 -m unittest
 ```
 
+Replay a golden transcript:
+
+```bash
+python3 scripts/replay_transcript.py tests/transcripts/cnc_L2.yml
+```
+
 ## ME Design Loop Quick Flow
 
 Typical sequence:
@@ -103,3 +159,7 @@ Use `me.list_validators` to discover available validators and what fields they r
 ## Documentation
 
 - `ARCHITECTURE.md`: system architecture and protocol surface
+- `docs/adr/0001-runtime-module-contracts.md`: runtime module/source-of-truth contract
+- `SPEC_GUIDE.md`: spec structure and interview/finalization guidance
+- `schemas/planning_policy.schema.json`: planning policy contract
+- `schemas/planning_plan.schema.json`: planning artifact contract

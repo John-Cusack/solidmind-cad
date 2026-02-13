@@ -8,6 +8,14 @@ from typing import Any
 import yaml
 
 from server.paths import repo_root
+from server.planning_types import (
+    PlanningCheckpoint,
+    PlanningPolicy,
+    PlanningPolicyConstraint,
+    PlanningPolicyManifest,
+    PlanningPolicyPhase,
+    PlanningPolicyRepairPlaybook,
+)
 
 
 VALID_STATUS = {"Yes", "Partial", "No"}
@@ -448,6 +456,8 @@ class Thresholds:
     feature_remove_angle_max_deg: float
     overhang_angle_max_deg: float | None = None
     bridge_length_max_mm: float | None = None
+    pocket_depth_ratio_max: float | None = None
+    hole_depth_ratio_max: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -534,6 +544,8 @@ def load_verification_policy(policy_path: Path | None = None) -> VerificationMan
                 ),
                 overhang_angle_max_deg=thresholds_data.get("overhang_angle_max_deg"),
                 bridge_length_max_mm=thresholds_data.get("bridge_length_max_mm"),
+                pocket_depth_ratio_max=thresholds_data.get("pocket_depth_ratio_max"),
+                hole_depth_ratio_max=thresholds_data.get("hole_depth_ratio_max"),
             )
         except (ValueError, TypeError) as e:
             raise ValueError(f"Policy {policy_key} has invalid thresholds: {e}") from e
@@ -577,4 +589,151 @@ def load_verification_policy(policy_path: Path | None = None) -> VerificationMan
 
     return VerificationManifest(
         version=version, policies=policies, notice_severity_mapping=severity_mapping
+    )
+
+
+def load_planning_policy(policy_path: Path | None = None) -> PlanningPolicyManifest:
+    """Load planning policy manifest from YAML."""
+    if policy_path is None:
+        policy_path = repo_root() / "feature_support" / "planning_policy.yml"
+
+    data = yaml.safe_load(policy_path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise ValueError(f"Planning policy must be a mapping: {policy_path}")
+
+    version = data.get("version")
+    if not isinstance(version, str):
+        raise ValueError("Planning policy missing 'version' field")
+
+    default_question_budget = data.get("default_question_budget", 2)
+    if isinstance(default_question_budget, bool) or not isinstance(default_question_budget, int):
+        raise ValueError("Planning policy default_question_budget must be an integer")
+
+    policies_data = data.get("policies")
+    if not isinstance(policies_data, dict):
+        raise ValueError("Planning policy missing 'policies' field")
+
+    policies: dict[str, PlanningPolicy] = {}
+    for policy_key in sorted(policies_data.keys()):
+        raw = policies_data[policy_key]
+        if not isinstance(raw, dict):
+            raise ValueError(f"Planning policy '{policy_key}' must be a mapping")
+
+        process = str(raw.get("process", "")).strip()
+        archetype = str(raw.get("archetype", "")).strip()
+        required_parameters = raw.get("required_parameters", [])
+        reference_strategy = raw.get("reference_strategy", {})
+        phase_order = raw.get("phase_order", [])
+        phase_policies_raw = raw.get("phase_policies", {})
+        constraints_raw = raw.get("dfm_constraints", [])
+        playbooks_raw = raw.get("repair_playbooks", [])
+
+        if not process or not archetype:
+            raise ValueError(f"Planning policy '{policy_key}' missing process/archetype")
+        if not isinstance(required_parameters, list):
+            raise ValueError(f"Planning policy '{policy_key}' required_parameters must be a list")
+        if not isinstance(reference_strategy, dict):
+            raise ValueError(f"Planning policy '{policy_key}' reference_strategy must be a mapping")
+        if not isinstance(phase_order, list):
+            raise ValueError(f"Planning policy '{policy_key}' phase_order must be a list")
+        if not isinstance(phase_policies_raw, dict):
+            raise ValueError(f"Planning policy '{policy_key}' phase_policies must be a mapping")
+        if not isinstance(constraints_raw, list):
+            raise ValueError(f"Planning policy '{policy_key}' dfm_constraints must be a list")
+        if not isinstance(playbooks_raw, list):
+            raise ValueError(f"Planning policy '{policy_key}' repair_playbooks must be a list")
+
+        phase_policies: dict[str, PlanningPolicyPhase] = {}
+        for phase_id in sorted(phase_policies_raw.keys()):
+            phase_raw = phase_policies_raw[phase_id]
+            if not isinstance(phase_raw, dict):
+                raise ValueError(
+                    f"Planning policy '{policy_key}' phase '{phase_id}' must be a mapping"
+                )
+            checkpoints_raw = phase_raw.get("checkpoints", [])
+            if not isinstance(checkpoints_raw, list):
+                raise ValueError(
+                    f"Planning policy '{policy_key}' phase '{phase_id}' checkpoints must be a list"
+                )
+            checkpoints: list[PlanningCheckpoint] = []
+            for cp in checkpoints_raw:
+                if not isinstance(cp, dict):
+                    raise ValueError(
+                        f"Planning policy '{policy_key}' phase '{phase_id}' checkpoint must be an object"
+                    )
+                checkpoint_id = str(cp.get("checkpoint_id", "")).strip()
+                validations = cp.get("validations", [])
+                if not checkpoint_id:
+                    raise ValueError(
+                        f"Planning policy '{policy_key}' phase '{phase_id}' checkpoint missing checkpoint_id"
+                    )
+                if not isinstance(validations, list):
+                    raise ValueError(
+                        f"Planning policy '{policy_key}' phase '{phase_id}' validations must be a list"
+                    )
+                checkpoints.append(
+                    PlanningCheckpoint(
+                        checkpoint_id=checkpoint_id,
+                        validations=[str(v) for v in validations],
+                    )
+                )
+
+            phase_policies[phase_id] = PlanningPolicyPhase(
+                phase_id=phase_id,
+                checkpoints=checkpoints,
+            )
+
+        constraints: list[PlanningPolicyConstraint] = []
+        for row in constraints_raw:
+            if not isinstance(row, dict):
+                raise ValueError(f"Planning policy '{policy_key}' constraint must be an object")
+            constraints.append(
+                PlanningPolicyConstraint(
+                    constraint_id=str(row.get("id", "")),
+                    severity=str(row.get("severity", "")),
+                    metric=str(row.get("metric", "")),
+                    operator=str(row.get("operator", "")),
+                    value=float(row["value"]) if "value" in row and row.get("value") is not None else None,
+                    min_value=float(row["min"]) if "min" in row and row.get("min") is not None else None,
+                    max_value=float(row["max"]) if "max" in row and row.get("max") is not None else None,
+                    rationale=str(row.get("rationale", "")),
+                    playbook_id=str(row.get("playbook_id")) if row.get("playbook_id") is not None else None,
+                )
+            )
+
+        playbooks: list[PlanningPolicyRepairPlaybook] = []
+        for row in playbooks_raw:
+            if not isinstance(row, dict):
+                raise ValueError(f"Planning policy '{policy_key}' playbook must be an object")
+            pid = str(row.get("id", "")).strip()
+            trigger = str(row.get("trigger", "")).strip()
+            steps = row.get("steps", [])
+            if not pid or not trigger or not isinstance(steps, list):
+                raise ValueError(
+                    f"Planning policy '{policy_key}' playbook must include id/trigger/steps"
+                )
+            playbooks.append(
+                PlanningPolicyRepairPlaybook(
+                    playbook_id=pid,
+                    trigger=trigger,
+                    steps=[str(s) for s in steps],
+                )
+            )
+
+        policies[policy_key] = PlanningPolicy(
+            key=policy_key,
+            process=process,
+            archetype=archetype,
+            required_parameters=[dict(p) for p in required_parameters if isinstance(p, dict)],
+            reference_strategy=dict(reference_strategy),
+            phase_order=[str(p) for p in phase_order],
+            phase_policies=phase_policies,
+            dfm_constraints=constraints,
+            repair_playbooks=playbooks,
+        )
+
+    return PlanningPolicyManifest(
+        version=version,
+        default_question_budget=default_question_budget,
+        policies=policies,
     )

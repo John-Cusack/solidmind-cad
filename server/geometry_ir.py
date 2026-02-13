@@ -89,6 +89,9 @@ class PrimitiveIntent:
     frame_id: str | None = None
     traces_to: list[str] = field(default_factory=list)
     x_freecad: dict[str, Any] | None = None
+    phase_id: str | None = None
+    reference_support_type: str | None = None
+    topology_sensitive: bool | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -101,6 +104,9 @@ class SketchProfileIntent:
     frame_id: str | None = None
     traces_to: list[str] = field(default_factory=list)
     x_freecad: dict[str, Any] | None = None
+    phase_id: str | None = None
+    reference_support_type: str | None = None
+    topology_sensitive: bool | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -114,6 +120,9 @@ class ExtrudeIntent:
     frame_id: str | None = None
     traces_to: list[str] = field(default_factory=list)
     x_freecad: dict[str, Any] | None = None
+    phase_id: str | None = None
+    reference_support_type: str | None = None
+    topology_sensitive: bool | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -128,6 +137,9 @@ class RevolveIntent:
     frame_id: str | None = None
     traces_to: list[str] = field(default_factory=list)
     x_freecad: dict[str, Any] | None = None
+    phase_id: str | None = None
+    reference_support_type: str | None = None
+    topology_sensitive: bool | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -143,6 +155,9 @@ class HoleIntent:
     frame_id: str | None = None
     traces_to: list[str] = field(default_factory=list)
     x_freecad: dict[str, Any] | None = None
+    phase_id: str | None = None
+    reference_support_type: str | None = None
+    topology_sensitive: bool | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -159,6 +174,9 @@ class PatternIntent:
     frame_id: str | None = None
     traces_to: list[str] = field(default_factory=list)
     x_freecad: dict[str, Any] | None = None
+    phase_id: str | None = None
+    reference_support_type: str | None = None
+    topology_sensitive: bool | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -171,6 +189,9 @@ class SweepIntent:
     frame_id: str | None = None
     traces_to: list[str] = field(default_factory=list)
     x_freecad: dict[str, Any] | None = None
+    phase_id: str | None = None
+    reference_support_type: str | None = None
+    topology_sensitive: bool | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -184,6 +205,9 @@ class LoftIntent:
     frame_id: str | None = None
     traces_to: list[str] = field(default_factory=list)
     x_freecad: dict[str, Any] | None = None
+    phase_id: str | None = None
+    reference_support_type: str | None = None
+    topology_sensitive: bool | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -197,6 +221,9 @@ class BlendIntent:
     frame_id: str | None = None
     traces_to: list[str] = field(default_factory=list)
     x_freecad: dict[str, Any] | None = None
+    phase_id: str | None = None
+    reference_support_type: str | None = None
+    topology_sensitive: bool | None = None
 
 
 FeatureIntent = (
@@ -236,6 +263,9 @@ class CompiledOp:
     retry_policy: dict[str, Any] | None = None
     local_frame: str | None = None
     feature_provenance_id: str | None = None
+    phase_id: str | None = None
+    reference_support_type: str | None = None
+    topology_sensitive: bool | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -304,6 +334,9 @@ def _normalize_feature_intent(
         "type": feature.type,
         "frame_id": feature.frame_id,
         "traces_to": sorted(feature.traces_to),
+        "phase_id": feature.phase_id,
+        "reference_support_type": feature.reference_support_type,
+        "topology_sensitive": feature.topology_sensitive,
     }
     if feature.x_freecad:
         base_data["x_freecad"] = feature.x_freecad
@@ -387,6 +420,9 @@ def _normalize_compiled_op(op: CompiledOp, precision: int = 10) -> dict[str, Any
         "retry_policy": op.retry_policy,
         "local_frame": op.local_frame,
         "feature_provenance_id": op.feature_provenance_id,
+        "phase_id": op.phase_id,
+        "reference_support_type": op.reference_support_type,
+        "topology_sensitive": op.topology_sensitive,
     }
 
 
@@ -456,6 +492,9 @@ class GIRBuilder:
         frame_id: str | None = None,
         traces_to: list[str] | None = None,
         x_freecad: dict[str, Any] | None = None,
+        phase_id: str | None = None,
+        reference_support_type: str | None = None,
+        topology_sensitive: bool | None = None,
     ) -> PrimitiveIntent:
         feature_id = f"F{self._feature_counter}"
         self._feature_counter += 1
@@ -466,6 +505,9 @@ class GIRBuilder:
             frame_id=frame_id,
             traces_to=traces_to or [],
             x_freecad=x_freecad,
+            phase_id=phase_id,
+            reference_support_type=reference_support_type,
+            topology_sensitive=topology_sensitive,
         )
         self._features.append(primitive)
         return primitive
@@ -478,6 +520,9 @@ class GIRBuilder:
         frame_id: str | None = None,
         traces_to: list[str] | None = None,
         x_freecad: dict[str, Any] | None = None,
+        phase_id: str | None = None,
+        reference_support_type: str | None = None,
+        topology_sensitive: bool | None = None,
     ) -> SketchProfileIntent:
         feature_id = f"F{self._feature_counter}"
         self._feature_counter += 1
@@ -489,6 +534,9 @@ class GIRBuilder:
             frame_id=frame_id,
             traces_to=traces_to or [],
             x_freecad=x_freecad,
+            phase_id=phase_id,
+            reference_support_type=reference_support_type,
+            topology_sensitive=topology_sensitive,
         )
         self._features.append(sketch)
         return sketch
@@ -502,6 +550,9 @@ class GIRBuilder:
         frame_id: str | None = None,
         traces_to: list[str] | None = None,
         x_freecad: dict[str, Any] | None = None,
+        phase_id: str | None = None,
+        reference_support_type: str | None = None,
+        topology_sensitive: bool | None = None,
     ) -> ExtrudeIntent:
         feature_id = f"F{self._feature_counter}"
         self._feature_counter += 1
@@ -514,6 +565,9 @@ class GIRBuilder:
             frame_id=frame_id,
             traces_to=traces_to or [],
             x_freecad=x_freecad,
+            phase_id=phase_id,
+            reference_support_type=reference_support_type,
+            topology_sensitive=topology_sensitive,
         )
         self._features.append(extrude)
         return extrude
@@ -529,6 +583,9 @@ class GIRBuilder:
         frame_id: str | None = None,
         traces_to: list[str] | None = None,
         x_freecad: dict[str, Any] | None = None,
+        phase_id: str | None = None,
+        reference_support_type: str | None = None,
+        topology_sensitive: bool | None = None,
     ) -> HoleIntent:
         feature_id = f"F{self._feature_counter}"
         self._feature_counter += 1
@@ -543,6 +600,9 @@ class GIRBuilder:
             frame_id=frame_id,
             traces_to=traces_to or [],
             x_freecad=x_freecad,
+            phase_id=phase_id,
+            reference_support_type=reference_support_type,
+            topology_sensitive=topology_sensitive,
         )
         self._features.append(hole)
         return hole
@@ -557,6 +617,9 @@ class GIRBuilder:
         frame_id: str | None = None,
         traces_to: list[str] | None = None,
         x_freecad: dict[str, Any] | None = None,
+        phase_id: str | None = None,
+        reference_support_type: str | None = None,
+        topology_sensitive: bool | None = None,
     ) -> RevolveIntent:
         feature_id = f"F{self._feature_counter}"
         self._feature_counter += 1
@@ -570,6 +633,9 @@ class GIRBuilder:
             frame_id=frame_id,
             traces_to=traces_to or [],
             x_freecad=x_freecad,
+            phase_id=phase_id,
+            reference_support_type=reference_support_type,
+            topology_sensitive=topology_sensitive,
         )
         self._features.append(revolve)
         return revolve
@@ -582,6 +648,9 @@ class GIRBuilder:
         frame_id: str | None = None,
         traces_to: list[str] | None = None,
         x_freecad: dict[str, Any] | None = None,
+        phase_id: str | None = None,
+        reference_support_type: str | None = None,
+        topology_sensitive: bool | None = None,
     ) -> SweepIntent:
         feature_id = f"F{self._feature_counter}"
         self._feature_counter += 1
@@ -593,6 +662,9 @@ class GIRBuilder:
             frame_id=frame_id,
             traces_to=traces_to or [],
             x_freecad=x_freecad,
+            phase_id=phase_id,
+            reference_support_type=reference_support_type,
+            topology_sensitive=topology_sensitive,
         )
         self._features.append(sweep)
         return sweep
@@ -606,6 +678,9 @@ class GIRBuilder:
         frame_id: str | None = None,
         traces_to: list[str] | None = None,
         x_freecad: dict[str, Any] | None = None,
+        phase_id: str | None = None,
+        reference_support_type: str | None = None,
+        topology_sensitive: bool | None = None,
     ) -> LoftIntent:
         feature_id = f"F{self._feature_counter}"
         self._feature_counter += 1
@@ -618,6 +693,9 @@ class GIRBuilder:
             frame_id=frame_id,
             traces_to=traces_to or [],
             x_freecad=x_freecad,
+            phase_id=phase_id,
+            reference_support_type=reference_support_type,
+            topology_sensitive=topology_sensitive,
         )
         self._features.append(loft)
         return loft
@@ -634,6 +712,9 @@ class GIRBuilder:
         frame_id: str | None = None,
         traces_to: list[str] | None = None,
         x_freecad: dict[str, Any] | None = None,
+        phase_id: str | None = None,
+        reference_support_type: str | None = None,
+        topology_sensitive: bool | None = None,
     ) -> PatternIntent:
         feature_id = f"F{self._feature_counter}"
         self._feature_counter += 1
@@ -649,6 +730,9 @@ class GIRBuilder:
             frame_id=frame_id,
             traces_to=traces_to or [],
             x_freecad=x_freecad,
+            phase_id=phase_id,
+            reference_support_type=reference_support_type,
+            topology_sensitive=topology_sensitive,
         )
         self._features.append(pattern)
         return pattern
@@ -662,6 +746,9 @@ class GIRBuilder:
         frame_id: str | None = None,
         traces_to: list[str] | None = None,
         x_freecad: dict[str, Any] | None = None,
+        phase_id: str | None = None,
+        reference_support_type: str | None = None,
+        topology_sensitive: bool | None = None,
     ) -> BlendIntent:
         feature_id = f"F{self._feature_counter}"
         self._feature_counter += 1
@@ -674,6 +761,9 @@ class GIRBuilder:
             frame_id=frame_id,
             traces_to=traces_to or [],
             x_freecad=x_freecad,
+            phase_id=phase_id,
+            reference_support_type=reference_support_type,
+            topology_sensitive=topology_sensitive,
         )
         self._features.append(blend)
         return blend
@@ -706,6 +796,9 @@ class EIRBuilder:
         retry_policy: dict[str, Any] | None = None,
         local_frame: str | None = None,
         feature_provenance_id: str | None = None,
+        phase_id: str | None = None,
+        reference_support_type: str | None = None,
+        topology_sensitive: bool | None = None,
     ) -> CompiledOp:
         op_id = f"OP{self._op_counter}"
         self._op_counter += 1
@@ -718,6 +811,9 @@ class EIRBuilder:
             retry_policy=retry_policy,
             local_frame=local_frame,
             feature_provenance_id=feature_provenance_id,
+            phase_id=phase_id,
+            reference_support_type=reference_support_type,
+            topology_sensitive=topology_sensitive,
         )
         self._operations.append(op)
         if op.depends_on:

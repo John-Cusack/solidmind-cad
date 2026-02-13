@@ -258,5 +258,74 @@ class TestInternalRadius(unittest.TestCase):
         self.assertTrue(len(failed) > 0)
 
 
+class TestCncDepthRatioChecks(unittest.TestCase):
+    """Test CNC-specific depth ratio checks."""
+
+    def test_pocket_depth_ratio_fails_above_threshold(self) -> None:
+        spec = {
+            "process": "cnc",
+            "geometry": {
+                "pocket_features": [
+                    {
+                        "depth": {"value": 25, "unit": "mm"},
+                        "width": {"value": 5, "unit": "mm"},
+                    }
+                ]
+            },
+        }
+        trace = _make_trace([("pad", "completed")])
+        gir = _make_gir()
+        engine = VerificationEngine()
+        report = engine.verify(trace, gir, spec)
+
+        checks = [r for r in report.results if r.check_type == "pocket_depth_ratio"]
+        self.assertTrue(checks)
+        self.assertTrue(any(not r.passed for r in checks))
+
+    def test_hole_depth_ratio_fails_above_threshold(self) -> None:
+        spec = {"process": "cnc"}
+        trace = _make_trace([("pad", "completed")])
+        gir = _make_gir(holes=[0.5])  # depth=10 -> ratio=20
+        engine = VerificationEngine()
+        report = engine.verify(trace, gir, spec)
+
+        checks = [r for r in report.results if r.check_type == "hole_depth_ratio"]
+        self.assertTrue(checks)
+        self.assertTrue(any(not r.passed for r in checks))
+
+
+class TestFdmOverhangBridgeChecks(unittest.TestCase):
+    """Test FDM overhang and bridge checks."""
+
+    _PLA_SPEC_BASE: dict = {
+        "process": "print_3d",
+        "material": {"family": "pla"},
+    }
+
+    def test_overhang_angle_fails_above_threshold(self) -> None:
+        spec = dict(self._PLA_SPEC_BASE)
+        spec["planning"] = {"max_overhang_angle_deg": 60}
+        trace = _make_trace([("pad", "completed")])
+        gir = _make_gir()
+        engine = VerificationEngine()
+        report = engine.verify(trace, gir, spec)
+
+        checks = [r for r in report.results if r.check_type == "overhang_angle"]
+        self.assertTrue(checks)
+        self.assertTrue(any(not r.passed for r in checks))
+
+    def test_bridge_span_fails_above_threshold(self) -> None:
+        spec = dict(self._PLA_SPEC_BASE)
+        spec["planning"] = {"max_bridge_span_mm": 15}
+        trace = _make_trace([("pad", "completed")])
+        gir = _make_gir()
+        engine = VerificationEngine()
+        report = engine.verify(trace, gir, spec)
+
+        checks = [r for r in report.results if r.check_type == "bridge_span"]
+        self.assertTrue(checks)
+        self.assertTrue(any(not r.passed for r in checks))
+
+
 if __name__ == "__main__":
     unittest.main()

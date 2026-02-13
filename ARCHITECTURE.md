@@ -5,6 +5,19 @@
 SolidMind CAD is a **FreeCAD co-pilot** powered by MCP (Model Context Protocol).
 It operates in two modes:
 
+### Runtime Source Of Truth
+
+The active runtime modules for planning/verification are:
+- `server/geometry_planning.py` (legacy + `policy_v1` planning path)
+- `server/me_orchestrator.py` (deterministic ME validators/traceability/risk gates)
+- `feature_support/geometry_capabilities.yml`
+- `feature_support/verification_policy.yml`
+- `feature_support/planning_policy.yml`
+
+Historical references in some design documents to registry modules such as
+`server/me_registry.py` and `me_knowledge/index.yml` are not active runtime
+dependencies in the current codebase.
+
 ### Primary Mode: Live CAD Co-pilot
 
 The LLM drives FreeCAD's PartDesign workbench directly through MCP tools while

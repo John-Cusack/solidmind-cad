@@ -2,10 +2,10 @@
 
 Three interaction modes:
   A. Extract — parse a file and return text immediately (no indexing).
-  B. Ingest  — submit file(s) for async indexing; poll with ingest_status.
-  C. Search  — semantic search across all ingested documents.
+  B. Ingest  — extract + chunk + embed + store (synchronous, in-process).
+  C. Search  — hybrid search (vector + FTS) across all ingested documents.
 
-Falls back to local ``me_knowledge/notes/`` listing when OpenRAG is unavailable.
+Falls back to local ``me_knowledge/notes/`` listing when LanceDB is unavailable.
 """
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from server.openrag_client import get_openrag_client
+from server.knowledge_store import get_knowledge_store
 
 logger = logging.getLogger("solidmind.tools_knowledge")
 
@@ -37,15 +37,15 @@ def _local_note_listing() -> list[str]:
 
 def knowledge_extract(*, file_path: str) -> dict[str, Any]:
     """Parse a file via Docling and return extracted text. No indexing."""
-    client = get_openrag_client()
-    if client is None:
+    store = get_knowledge_store()
+    if store is None:
         return {
             "ok": False,
             "error": {
-                "code": "openrag_unavailable",
+                "code": "store_unavailable",
                 "message": (
-                    "OpenRAG is not configured. Set OPENRAG_URL to enable "
-                    "document extraction, or read the file directly."
+                    "Knowledge store is not available (lancedb/docling not installed). "
+                    "Read the file directly instead."
                 ),
             },
         }
@@ -58,7 +58,7 @@ def knowledge_extract(*, file_path: str) -> dict[str, Any]:
         }
 
     try:
-        result = client.extract_file(p)
+        result = store.extract_file(p)
         return {
             "ok": True,
             "filename": result.filename,
@@ -75,7 +75,7 @@ def knowledge_extract(*, file_path: str) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
-# Mode B — Ingest (async submit + poll)
+# Mode B — Ingest (synchronous — no polling needed)
 # ---------------------------------------------------------------------------
 
 def knowledge_ingest(
@@ -83,18 +83,17 @@ def knowledge_ingest(
     path: str,
     extensions: list[str] | None = None,
 ) -> dict[str, Any]:
-    """Submit a file or directory for ingestion.
+    """Ingest a file or directory into the knowledge store.
 
-    Single files return a ``task_id``. Directories are walked recursively
-    for matching files — returns a list of ``task_id``s.
+    Ingestion is synchronous and in-process — no task_id polling needed.
     """
-    client = get_openrag_client()
-    if client is None:
+    store = get_knowledge_store()
+    if store is None:
         return {
             "ok": False,
             "error": {
-                "code": "openrag_unavailable",
-                "message": "OpenRAG is not configured. Set OPENRAG_URL to enable ingestion.",
+                "code": "store_unavailable",
+                "message": "Knowledge store is not available (lancedb not installed).",
             },
         }
 
@@ -103,20 +102,21 @@ def knowledge_ingest(
 
     if p.is_file():
         try:
-            result = client.ingest_file(p)
+            result = store.ingest_file(p)
             return {
                 "ok": True,
                 "mode": "single",
                 "task_id": result.task_id,
                 "filename": result.filename,
                 "status": result.status,
+                "chunks": result.chunks,
             }
         except Exception as e:
             return {"ok": False, "error": {"code": "ingest_error", "message": str(e)}}
 
     if p.is_dir():
         try:
-            results = client.ingest_directory(p, extensions=exts)
+            results = store.ingest_directory(p, extensions=exts)
             return {
                 "ok": True,
                 "mode": "directory",
@@ -126,6 +126,7 @@ def knowledge_ingest(
                         "task_id": r.task_id,
                         "filename": r.filename,
                         "status": r.status,
+                        "chunks": r.chunks,
                     }
                     for r in results
                 ],
@@ -144,32 +145,20 @@ def knowledge_ingest_status(
     task_ids: list[str] | None = None,
     task_id: str | None = None,
 ) -> dict[str, Any]:
-    """Poll ingestion status for one or more task IDs."""
-    client = get_openrag_client()
-    if client is None:
-        return {
-            "ok": False,
-            "error": {
-                "code": "openrag_unavailable",
-                "message": "OpenRAG is not configured.",
-            },
-        }
-
+    """Return ingestion status — always 'complete' since ingestion is synchronous."""
     ids = task_ids or ([task_id] if task_id else [])
     if not ids:
         return {
             "ok": False,
             "error": {"code": "missing_param", "message": "Provide task_id or task_ids."},
         }
-
-    statuses: list[dict[str, Any]] = []
-    for tid in ids:
-        try:
-            statuses.append(client.ingest_status(tid))
-        except Exception as e:
-            statuses.append({"task_id": tid, "status": "error", "message": str(e)})
-
-    return {"ok": True, "statuses": statuses}
+    return {
+        "ok": True,
+        "statuses": [
+            {"task_id": tid, "status": "complete"}
+            for tid in ids
+        ],
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -182,19 +171,19 @@ def knowledge_search(
     top_k: int = 5,
     filters: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Semantic search across all ingested documents.
+    """Hybrid search across all ingested documents.
 
-    Falls back to listing local ``me_knowledge/notes/`` files when OpenRAG
-    is unavailable — the LLM can then Read the files directly.
+    Falls back to listing local ``me_knowledge/notes/`` files when the
+    knowledge store is unavailable.
     """
-    client = get_openrag_client()
-    if client is None:
+    store = get_knowledge_store()
+    if store is None:
         local_notes = _local_note_listing()
         return {
             "ok": True,
             "source": "local_fallback",
             "message": (
-                "OpenRAG is not configured. Listing local research notes "
+                "Knowledge store is not available. Listing local research notes "
                 "instead — use Read tool to access them."
             ),
             "local_notes": local_notes,
@@ -202,10 +191,10 @@ def knowledge_search(
         }
 
     try:
-        results = client.search(query, top_k=top_k, filters=filters)
+        results = store.search(query, top_k=top_k, filters=filters)
         return {
             "ok": True,
-            "source": "openrag",
+            "source": "lancedb",
             "query": query,
             "result_count": len(results),
             "results": [
@@ -224,7 +213,7 @@ def knowledge_search(
         return {
             "ok": True,
             "source": "local_fallback",
-            "message": f"OpenRAG search failed ({e}). Listing local notes instead.",
+            "message": f"Knowledge search failed ({e}). Listing local notes instead.",
             "local_notes": local_notes,
             "results": [],
         }
@@ -235,35 +224,23 @@ def knowledge_search(
 # ---------------------------------------------------------------------------
 
 def knowledge_status() -> dict[str, Any]:
-    """Check OpenRAG health, document count, index info."""
-    client = get_openrag_client()
-    if client is None:
+    """Check knowledge store health, document count, index info."""
+    store = get_knowledge_store()
+    if store is None:
         local_notes = _local_note_listing()
         return {
             "ok": True,
-            "openrag_available": False,
-            "message": "OpenRAG is not configured. Local notes are available.",
+            "store_available": False,
+            "message": "Knowledge store is not available. Local notes are available.",
             "local_note_count": len(local_notes),
         }
 
-    healthy = client.health_check()
-    if not healthy:
-        return {
-            "ok": True,
-            "openrag_available": False,
-            "message": "OpenRAG is configured but not responding.",
-            "local_note_count": len(_local_note_listing()),
-        }
-
-    try:
-        docs = client.list_documents()
-        doc_count = len(docs)
-    except Exception:
-        doc_count = -1
-
+    store_status = store.status()
     return {
         "ok": True,
-        "openrag_available": True,
-        "document_count": doc_count,
+        "store_available": store_status.get("available", False),
+        "db_path": store_status.get("db_path", ""),
+        "document_count": store_status.get("document_count", 0),
+        "chunk_count": store_status.get("chunk_count", 0),
         "local_note_count": len(_local_note_listing()),
     }

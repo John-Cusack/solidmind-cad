@@ -193,6 +193,7 @@ def cad_revolution(
     angle: float = 360.0,
     symmetric: bool = False,
     reversed: bool = False,
+    subtractive: bool = False,
     verify: bool = True,
     doc: str | None = None,
 ) -> dict[str, Any]:
@@ -204,6 +205,7 @@ def cad_revolution(
         "angle": angle,
         "symmetric": symmetric,
         "reversed": reversed,
+        "subtractive": subtractive,
         "verify": verify,
     }
     if doc is not None:

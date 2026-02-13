@@ -85,6 +85,7 @@ class Executor:
         """
         self._steps = []
         self._notices = []
+        self._metadata = {}
 
         for op in compiled_ops:
             step = self._execute_operation(op, backend)
@@ -97,12 +98,35 @@ class Executor:
             if step.status == "completed" and step.output:
                 self._resolver.register_result(op.id, step.output)
 
+        self._metadata["checkpoint_summary"] = self._build_checkpoint_summary(self._steps)
+
         return ExecutionTrace(
             steps=list(self._steps),
             reference_map=self._resolver.reference_map,
             notices=list(self._notices),
             metadata=dict(self._metadata),
         )
+
+    def _build_checkpoint_summary(self, steps: list[ExecutionStep]) -> dict[str, Any]:
+        """Build deterministic phase/checkpoint telemetry summary."""
+        total_steps = len(steps)
+        failed_steps = sum(1 for s in steps if s.status == "failed")
+        completed_steps = sum(1 for s in steps if s.status == "completed")
+        phase_counts: dict[str, int] = {}
+        topology_sensitive_ops: list[str] = []
+        for step in steps:
+            phase_id = step.op.phase_id or "UNSPECIFIED"
+            phase_counts[phase_id] = phase_counts.get(phase_id, 0) + 1
+            if bool(step.op.topology_sensitive):
+                topology_sensitive_ops.append(step.op.op_type)
+
+        return {
+            "total_steps": total_steps,
+            "completed_steps": completed_steps,
+            "failed_steps": failed_steps,
+            "phase_counts": {k: phase_counts[k] for k in sorted(phase_counts.keys())},
+            "topology_sensitive_ops_touched": sorted(topology_sensitive_ops),
+        }
 
     def _execute_operation(
         self,

@@ -738,18 +738,18 @@ _find_relevant_notes = _find_local_notes
 
 
 def _search_knowledge(query: str) -> dict[str, Any] | None:
-    """Search the OpenRAG knowledge base if available.
+    """Search the knowledge store if available.
 
-    Returns search results dict or ``None`` if OpenRAG is not configured.
+    Returns search results dict or ``None`` if the store is not configured.
     """
     try:
-        from server.openrag_client import get_openrag_client
-        client = get_openrag_client()
-        if client is None:
+        from server.knowledge_store import get_knowledge_store
+        store = get_knowledge_store()
+        if store is None:
             return None
-        results = client.search(query, top_k=3)
+        results = store.search(query, top_k=3)
         return {
-            "source": "openrag",
+            "source": "lancedb",
             "result_count": len(results),
             "results": [
                 {"content": r.content, "source": r.source, "score": r.score}

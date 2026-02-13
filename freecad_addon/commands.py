@@ -10,6 +10,7 @@ imported at module level — this file is only loaded inside FreeCAD.
 from __future__ import annotations
 
 import base64
+import logging
 import math
 import tempfile
 from pathlib import Path
@@ -17,6 +18,8 @@ from typing import Any
 
 import FreeCAD  # type: ignore[import-untyped]
 import Part  # type: ignore[import-untyped]
+
+logger = logging.getLogger("solidmind.commands")
 
 # FreeCADGui may not be available in headless mode (FreeCADCmd).
 try:
@@ -31,16 +34,20 @@ except ImportError:
 
 def new_document(name: str = "Unnamed") -> dict[str, Any]:
     """Create a new FreeCAD document."""
+    logger.info("new_document: name=%s", name)
     doc = FreeCAD.newDocument(name)
     FreeCAD.setActiveDocument(doc.Name)
+    logger.info("new_document: created %s", doc.Name)
     return {"name": doc.Name, "label": doc.Label}
 
 
 def new_body(doc: str | None = None, name: str = "Body") -> dict[str, Any]:
     """Create a PartDesign Body in the given document."""
+    logger.info("new_body: name=%s", name)
     d = _get_doc(doc)
     body = d.addObject("PartDesign::Body", name)
     d.recompute()
+    logger.info("new_body: created %s", body.Name)
     return {"name": body.Name, "label": body.Label}
 
 
@@ -102,6 +109,7 @@ def new_sketch(
     Returns the sketch object name so subsequent sketch_* commands can
     reference it.
     """
+    logger.info("new_sketch: body=%s plane=%s", body, plane)
     d = _get_doc(doc)
     body_obj = d.getObject(body)
     if body_obj is None:
@@ -135,6 +143,7 @@ def new_sketch(
         sketch.MapMode = "FlatFace"
 
     d.recompute()
+    logger.info("new_sketch: created %s", sketch.Name)
     return {"sketch": sketch.Name, "body": body_obj.Name, "plane": plane}
 
 
@@ -382,6 +391,7 @@ def pad(
     doc: str | None = None,
 ) -> dict[str, Any]:
     """Extrude (pad) a sketch."""
+    logger.info("pad: sketch=%s length=%s symmetric=%s reversed=%s", sketch, length, symmetric, reversed)
     d = _get_doc(doc)
     sk = _get_sketch(d, sketch)
 
@@ -394,6 +404,7 @@ def pad(
     pad_obj.Reversed = reversed
 
     result = _recompute_and_check(d, pad_obj, body=body)
+    logger.info("pad: created %s", pad_obj.Name)
     if verify:
         result["verification_images"] = _capture_verification_views(d)
     return result
@@ -411,6 +422,7 @@ def pocket(
 
     ``pocket_type``: "Dimension", "ThroughAll", "ToFirst", "ToLast".
     """
+    logger.info("pocket: sketch=%s length=%s type=%s reversed=%s", sketch, length, pocket_type, reversed)
     d = _get_doc(doc)
     sk = _get_sketch(d, sketch)
 
@@ -424,6 +436,7 @@ def pocket(
     pocket_obj.Reversed = reversed
 
     result = _recompute_and_check(d, pocket_obj, body=body)
+    logger.info("pocket: created %s", pocket_obj.Name)
     if verify:
         result["verification_images"] = _capture_verification_views(d)
     return result
@@ -443,6 +456,7 @@ def hole(
     This creates a sketch with a point on the face, then a PartDesign::Hole
     feature.  ``hole_type``: "Dimension", "ThroughAll".
     """
+    logger.info("hole: face=%s diameter=%s depth=%s type=%s", face, diameter, depth, hole_type)
     d = _get_doc(doc)
 
     body_obj = _resolve_body(d, body)
@@ -470,6 +484,7 @@ def hole(
         hole_obj.DepthType = 0  # Dimension
 
     result = _recompute_and_check(d, hole_obj, body=body_obj)
+    logger.info("hole: created %s", hole_obj.Name)
     if verify:
         result["verification_images"] = _capture_verification_views(d)
     return result
@@ -488,6 +503,7 @@ def fillet(
     If ``selection`` is provided instead of ``edges``, the named selector is
     resolved first and its matched edge names are used.
     """
+    logger.info("fillet: edges=%s radius=%s selection=%s", edges, radius, selection)
     if selection is not None:
         sel_result = resolve_selection(selection, body=body, doc=doc)
         if not sel_result["invariants_ok"]:
@@ -511,6 +527,7 @@ def fillet(
     fillet_obj.Radius = radius
 
     result = _recompute_and_check(d, fillet_obj, body=body_obj)
+    logger.info("fillet: created %s", fillet_obj.Name)
     if verify:
         result["verification_images"] = _capture_verification_views(d)
     return result
@@ -522,6 +539,7 @@ def revolution(
     angle: float = 360.0,
     symmetric: bool = False,
     reversed: bool = False,
+    subtractive: bool = False,
     verify: bool = True,
     doc: str | None = None,
 ) -> dict[str, Any]:
@@ -529,12 +547,17 @@ def revolution(
 
     ``axis``: ``"V"`` (sketch vertical), ``"H"`` (sketch horizontal),
     ``"Base_X"``, ``"Base_Y"``, ``"Base_Z"`` (document origin axes).
+
+    If ``subtractive`` is True, creates a PartDesign::Groove (cut) instead.
     """
+    logger.info("revolution: sketch=%s axis=%s angle=%s symmetric=%s reversed=%s subtractive=%s", sketch, axis, angle, symmetric, reversed, subtractive)
     d = _get_doc(doc)
     sk = _get_sketch(d, sketch)
 
     body = _find_parent_body(d, sk)
-    rev_obj = d.addObject("PartDesign::Revolution", "Revolution")
+    type_id = "PartDesign::Groove" if subtractive else "PartDesign::Revolution"
+    feat_name = "Groove" if subtractive else "Revolution"
+    rev_obj = d.addObject(type_id, feat_name)
     body.addObject(rev_obj)
     rev_obj.Profile = sk
     rev_obj.Angle = angle
@@ -559,6 +582,7 @@ def revolution(
         rev_obj.ReferenceAxis = (axis_obj, [""])
 
     result = _recompute_and_check(d, rev_obj, body=body)
+    logger.info("revolution: created %s", rev_obj.Name)
     if verify:
         result["verification_images"] = _capture_verification_views(d)
     return result
@@ -581,6 +605,7 @@ def polar_pattern(
     or ``"V"``, ``"H"`` (sketch axes of the first feature's sketch).
     ``occurrences``: total number of copies including the original.
     """
+    logger.info("polar_pattern: features=%s axis=%s occurrences=%s angle=%s", features, axis, occurrences, angle)
     d = _get_doc(doc)
     body_obj = _resolve_body(d, body)
 
@@ -624,6 +649,7 @@ def polar_pattern(
         pattern_obj.Axis = (axis_obj, [""])
 
     result = _recompute_and_check(d, pattern_obj, body=body_obj)
+    logger.info("polar_pattern: created %s", pattern_obj.Name)
     if verify:
         result["verification_images"] = _capture_verification_views(d)
     return result
@@ -641,6 +667,7 @@ def sweep(
     Creates a ``PartDesign::AdditivePipe`` (or ``SubtractivePipe`` if
     ``subtractive`` is True).
     """
+    logger.info("sweep: profile=%s spine=%s subtractive=%s", profile_sketch, spine_sketch, subtractive)
     d = _get_doc(doc)
     sk_profile = _get_sketch(d, profile_sketch)
     sk_spine = _get_sketch(d, spine_sketch)
@@ -653,6 +680,7 @@ def sweep(
     pipe_obj.Spine = (sk_spine, ["Edge1"])
 
     result = _recompute_and_check(d, pipe_obj, body=body)
+    logger.info("sweep: created %s", pipe_obj.Name)
     if verify:
         result["verification_images"] = _capture_verification_views(d)
     return result
@@ -682,6 +710,7 @@ def helix(
     ``angle``: taper angle in degrees (0 = straight helix).
     ``growth``: radial growth per revolution in mm (0 = constant radius).
     """
+    logger.info("helix: sketch=%s mode=%s pitch=%s height=%s turns=%s axis=%s", sketch, mode, pitch, height, turns, axis)
     d = _get_doc(doc)
     sk = _get_sketch(d, sketch)
 
@@ -734,6 +763,7 @@ def helix(
         helix_obj.ReferenceAxis = (axis_obj, [""])
 
     result = _recompute_and_check(d, helix_obj, body=body)
+    logger.info("helix: created %s", helix_obj.Name)
     if verify:
         result["verification_images"] = _capture_verification_views(d)
     return result
@@ -755,6 +785,7 @@ def loft(
     ``sketches``: list of sketch names (at least 2). The first sketch is
     the profile; the rest are cross-sections.
     """
+    logger.info("loft: sketches=%s ruled=%s closed=%s subtractive=%s", sketches, ruled, closed, subtractive)
     if len(sketches) < 2:
         raise ValueError("loft requires at least 2 sketches")
 
@@ -771,6 +802,7 @@ def loft(
     loft_obj.Closed = closed
 
     result = _recompute_and_check(d, loft_obj, body=body)
+    logger.info("loft: created %s", loft_obj.Name)
     if verify:
         result["verification_images"] = _capture_verification_views(d)
     return result
@@ -789,6 +821,7 @@ def chamfer(
     If ``selection`` is provided instead of ``edges``, the named selector is
     resolved first and its matched edge names are used.
     """
+    logger.info("chamfer: edges=%s size=%s selection=%s", edges, size, selection)
     if selection is not None:
         sel_result = resolve_selection(selection, body=body, doc=doc)
         if not sel_result["invariants_ok"]:
@@ -811,6 +844,7 @@ def chamfer(
     chamfer_obj.Size = size
 
     result = _recompute_and_check(d, chamfer_obj, body=body_obj)
+    logger.info("chamfer: created %s", chamfer_obj.Name)
     if verify:
         result["verification_images"] = _capture_verification_views(d)
     return result
@@ -1336,6 +1370,8 @@ def _capture_image(
         center[1] + dy * cam_dist,
         center[2] + dz * cam_dist,
     )
+    logger.debug("capture_image: direction=%s target=%s distance_mult=%s", direction, center, distance_mult)
+    logger.debug("capture_image: cam_pos=%s", cam_pos)
 
     # Set camera via Coin3D
     try:
@@ -1351,6 +1387,7 @@ def _capture_image(
 
     # Auto-fit: adjust zoom to frame the model while keeping the viewing direction
     FreeCADGui.SendMsgToActiveView("ViewFit")
+    _process_qt_events()
 
     # Re-read actual camera position after ViewFit so returned values are accurate
     try:
@@ -1368,6 +1405,7 @@ def _capture_image(
     # Read and base64-encode
     with open(tmp_path, "rb") as f:
         image_data = base64.b64encode(f.read()).decode("ascii")
+    logger.debug("capture_image: saved %d bytes", len(image_data))
 
     # Clean up
     try:
@@ -1392,9 +1430,12 @@ def _capture_verification_views(
     views: list[dict[str, Any]] = []
     for view_name in ("iso", "front", "top"):
         direction = _PRESET_DIRECTIONS[view_name]
-        img = _capture_image(doc, direction=direction, width=width, height=height)
-        img["view"] = view_name
-        views.append(img)
+        try:
+            img = _capture_image(doc, direction=direction, width=width, height=height)
+            img["view"] = view_name
+            views.append(img)
+        except Exception as e:
+            logger.warning("Failed to capture %s view: %s", view_name, e)
     return views
 
 
@@ -1528,6 +1569,7 @@ def set_camera(
 
     if fit_all:
         FreeCADGui.SendMsgToActiveView("ViewFit")
+        _process_qt_events()
 
     try:
         from pivy.coin import SbVec3f  # type: ignore[import-untyped]
@@ -1625,6 +1667,15 @@ def export(
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+def _process_qt_events() -> None:
+    """Flush pending Qt events so viewport redraws complete."""
+    try:
+        from PySide2.QtWidgets import QApplication  # type: ignore[import-untyped]
+    except ImportError:
+        from PySide6.QtWidgets import QApplication  # type: ignore[import-untyped]
+    QApplication.processEvents()
+
 
 def _get_doc(doc: str | None) -> Any:
     """Resolve a FreeCAD document by name, or get the active one."""
@@ -1733,6 +1784,7 @@ _FEATURE_HINTS: dict[str, str] = {
     "PartDesign::Fillet": "radius may be too large for the selected edges, or edge references may be invalid",
     "PartDesign::Chamfer": "size may be too large for the selected edges, or edge references may be invalid",
     "PartDesign::Revolution": "sketch profile may be invalid, not closed, or axis may intersect the profile",
+    "PartDesign::Groove": "sketch profile may be invalid, not closed, or axis may intersect the profile",
     "PartDesign::AdditiveHelix": "sketch profile may be invalid, or helix parameters (pitch/height/turns) may be inconsistent",
     "PartDesign::PolarPattern": "pattern may produce overlapping or self-intersecting geometry",
 }
@@ -1795,6 +1847,10 @@ def _recompute_and_check(doc: Any, obj: Any, body: Any | None = None) -> dict[st
         feature_label = feature_type.split("::")[-1]
         hint = _FEATURE_HINTS.get(feature_type, "geometry may be invalid")
         diagnostics = _gather_failure_diagnostics(obj)
+        logger.error(
+            "Feature %s (%s) failed recompute: valid=%s state=%s null_shape=%s. Diagnostics: %s",
+            obj.Name, obj.TypeId, is_valid, state, shape_is_null, diagnostics,
+        )
         obj_name = obj.Name
         doc.removeObject(obj_name)
         doc.recompute()

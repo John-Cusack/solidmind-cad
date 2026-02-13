@@ -32,10 +32,9 @@ import freecad_addon; freecad_addon.start()
 Claude Code CLI ──stdio──▶ MCP Bridge Server ──TCP socket──▶ FreeCAD Addon
                            (server/main.py)                  (freecad_addon/)
                                │                             runs inside FreeCAD GUI
-                               │── HTTP ──▶ OpenRAG (localhost:8080, optional)
-                                              ├─ OpenSearch (vector DB)
-                                              ├─ Langflow (orchestration)
-                                              └─ Docling (PDF/doc processing)
+                               ├─ LanceDB (in-process, me_knowledge/lancedb/)
+                               ├─ Docling (in-process, pip package)
+                               └─ Ollama (optional, for GPU embeddings)
 ```
 
 **MCP bridge server** (`server/main.py`): Launched by Claude Code via stdio. Connects to FreeCAD addon over TCP socket (localhost:9876). Translates MCP tool calls into FreeCAD commands and FreeCAD selection into MCP responses.
@@ -57,8 +56,8 @@ Claude Code CLI ──stdio──▶ MCP Bridge Server ──TCP socket──▶
 - `tools_cad.py` — CAD MCP tool implementations (cad.new_document, cad.sketch, cad.pad, cad.pocket, cad.hole, cad.fillet, cad.chamfer, cad.get_selection, cad.get_model_tree, cad.undo, cad.export)
 - `tools_mfg.py` — Manufacturing readiness tools (mfg.set_property, mfg.readiness_check, mfg.export_rfq)
 - `tools_me.py` — ME design-loop tools (deterministic validation, traceability, risk gates)
-- `tools_knowledge.py` — Knowledge management tools (extract, ingest, search via OpenRAG)
-- `openrag_client.py` — Synchronous HTTP client for OpenRAG (httpx-based, module-level singleton)
+- `tools_knowledge.py` — Knowledge management tools (extract, ingest, search via LanceDB)
+- `knowledge_store.py` — In-process knowledge store (LanceDB + Docling, module-level singleton)
 - `prompts.py` — System prompts including `cad_copilot_system` for live co-pilot mode
 - `models.py` — Finding, Severity, ToolError, ConversationSignals
 
@@ -69,7 +68,7 @@ Claude Code CLI ──stdio──▶ MCP Bridge Server ──TCP socket──▶
 | `cad.*` | new_document, new_body, sketch, pad, pocket, hole, fillet, chamfer, get_selection, get_model_tree, undo, export | Drive FreeCAD PartDesign |
 | `mfg.*` | set_property, readiness_check, export_rfq | Manufacturing readiness (on-demand) |
 | `me.*` | validate_constraints, build_traceability, apply_risk_gates, design_loop, list_validators | Deterministic ME preflight (validators + risk gates) |
-| `knowledge.*` | extract, ingest, ingest_status, search, status | Knowledge base — semantic search, PDF extraction, document ingestion (via OpenRAG) |
+| `knowledge.*` | extract, ingest, ingest_status, search, status | Knowledge base — hybrid search, PDF extraction, document ingestion (LanceDB + Docling) |
 
 ### Sketch element types
 
@@ -108,23 +107,20 @@ Claude Code CLI ──stdio──▶ MCP Bridge Server ──TCP socket──▶
 
 ## Critical Conventions
 
-### OpenRAG knowledge backend (optional)
+### Knowledge backend (LanceDB + Docling)
 
-OpenRAG provides semantic search, PDF ingestion, and document extraction. It runs as a Docker sidecar and is **optional** — when not available, `knowledge.*` tools gracefully fall back to listing local `me_knowledge/notes/` files.
+The knowledge backend runs fully in-process — no Docker required. **LanceDB** provides hybrid search (vector + Tantivy FTS), **Docling** (pip) handles PDF/DOCX extraction, and embeddings come from **Ollama** (GPU) or **sentence-transformers** (CPU fallback). When dependencies are missing, `knowledge.*` tools gracefully fall back to listing local `me_knowledge/notes/` files.
 
 ```bash
-# Start OpenRAG stack
-bash scripts/setup_openrag.sh
-
-# Or manually
-docker compose -f docker/docker-compose.yml up -d
-
 # Batch ingest files
 python scripts/ingest_knowledge.py me_knowledge/notes/
 python scripts/ingest_knowledge.py ~/some-pdfs/
 ```
 
-Set `OPENRAG_URL=http://localhost:8080` in your environment for the MCP server to connect.
+Optional environment variables:
+- `OLLAMA_URL` — Ollama base URL for GPU-accelerated embeddings (e.g., `http://localhost:11434`)
+- `EMBEDDING_MODEL` — Model name (default: `nomic-embed-text` for Ollama, `all-MiniLM-L6-v2` for sentence-transformers)
+- `KNOWLEDGE_DB_PATH` — Override LanceDB storage path (default: `me_knowledge/lancedb/`)
 
 ## Critical Conventions
 

@@ -211,6 +211,14 @@ class VerificationEngine:
             return self._check_edge_spacing(check_id, severity, threshold)
         if check_type == "internal_radius":
             return self._check_internal_radius(check_id, severity, threshold, gir)
+        if check_type == "pocket_depth_ratio":
+            return self._check_pocket_depth_ratio(check_id, severity, threshold, spec)
+        if check_type == "hole_depth_ratio":
+            return self._check_hole_depth_ratio(check_id, severity, threshold, gir)
+        if check_type == "overhang_angle":
+            return self._check_overhang_angle(check_id, severity, threshold, spec)
+        if check_type == "bridge_span":
+            return self._check_bridge_span(check_id, severity, threshold, spec)
 
         # Unknown check type — pass with info notice
         return VerificationResult(
@@ -434,6 +442,199 @@ class VerificationEngine:
             severity=severity,
             message="Internal radius check passed",
             measured_value=min_radius,
+            threshold_value=threshold,
+        )
+
+    def _check_pocket_depth_ratio(
+        self,
+        check_id: str,
+        severity: str,
+        threshold: float | None,
+        spec: dict[str, Any],
+    ) -> VerificationResult:
+        if threshold is None:
+            return VerificationResult(
+                check_id=check_id,
+                check_type="pocket_depth_ratio",
+                passed=True,
+                severity="info",
+                message="No pocket depth ratio threshold configured",
+            )
+
+        geometry = spec.get("geometry", {})
+        if not isinstance(geometry, dict):
+            geometry = {}
+        pockets = geometry.get("pocket_features", [])
+        if not isinstance(pockets, list):
+            pockets = []
+
+        worst_ratio = None
+        for pocket in pockets:
+            if not isinstance(pocket, dict):
+                continue
+            depth = pocket.get("depth", {})
+            width = pocket.get("width", {})
+            depth_val = depth.get("value") if isinstance(depth, dict) else depth
+            width_val = width.get("value") if isinstance(width, dict) else width
+            if isinstance(depth_val, (int, float)) and isinstance(width_val, (int, float)) and width_val > 0:
+                ratio = float(depth_val) / float(width_val)
+                worst_ratio = ratio if worst_ratio is None else max(worst_ratio, ratio)
+
+        if worst_ratio is not None and worst_ratio > threshold:
+            return VerificationResult(
+                check_id=check_id,
+                check_type="pocket_depth_ratio",
+                passed=False,
+                severity=severity,
+                message=f"Pocket depth/width ratio {worst_ratio:.2f} exceeds max {threshold:.2f}",
+                measured_value=worst_ratio,
+                threshold_value=threshold,
+                context={"measured": worst_ratio, "threshold": threshold},
+            )
+
+        return VerificationResult(
+            check_id=check_id,
+            check_type="pocket_depth_ratio",
+            passed=True,
+            severity=severity,
+            message="Pocket depth ratio check passed",
+            measured_value=worst_ratio,
+            threshold_value=threshold,
+        )
+
+    def _check_hole_depth_ratio(
+        self,
+        check_id: str,
+        severity: str,
+        threshold: float | None,
+        gir: GIR,
+    ) -> VerificationResult:
+        if threshold is None:
+            return VerificationResult(
+                check_id=check_id,
+                check_type="hole_depth_ratio",
+                passed=True,
+                severity="info",
+                message="No hole depth ratio threshold configured",
+            )
+
+        from server.geometry_ir import HoleIntent
+
+        worst_ratio = None
+        for feature in gir.features:
+            if isinstance(feature, HoleIntent) and feature.diameter.value > 0:
+                ratio = feature.depth.value / feature.diameter.value
+                worst_ratio = ratio if worst_ratio is None else max(worst_ratio, ratio)
+
+        if worst_ratio is not None and worst_ratio > threshold:
+            return VerificationResult(
+                check_id=check_id,
+                check_type="hole_depth_ratio",
+                passed=False,
+                severity=severity,
+                message=f"Hole depth/diameter ratio {worst_ratio:.2f} exceeds max {threshold:.2f}",
+                measured_value=worst_ratio,
+                threshold_value=threshold,
+                context={"measured": worst_ratio, "threshold": threshold},
+            )
+
+        return VerificationResult(
+            check_id=check_id,
+            check_type="hole_depth_ratio",
+            passed=True,
+            severity=severity,
+            message="Hole depth ratio check passed",
+            measured_value=worst_ratio,
+            threshold_value=threshold,
+        )
+
+    def _check_overhang_angle(
+        self,
+        check_id: str,
+        severity: str,
+        threshold: float | None,
+        spec: dict[str, Any],
+    ) -> VerificationResult:
+        if threshold is None:
+            return VerificationResult(
+                check_id=check_id,
+                check_type="overhang_angle",
+                passed=True,
+                severity="info",
+                message="No overhang threshold configured",
+            )
+
+        planning = spec.get("planning", {})
+        if not isinstance(planning, dict):
+            planning = {}
+        measured = planning.get("max_overhang_angle_deg")
+        if not isinstance(measured, (int, float)):
+            measured = None
+
+        if measured is not None and float(measured) > threshold:
+            return VerificationResult(
+                check_id=check_id,
+                check_type="overhang_angle",
+                passed=False,
+                severity=severity,
+                message=f"Overhang angle {float(measured):.1f}deg exceeds max {threshold:.1f}deg",
+                measured_value=float(measured),
+                threshold_value=threshold,
+                context={"measured": measured, "threshold": threshold},
+            )
+
+        return VerificationResult(
+            check_id=check_id,
+            check_type="overhang_angle",
+            passed=True,
+            severity=severity,
+            message="Overhang angle check passed",
+            measured_value=float(measured) if isinstance(measured, (int, float)) else None,
+            threshold_value=threshold,
+        )
+
+    def _check_bridge_span(
+        self,
+        check_id: str,
+        severity: str,
+        threshold: float | None,
+        spec: dict[str, Any],
+    ) -> VerificationResult:
+        if threshold is None:
+            return VerificationResult(
+                check_id=check_id,
+                check_type="bridge_span",
+                passed=True,
+                severity="info",
+                message="No bridge span threshold configured",
+            )
+
+        planning = spec.get("planning", {})
+        if not isinstance(planning, dict):
+            planning = {}
+        measured = planning.get("max_bridge_span_mm")
+        if not isinstance(measured, (int, float)):
+            measured = None
+
+        if measured is not None and float(measured) > threshold:
+            return VerificationResult(
+                check_id=check_id,
+                check_type="bridge_span",
+                passed=False,
+                severity=severity,
+                message=f"Bridge span {float(measured):.2f}mm exceeds max {threshold:.2f}mm",
+                measured_value=float(measured),
+                threshold_value=threshold,
+                context={"measured": measured, "threshold": threshold},
+            )
+
+        return VerificationResult(
+            check_id=check_id,
+            check_type="bridge_span",
+            passed=True,
+            severity=severity,
+            message="Bridge span check passed",
+            measured_value=float(measured) if isinstance(measured, (int, float)) else None,
             threshold_value=threshold,
         )
 

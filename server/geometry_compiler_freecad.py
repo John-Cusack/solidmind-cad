@@ -140,6 +140,9 @@ class FreeCADCompiler:
             retry_policy=op.retry_policy,
             local_frame=op.local_frame,
             feature_provenance_id=op.feature_provenance_id,
+            phase_id=op.phase_id,
+            reference_support_type=op.reference_support_type,
+            topology_sensitive=op.topology_sensitive,
         )
 
         return CompilerResult(
@@ -174,6 +177,9 @@ class FreeCADCompiler:
             retry_policy=op.retry_policy,
             local_frame=op.local_frame,
             feature_provenance_id=op.feature_provenance_id,
+            phase_id=op.phase_id,
+            reference_support_type=op.reference_support_type,
+            topology_sensitive=op.topology_sensitive,
         )
 
         return CompilerResult(
@@ -208,6 +214,9 @@ class FreeCADCompiler:
             retry_policy=op.retry_policy,
             local_frame=op.local_frame,
             feature_provenance_id=op.feature_provenance_id,
+            phase_id=op.phase_id,
+            reference_support_type=op.reference_support_type,
+            topology_sensitive=op.topology_sensitive,
         )
 
         return CompilerResult(
@@ -242,6 +251,9 @@ class FreeCADCompiler:
             retry_policy=op.retry_policy,
             local_frame=op.local_frame,
             feature_provenance_id=op.feature_provenance_id,
+            phase_id=op.phase_id,
+            reference_support_type=op.reference_support_type,
+            topology_sensitive=op.topology_sensitive,
         )
 
         return CompilerResult(
@@ -276,6 +288,9 @@ class FreeCADCompiler:
             retry_policy=op.retry_policy,
             local_frame=op.local_frame,
             feature_provenance_id=op.feature_provenance_id,
+            phase_id=op.phase_id,
+            reference_support_type=op.reference_support_type,
+            topology_sensitive=op.topology_sensitive,
         )
 
         return CompilerResult(
@@ -310,6 +325,9 @@ class FreeCADCompiler:
             retry_policy=op.retry_policy,
             local_frame=op.local_frame,
             feature_provenance_id=op.feature_provenance_id,
+            phase_id=op.phase_id,
+            reference_support_type=op.reference_support_type,
+            topology_sensitive=op.topology_sensitive,
         )
 
         return CompilerResult(
@@ -344,6 +362,9 @@ class FreeCADCompiler:
             retry_policy=op.retry_policy,
             local_frame=op.local_frame,
             feature_provenance_id=op.feature_provenance_id,
+            phase_id=op.phase_id,
+            reference_support_type=op.reference_support_type,
+            topology_sensitive=op.topology_sensitive,
         )
 
         return CompilerResult(
@@ -378,6 +399,9 @@ class FreeCADCompiler:
             retry_policy=op.retry_policy,
             local_frame=op.local_frame,
             feature_provenance_id=op.feature_provenance_id,
+            phase_id=op.phase_id,
+            reference_support_type=op.reference_support_type,
+            topology_sensitive=op.topology_sensitive,
         )
 
         return CompilerResult(
@@ -414,6 +438,9 @@ class FreeCADCompiler:
             retry_policy=op.retry_policy,
             local_frame=op.local_frame,
             feature_provenance_id=op.feature_provenance_id,
+            phase_id=op.phase_id,
+            reference_support_type=op.reference_support_type,
+            topology_sensitive=op.topology_sensitive,
         )
 
         notices = []
@@ -461,6 +488,9 @@ class FreeCADCompiler:
             retry_policy=op.retry_policy,
             local_frame=op.local_frame,
             feature_provenance_id=op.feature_provenance_id,
+            phase_id=op.phase_id,
+            reference_support_type=op.reference_support_type,
+            topology_sensitive=op.topology_sensitive,
         )
 
         notices = []
@@ -490,6 +520,9 @@ class FreeCADCompiler:
             retry_policy=op.retry_policy,
             local_frame=op.local_frame,
             feature_provenance_id=op.feature_provenance_id,
+            phase_id=op.phase_id,
+            reference_support_type=op.reference_support_type,
+            topology_sensitive=op.topology_sensitive,
         )
 
         return CompilerResult(

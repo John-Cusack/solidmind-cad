@@ -34,6 +34,16 @@ class TestSchemaValidation(unittest.TestCase):
             schema = json.load(f)
         self.assertIn("$schema", schema)
 
+    def test_planning_policy_schema_valid_json(self) -> None:
+        with open("schemas/planning_policy.schema.json") as f:
+            schema = json.load(f)
+        self.assertIn("$schema", schema)
+
+    def test_planning_plan_schema_valid_json(self) -> None:
+        with open("schemas/planning_plan.schema.json") as f:
+            schema = json.load(f)
+        self.assertIn("$schema", schema)
+
     def test_gir_schema_has_required_fields(self) -> None:
         with open("schemas/gir.schema.json") as f:
             schema = json.load(f)
@@ -84,6 +94,7 @@ class TestSchemaValidation(unittest.TestCase):
         yaml_files = [
             "feature_support/geometry_capabilities.yml",
             "feature_support/verification_policy.yml",
+            "feature_support/planning_policy.yml",
         ]
 
         for fname in yaml_files:

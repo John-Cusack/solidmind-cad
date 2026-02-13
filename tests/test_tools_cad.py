@@ -154,7 +154,7 @@ class TestCadRevolution(unittest.TestCase):
         self.assertEqual(result["name"], "Revolution")
         client.send_command.assert_called_once_with(
             "revolution", sketch="Sketch", axis="V", angle=360.0,
-            symmetric=False, reversed=False, verify=True,
+            symmetric=False, reversed=False, subtractive=False, verify=True,
         )
 
     @patch("server.tools_cad.get_client")
@@ -172,7 +172,25 @@ class TestCadRevolution(unittest.TestCase):
         self.assertTrue(result["ok"])
         client.send_command.assert_called_once_with(
             "revolution", sketch="Sketch", axis="Base_Z", angle=180.0,
-            symmetric=True, reversed=True, verify=True, doc="MyDoc",
+            symmetric=True, reversed=True, subtractive=False, verify=True, doc="MyDoc",
+        )
+
+
+    @patch("server.tools_cad.get_client")
+    def test_revolution_subtractive(self, mock_get: MagicMock) -> None:
+        client = _mock_client()
+        client.send_command.return_value = {
+            "name": "Groove", "label": "Groove", "type": "PartDesign::Groove",
+            "bounding_box": {"x_len": 60, "y_len": 60, "z_len": 35},
+        }
+        mock_get.return_value = client
+
+        result = cad_revolution(sketch="TrimSketch", subtractive=True)
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["name"], "Groove")
+        client.send_command.assert_called_once_with(
+            "revolution", sketch="TrimSketch", axis="V", angle=360.0,
+            symmetric=False, reversed=False, subtractive=True, verify=True,
         )
 
 

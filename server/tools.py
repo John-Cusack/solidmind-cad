@@ -805,26 +805,33 @@ def spec_generate_cad(
                 "errors": errors,
             }
 
-    return _generate_cad_generic_v1(spec, precondition_warnings, design_gate)
+    return _generate_cad_generic_v1(spec, precondition_warnings, design_gate, opts)
 
 
 def _generate_cad_generic_v1(
     spec: dict[str, Any],
     precondition_warnings: list[str],
     design_gate: dict[str, Any],
+    options: dict[str, Any],
 ) -> dict[str, Any]:
     """Generate CAD using the generic_v1 geometry engine pipeline."""
+    from server.geometry_repair import recommend_repairs
     from server.geometry_planning import plan_geometry
     from server.geometry_compiler_freecad import FreeCADCompiler
     from server.geometry_executor import Executor, compute_execution_trace_hash
     from server.geometry_verify import VerificationEngine
-    from server.geometry_ir import GIR
 
     errors: list[dict[str, Any]] = []
+    planning_opts = {
+        "planning_mode": str(options.get("planning_mode", "legacy")),
+        "strict_mode": bool(options.get("strict_mode", False)),
+    }
+    if isinstance(options.get("question_budget_override"), int):
+        planning_opts["question_budget_override"] = int(options["question_budget_override"])
 
     # Step 1: Plan geometry (spec -> GIR -> EIR)
     try:
-        plan_result = plan_geometry(spec)
+        plan_result = plan_geometry(spec, options=planning_opts)
     except Exception as e:
         errors.append(_tool_error("PLANNING_ERROR", f"Geometry planning failed: {e}").to_dict())
         return {
@@ -840,9 +847,12 @@ def _generate_cad_generic_v1(
     eir_dict = plan_result["eir"]
     plan_notices = plan_result.get("notices", [])
     plan_metadata = plan_result.get("metadata", {})
+    planning_plan = plan_result.get("planning_plan")
+    planning_plan_hash = plan_result.get("planning_plan_hash")
+    policy_key = plan_result.get("policy_key")
 
     # Step 2: Compile EIR operations via FreeCAD compiler
-    from server.geometry_ir import EIR, CompiledOp, Invariant, EIRBuilder
+    from server.geometry_ir import Invariant, EIRBuilder
     eir_builder = EIRBuilder()
     for op_data in eir_dict.get("operations", []):
         invariants = [
@@ -859,6 +869,9 @@ def _generate_cad_generic_v1(
             depends_on=op_data.get("depends_on", []),
             invariants=invariants,
             feature_provenance_id=op_data.get("feature_provenance_id"),
+            phase_id=op_data.get("phase_id"),
+            reference_support_type=op_data.get("reference_support_type"),
+            topology_sensitive=op_data.get("topology_sensitive"),
         )
     eir = eir_builder.build()
 
@@ -870,10 +883,11 @@ def _generate_cad_generic_v1(
     compiled_ops = compiler_result.ops or []
     execution_trace = executor.execute_plan(compiled_ops, backend="mock")
     trace_hash = compute_execution_trace_hash(execution_trace)
+    checkpoint_summary = execution_trace.metadata.get("checkpoint_summary", {})
 
     # Step 4: Verify
     # Reconstruct GIR object for verification
-    from server.geometry_ir import GIRBuilder, Quantity, Frame
+    from server.geometry_ir import GIRBuilder, Quantity
     gir_builder = GIRBuilder()
     gir_builder.add_global_frame()
     for feat in gir_dict.get("features", []):
@@ -887,6 +901,11 @@ def _generate_cad_generic_v1(
 
     verifier = VerificationEngine()
     verification_report = verifier.verify(execution_trace, gir_obj, spec)
+    repair_recommendations = recommend_repairs(
+        execution_trace=execution_trace,
+        verification_report=verification_report,
+        planning_plan=planning_plan if isinstance(planning_plan, dict) else None,
+    )
 
     # Build Section 4.8 response
     notices = plan_notices + [
@@ -895,6 +914,9 @@ def _generate_cad_generic_v1(
     ] + [
         {"code": n.code, "severity": n.severity, "message": n.message, "context": n.context}
         for n in compiler_result.notices
+    ] + [
+        rec.to_notice()
+        for rec in repair_recommendations
     ]
 
     metadata = {
@@ -909,6 +931,10 @@ def _generate_cad_generic_v1(
         "strategy": plan_metadata.get("strategy"),
         "compiler_status": compiler_result.status,
         "verification_passed": verification_report.passed,
+        "planning_plan_hash": planning_plan_hash,
+        "policy_key": policy_key,
+        "checkpoint_summary": checkpoint_summary,
+        "repair_recommendations_present": bool(repair_recommendations),
     }
 
     return {
@@ -923,7 +949,7 @@ def _generate_cad_generic_v1(
     }
 
 
-def spec_plan_geometry(*, spec: dict[str, Any]) -> dict[str, Any]:
+def spec_plan_geometry(*, spec: dict[str, Any], options: dict[str, Any] | None = None) -> dict[str, Any]:
     """Read-only observability: returns GIR/EIR + notices without executing."""
     from server.geometry_planning import plan_geometry
-    return plan_geometry(spec)
+    return plan_geometry(spec, options=options)
