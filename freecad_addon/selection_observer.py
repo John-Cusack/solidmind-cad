@@ -6,12 +6,18 @@ command in commands.py.
 """
 from __future__ import annotations
 
+import logging
+import os
 from typing import Any
 
 try:
     import FreeCADGui  # type: ignore[import-untyped]
 except ImportError:
     FreeCADGui = None  # type: ignore[assignment]
+
+log = logging.getLogger("solidmind.selection_observer")
+
+_TOOL_LOG = bool(os.environ.get("SOLIDMIND_TOOL_LOG", ""))
 
 
 class SelectionObserver:
@@ -53,6 +59,8 @@ class SelectionObserver:
 
     def addSelection(self, doc: str, obj: str, sub: str, pos: tuple[float, float, float]) -> None:  # noqa: N802
         """Called when the user selects a sub-element."""
+        if _TOOL_LOG:
+            log.debug("addSelection doc=%s obj=%s sub=%s pos=%s", doc, obj, sub, pos)
         self._selections.append({
             "doc": doc,
             "object": obj,
@@ -62,6 +70,8 @@ class SelectionObserver:
 
     def removeSelection(self, doc: str, obj: str, sub: str) -> None:  # noqa: N802
         """Called when the user deselects a sub-element."""
+        if _TOOL_LOG:
+            log.debug("removeSelection doc=%s obj=%s sub=%s", doc, obj, sub)
         self._selections = [
             s for s in self._selections
             if not (s["doc"] == doc and s["object"] == obj and s["sub_element"] == sub)
@@ -69,6 +79,8 @@ class SelectionObserver:
 
     def clearSelection(self, doc: str) -> None:  # noqa: N802
         """Called when selection is completely cleared."""
+        if _TOOL_LOG:
+            log.debug("clearSelection doc=%s", doc)
         self._selections.clear()
 
     def setSelection(self, doc: str) -> None:  # noqa: N802

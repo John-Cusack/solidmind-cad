@@ -5,9 +5,19 @@ arguments into FreeCAD addon socket commands via ``freecad_client``.
 """
 from __future__ import annotations
 
+import logging
+import os
+import time
 from typing import Any
 
 from server.freecad_client import FreeCADCommandError, FreeCADConnectionError, get_client
+
+log = logging.getLogger("solidmind.tools_cad")
+
+_TOOL_LOG = bool(os.environ.get("SOLIDMIND_TOOL_LOG", ""))
+
+# Keys whose values are too bulky for INFO-level entry logging
+_BULK_KEYS = frozenset({"elements", "constraints", "geometry_ref"})
 
 
 def _error_result(code: str, message: str) -> dict[str, Any]:
@@ -15,14 +25,57 @@ def _error_result(code: str, message: str) -> dict[str, Any]:
 
 
 def _wrap(fn: Any) -> Any:
-    """Decorator to catch connection/command errors and return MCP error format."""
+    """Decorator to catch connection/command errors and return MCP error format.
+
+    When ``SOLIDMIND_TOOL_LOG=1``, also logs CALL/OK/FAIL with timing.
+    Errors are always logged regardless of the toggle.
+    """
     def wrapper(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        if not _TOOL_LOG:
+            try:
+                return fn(*args, **kwargs)
+            except FreeCADConnectionError as e:
+                log.error("FAIL %s CONNECTION_ERROR: %s", fn.__name__, e)
+                return _error_result("CONNECTION_ERROR", str(e))
+            except FreeCADCommandError as e:
+                log.error("FAIL %s COMMAND_ERROR: %s", fn.__name__, e)
+                return _error_result("COMMAND_ERROR", str(e))
+
+        # Verbose mode: log entry, timing, and exit
+        compact = {k: v for k, v in kwargs.items() if k not in _BULK_KEYS}
+        log.info("CALL %s %s", fn.__name__, compact)
+        for k in _BULK_KEYS:
+            if k in kwargs and kwargs[k] is not None:
+                val = kwargs[k]
+                if isinstance(val, list):
+                    log.debug("  %s: %d items", k, len(val))
+                else:
+                    log.debug("  %s: %s", k, type(val).__name__)
+
+        t0 = time.monotonic()
         try:
-            return fn(*args, **kwargs)
+            result = fn(*args, **kwargs)
         except FreeCADConnectionError as e:
+            elapsed = time.monotonic() - t0
+            log.error("FAIL %s %.3fs CONNECTION_ERROR: %s", fn.__name__, elapsed, e)
             return _error_result("CONNECTION_ERROR", str(e))
         except FreeCADCommandError as e:
+            elapsed = time.monotonic() - t0
+            log.error("FAIL %s %.3fs COMMAND_ERROR: %s", fn.__name__, elapsed, e)
             return _error_result("COMMAND_ERROR", str(e))
+
+        elapsed = time.monotonic() - t0
+        if isinstance(result, dict) and not result.get("ok", True):
+            err = result.get("error", {})
+            log.warning(
+                "FAIL %s %.3fs code=%s msg=%s",
+                fn.__name__, elapsed,
+                err.get("code", "?"), err.get("message", "?"),
+            )
+        else:
+            log.info("OK   %s %.3fs", fn.__name__, elapsed)
+        return result
+
     wrapper.__name__ = fn.__name__
     wrapper.__doc__ = fn.__doc__
     return wrapper
@@ -53,12 +106,18 @@ def cad_sketch(
     plane: str = "XY",
     elements: list[dict[str, Any]] | None = None,
     constraints: list[dict[str, Any]] | None = None,
+    geometry_ref: str | None = None,
     doc: str | None = None,
 ) -> dict[str, Any]:
     """Create a sketch, populate it with geometry and constraints, and close it.
 
     This is a compound tool that combines new_sketch + geometry + constraints +
     close_sketch into a single MCP tool call for convenience.
+
+    ``geometry_ref`` is a handle returned by a ``geometry.*`` tool.  When
+    provided, the stored elements are resolved server-side and added to the
+    sketch *before* any inline ``elements``.  This avoids sending bulk geometry
+    data through the LLM.
 
     ``elements`` is a list of geometry dicts, each with a ``type`` field:
     - ``{"type": "rect", "x": 0, "y": 0, "w": 100, "h": 50}``
@@ -69,7 +128,24 @@ def cad_sketch(
     ``constraints`` is a list of constraint dicts with a ``type`` field and
     parameters specific to the constraint type.
     """
+    from server.geometry_store import retrieve as _retrieve_geometry
+
     client = get_client()
+
+    # Resolve geometry_ref into elements
+    ref_elements: list[dict[str, Any]] = []
+    if geometry_ref is not None:
+        stored = _retrieve_geometry(geometry_ref)
+        if stored is None:
+            return _error_result(
+                "INVALID_GEOMETRY_REF",
+                f"Geometry reference '{geometry_ref}' not found in store. "
+                "It may have expired or never existed.",
+            )
+        ref_elements = stored
+
+    # Combine: ref elements first, then inline elements
+    all_elements = ref_elements + (elements or [])
 
     # 1. Create sketch
     sk_kwargs: dict[str, Any] = {"body": body, "plane": plane}
@@ -85,6 +161,8 @@ def cad_sketch(
     geometry_indices: list[dict[str, Any]] = []
 
     # 2. Add geometry elements
+    if all_elements:
+        elements = all_elements
     if elements:
         for elem in elements:
             elem_type = elem.get("type", "")

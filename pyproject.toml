@@ -1,6 +1,6 @@
 [build-system]
-requires = ["setuptools>=69"]
-build-backend = "setuptools.build_meta"
+requires = ["maturin>=1.7,<2"]
+build-backend = "maturin"
 
 [project]
 name = "solidmind-cad"
@@ -21,9 +21,12 @@ dependencies = [
 [project.optional-dependencies]
 gpu = ["onnxruntime-gpu"]
 schemas = ["pydantic>=2.6,<3"]
+dev = ["maturin>=1.7,<2"]
 
 [project.scripts]
 solidmind-cad = "server.main:main"
 
-[tool.setuptools]
-packages = ["server", "freecad_addon"]
+[tool.maturin]
+manifest-path = "geometry/Cargo.toml"
+python-source = "."
+module-name = "solidmind_geometry"

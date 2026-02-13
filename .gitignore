@@ -213,3 +213,6 @@ me_knowledge/corpus/index.json
 
 # LanceDB knowledge store (local embeddings + chunks)
 me_knowledge/lancedb/
+
+# Parametric study outputs
+studies/

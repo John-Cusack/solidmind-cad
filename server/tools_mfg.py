@@ -6,10 +6,17 @@ and can be queried/updated via these tools.
 """
 from __future__ import annotations
 
+import logging
+import os
+import time
 from typing import Any
 
 from server.freecad_client import FreeCADCommandError, FreeCADConnectionError, get_client
 from server.models import Finding, Severity
+
+log = logging.getLogger("solidmind.tools_mfg")
+
+_TOOL_LOG = bool(os.environ.get("SOLIDMIND_TOOL_LOG", ""))
 
 
 def _error_result(code: str, message: str) -> dict[str, Any]:
@@ -47,9 +54,13 @@ def mfg_set_property(
     ``properties`` is a dict of property names to values, e.g.:
     ``{"process": "cnc", "material_family": "aluminum", "material_grade": "6061-T6"}``
     """
+    if _TOOL_LOG:
+        log.info("CALL mfg_set_property keys=%s", list(properties.keys()))
+    t0 = time.monotonic()
     try:
         client = get_client()
     except FreeCADConnectionError as e:
+        log.error("FAIL mfg_set_property CONNECTION_ERROR: %s", e)
         return _error_result("CONNECTION_ERROR", str(e))
 
     # Validate property names
@@ -75,11 +86,14 @@ def mfg_set_property(
         # store locally as a fallback
         pass
 
-    return {
+    result = {
         "ok": True,
         "properties_set": list(properties.keys()),
         "values": properties,
     }
+    if _TOOL_LOG:
+        log.info("OK   mfg_set_property %.3fs", time.monotonic() - t0)
+    return result
 
 
 def mfg_readiness_check(
@@ -92,6 +106,10 @@ def mfg_readiness_check(
     Returns a checklist of findings (missing info, geometric warnings)
     with severity levels.
     """
+    if _TOOL_LOG:
+        log.info("CALL mfg_readiness_check process=%s", process)
+    t0 = time.monotonic()
+
     findings: list[dict[str, Any]] = []
     props = properties or {}
 
@@ -134,7 +152,7 @@ def mfg_readiness_check(
     addressed = total - len(blockers) - len(warnings)
     readiness_pct = (addressed / total * 100) if total > 0 else 100.0
 
-    return {
+    result = {
         "ok": True,
         "process": process,
         "readiness_percent": round(readiness_pct, 1),
@@ -146,6 +164,12 @@ def mfg_readiness_check(
             f"{len(blockers)} blockers, {len(warnings)} warnings, {len(notes)} notes"
         ),
     }
+    if _TOOL_LOG:
+        log.info(
+            "OK   mfg_readiness_check %.3fs findings=%d",
+            time.monotonic() - t0, len(findings),
+        )
+    return result
 
 
 def mfg_export_rfq(
@@ -153,6 +177,9 @@ def mfg_export_rfq(
     doc: str | None = None,
 ) -> dict[str, Any]:
     """Generate an RFQ summary from the model and manufacturing properties."""
+    if _TOOL_LOG:
+        log.info("CALL mfg_export_rfq")
+    t0 = time.monotonic()
     props = properties or {}
 
     lines = ["# Request for Quote", ""]
@@ -185,6 +212,8 @@ def mfg_export_rfq(
             lines.append(f"**Volume:** {dimensions['volume']:.1f} mm\u00b3")
 
     rfq_text = "\n".join(lines)
+    if _TOOL_LOG:
+        log.info("OK   mfg_export_rfq %.3fs", time.monotonic() - t0)
     return {"ok": True, "rfq_markdown": rfq_text}
 
 

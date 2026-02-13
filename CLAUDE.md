@@ -56,6 +56,11 @@ Claude Code CLI ──stdio──▶ MCP Bridge Server ──TCP socket──▶
 - `tools_cad.py` — CAD MCP tool implementations (cad.new_document, cad.sketch, cad.pad, cad.pocket, cad.hole, cad.fillet, cad.chamfer, cad.get_selection, cad.get_model_tree, cad.undo, cad.export)
 - `tools_mfg.py` — Manufacturing readiness tools (mfg.set_property, mfg.readiness_check, mfg.export_rfq)
 - `tools_me.py` — ME design-loop tools (deterministic validation, traceability, risk gates)
+- `tools_study.py` — Parametric study tools (create, run, status, results, cancel, list, get_variant)
+- `study_models.py` — Study data models (Study, DesignVariable, Variant, SolverConfig, ObjectiveConfig)
+- `study_store.py` — JSON-file persistence for studies in `studies/<study_id>/`
+- `study_runner.py` — Background subprocess runner (coarse sweep → refine → rank)
+- `study_solvers.py` — Solver adapters (MockSolver, BEMTXfoilSolver stub, OpenFOAMSolver stub)
 - `tools_knowledge.py` — Knowledge management tools (extract, ingest, search via LanceDB)
 - `knowledge_store.py` — In-process knowledge store (LanceDB + Docling, module-level singleton)
 - `prompts.py` — System prompts including `cad_copilot_system` for live co-pilot mode
@@ -69,6 +74,7 @@ Claude Code CLI ──stdio──▶ MCP Bridge Server ──TCP socket──▶
 | `mfg.*` | set_property, readiness_check, export_rfq | Manufacturing readiness (on-demand) |
 | `me.*` | validate_constraints, build_traceability, apply_risk_gates, design_loop, list_validators | Deterministic ME preflight (validators + risk gates) |
 | `knowledge.*` | extract, ingest, ingest_status, search, status | Knowledge base — hybrid search, PDF extraction, document ingestion (LanceDB + Docling) |
+| `study.*` | create, run, status, results, cancel, list, get_variant | Parametric design optimization (sweep variables, run solvers, rank results) |
 
 ### Sketch element types
 
@@ -85,6 +91,43 @@ Claude Code CLI ──stdio──▶ MCP Bridge Server ──TCP socket──▶
 7. User says "check manufacturing readiness" → LLM calls `mfg.readiness_check`
 8. User provides a PDF → LLM calls `knowledge.extract(file_path)` to read it, then `knowledge.ingest(path)` to index for future sessions
 9. LLM researches a topic → `knowledge.search(query)` first, then WebSearch/WebFetch for gaps
+10. User asks to optimize a design → LLM uses `study.*` tools to sweep design space, then builds the winner
+
+### Parametric study policy
+
+The `study.*` tools automate design space exploration — sweeping variables, running solvers, and ranking results. The key distinction is **intent**: is the user asking to EXPLORE/OPTIMIZE or to BUILD a specific thing?
+
+**Use `study.*` when:**
+- User explicitly asks to optimize, sweep, compare, or explore designs
+- Task has performance targets (thrust, efficiency, lift/drag) with unknown geometry parameters
+- User says "find the best", "parametric study", "what blade angle is optimal"
+- Multiple design variables interact and the best combination isn't obvious
+
+**Skip `study.*` when:**
+- User wants ONE specific thing built ("make me a pen holder", "design a bracket")
+- Geometry is fully specified — dimensions, shape, and features are all given
+- Simple functional parts with no performance targets
+- Quick modifications to existing models
+
+**When ambiguous** (e.g., "design a drone propeller"): ask the user if they want to explore the design space or build a specific configuration.
+
+**Workflow:** Plan → `study.create` → `study.run` → `study.status` → `study.results` → **learn** → build winner with `cad.*`
+
+**Planning stage (step 1 — before defining any study):**
+1. `knowledge.search('<part_type> study')` — look for prior study notes FIRST
+2. If prior notes exist: use their optimal ranges for tighter bounds, their winners as `pinned_values`, drop variables they found insensitive, add variables they flagged for future exploration
+3. If no prior notes: `knowledge.search` + WebSearch for engineering references to identify variables and starting ranges
+4. State reasoning: "Prior study found angle 8-12 deg optimal, narrowing from 0-45"
+
+**Learning cycle (mandatory after every study):**
+After `study.results`, distill findings into `me_knowledge/notes/<part_type>_study_<date>.md`:
+- What variables were swept and what ranges
+- Which parameters had the biggest effect (sensitivity)
+- Optimal ranges found and the winning design's params
+- Constraint interactions that shaped the feasible region
+- What to do differently next time
+
+Then `knowledge.ingest(path=...)` to index it. In future sessions, `knowledge.search` surfaces prior study findings BEFORE defining new studies — so `pinned_values` and variable ranges start from prior learnings instead of from scratch. Each study makes the next one smarter.
 
 ### Automatic ME preflight policy
 

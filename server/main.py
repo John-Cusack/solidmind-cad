@@ -4,11 +4,16 @@ import argparse
 import json
 import logging
 import sys
+from pathlib import Path
 from typing import Any
+
+from dotenv import load_dotenv
+
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 logging.basicConfig(
     level=logging.DEBUG,
-    format="%(asctime)s %(levelname)s %(message)s",
+    format="%(asctime)s %(levelname)-5s %(name)s: %(message)s",
     stream=sys.stderr,
 )
 
@@ -69,12 +74,28 @@ from server.tools_knowledge import (
     knowledge_search,
     knowledge_status,
 )
+from server.tools_geometry import (
+    geometry_gear_params,
+    geometry_involute_points,
+    geometry_planetary_layout,
+    geometry_spur_gear,
+    geometry_tooth_slot,
+)
 from server.tools_me import (
     me_apply_risk_gates,
     me_build_traceability,
     me_design_loop,
     me_list_validators,
     me_validate_constraints,
+)
+from server.tools_study import (
+    study_cancel,
+    study_create,
+    study_get_variant,
+    study_list,
+    study_results,
+    study_run,
+    study_status,
 )
 
 
@@ -148,7 +169,7 @@ def _rpc_result(rpc_id: Any, result: Any) -> dict[str, Any]:
 _VERIFY_PROP: dict[str, Any] = {
     "type": "boolean",
     "default": True,
-    "description": "Capture verification screenshots from 3 angles after the operation. Set false to skip for speed.",
+    "description": "Capture verification screenshots from 2 angles after the operation. Set false to skip for speed.",
 }
 
 
@@ -198,6 +219,14 @@ def _cad_tool_list() -> list[dict[str, Any]]:
                         "type": "string",
                         "description": "Sketch plane: XY, XZ, YZ, or a face reference like 'Face1'",
                         "default": "XY",
+                    },
+                    "geometry_ref": {
+                        "type": "string",
+                        "description": (
+                            "Handle returned by a geometry.* tool (e.g. geometry.spur_gear). "
+                            "Elements are resolved server-side — the LLM never sees the raw data. "
+                            "Can be combined with 'elements' (ref elements added first, then inline)."
+                        ),
                     },
                     "elements": {
                         "type": "array",
@@ -1135,6 +1164,261 @@ def _knowledge_tool_list() -> list[dict[str, Any]]:
     ]
 
 
+def _geometry_tool_list() -> list[dict[str, Any]]:
+    """Parametric geometry generators — involute gears, planetary layouts."""
+    return [
+        {
+            "name": "geometry.spur_gear",
+            "description": (
+                "Generate a spur gear profile (external or internal). "
+                "Returns a geometry_ref handle + element_count + params. "
+                "Pass geometry_ref to cad.sketch(geometry_ref=...) to use the profile."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "module": {"type": "number", "description": "Gear module (tooth size) in mm"},
+                    "teeth": {"type": "integer", "description": "Number of teeth"},
+                    "pressure_angle_deg": {"type": "number", "default": 20.0, "description": "Pressure angle in degrees"},
+                    "profile_shift": {"type": "number", "default": 0.0, "description": "Profile shift coefficient"},
+                    "backlash": {"type": "number", "default": 0.0, "description": "Backlash in mm"},
+                    "center_x": {"type": "number", "default": 0.0, "description": "Center X coordinate"},
+                    "center_y": {"type": "number", "default": 0.0, "description": "Center Y coordinate"},
+                    "internal": {"type": "boolean", "default": False, "description": "Generate internal (ring) gear profile"},
+                    "num_involute_pts": {"type": "integer", "default": 20, "description": "Points per involute curve"},
+                    "clearance_coeff": {"type": "number", "default": 0.25, "description": "Clearance coefficient"},
+                },
+                "required": ["module", "teeth"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "geometry.tooth_slot",
+            "description": (
+                "Generate a single tooth slot profile for pocket + polar_pattern workflow. "
+                "Returns a geometry_ref handle. Create a blank cylinder, "
+                "pocket this slot via cad.sketch(geometry_ref=...), then polar_pattern for all teeth."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "module": {"type": "number", "description": "Gear module in mm"},
+                    "teeth": {"type": "integer", "description": "Number of teeth"},
+                    "pressure_angle_deg": {"type": "number", "default": 20.0},
+                    "profile_shift": {"type": "number", "default": 0.0},
+                    "backlash": {"type": "number", "default": 0.0},
+                    "center_x": {"type": "number", "default": 0.0},
+                    "center_y": {"type": "number", "default": 0.0},
+                    "num_involute_pts": {"type": "integer", "default": 20},
+                    "clearance_coeff": {"type": "number", "default": 0.25},
+                },
+                "required": ["module", "teeth"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "geometry.gear_params",
+            "description": "Compute gear parameters (diameters, etc.) without generating geometry.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "module": {"type": "number", "description": "Gear module in mm"},
+                    "teeth": {"type": "integer", "description": "Number of teeth"},
+                    "pressure_angle_deg": {"type": "number", "default": 20.0},
+                    "profile_shift": {"type": "number", "default": 0.0},
+                    "backlash": {"type": "number", "default": 0.0},
+                    "internal": {"type": "boolean", "default": False},
+                    "clearance_coeff": {"type": "number", "default": 0.25},
+                },
+                "required": ["module", "teeth"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "geometry.planetary_layout",
+            "description": (
+                "Generate a planetary gear layout with sun, planet, and ring profiles. "
+                "Validates ring=sun+2*planet and assembly condition. "
+                "Returns geometry_ref handles for sun, planet, and ring + planet positions. "
+                "Pass each geometry_ref to cad.sketch(geometry_ref=...) to use."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "module": {"type": "number", "description": "Gear module in mm"},
+                    "sun_teeth": {"type": "integer", "description": "Sun gear teeth"},
+                    "planet_teeth": {"type": "integer", "description": "Planet gear teeth"},
+                    "num_planets": {"type": "integer", "default": 3, "description": "Number of planets"},
+                    "pressure_angle_deg": {"type": "number", "default": 20.0},
+                    "profile_shift": {"type": "number", "default": 0.0},
+                    "backlash": {"type": "number", "default": 0.0},
+                    "center_x": {"type": "number", "default": 0.0},
+                    "center_y": {"type": "number", "default": 0.0},
+                    "num_involute_pts": {"type": "integer", "default": 20},
+                    "clearance_coeff": {"type": "number", "default": 0.25},
+                },
+                "required": ["module", "sun_teeth", "planet_teeth"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "geometry.involute_points",
+            "description": "Generate points along an involute curve for a given base circle.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "base_radius": {"type": "number", "description": "Base circle radius in mm"},
+                    "start_radius": {"type": "number", "description": "Start radius in mm"},
+                    "end_radius": {"type": "number", "description": "End radius in mm"},
+                    "num_points": {"type": "integer", "default": 20, "description": "Number of points"},
+                },
+                "required": ["base_radius", "start_radius", "end_radius"],
+                "additionalProperties": False,
+            },
+        },
+    ]
+
+
+def _study_tool_list() -> list[dict[str, Any]]:
+    """Parametric design optimization study tools."""
+    return [
+        {
+            "name": "study.create",
+            "description": (
+                "Define a parametric study with design variables, solver, and optimization objective. "
+                "Returns study_id and execution plan with time estimates. "
+                "For OpenFOAM solver, provide geometry_script — a FreeCAD Python script that "
+                "reads params JSON from sys.argv[1] and exports STL to sys.argv[2]."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "Study name"},
+                    "variables": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "name": {"type": "string"},
+                                "var_type": {"type": "string", "enum": ["continuous", "discrete", "categorical"]},
+                                "min_val": {"type": "number"},
+                                "max_val": {"type": "number"},
+                                "coarse_step": {"type": "number"},
+                                "fine_step": {"type": "number"},
+                                "categories": {"type": "array", "items": {"type": "string"}},
+                                "pinned_values": {"type": "array", "items": {"type": "number"}},
+                            },
+                            "required": ["name", "var_type"],
+                        },
+                        "description": "Design variables to sweep",
+                    },
+                    "solver": {
+                        "type": "object",
+                        "properties": {
+                            "solver_type": {"type": "string", "enum": ["mock", "bemt_xfoil", "openfoam"]},
+                            "params": {"type": "object"},
+                            "timeout_s": {"type": "number"},
+                        },
+                        "required": ["solver_type"],
+                        "description": "Solver configuration",
+                    },
+                    "objective": {
+                        "type": "object",
+                        "properties": {
+                            "primary_metric": {"type": "string"},
+                            "direction": {"type": "string", "enum": ["maximize", "minimize"]},
+                            "constraint_bounds": {"type": "object"},
+                            "weights": {"type": "object"},
+                        },
+                        "required": ["primary_metric"],
+                        "description": "Optimization objective",
+                    },
+                    "fixed_params": {"type": "object", "description": "Fixed parameters passed to solver"},
+                    "geometry_script": {
+                        "type": "string",
+                        "description": (
+                            "FreeCAD Python script for geometry generation (required for OpenFOAM). "
+                            "Script reads params JSON from sys.argv[1], exports STL to sys.argv[2]. "
+                            "Runs in FreeCAD headless mode (FreeCADCmd)."
+                        ),
+                    },
+                },
+                "required": ["name", "variables", "solver", "objective"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "study.run",
+            "description": "Spawn background runner subprocess for a study. Returns PID.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "study_id": {"type": "string", "description": "Study ID to run"},
+                },
+                "required": ["study_id"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "study.status",
+            "description": "Poll study progress (coarse N/M, refined N/M, status).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "study_id": {"type": "string", "description": "Study ID to check"},
+                },
+                "required": ["study_id"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "study.results",
+            "description": "Get ranked study results (top_n, filter by phase, sort by metric).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "study_id": {"type": "string", "description": "Study ID"},
+                    "top_n": {"type": "integer", "default": 10, "description": "Number of top results"},
+                    "phase": {"type": "string", "enum": ["coarse", "refined"], "description": "Filter by phase"},
+                    "sort_by": {"type": "string", "description": "Metric to sort by (default: primary metric)"},
+                },
+                "required": ["study_id"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "study.cancel",
+            "description": "Send SIGTERM to cancel a running study.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "study_id": {"type": "string", "description": "Study ID to cancel"},
+                },
+                "required": ["study_id"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "study.list",
+            "description": "List all studies with summary status.",
+            "inputSchema": {"type": "object", "additionalProperties": False},
+        },
+        {
+            "name": "study.get_variant",
+            "description": "Get full params + metrics for one variant.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "study_id": {"type": "string", "description": "Study ID"},
+                    "variant_id": {"type": "string", "description": "Variant ID"},
+                },
+                "required": ["study_id", "variant_id"],
+                "additionalProperties": False,
+            },
+        },
+    ]
+
+
 def _tool_list() -> list[dict[str, Any]]:
     return (
         _cad_tool_list()
@@ -1142,6 +1426,8 @@ def _tool_list() -> list[dict[str, Any]]:
         + _spec_tool_list()
         + _me_tool_list()
         + _knowledge_tool_list()
+        + _geometry_tool_list()
+        + _study_tool_list()
     )
 
 
@@ -1214,6 +1500,24 @@ _KNOWLEDGE_DISPATCH: dict[str, Any] = {
     "knowledge.status": knowledge_status,
 }
 
+_GEOMETRY_DISPATCH: dict[str, Any] = {
+    "geometry.spur_gear": geometry_spur_gear,
+    "geometry.tooth_slot": geometry_tooth_slot,
+    "geometry.gear_params": geometry_gear_params,
+    "geometry.planetary_layout": geometry_planetary_layout,
+    "geometry.involute_points": geometry_involute_points,
+}
+
+_STUDY_DISPATCH: dict[str, Any] = {
+    "study.create": study_create,
+    "study.run": study_run,
+    "study.status": study_status,
+    "study.results": study_results,
+    "study.cancel": study_cancel,
+    "study.list": study_list,
+    "study.get_variant": study_get_variant,
+}
+
 
 def _call_tool(name: str, arguments: dict[str, Any]) -> Any:
     handler = (
@@ -1222,6 +1526,8 @@ def _call_tool(name: str, arguments: dict[str, Any]) -> Any:
         or _SPEC_DISPATCH.get(name)
         or _ME_DISPATCH.get(name)
         or _KNOWLEDGE_DISPATCH.get(name)
+        or _GEOMETRY_DISPATCH.get(name)
+        or _STUDY_DISPATCH.get(name)
     )
     if handler is None:
         raise KeyError(f"Unknown tool: {name}")
@@ -1271,6 +1577,8 @@ def serve() -> int:
                 # Handle verification images from modeling operations
                 if isinstance(out, dict) and "verification_images" in out:
                     images = out.pop("verification_images")
+                    # Preserve view labels so LLM knows which image is which
+                    out["verification_views"] = [img.get("view", "unknown") for img in images]
                     for img in images:
                         content.append({
                             "type": "image",

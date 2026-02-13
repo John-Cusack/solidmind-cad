@@ -403,10 +403,11 @@ def pad(
     pad_obj.Midplane = symmetric
     pad_obj.Reversed = reversed
 
-    result = _recompute_and_check(d, pad_obj, body=body)
+    op_context = {"op": "pad", "sketch": sketch, "length": length}
+    result = _recompute_and_check(d, pad_obj, body=body, op_context=op_context)
     logger.info("pad: created %s", pad_obj.Name)
     if verify:
-        result["verification_images"] = _capture_verification_views(d)
+        result["verification_images"] = _capture_verification_views(d, op_context=op_context, body=body)
     return result
 
 
@@ -435,10 +436,11 @@ def pocket(
         pocket_obj.Length = length
     pocket_obj.Reversed = reversed
 
-    result = _recompute_and_check(d, pocket_obj, body=body)
+    op_context = {"op": "pocket", "sketch": sketch, "length": length, "pocket_type": pocket_type}
+    result = _recompute_and_check(d, pocket_obj, body=body, op_context=op_context)
     logger.info("pocket: created %s", pocket_obj.Name)
     if verify:
-        result["verification_images"] = _capture_verification_views(d)
+        result["verification_images"] = _capture_verification_views(d, op_context=op_context, body=body)
     return result
 
 
@@ -483,10 +485,11 @@ def hole(
     else:
         hole_obj.DepthType = 0  # Dimension
 
-    result = _recompute_and_check(d, hole_obj, body=body_obj)
+    op_context = {"op": "hole", "face": face, "diameter": diameter, "depth": depth}
+    result = _recompute_and_check(d, hole_obj, body=body_obj, op_context=op_context)
     logger.info("hole: created %s", hole_obj.Name)
     if verify:
-        result["verification_images"] = _capture_verification_views(d)
+        result["verification_images"] = _capture_verification_views(d, op_context=op_context, body=body_obj)
     return result
 
 
@@ -526,10 +529,11 @@ def fillet(
     fillet_obj.Base = (tip, edges)
     fillet_obj.Radius = radius
 
-    result = _recompute_and_check(d, fillet_obj, body=body_obj)
+    op_context = {"op": "fillet", "radius": radius, "edge_count": len(edges)}
+    result = _recompute_and_check(d, fillet_obj, body=body_obj, op_context=op_context)
     logger.info("fillet: created %s", fillet_obj.Name)
     if verify:
-        result["verification_images"] = _capture_verification_views(d)
+        result["verification_images"] = _capture_verification_views(d, op_context=op_context, body=body_obj)
     return result
 
 
@@ -581,10 +585,11 @@ def revolution(
             raise ValueError(f"Document has no '{fc_axis}' object")
         rev_obj.ReferenceAxis = (axis_obj, [""])
 
-    result = _recompute_and_check(d, rev_obj, body=body)
+    op_context = {"op": "revolution", "sketch": sketch, "axis": axis, "angle": angle, "subtractive": subtractive}
+    result = _recompute_and_check(d, rev_obj, body=body, op_context=op_context)
     logger.info("revolution: created %s", rev_obj.Name)
     if verify:
-        result["verification_images"] = _capture_verification_views(d)
+        result["verification_images"] = _capture_verification_views(d, op_context=op_context, body=body)
     return result
 
 
@@ -648,10 +653,11 @@ def polar_pattern(
             raise ValueError(f"Document has no '{fc_axis}' object")
         pattern_obj.Axis = (axis_obj, [""])
 
-    result = _recompute_and_check(d, pattern_obj, body=body_obj)
+    op_context = {"op": "polar_pattern", "axis": axis, "occurrences": occurrences, "angle": angle}
+    result = _recompute_and_check(d, pattern_obj, body=body_obj, op_context=op_context)
     logger.info("polar_pattern: created %s", pattern_obj.Name)
     if verify:
-        result["verification_images"] = _capture_verification_views(d)
+        result["verification_images"] = _capture_verification_views(d, op_context=op_context, body=body_obj)
     return result
 
 
@@ -679,10 +685,11 @@ def sweep(
     pipe_obj.Profile = sk_profile
     pipe_obj.Spine = (sk_spine, ["Edge1"])
 
-    result = _recompute_and_check(d, pipe_obj, body=body)
+    op_context = {"op": "sweep", "subtractive": subtractive}
+    result = _recompute_and_check(d, pipe_obj, body=body, op_context=op_context)
     logger.info("sweep: created %s", pipe_obj.Name)
     if verify:
-        result["verification_images"] = _capture_verification_views(d)
+        result["verification_images"] = _capture_verification_views(d, op_context=op_context, body=body)
     return result
 
 
@@ -762,10 +769,11 @@ def helix(
             raise ValueError(f"Document has no '{fc_axis}' object")
         helix_obj.ReferenceAxis = (axis_obj, [""])
 
-    result = _recompute_and_check(d, helix_obj, body=body)
+    op_context = {"op": "helix", "mode": mode}
+    result = _recompute_and_check(d, helix_obj, body=body, op_context=op_context)
     logger.info("helix: created %s", helix_obj.Name)
     if verify:
-        result["verification_images"] = _capture_verification_views(d)
+        result["verification_images"] = _capture_verification_views(d, op_context=op_context, body=body)
     return result
 
 
@@ -801,10 +809,11 @@ def loft(
     loft_obj.Ruled = ruled
     loft_obj.Closed = closed
 
-    result = _recompute_and_check(d, loft_obj, body=body)
+    op_context = {"op": "loft", "sketch_count": len(sketches), "subtractive": subtractive}
+    result = _recompute_and_check(d, loft_obj, body=body, op_context=op_context)
     logger.info("loft: created %s", loft_obj.Name)
     if verify:
-        result["verification_images"] = _capture_verification_views(d)
+        result["verification_images"] = _capture_verification_views(d, op_context=op_context, body=body)
     return result
 
 
@@ -843,10 +852,11 @@ def chamfer(
     chamfer_obj.Base = (tip, edges)
     chamfer_obj.Size = size
 
-    result = _recompute_and_check(d, chamfer_obj, body=body_obj)
+    op_context = {"op": "chamfer", "size": size, "edge_count": len(edges)}
+    result = _recompute_and_check(d, chamfer_obj, body=body_obj, op_context=op_context)
     logger.info("chamfer: created %s", chamfer_obj.Name)
     if verify:
-        result["verification_images"] = _capture_verification_views(d)
+        result["verification_images"] = _capture_verification_views(d, op_context=op_context, body=body_obj)
     return result
 
 
@@ -1425,17 +1435,29 @@ def _capture_verification_views(
     doc: Any,
     width: int = 512,
     height: int = 512,
+    op_context: dict[str, Any] | None = None,
+    body: Any | None = None,
 ) -> list[dict[str, Any]]:
-    """Capture 3 verification views: iso, front, top."""
+    """Capture 2 verification views: iso overview + targeted operation view."""
     views: list[dict[str, Any]] = []
-    for view_name in ("iso", "front", "top"):
-        direction = _PRESET_DIRECTIONS[view_name]
-        try:
-            img = _capture_image(doc, direction=direction, width=width, height=height)
-            img["view"] = view_name
-            views.append(img)
-        except Exception as e:
-            logger.warning("Failed to capture %s view: %s", view_name, e)
+
+    # View 1: Always iso for overall context
+    try:
+        img = _capture_image(doc, direction=_PRESET_DIRECTIONS["iso"], width=width, height=height)
+        img["view"] = "iso"
+        views.append(img)
+    except Exception as e:
+        logger.warning("Failed to capture iso view: %s", e)
+
+    # View 2: Targeted at the operation area
+    view_label, direction = _compute_targeted_view(op_context, doc, body=body)
+    try:
+        img = _capture_image(doc, direction=direction, width=width, height=height)
+        img["view"] = view_label
+        views.append(img)
+    except Exception as e:
+        logger.warning("Failed to capture %s view: %s", view_label, e)
+
     return views
 
 
@@ -1824,14 +1846,20 @@ def _gather_failure_diagnostics(obj: Any) -> str:
     return "; ".join(parts)
 
 
-def _recompute_and_check(doc: Any, obj: Any, body: Any | None = None) -> dict[str, Any]:
+def _recompute_and_check(
+    doc: Any,
+    obj: Any,
+    body: Any | None = None,
+    op_context: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Recompute the document and verify the feature is valid.
 
     If recompute fails (feature enters an invalid state), the broken feature
     is removed from the document and a ``ValueError`` is raised so the error
     propagates back to the MCP client.
 
-    If ``body`` is provided, computes a shape digest and delta after success.
+    If ``body`` is provided, computes a shape digest, delta, face map, and
+    operation summary after success.
     """
     doc.recompute()
 
@@ -1874,6 +1902,14 @@ def _recompute_and_check(doc: Any, obj: Any, body: Any | None = None) -> dict[st
             result["delta"] = delta
         except Exception:
             pass
+
+    # Face map and operation summary for spatial reasoning
+    if body is not None:
+        try:
+            result["face_map"] = _build_face_map(body)
+        except Exception:
+            pass
+    result["operation_summary"] = _operation_summary(obj, op_context)
 
     # Drift detection: re-resolve all named selectors after topology changes
     if _selection_sets:
@@ -1926,6 +1962,182 @@ def _feature_result(obj: Any) -> dict[str, Any]:
         result["num_edges"] = len(obj.Shape.Edges)
         result["num_vertices"] = len(obj.Shape.Vertexes)
     return result
+
+
+def _build_face_map(body: Any, max_faces: int = 30) -> dict[str, Any]:
+    """Build a compact spatial index of body faces for LLM spatial reasoning.
+
+    Returns face names, surface types, normals, centers, and areas sorted by
+    area (largest first).  Caps at ``max_faces`` entries.
+    """
+    try:
+        tip = _get_tip(body)
+        shape = tip.Shape
+    except Exception:
+        return {"faces": [], "total_faces": 0}
+
+    all_faces = shape.Faces
+    face_list: list[dict[str, Any]] = []
+    for i, face in enumerate(all_faces):
+        info: dict[str, Any] = {"name": f"Face{i + 1}"}
+        surface = face.Surface
+        info["surface_type"] = type(surface).__name__
+        if hasattr(surface, "Axis"):
+            info["normal"] = [round(v, 4) for v in _vec_to_list(surface.Axis)]
+        if hasattr(face, "CenterOfMass"):
+            info["center"] = [round(v, 2) for v in _vec_to_list(face.CenterOfMass)]
+        info["area"] = round(face.Area, 2)
+        face_list.append(info)
+
+    # Sort by area descending so the most important faces come first
+    face_list.sort(key=lambda f: f["area"], reverse=True)
+    total = len(face_list)
+    truncated = total > max_faces
+    face_list = face_list[:max_faces]
+
+    result: dict[str, Any] = {"faces": face_list, "total_faces": total}
+    if truncated:
+        result["truncated"] = True
+    return result
+
+
+def _operation_summary(obj: Any, op_context: dict[str, Any] | None) -> str:
+    """Generate a human-readable one-line summary of what the operation did."""
+    if op_context is None:
+        return f"Created {obj.Name}"
+
+    op = op_context.get("op", "unknown")
+
+    # Get bounding box dimensions for size description
+    bbox_str = ""
+    try:
+        if hasattr(obj, "Shape") and obj.Shape is not None and not obj.Shape.isNull():
+            bb = obj.Shape.BoundBox
+            bbox_str = f" → {bb.XLength:.1f}×{bb.YLength:.1f}×{bb.ZLength:.1f}mm"
+    except Exception:
+        pass
+
+    if op == "pad":
+        length = op_context.get("length", "?")
+        return f"Padded {op_context.get('sketch', 'sketch')} by {length}mm{bbox_str}"
+    if op == "pocket":
+        ptype = op_context.get("pocket_type", "Dimension")
+        if ptype == "ThroughAll":
+            return f"Pocketed through all{bbox_str}"
+        length = op_context.get("length", "?")
+        return f"Pocketed {length}mm deep{bbox_str}"
+    if op == "hole":
+        d = op_context.get("diameter", "?")
+        depth = op_context.get("depth", "?")
+        face = op_context.get("face", "?")
+        return f"Hole ⌀{d}mm, {depth}mm deep on {face}"
+    if op == "fillet":
+        r = op_context.get("radius", "?")
+        n = op_context.get("edge_count", "?")
+        return f"Filleted {n} edge(s) with r={r}mm"
+    if op == "chamfer":
+        s = op_context.get("size", "?")
+        n = op_context.get("edge_count", "?")
+        return f"Chamfered {n} edge(s) with size={s}mm"
+    if op == "revolution":
+        angle = op_context.get("angle", 360)
+        axis = op_context.get("axis", "V")
+        sub = " (subtractive)" if op_context.get("subtractive") else ""
+        return f"Revolved {angle}° around {axis}{sub}{bbox_str}"
+    if op == "polar_pattern":
+        n = op_context.get("occurrences", "?")
+        angle = op_context.get("angle", 360)
+        return f"Polar pattern: {n} copies over {angle}°"
+    if op == "sweep":
+        sub = "Subtractive sweep" if op_context.get("subtractive") else "Sweep"
+        return f"{sub} along spine{bbox_str}"
+    if op == "helix":
+        mode = op_context.get("mode", "pitch-height")
+        return f"Helix ({mode}){bbox_str}"
+    if op == "loft":
+        n = op_context.get("sketch_count", "?")
+        sub = "Subtractive loft" if op_context.get("subtractive") else "Loft"
+        return f"{sub} between {n} profiles{bbox_str}"
+
+    return f"Created {obj.Name}{bbox_str}"
+
+
+def _compute_targeted_view(
+    op_context: dict[str, Any] | None,
+    doc: Any,
+    body: Any | None = None,
+) -> tuple[str, tuple[float, float, float]]:
+    """Compute a targeted camera direction based on the operation type.
+
+    Returns (view_label, direction_tuple).  Falls back to front view.
+    """
+    if op_context is None:
+        return ("front", _PRESET_DIRECTIONS["front"])
+
+    op = op_context.get("op", "")
+
+    try:
+        if op in ("pad", "pocket") and body is not None:
+            # Look from the sketch plane normal direction
+            sketch_name = op_context.get("sketch")
+            if sketch_name:
+                tip = _get_tip(body)
+                # For pad/pocket, look from the direction of the new top face
+                # Use the last face's normal as an approximation
+                shape = tip.Shape
+                if shape.Faces:
+                    # Find the largest planar face — likely the padded face
+                    best_face = None
+                    best_area = 0.0
+                    for face in shape.Faces:
+                        if type(face.Surface).__name__ == "Plane" and face.Area > best_area:
+                            best_area = face.Area
+                            best_face = face
+                    if best_face and hasattr(best_face.Surface, "Axis"):
+                        n = best_face.Surface.Axis
+                        return ("sketch-normal", (n.x, n.y, n.z))
+
+        if op == "hole":
+            face_ref = op_context.get("face")
+            if face_ref and body is not None:
+                tip = _get_tip(body)
+                try:
+                    face = tip.Shape.getElement(face_ref)
+                    if hasattr(face.Surface, "Axis"):
+                        n = face.Surface.Axis
+                        return ("hole-face", (n.x, n.y, n.z))
+                except Exception:
+                    pass
+
+        if op in ("fillet", "chamfer"):
+            # Look from iso-alt angle to show edge detail
+            return ("detail", (1.0, -1.0, 0.5))
+
+        if op == "revolution":
+            # Side view perpendicular to revolution axis
+            axis = op_context.get("axis", "V")
+            if axis in ("V", "Base_Z"):
+                return ("side", (1.0, 0.0, 0.0))
+            if axis in ("H", "Base_X"):
+                return ("side", (0.0, 1.0, 0.0))
+            if axis == "Base_Y":
+                return ("side", (1.0, 0.0, 0.0))
+
+        if op == "polar_pattern":
+            # Top-down if Z-axis, side view otherwise
+            axis = op_context.get("axis", "Base_Z")
+            if axis == "Base_Z":
+                return ("top", _PRESET_DIRECTIONS["top"])
+            return ("side", (1.0, 0.0, 0.0))
+
+        if op in ("sweep", "helix", "loft"):
+            # Alternate iso angle for better 3D perspective
+            return ("iso-alt", (1.0, -1.0, 1.0))
+
+    except Exception:
+        pass
+
+    return ("front", _PRESET_DIRECTIONS["front"])
 
 
 def _pocket_type_enum(pocket_type: str) -> int:

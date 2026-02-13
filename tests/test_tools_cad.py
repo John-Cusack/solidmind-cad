@@ -122,6 +122,85 @@ class TestCadSketch(unittest.TestCase):
         self.assertIn("INVALID_ELEMENT", result["error"]["code"])
 
 
+class TestCadSketchGeometryRef(unittest.TestCase):
+    """Test cad_sketch with geometry_ref from the geometry store."""
+
+    def setUp(self) -> None:
+        from server.geometry_store import clear
+        clear()
+
+    def tearDown(self) -> None:
+        from server.geometry_store import clear
+        clear()
+
+    @patch("server.tools_cad.get_client")
+    def test_sketch_with_geometry_ref(self, mock_get: MagicMock) -> None:
+        from server.geometry_store import store
+
+        ref = store([
+            {"type": "arc", "cx": 0, "cy": 0, "r": 10, "start_angle": 0, "end_angle": 90},
+            {"type": "arc", "cx": 0, "cy": 0, "r": 12, "start_angle": 0, "end_angle": 90},
+        ])
+        client = _mock_client()
+        client.send_command.side_effect = [
+            {"sketch": "Sketch"},  # new_sketch
+            {"sketch": "Sketch", "geometry_index": 0},  # arc 1
+            {"sketch": "Sketch", "geometry_index": 1},  # arc 2
+            {"sketch": "Sketch", "fully_constrained": True, "open_vertices": 0},  # close
+        ]
+        mock_get.return_value = client
+
+        result = cad_sketch(body="Body", geometry_ref=ref)
+        self.assertTrue(result["ok"])
+        self.assertEqual(len(result["geometry"]), 2)
+
+    @patch("server.tools_cad.get_client")
+    def test_sketch_with_geometry_ref_and_elements(self, mock_get: MagicMock) -> None:
+        from server.geometry_store import store
+
+        ref = store([{"type": "arc", "cx": 0, "cy": 0, "r": 10, "start_angle": 0, "end_angle": 90}])
+        client = _mock_client()
+        client.send_command.side_effect = [
+            {"sketch": "Sketch"},  # new_sketch
+            {"sketch": "Sketch", "geometry_index": 0},  # arc from ref
+            {"sketch": "Sketch", "geometry_index": 1},  # circle from inline
+            {"sketch": "Sketch", "fully_constrained": False, "open_vertices": 0},  # close
+        ]
+        mock_get.return_value = client
+
+        result = cad_sketch(
+            body="Body",
+            geometry_ref=ref,
+            elements=[{"type": "circle", "cx": 0, "cy": 0, "r": 3}],
+        )
+        self.assertTrue(result["ok"])
+        # 1 arc from ref + 1 circle from inline
+        self.assertEqual(len(result["geometry"]), 2)
+
+    def test_sketch_with_invalid_geometry_ref(self) -> None:
+        result = cad_sketch(body="Body", geometry_ref="geo_doesnotexist")
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["error"]["code"], "INVALID_GEOMETRY_REF")
+
+    @patch("server.tools_cad.get_client")
+    def test_geometry_ref_not_consumed(self, mock_get: MagicMock) -> None:
+        """Verify that using a ref doesn't remove it from the store."""
+        from server.geometry_store import retrieve, store
+
+        ref = store([{"type": "circle", "cx": 0, "cy": 0, "r": 5}])
+        client = _mock_client()
+        client.send_command.side_effect = [
+            {"sketch": "Sketch"},
+            {"sketch": "Sketch", "geometry_index": 0},
+            {"sketch": "Sketch", "fully_constrained": True, "open_vertices": 0},
+        ]
+        mock_get.return_value = client
+
+        cad_sketch(body="Body", geometry_ref=ref)
+        # Ref should still be in the store
+        self.assertIsNotNone(retrieve(ref))
+
+
 class TestCadPad(unittest.TestCase):
     @patch("server.tools_cad.get_client")
     def test_pad(self, mock_get: MagicMock) -> None:
@@ -1332,14 +1411,14 @@ class TestImageContentBlocks(unittest.TestCase):
             "name": "Pad",
             "verification_images": [
                 {"image_base64": "abc123", "mime_type": "image/png", "view": "iso"},
-                {"image_base64": "def456", "mime_type": "image/png", "view": "front"},
-                {"image_base64": "ghi789", "mime_type": "image/png", "view": "top"},
+                {"image_base64": "def456", "mime_type": "image/png", "view": "sketch-normal"},
             ],
         }
 
         content: list[dict[str, Any]] = []
         if isinstance(out, dict) and "verification_images" in out:
             images = out.pop("verification_images")
+            out["verification_views"] = [img.get("view", "unknown") for img in images]
             for img in images:
                 content.append({
                     "type": "image",
@@ -1356,15 +1435,15 @@ class TestImageContentBlocks(unittest.TestCase):
 
         content.append({"type": "text", "text": json.dumps(out)})
 
-        self.assertEqual(len(content), 4)  # 3 images + 1 text
+        self.assertEqual(len(content), 3)  # 2 images + 1 text
         self.assertEqual(content[0]["type"], "image")
         self.assertEqual(content[0]["data"], "abc123")
         self.assertEqual(content[1]["data"], "def456")
-        self.assertEqual(content[2]["data"], "ghi789")
-        self.assertEqual(content[3]["type"], "text")
-        # Verify images were removed from text output
-        text_data = json.loads(content[3]["text"])
+        self.assertEqual(content[2]["type"], "text")
+        # Verify images were removed but view labels preserved
+        text_data = json.loads(content[2]["text"])
         self.assertNotIn("verification_images", text_data)
+        self.assertEqual(text_data["verification_views"], ["iso", "sketch-normal"])
 
     def test_screenshot_image_extracted(self) -> None:
         """Simulate screenshot result handling."""
@@ -1419,6 +1498,127 @@ class TestImageContentBlocks(unittest.TestCase):
 
         self.assertEqual(len(content), 1)
         self.assertEqual(content[0]["type"], "text")
+
+
+class TestFaceMapAndOperationSummary(unittest.TestCase):
+    """Verify face_map and operation_summary keys flow through tool responses."""
+
+    @patch("server.tools_cad.get_client")
+    def test_pad_response_includes_face_map(self, mock_get: MagicMock) -> None:
+        client = _mock_client()
+        client.send_command.return_value = {
+            "name": "Pad", "label": "Pad", "type": "PartDesign::Pad",
+            "bounding_box": {"x_len": 100, "y_len": 50, "z_len": 20},
+            "volume": 100000,
+            "digest": {"volume": 100000.0, "surface_area": 22000.0, "bbox": [100, 50, 20], "faces": 6, "edges": 12, "vertices": 8},
+            "delta": None,
+            "face_map": {
+                "faces": [
+                    {"name": "Face1", "surface_type": "Plane", "normal": [0, 0, 1], "center": [50, 25, 20], "area": 5000.0},
+                    {"name": "Face2", "surface_type": "Plane", "normal": [0, 0, -1], "center": [50, 25, 0], "area": 5000.0},
+                ],
+                "total_faces": 6,
+            },
+            "operation_summary": "Padded Sketch by 20mm → 100.0×50.0×20.0mm solid",
+        }
+        mock_get.return_value = client
+
+        result = cad_pad(sketch="Sketch", length=20)
+        self.assertTrue(result["ok"])
+        self.assertIn("face_map", result)
+        self.assertEqual(result["face_map"]["total_faces"], 6)
+        self.assertEqual(len(result["face_map"]["faces"]), 2)
+        self.assertEqual(result["face_map"]["faces"][0]["surface_type"], "Plane")
+
+    @patch("server.tools_cad.get_client")
+    def test_pocket_response_includes_operation_summary(self, mock_get: MagicMock) -> None:
+        client = _mock_client()
+        client.send_command.return_value = {
+            "name": "Pocket", "label": "Pocket", "type": "PartDesign::Pocket",
+            "digest": {"volume": 80000.0, "surface_area": 24000.0, "bbox": [100, 50, 20], "faces": 10, "edges": 24, "vertices": 16},
+            "delta": {"volume": -20000.0, "surface_area": 2000.0, "faces": 4, "edges": 12, "vertices": 8},
+            "face_map": {"faces": [], "total_faces": 10},
+            "operation_summary": "Pocketed 5mm deep",
+        }
+        mock_get.return_value = client
+
+        result = cad_pocket(sketch="Sketch", length=5)
+        self.assertTrue(result["ok"])
+        self.assertIn("operation_summary", result)
+        self.assertIn("Pocketed", result["operation_summary"])
+
+    @patch("server.tools_cad.get_client")
+    def test_fillet_response_includes_face_map_and_summary(self, mock_get: MagicMock) -> None:
+        client = _mock_client()
+        client.send_command.return_value = {
+            "name": "Fillet", "label": "Fillet", "type": "PartDesign::Fillet",
+            "digest": {"volume": 99000.0, "surface_area": 22500.0, "bbox": [100, 50, 20], "faces": 10, "edges": 24, "vertices": 16},
+            "delta": {"volume": -1000.0, "surface_area": 500.0, "faces": 4, "edges": 12, "vertices": 8},
+            "face_map": {"faces": [], "total_faces": 10},
+            "operation_summary": "Filleted 2 edge(s) with r=2mm",
+        }
+        mock_get.return_value = client
+
+        result = cad_fillet(edges=["Edge1", "Edge3"], radius=2.0)
+        self.assertTrue(result["ok"])
+        self.assertIn("face_map", result)
+        self.assertIn("operation_summary", result)
+        self.assertIn("Filleted", result["operation_summary"])
+
+    @patch("server.tools_cad.get_client")
+    def test_revolution_response_includes_summary(self, mock_get: MagicMock) -> None:
+        client = _mock_client()
+        client.send_command.return_value = {
+            "name": "Revolution", "label": "Revolution", "type": "PartDesign::Revolution",
+            "face_map": {"faces": [], "total_faces": 3},
+            "operation_summary": "Revolved 360° around V",
+        }
+        mock_get.return_value = client
+
+        result = cad_revolution(sketch="Sketch")
+        self.assertTrue(result["ok"])
+        self.assertIn("operation_summary", result)
+        self.assertIn("Revolved", result["operation_summary"])
+
+
+class TestVerificationViewCount(unittest.TestCase):
+    """Verify that verification images now contain 2 views (iso + targeted)."""
+
+    def test_verification_images_two_views(self) -> None:
+        """Simulate the new 2-view verification output with view labels."""
+        import json
+        out: dict[str, Any] = {
+            "ok": True,
+            "name": "Pad",
+            "face_map": {"faces": [], "total_faces": 6},
+            "operation_summary": "Padded Sketch by 20mm",
+            "verification_images": [
+                {"image_base64": "abc123", "mime_type": "image/png", "view": "iso"},
+                {"image_base64": "def456", "mime_type": "image/png", "view": "sketch-normal"},
+            ],
+        }
+
+        content: list[dict[str, Any]] = []
+        if isinstance(out, dict) and "verification_images" in out:
+            images = out.pop("verification_images")
+            out["verification_views"] = [img.get("view", "unknown") for img in images]
+            for img in images:
+                content.append({
+                    "type": "image",
+                    "data": img["image_base64"],
+                    "mimeType": img["mime_type"],
+                })
+        content.append({"type": "text", "text": json.dumps(out)})
+
+        self.assertEqual(len(content), 3)  # 2 images + 1 text
+        self.assertEqual(content[0]["data"], "abc123")
+        self.assertEqual(content[1]["data"], "def456")
+
+        # Verify face_map, operation_summary, and view labels are in text output
+        text_data = json.loads(content[2]["text"])
+        self.assertIn("face_map", text_data)
+        self.assertIn("operation_summary", text_data)
+        self.assertEqual(text_data["verification_views"], ["iso", "sketch-normal"])
 
 
 class TestConnectionError(unittest.TestCase):
