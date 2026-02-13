@@ -10,6 +10,7 @@ because FreeCAD's Python API is not thread-safe.
 """
 from __future__ import annotations
 
+import inspect
 import json
 import logging
 import queue
@@ -41,6 +42,31 @@ def _fc_log(msg: str, *, error: bool = False) -> None:
         logger.error(msg)
     else:
         logger.info(msg)
+
+
+def _filter_kwargs(handler: Callable[..., Any], args: dict[str, Any]) -> dict[str, Any]:
+    """Filter *args* to only keys the handler accepts.
+
+    This provides forward-compatibility: a newer bridge can send kwargs
+    that an older addon handler doesn't know about yet, and they'll be
+    silently dropped instead of raising TypeError.
+    """
+    sig = inspect.signature(handler)
+    # If the handler accepts **kwargs, pass everything through.
+    if any(
+        p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
+    ):
+        return args
+    accepted = {
+        name
+        for name, p in sig.parameters.items()
+        if p.kind
+        in (
+            inspect.Parameter.POSITIONAL_OR_KEYWORD,
+            inspect.Parameter.KEYWORD_ONLY,
+        )
+    }
+    return {k: v for k, v in args.items() if k in accepted}
 
 
 class _MainThreadJob:
@@ -217,9 +243,12 @@ class AddonSocketServer:
         if handler is None:
             return Response.failure(f"Unknown command: {cmd.cmd}")
 
+        # Filter out kwargs the handler doesn't accept (forward-compatibility).
+        args = _filter_kwargs(handler, cmd.args)
+
         # If we have a QTimer, dispatch to main thread; otherwise run directly.
         if self._timer is not None:
-            job = _MainThreadJob(handler, cmd.args)
+            job = _MainThreadJob(handler, args)
             self._job_queue.put(job)
             job.event.wait(timeout=30.0)
             if job.response is None:
@@ -227,7 +256,7 @@ class AddonSocketServer:
             return job.response
         else:
             try:
-                result = handler(**cmd.args)
+                result = handler(**args)
                 return Response.success(result)
             except Exception as e:
                 tb = traceback.format_exc()

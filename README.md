@@ -12,7 +12,7 @@ Make it possible for any person, not only CAD experts, to use CAD software to de
 The system asks structured questions in plain language and translates answers into engineering-ready fields.
 
 2. Make the LLM mechanically grounded.
-It uses deterministic spec flow, ME archetypes, constraint templates, and a source policy (`me_knowledge/standards_sources.yml`) to tie decisions to engineering context.
+It uses deterministic constraint validation, ME knowledge resources, and a source policy (`me_knowledge/standards_sources.yml`) to tie decisions to engineering context.
 
 3. Convert ideas into explicit constraints.
 Before geometry, the system builds a concrete list of requirements: function, materials, dimensions, interfaces, tolerances, manufacturing constraints, and risks.
@@ -21,7 +21,7 @@ Before geometry, the system builds a concrete list of requirements: function, ma
 The ME loop runs deterministic checks, creates traceability, and emits risk notices so unresolved issues are visible without hard blocking generation.
 
 5. Build to the constraints.
-For constrained workflows, the CAD flow executes `cad.*` operations after spec and ME preflight; for fast iteration, live `cad.*` co-pilot operation is also available directly.
+For constrained workflows, the CAD flow executes `cad.*` operations after ME preflight; for fast iteration, live `cad.*` co-pilot operation is also available directly.
 
 ## Design Process Flow
 
@@ -54,10 +54,10 @@ flowchart LR
 
 ## What It Supports
 
-1. Live CAD co-pilot in FreeCAD (`cad.*` tools).
+1. Live CAD co-pilot in FreeCAD (`cad.*` tools) — pad, pocket, revolution, sweep, loft, helix, polar pattern, fillet, chamfer, hole, screenshot, and more.
 2. Manufacturing readiness and RFQ export (`mfg.*` tools).
-3. LLM-managed spec interview and finalization (`spec.*` tools).
-4. ME preflight design loop (`me.*` tools) with routing, constraints, validation, traceability, and risk notices.
+3. ME preflight design loop (`me.*` tools) with constraint validation, traceability, and risk gates.
+4. LLM-managed spec interview and finalization (`spec.*` tools).
 
 Current policy:
 - Coverage and ME risk outputs are notify-only by default.
@@ -88,35 +88,18 @@ Run unit tests:
 python3 -m unittest
 ```
 
-Optional: sync ME corpus sources for local research text search:
-
-```bash
-python3 scripts/sync_me_corpus.py
-```
-
 ## ME Design Loop Quick Flow
 
 Typical sequence:
 
-1. `me.route_request`
-2. `me.instantiate_constraint_sheet`
-3. `me.validate_constraint_sheet`
-4. `me.build_traceability`
-5. `me.apply_risk_gates`
+1. `me.validate_constraints` — run deterministic validators over a constraint dict
+2. `me.build_traceability` — build requirement-to-evidence traceability matrix
+3. `me.apply_risk_gates` — assign risk class and signoff gates
 
 Or run all at once with `me.design_loop`.
 
-## FreeCAD Optional Script
-
-Generate a minimal CAD stub (envelope box) from a finalized JSON input:
-
-```bash
-python3 scripts/freecad_from_spec.py --spec examples/print_3d/L2.json --out /tmp/part.step
-```
+Use `me.list_validators` to discover available validators and what fields they read.
 
 ## Documentation
 
 - `ARCHITECTURE.md`: system architecture and protocol surface
-- `GENERIC_GEOMETRY_ENGINE_ARCHITECTURE.md`: target architecture for a richer generic requirements-to-geometry engine
-- `ME_IMPLEMENTATION_GUIDE.md`: ME design-loop implementation details
-- `SPEC_GUIDE.md`: spec interview model and sufficiency guidance

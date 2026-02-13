@@ -1,4 +1,4 @@
-# SolidMind CAD — Architecture Reference (v0.3)
+# SolidMind CAD — Architecture Reference (v0.4)
 
 ## 1. What This System Does
 
@@ -45,16 +45,13 @@ available on-demand. ME design-loop preflight checks are also available on-deman
 A deterministic mechanical-engineering loop can run before or during CAD
 modeling:
 
-- route request to archetype (`me.route_request`)
-- instantiate constraint sheet (`me.instantiate_constraint_sheet`)
-- run proxy validators (`me.validate_constraint_sheet`)
-- generate traceability matrix (`me.build_traceability`)
+- validate constraints (`me.validate_constraints`)
+- build traceability matrix (`me.build_traceability`)
 - compute risk/signoff notices (`me.apply_risk_gates`)
 
 This flow is also available as a single call via `me.design_loop`.
 
 Current runtime policy (as of 2026-02-12):
-- `spec.generate_cad` treats low coverage as a warning (notify-only), not a hard error.
 - `me.apply_risk_gates` returns advisory risk/signoff notices and required actions; it does not hard-block generation.
 
 ---
@@ -89,9 +86,9 @@ The system runs as two processes connected by TCP:
 
 ## 3. MCP Protocol Surface
 
-### Tools (43 total)
+### Tools (44 total)
 
-#### CAD Tools (21) — `cad.*` in `server/tools_cad.py`
+#### CAD Tools (26) — `cad.*` in `server/tools_cad.py`
 
 | Tool | Purpose | Key Parameters |
 |------|---------|----------------|
@@ -102,6 +99,9 @@ The system runs as two processes connected by TCP:
 | `cad.revolution` | Revolve sketch around axis | sketch, axis (V/H/Base_X/Y/Z), angle |
 | `cad.polar_pattern` | Circular pattern of features | features[], axis, occurrences, angle |
 | `cad.pocket` | Cut pocket from sketch | sketch, length, pocket_type |
+| `cad.sweep` | Sweep profile along spine | profile_sketch, spine_sketch, subtractive |
+| `cad.helix` | Helical sweep (threads, springs) | sketch, pitch, height, turns, mode, axis |
+| `cad.loft` | Loft between profiles | sketches[], ruled, closed, subtractive |
 | `cad.hole` | Add hole on a face | face, diameter, depth, hole_type |
 | `cad.fillet` | Fillet (round) edges | edges[] or selection, radius |
 | `cad.chamfer` | Chamfer edges | edges[] or selection, size |
@@ -114,6 +114,9 @@ The system runs as two processes connected by TCP:
 | `cad.resolve_selection` | Re-resolve named selection against current geometry | name |
 | `cad.list_selections` | List all defined selection sets | — |
 | `cad.delete_selection` | Remove a named selection set | name |
+| `cad.screenshot` | Take screenshot with smart camera targeting | target (preset/face/feature/point), direction, distance |
+| `cad.set_camera` | Set camera position and orientation | position, target, up, near_clip |
+| `cad.get_camera` | Get current camera state | doc |
 | `cad.undo` | Undo last operation | doc |
 | `cad.export` | Export to STEP/STL/FCStd | format, path, doc |
 
@@ -125,7 +128,7 @@ The system runs as two processes connected by TCP:
 | `mfg.readiness_check` | Run process-specific readiness checks | process (cnc/fdm/sla/sls/print_3d) |
 | `mfg.export_rfq` | Generate RFQ summary from model + properties | properties dict |
 
-#### Specification Tools (9) — `spec.*` in `server/tools.py`
+#### Specification Tools (10) — `spec.*` in `server/tools.py`
 
 | Tool | Purpose | Key Parameters |
 |------|---------|----------------|
@@ -138,34 +141,30 @@ The system runs as two processes connected by TCP:
 | `spec.export_rfq_summary` | Export process-specific RFQ summary | spec |
 | `spec.assess_design_path` | Classify basic_box vs spec_driven | spec_draft |
 | `spec.generate_cad` | Generate CAD from finalized spec with precondition notices (notify-only) | spec, output_format, output_path, options |
+| `spec.plan_geometry` | Plan geometry from spec (read-only, returns GIR/EIR) | spec |
 
-#### ME Design Loop Tools (10) — `me.*` in `server/tools_me.py`
+#### ME Design Loop Tools (5) — `me.*` in `server/tools_me.py`
 
 | Tool | Purpose | Key Parameters |
 |------|---------|----------------|
-| `me.list_domain_tags` | List ME controlled vocabulary | — |
-| `me.list_archetypes` | List available archetype IDs | — |
-| `me.get_archetype_card` | Load archetype card | archetype_id |
-| `me.route_request` | Route request text to archetype + tags | request_text |
-| `me.instantiate_constraint_sheet` | Instantiate template with overrides | archetype_id, overrides, assumptions |
-| `me.validate_constraint_sheet` | Run deterministic Tier 0/1 proxy validators | constraint_sheet |
+| `me.validate_constraints` | Run deterministic Tier 0/1 proxy validators | constraint_sheet |
 | `me.build_traceability` | Build requirement-to-evidence matrix | constraint_sheet, validation_report |
 | `me.apply_risk_gates` | Assign risk class + signoff notices (notify-only) | constraint_sheet, validation_report |
-| `me.design_loop` | Full ME flow (route → constrain → validate → trace → notices) | request_text, overrides, assumptions |
-| `me.get_knowledge_policy` | Return standards/material source policy | — |
+| `me.design_loop` | Full ME flow (validate → trace → risk gates) | constraints |
+| `me.list_validators` | List available validators with metadata | — |
 
-### Prompts (1)
+### Prompts (2)
 
 | Prompt | Target |
 |--------|--------|
 | `cad_copilot_system` | Live FreeCAD co-pilot persona — drives PartDesign interactively |
+| `knowledge_research_workflow` | Self-directed research workflow for specialized engineering topics |
 
-### Resources (12)
+### Resources (7)
 
 | Category | Count | URIs |
 |----------|-------|------|
 | ME Patterns | 7 | `resource://me_patterns/index.yml`, `resource://me_patterns/brackets/{mounting_bracket,l_bracket}.yml`, `resource://me_patterns/enclosures/rectangular_box.yml`, `resource://me_patterns/fastening/simple_gear.yml`, `resource://me_patterns/guides/{design_for_cnc,design_for_fdm}.yml` |
-| ME Knowledge | 5 | `resource://me_knowledge/index.yml`, `resource://me_knowledge/domain_tags.yml`, `resource://me_knowledge/archetypes/turbocharger_turbine_wheel_v1.yml`, `resource://me_knowledge/constraint_templates/turbocharger_turbine_wheel_v1.yml`, `resource://me_knowledge/standards_sources.yml` |
 
 ---
 
@@ -177,7 +176,7 @@ The system runs as two processes connected by TCP:
  │                                                                     │
  │  1. User describes part                                             │
  │     → cad.new_document → cad.new_body                              │
- │     → cad.sketch (rect/circle/line/arc + constraints)              │
+ │     → cad.sketch (rect/circle/line/arc/spline + constraints)       │
  │     → cad.pad (extrude to solid)                                   │
  │                                                                     │
  │  2. User says "add a cylindrical boss"                              │
@@ -195,11 +194,14 @@ The system runs as two processes connected by TCP:
  │     → cad.define_selection(name="outer_verticals", query={...})    │
  │     → cad.fillet(selection="outer_verticals", radius=2.0)          │
  │                                                                     │
- │  6. User says "check manufacturing readiness"                       │
+ │  6. User says "take a screenshot"                                   │
+ │     → cad.screenshot(target="iso")                                  │
+ │                                                                     │
+ │  7. User says "check manufacturing readiness"                       │
  │     → mfg.set_property(material_family="aluminum", ...)            │
  │     → mfg.readiness_check(process="cnc")                           │
  │                                                                     │
- │  7. User says "export for vendor"                                   │
+ │  8. User says "export for vendor"                                   │
  │     → cad.export(format="step")                                    │
  │     → mfg.export_rfq(...)                                          │
  └─────────────────────────────────────────────────────────────────────┘
@@ -210,11 +212,13 @@ The system runs as two processes connected by TCP:
 Before detailed CAD operations for complex components (e.g., rotating,
 high-temperature parts), the host can run:
 
-1. `me.design_loop(request_text, overrides?, assumptions?)`
-2. Review `summary`, `validation`, `traceability`, and `risk_gates` notices
-3. Resolve `next_questions` / `TBD` fields as iteration guidance
-4. Iterate with updated overrides
-5. Continue geometry execution with `cad.*`
+1. `me.design_loop(constraints)` — or individual steps:
+   - `me.validate_constraints(constraint_sheet)`
+   - `me.build_traceability(constraint_sheet, validation_report)`
+   - `me.apply_risk_gates(constraint_sheet, validation_report)`
+2. Review validation findings, traceability matrix, and risk notices
+3. Iterate with updated constraints
+4. Continue geometry execution with `cad.*`
 
 This keeps engineering constraints and risk notices explicit while preserving
 the interactive CAD workflow.
@@ -225,15 +229,17 @@ the interactive CAD workflow.
 
 ### Command Handlers (`freecad_addon/commands.py`)
 
-The addon exposes 28 command handlers via the `COMMAND_HANDLERS` dict:
+The addon exposes command handlers via the `COMMAND_HANDLERS` dict:
 
 | Category | Commands |
 |----------|----------|
 | Document | `new_document`, `new_body`, `get_model_tree`, `undo`, `redo` |
-| Sketcher | `new_sketch`, `sketch_rect`, `sketch_circle`, `sketch_line`, `sketch_arc`, `sketch_constrain`, `close_sketch` |
-| PartDesign | `pad`, `pocket`, `revolution`, `polar_pattern`, `hole`, `fillet`, `chamfer` |
+| Sketcher | `new_sketch`, `sketch_rect`, `sketch_circle`, `sketch_line`, `sketch_arc`, `sketch_bspline`, `sketch_constrain`, `close_sketch` |
+| PartDesign | `pad`, `pocket`, `revolution`, `sweep`, `helix`, `loft`, `polar_pattern`, `hole`, `fillet`, `chamfer` |
 | Query | `get_selection`, `get_dimensions`, `get_body_topology`, `find_edges` |
 | Selection | `define_selection`, `resolve_selection`, `list_selections`, `delete_selection` |
+| Visualization | `screenshot`, `set_camera`, `get_camera` |
+| Manufacturing | `mfg_set_properties` |
 | Export | `export` |
 
 Note: The bridge's `cad.sketch` tool is a compound operation that calls
@@ -298,7 +304,32 @@ about potential geometry drift.
 
 ---
 
-## 7. Supported Manufacturing Processes
+## 7. Geometry Pipeline (Phase 2)
+
+The geometry pipeline converts specs into FreeCAD operations through
+intermediate representations:
+
+```
+spec → GIR (intent) → EIR (execution plan) → Executor → FreeCAD
+```
+
+| Module | Purpose |
+|--------|---------|
+| `geometry_ir.py` | Core IR data structures (GIR, EIR, intents, references, invariants) |
+| `geometry_planning.py` | Converts specs to GIR + EIR with notices |
+| `geometry_planner.py` | Strategy selection based on GIR features and backend capabilities |
+| `geometry_compiler_freecad.py` | Compiles GIR to FreeCAD MCP tool calls |
+| `geometry_executor.py` | Executes operations and tracks execution trace |
+| `geometry_constraints.py` | Constraint graph for mechanical relationships |
+| `geometry_references.py` | Reference resolver with drift detection |
+| `geometry_verify.py` | Verification engine consuming policy files |
+
+Each stage produces deterministic hashes (GIR hash, EIR hash, execution trace
+hash) for provenance tracking.
+
+---
+
+## 8. Supported Manufacturing Processes
 
 `mfg.readiness_check` supports:
 
@@ -313,7 +344,7 @@ ME design-loop tooling is archetype-driven and currently ships with:
 
 ---
 
-## 8. Module Dependency Map
+## 9. Module Dependency Map
 
 ```
                           main.py
@@ -321,15 +352,14 @@ ME design-loop tooling is archetype-driven and currently ships with:
                   (JSON-RPC stdio loop)
          ┌─────────────┬─────────────┬─────────────┬──────────────┬──────────────┐
          │             │             │             │              │              │
-   tools_cad.py   tools_mfg.py  tools_me.py   prompts.py    resources.py
-   (21 cad.*      (3 mfg.*      (10 me.*      (1 prompt)    (12 resources)
-    tools)         tools)         tools)
-         │             │             │              │
-         │             │       me_registry.py       │
-         │             │       me_orchestrator.py   │
-         │             │             │              │
-         │             │       me_knowledge/        │
-         │             │ (tags/archetypes/templates)
+   tools_cad.py   tools_mfg.py  tools_me.py   tools.py      prompts.py    resources.py
+   (26 cad.*      (3 mfg.*      (5 me.*       (10 spec.*    (2 prompts)   (7 resources)
+    tools)         tools)         tools)        tools)
+         │             │             │
+         │             │       me_orchestrator.py
+         │             │             │
+         │             │       me_knowledge/
+         │             │ (tags/archetypes/templates/notes)
          │             │
    freecad_client.py
    (TCP socket client,
@@ -346,53 +376,65 @@ ME design-loop tooling is archetype-driven and currently ships with:
 
 ---
 
-## 9. Determinism Guarantees
+## 10. Determinism Guarantees
 
 | Concern | Mechanism |
 |---------|-----------|
-| ME routing/scoring | Deterministic lexical signal matching (no randomness) |
 | ME validation outputs | Stable rule ordering, deterministic thresholds, sorted findings |
 | ME traceability matrix | Requirement rows sorted by `requirement_id` |
 | ME risk notices | Fixed score thresholds + deterministic notice decision logic |
+| GIR/EIR hashing | Deterministic content hashing for provenance |
 | CAD command transport | Strict newline-delimited JSON request/response protocol |
 | Selection queries | Deterministic geometric query filters + invariant checks |
 | Golden tests | Stable `unittest` assertions over tool outputs and registries |
 
 ---
 
-## 10. File Map
+## 11. File Map
 
 ```
 solidmind-cad/
 ├── server/
-│   ├── main.py              MCP JSON-RPC stdio server
-│   ├── freecad_client.py    TCP socket client for FreeCAD addon
-│   ├── tools_cad.py         Live CAD tool implementations
-│   ├── tools_mfg.py         Manufacturing readiness tool implementations
-│   ├── tools_me.py          ME design-loop tool implementations
-│   ├── me_registry.py       ME knowledge registry loader
-│   ├── me_orchestrator.py   Deterministic ME flow orchestration
-│   ├── prompts.py           LLM prompt definitions
-│   ├── resources.py         MCP resource registry
-│   ├── models.py            Finding, ToolError, Severity models
-│   ├── constants.py         Socket defaults and shared constants
-│   ├── paths.py             repo_root(), data_path()
-│   └── jsonutil.py          orjson with stdlib fallback
+│   ├── main.py                    MCP JSON-RPC stdio server
+│   ├── freecad_client.py          TCP socket client for FreeCAD addon
+│   ├── tools_cad.py               Live CAD tool implementations (26 tools)
+│   ├── tools_mfg.py               Manufacturing readiness tools (3 tools)
+│   ├── tools_me.py                ME design-loop tools (5 tools)
+│   ├── tools.py                   Spec interview tools (10 tools)
+│   ├── me_orchestrator.py         Deterministic ME flow orchestration
+│   ├── geometry_ir.py             GIR/EIR data structures and builders
+│   ├── geometry_planning.py       Spec → GIR/EIR conversion
+│   ├── geometry_planner.py        Strategy selection for build approaches
+│   ├── geometry_compiler_freecad.py  GIR → FreeCAD compiler
+│   ├── geometry_executor.py       Execution engine with trace tracking
+│   ├── geometry_constraints.py    Constraint graph for mechanical relationships
+│   ├── geometry_references.py     Reference resolver with drift detection
+│   ├── geometry_verify.py         Verification engine
+│   ├── feature_support.py         Feature support matrix parsing
+│   ├── prompts.py                 LLM prompt definitions
+│   ├── resources.py               MCP resource registry
+│   ├── models.py                  Finding, ToolError, Severity, ValidatorResult models
+│   ├── jcs.py                     JSON Canonicalization Scheme (deterministic hashing)
+│   ├── constants.py               Socket defaults and shared constants
+│   ├── paths.py                   repo_root(), data_path()
+│   └── jsonutil.py                orjson with stdlib fallback
 ├── freecad_addon/
-│   ├── InitGui.py           FreeCAD workbench integration
-│   ├── commands.py          FreeCAD API command handlers
-│   ├── protocol.py          Newline-delimited JSON protocol
-│   ├── selection_observer.py Selection tracking
-│   └── socket_server.py     TCP server on localhost:9876
-├── me_patterns/             ME pattern library
-├── me_knowledge/            ME domain tags/archetypes/templates/sources
-├── tests/                   Unit tests for CAD, MFG, ME, and protocol layers
-└── ARCHITECTURE.md          This file
+│   ├── __init__.py                Package init, start()/stop() entry points
+│   ├── InitGui.py                 FreeCAD workbench integration
+│   ├── commands.py                FreeCAD API command handlers
+│   ├── protocol.py                Newline-delimited JSON protocol
+│   ├── selection_observer.py      Selection tracking
+│   └── socket_server.py           TCP server on localhost:9876
+├── me_patterns/                   ME pattern library (brackets, enclosures, gears, guides)
+├── me_knowledge/                  ME domain tags, archetypes, constraint templates, research notes
+├── schemas/                       JSON schemas (GIR, EIR, capabilities, verification policy)
+├── tests/                         Unit tests for all layers
+└── ARCHITECTURE.md                This file
 ```
 
 ---
 
-## 11. Key Design Tradeoffs
+## 12. Key Design Tradeoffs
 
 ### Why Two Processes?
 
@@ -410,8 +452,8 @@ iteration than delayed, end-of-flow generation.
 `me.*` tools provide deterministic constraint capture, early validation,
 traceability, and explicit release/risk notices for high-consequence components.
 
-### Why Remove Legacy Spec Compatibility?
+### Why a Geometry IR Pipeline?
 
-Keeping inactive compatibility surfaces increases maintenance and bug-hunting
-cost. The active MCP surface is intentionally narrowed to live CAD, on-demand
-manufacturing checks, and ME design-loop workflows.
+The GIR/EIR intermediate representations decouple design intent from execution,
+enabling deterministic hashing for provenance, strategy selection across
+backends, and structured verification.

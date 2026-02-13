@@ -98,5 +98,52 @@ class TestEncodeDecode(unittest.TestCase):
         self.assertEqual(result["cmd"], "ping")
 
 
+class TestFilterKwargs(unittest.TestCase):
+    """Test _filter_kwargs forward-compatibility helper.
+
+    We replicate the function here to avoid importing socket_server
+    (which pulls in commands.py → FreeCAD).
+    """
+
+    @staticmethod
+    def _filter_kwargs(handler, args):  # type: ignore[no-untyped-def]
+        """Mirror of freecad_addon.socket_server._filter_kwargs."""
+        import inspect
+
+        sig = inspect.signature(handler)
+        if any(
+            p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
+        ):
+            return args
+        accepted = {
+            name
+            for name, p in sig.parameters.items()
+            if p.kind
+            in (
+                inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                inspect.Parameter.KEYWORD_ONLY,
+            )
+        }
+        return {k: v for k, v in args.items() if k in accepted}
+
+    def test_drops_unknown_kwargs(self) -> None:
+        def handler(a: int, b: str = "x") -> None: ...
+
+        result = self._filter_kwargs(handler, {"a": 1, "b": "y", "unknown": True})
+        self.assertEqual(result, {"a": 1, "b": "y"})
+
+    def test_passes_all_when_var_keyword(self) -> None:
+        def handler(a: int, **kwargs: object) -> None: ...
+
+        args = {"a": 1, "extra": 2, "more": 3}
+        result = self._filter_kwargs(handler, args)
+        self.assertEqual(result, args)
+
+    def test_empty_args(self) -> None:
+        def handler(a: int) -> None: ...
+
+        self.assertEqual(self._filter_kwargs(handler, {}), {})
+
+
 if __name__ == "__main__":
     unittest.main()

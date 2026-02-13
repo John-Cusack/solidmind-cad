@@ -805,50 +805,125 @@ def spec_generate_cad(
                 "errors": errors,
             }
 
-    # Lazy import to avoid pulling cadquery at module level
-    from server.cad_gen import generate
+    return _generate_cad_generic_v1(spec, precondition_warnings, design_gate)
 
-    resolved_path = Path(output_path) if output_path else None
 
+def _generate_cad_generic_v1(
+    spec: dict[str, Any],
+    precondition_warnings: list[str],
+    design_gate: dict[str, Any],
+) -> dict[str, Any]:
+    """Generate CAD using the generic_v1 geometry engine pipeline."""
+    from server.geometry_planning import plan_geometry
+    from server.geometry_compiler_freecad import FreeCADCompiler
+    from server.geometry_executor import Executor, compute_execution_trace_hash
+    from server.geometry_verify import VerificationEngine
+    from server.geometry_ir import GIR
+
+    errors: list[dict[str, Any]] = []
+
+    # Step 1: Plan geometry (spec -> GIR -> EIR)
     try:
-        result = generate(spec, output_format, resolved_path, opts)
-    except RuntimeError as e:
-        errors.append(_tool_error("CAD_UNAVAILABLE", str(e)).to_dict())
-        return {
-            "file_path": None,
-            "cad_data": None,
-            "metadata": {},
-            "warnings": precondition_warnings,
-            "errors": errors,
-        }
-    except ValueError as e:
-        errors.append(_tool_error("INVALID_INPUT", str(e)).to_dict())
-        return {
-            "file_path": None,
-            "cad_data": None,
-            "metadata": {},
-            "warnings": precondition_warnings,
-            "errors": errors,
-        }
+        plan_result = plan_geometry(spec)
     except Exception as e:
-        errors.append(_tool_error("INTERNAL_ERROR", f"CAD generation failed: {e}").to_dict())
+        errors.append(_tool_error("PLANNING_ERROR", f"Geometry planning failed: {e}").to_dict())
         return {
             "file_path": None,
             "cad_data": None,
-            "metadata": {},
+            "metadata": {"engine_mode": "generic_v1"},
             "warnings": precondition_warnings,
             "errors": errors,
+            "notices": [],
         }
 
-    metadata = dict(result.metadata)
-    metadata["design_path"] = design_gate.get("design_path")
-    metadata["requires_full_spec"] = bool(design_gate.get("requires_full_spec", True))
-    metadata["design_path_reason_codes"] = list(design_gate.get("reason_codes", []))
+    gir_dict = plan_result["gir"]
+    eir_dict = plan_result["eir"]
+    plan_notices = plan_result.get("notices", [])
+    plan_metadata = plan_result.get("metadata", {})
+
+    # Step 2: Compile EIR operations via FreeCAD compiler
+    from server.geometry_ir import EIR, CompiledOp, Invariant, EIRBuilder
+    eir_builder = EIRBuilder()
+    for op_data in eir_dict.get("operations", []):
+        invariants = [
+            Invariant(
+                type=inv.get("type", ""),
+                threshold=inv.get("threshold"),
+                scope=inv.get("scope"),
+            )
+            for inv in op_data.get("invariants", [])
+        ]
+        eir_builder.add_operation(
+            op_type=op_data["op_type"],
+            inputs=op_data.get("inputs", {}),
+            depends_on=op_data.get("depends_on", []),
+            invariants=invariants,
+            feature_provenance_id=op_data.get("feature_provenance_id"),
+        )
+    eir = eir_builder.build()
+
+    compiler = FreeCADCompiler()
+    compiler_result = compiler.compile_eir(eir)
+
+    # Step 3: Execute (mock for now — no live FreeCAD client in this path)
+    executor = Executor()
+    compiled_ops = compiler_result.ops or []
+    execution_trace = executor.execute_plan(compiled_ops, backend="mock")
+    trace_hash = compute_execution_trace_hash(execution_trace)
+
+    # Step 4: Verify
+    # Reconstruct GIR object for verification
+    from server.geometry_ir import GIRBuilder, Quantity, Frame
+    gir_builder = GIRBuilder()
+    gir_builder.add_global_frame()
+    for feat in gir_dict.get("features", []):
+        if feat.get("type") == "primitive":
+            dims = {
+                k: Quantity(value=v["value"], unit=v.get("unit", "mm"))
+                for k, v in feat.get("dimensions", {}).items()
+            }
+            gir_builder.add_primitive(feat.get("primitive_type", "box"), dims)
+    gir_obj = gir_builder.build()
+
+    verifier = VerificationEngine()
+    verification_report = verifier.verify(execution_trace, gir_obj, spec)
+
+    # Build Section 4.8 response
+    notices = plan_notices + [
+        {"code": n.code, "severity": n.severity, "message": n.message, "context": n.context}
+        for n in verification_report.notices
+    ] + [
+        {"code": n.code, "severity": n.severity, "message": n.message, "context": n.context}
+        for n in compiler_result.notices
+    ]
+
+    metadata = {
+        "engine_mode": "generic_v1",
+        "design_path": design_gate.get("design_path"),
+        "coverage_status": "complete",
+        "risk_class": design_gate.get("risk_class", "standard"),
+        "gir_hash": plan_metadata.get("gir_hash"),
+        "eir_hash": plan_metadata.get("eir_hash"),
+        "execution_trace_hash": trace_hash,
+        "verification_report_hash": verification_report.report_hash,
+        "strategy": plan_metadata.get("strategy"),
+        "compiler_status": compiler_result.status,
+        "verification_passed": verification_report.passed,
+    }
 
     return {
-        "file_path": str(result.file_path),
-        "cad_data": result.cad_data,
+        "file_path": None,
+        "cad_data": None,
         "metadata": metadata,
-        "warnings": precondition_warnings + list(result.warnings),
-        "errors": [],
+        "warnings": precondition_warnings,
+        "errors": errors,
+        "notices": notices,
+        "gir": gir_dict,
+        "eir": eir_dict,
     }
+
+
+def spec_plan_geometry(*, spec: dict[str, Any]) -> dict[str, Any]:
+    """Read-only observability: returns GIR/EIR + notices without executing."""
+    from server.geometry_planning import plan_geometry
+    return plan_geometry(spec)

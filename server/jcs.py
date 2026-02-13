@@ -61,6 +61,65 @@ def _format_float(x: float) -> str:
     return s
 
 
+def normalize_float(value: float, precision: int = 10) -> float:
+    """Normalize a float to a fixed precision for consistent hashing.
+
+    Args:
+        value: The float value to normalize
+        precision: Decimal places to round to
+
+    Returns:
+        Normalized float value
+    """
+    if not math.isfinite(value):
+        raise JcsError("Cannot normalize non-finite float")
+    return round(value, precision)
+
+
+def normalize_dict_keys(obj: dict[str, Any]) -> dict[str, Any]:
+    """Recursively normalize all dictionary keys to sorted order.
+
+    Args:
+        obj: Dictionary to normalize
+
+    Returns:
+        Dictionary with sorted keys at all levels
+    """
+    if not isinstance(obj, dict):
+        return obj
+
+    result: dict[str, Any] = {}
+    for key in sorted(obj.keys()):
+        if isinstance(obj[key], dict):
+            result[key] = normalize_dict_keys(obj[key])
+        elif isinstance(obj[key], list):
+            result[key] = [
+                normalize_dict_keys(item) if isinstance(item, dict) else item
+                for item in obj[key]
+            ]
+        else:
+            result[key] = obj[key]
+    return result
+
+
+def sort_arrays_canonicalically(obj: Any) -> Any:
+    """Sort arrays deterministically for canonicalization.
+
+    Args:
+        obj: Object to process
+
+    Returns:
+        Object with arrays sorted where appropriate
+    """
+    if isinstance(obj, dict):
+        return {k: sort_arrays_canonicalically(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        if obj and all(isinstance(item, (str, int, float)) for item in obj):
+            return sorted(obj)
+        return [sort_arrays_canonicalically(item) for item in obj]
+    return obj
+
+
 def canonicalize(obj: Any) -> str:
     """RFC 8785-style canonical JSON serialization (JCS).
 
@@ -97,4 +156,3 @@ def canonicalize(obj: Any) -> str:
         return "{" + ",".join(items) + "}"
 
     raise JcsError(f"Unsupported type for JCS: {type(obj).__name__}")
-

@@ -9,6 +9,7 @@ imported at module level — this file is only loaded inside FreeCAD.
 """
 from __future__ import annotations
 
+import base64
 import math
 import tempfile
 from pathlib import Path
@@ -282,6 +283,75 @@ def sketch_constrain(
     return {"sketch": sk.Name, "constraint_index": idx}
 
 
+def sketch_bspline(
+    sketch: str,
+    points: list[list[float]],
+    degree: int = 3,
+    periodic: bool = False,
+    weights: list[float] | None = None,
+    doc: str | None = None,
+) -> dict[str, Any]:
+    """Add a B-spline curve to the sketch from control points.
+
+    ``points``: list of [x, y] control points.
+    ``degree``: spline degree (default 3, cubic).
+    ``periodic``: if True, create a periodic (closed) B-spline.
+    ``weights``: optional list of weights (same length as points).
+    """
+    d = _get_doc(doc)
+    sk = _get_sketch(d, sketch)
+
+    if len(points) < degree + 1:
+        raise ValueError(
+            f"Need at least {degree + 1} control points for degree-{degree} B-spline, "
+            f"got {len(points)}"
+        )
+
+    poles = [FreeCAD.Vector(p[0], p[1], 0) for p in points]
+    n_poles = len(poles)
+
+    if weights is None:
+        w = [1.0] * n_poles
+    else:
+        if len(weights) != n_poles:
+            raise ValueError(
+                f"weights length ({len(weights)}) must match points length ({n_poles})"
+            )
+        w = list(weights)
+
+    # Clamped uniform knot vector
+    n_knots = n_poles + degree + 1
+    if periodic:
+        # Uniform knots for periodic
+        knots_flat = [float(i) for i in range(n_knots)]
+    else:
+        # Clamped: degree+1 repeats at each end
+        knots_flat = (
+            [0.0] * (degree + 1)
+            + [float(i) for i in range(1, n_poles - degree)]
+            + [float(n_poles - degree)] * (degree + 1)
+        )
+
+    # Convert flat knot vector to (unique_knots, multiplicities)
+    unique_knots: list[float] = []
+    mults: list[int] = []
+    for k in knots_flat:
+        if unique_knots and abs(unique_knots[-1] - k) < 1e-10:
+            mults[-1] += 1
+        else:
+            unique_knots.append(k)
+            mults.append(1)
+
+    bspline = Part.BSplineCurve()
+    bspline.buildFromPolesMultsKnots(
+        poles, mults, unique_knots, periodic, degree, w,
+    )
+
+    idx = sk.addGeometry(bspline)
+    d.recompute()
+    return {"sketch": sk.Name, "geometry_index": idx}
+
+
 def close_sketch(sketch: str, doc: str | None = None) -> dict[str, Any]:
     """Close/validate a sketch."""
     d = _get_doc(doc)
@@ -308,6 +378,7 @@ def pad(
     length: float,
     symmetric: bool = False,
     reversed: bool = False,
+    verify: bool = True,
     doc: str | None = None,
 ) -> dict[str, Any]:
     """Extrude (pad) a sketch."""
@@ -322,7 +393,10 @@ def pad(
     pad_obj.Midplane = symmetric
     pad_obj.Reversed = reversed
 
-    return _recompute_and_check(d, pad_obj, body=body)
+    result = _recompute_and_check(d, pad_obj, body=body)
+    if verify:
+        result["verification_images"] = _capture_verification_views(d)
+    return result
 
 
 def pocket(
@@ -330,6 +404,7 @@ def pocket(
     length: float = 0.0,
     pocket_type: str = "Dimension",
     reversed: bool = False,
+    verify: bool = True,
     doc: str | None = None,
 ) -> dict[str, Any]:
     """Cut a pocket from a sketch.
@@ -348,7 +423,10 @@ def pocket(
         pocket_obj.Length = length
     pocket_obj.Reversed = reversed
 
-    return _recompute_and_check(d, pocket_obj, body=body)
+    result = _recompute_and_check(d, pocket_obj, body=body)
+    if verify:
+        result["verification_images"] = _capture_verification_views(d)
+    return result
 
 
 def hole(
@@ -357,6 +435,7 @@ def hole(
     depth: float,
     body: str | None = None,
     hole_type: str = "Dimension",
+    verify: bool = True,
     doc: str | None = None,
 ) -> dict[str, Any]:
     """Add a PartDesign Hole on a face.
@@ -390,13 +469,17 @@ def hole(
     else:
         hole_obj.DepthType = 0  # Dimension
 
-    return _recompute_and_check(d, hole_obj, body=body_obj)
+    result = _recompute_and_check(d, hole_obj, body=body_obj)
+    if verify:
+        result["verification_images"] = _capture_verification_views(d)
+    return result
 
 
 def fillet(
     edges: list[str] | None = None,
     radius: float = 1.0,
     body: str | None = None,
+    verify: bool = True,
     doc: str | None = None,
     selection: str | None = None,
 ) -> dict[str, Any]:
@@ -427,7 +510,10 @@ def fillet(
     fillet_obj.Base = (tip, edges)
     fillet_obj.Radius = radius
 
-    return _recompute_and_check(d, fillet_obj, body=body_obj)
+    result = _recompute_and_check(d, fillet_obj, body=body_obj)
+    if verify:
+        result["verification_images"] = _capture_verification_views(d)
+    return result
 
 
 def revolution(
@@ -436,6 +522,7 @@ def revolution(
     angle: float = 360.0,
     symmetric: bool = False,
     reversed: bool = False,
+    verify: bool = True,
     doc: str | None = None,
 ) -> dict[str, Any]:
     """Revolve a sketch around an axis to create a solid of revolution.
@@ -471,7 +558,10 @@ def revolution(
             raise ValueError(f"Document has no '{fc_axis}' object")
         rev_obj.ReferenceAxis = (axis_obj, [""])
 
-    return _recompute_and_check(d, rev_obj, body=body)
+    result = _recompute_and_check(d, rev_obj, body=body)
+    if verify:
+        result["verification_images"] = _capture_verification_views(d)
+    return result
 
 
 def polar_pattern(
@@ -481,6 +571,7 @@ def polar_pattern(
     angle: float = 360.0,
     reversed: bool = False,
     body: str | None = None,
+    verify: bool = True,
     doc: str | None = None,
 ) -> dict[str, Any]:
     """Create a polar (circular) pattern of features around an axis.
@@ -532,13 +623,164 @@ def polar_pattern(
             raise ValueError(f"Document has no '{fc_axis}' object")
         pattern_obj.Axis = (axis_obj, [""])
 
-    return _recompute_and_check(d, pattern_obj, body=body_obj)
+    result = _recompute_and_check(d, pattern_obj, body=body_obj)
+    if verify:
+        result["verification_images"] = _capture_verification_views(d)
+    return result
+
+
+def sweep(
+    profile_sketch: str,
+    spine_sketch: str,
+    subtractive: bool = False,
+    verify: bool = True,
+    doc: str | None = None,
+) -> dict[str, Any]:
+    """Sweep a profile sketch along a spine sketch.
+
+    Creates a ``PartDesign::AdditivePipe`` (or ``SubtractivePipe`` if
+    ``subtractive`` is True).
+    """
+    d = _get_doc(doc)
+    sk_profile = _get_sketch(d, profile_sketch)
+    sk_spine = _get_sketch(d, spine_sketch)
+
+    body = _find_parent_body(d, sk_profile)
+    type_id = "PartDesign::SubtractivePipe" if subtractive else "PartDesign::AdditivePipe"
+    pipe_obj = d.addObject(type_id, "Pipe")
+    body.addObject(pipe_obj)
+    pipe_obj.Profile = sk_profile
+    pipe_obj.Spine = (sk_spine, ["Edge1"])
+
+    result = _recompute_and_check(d, pipe_obj, body=body)
+    if verify:
+        result["verification_images"] = _capture_verification_views(d)
+    return result
+
+
+def helix(
+    sketch: str,
+    pitch: float = 0.0,
+    height: float = 0.0,
+    turns: float = 0.0,
+    axis: str = "V",
+    angle: float = 0.0,
+    growth: float = 0.0,
+    left_handed: bool = False,
+    reversed: bool = False,
+    mode: str = "pitch-height",
+    verify: bool = True,
+    doc: str | None = None,
+) -> dict[str, Any]:
+    """Create a helical sweep of a sketch profile.
+
+    Creates a ``PartDesign::AdditiveHelix`` feature.
+
+    ``mode``: ``"pitch-height"`` (default), ``"pitch-turns"``, or ``"height-turns"``.
+    ``axis``: ``"V"`` (sketch vertical), ``"H"`` (sketch horizontal),
+    ``"Base_X"``, ``"Base_Y"``, ``"Base_Z"`` (document origin axes).
+    ``angle``: taper angle in degrees (0 = straight helix).
+    ``growth``: radial growth per revolution in mm (0 = constant radius).
+    """
+    d = _get_doc(doc)
+    sk = _get_sketch(d, sketch)
+
+    body = _find_parent_body(d, sk)
+    helix_obj = d.addObject("PartDesign::AdditiveHelix", "Helix")
+    body.addObject(helix_obj)
+    helix_obj.Profile = sk
+
+    # Mode mapping
+    mode_map = {
+        "pitch-height": 0,
+        "pitch-turns": 1,
+        "height-turns": 2,
+    }
+    mode_val = mode_map.get(mode)
+    if mode_val is None:
+        raise ValueError(f"Invalid mode '{mode}', must be pitch-height, pitch-turns, or height-turns")
+    helix_obj.Mode = mode_val
+
+    if mode == "pitch-height":
+        helix_obj.Pitch = pitch
+        helix_obj.Height = height
+    elif mode == "pitch-turns":
+        helix_obj.Pitch = pitch
+        helix_obj.Turns = turns
+    elif mode == "height-turns":
+        helix_obj.Height = height
+        helix_obj.Turns = turns
+
+    helix_obj.Angle = angle
+    helix_obj.Growth = growth
+    helix_obj.LeftHanded = left_handed
+    helix_obj.Reversed = reversed
+
+    # Map axis string to FreeCAD reference
+    if axis in ("V", "H"):
+        helix_obj.ReferenceAxis = (sk, [f"{axis}_Axis"])
+    else:
+        axis_map = {
+            "Base_X": "X_Axis",
+            "Base_Y": "Y_Axis",
+            "Base_Z": "Z_Axis",
+        }
+        fc_axis = axis_map.get(axis)
+        if fc_axis is None:
+            raise ValueError(f"Invalid axis '{axis}', must be V, H, Base_X, Base_Y, or Base_Z")
+        axis_obj = d.getObject(fc_axis)
+        if axis_obj is None:
+            raise ValueError(f"Document has no '{fc_axis}' object")
+        helix_obj.ReferenceAxis = (axis_obj, [""])
+
+    result = _recompute_and_check(d, helix_obj, body=body)
+    if verify:
+        result["verification_images"] = _capture_verification_views(d)
+    return result
+
+
+def loft(
+    sketches: list[str],
+    ruled: bool = False,
+    closed: bool = False,
+    subtractive: bool = False,
+    verify: bool = True,
+    doc: str | None = None,
+) -> dict[str, Any]:
+    """Loft between two or more sketch profiles.
+
+    Creates a ``PartDesign::AdditiveLoft`` (or ``SubtractiveLoft`` if
+    ``subtractive`` is True).
+
+    ``sketches``: list of sketch names (at least 2). The first sketch is
+    the profile; the rest are cross-sections.
+    """
+    if len(sketches) < 2:
+        raise ValueError("loft requires at least 2 sketches")
+
+    d = _get_doc(doc)
+    sk_objects = [_get_sketch(d, s) for s in sketches]
+
+    body = _find_parent_body(d, sk_objects[0])
+    type_id = "PartDesign::SubtractiveLoft" if subtractive else "PartDesign::AdditiveLoft"
+    loft_obj = d.addObject(type_id, "Loft")
+    body.addObject(loft_obj)
+    loft_obj.Profile = sk_objects[0]
+    loft_obj.Sections = sk_objects[1:]
+    loft_obj.Ruled = ruled
+    loft_obj.Closed = closed
+
+    result = _recompute_and_check(d, loft_obj, body=body)
+    if verify:
+        result["verification_images"] = _capture_verification_views(d)
+    return result
 
 
 def chamfer(
     edges: list[str] | None = None,
     size: float = 1.0,
     body: str | None = None,
+    verify: bool = True,
     doc: str | None = None,
     selection: str | None = None,
 ) -> dict[str, Any]:
@@ -568,7 +810,10 @@ def chamfer(
     chamfer_obj.Base = (tip, edges)
     chamfer_obj.Size = size
 
-    return _recompute_and_check(d, chamfer_obj, body=body_obj)
+    result = _recompute_and_check(d, chamfer_obj, body=body_obj)
+    if verify:
+        result["verification_images"] = _capture_verification_views(d)
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -1029,6 +1274,314 @@ def find_edges(
 
 
 # ---------------------------------------------------------------------------
+# Screenshot & Camera
+# ---------------------------------------------------------------------------
+
+_PRESET_DIRECTIONS: dict[str, tuple[float, float, float]] = {
+    "iso": (1.0, 1.0, 1.0),
+    "front": (0.0, -1.0, 0.0),
+    "back": (0.0, 1.0, 0.0),
+    "top": (0.0, 0.0, 1.0),
+    "bottom": (0.0, 0.0, -1.0),
+    "right": (1.0, 0.0, 0.0),
+    "left": (-1.0, 0.0, 0.0),
+}
+
+
+def _capture_image(
+    doc: Any,
+    direction: tuple[float, float, float] = (1.0, 1.0, 1.0),
+    up: tuple[float, float, float] = (0.0, 0.0, 1.0),
+    distance_mult: float = 2.0,
+    target_point: tuple[float, float, float] | None = None,
+    near_clip: float | None = None,
+    width: int = 512,
+    height: int = 512,
+) -> dict[str, Any]:
+    """Position the camera and capture a screenshot, returning base64 PNG data.
+
+    ``direction``: the direction FROM which the camera looks at the target.
+    ``target_point``: where the camera looks (default: model center).
+    ``distance_mult``: multiplier on bounding-box diagonal for camera distance.
+    """
+    if FreeCADGui is None:
+        raise RuntimeError("No GUI available (headless mode) — cannot capture screenshots")
+
+    view = FreeCADGui.ActiveDocument.ActiveView
+
+    # Compute model center and bbox diagonal
+    bbox = _model_bounding_box(doc)
+    if target_point is None:
+        center = (
+            (bbox.XMin + bbox.XMax) / 2,
+            (bbox.YMin + bbox.YMax) / 2,
+            (bbox.ZMin + bbox.ZMax) / 2,
+        )
+    else:
+        center = target_point
+
+    diagonal = bbox.DiagonalLength if bbox.DiagonalLength > 0 else 100.0
+    cam_dist = diagonal * distance_mult
+
+    # Normalize direction
+    dx, dy, dz = direction
+    length = math.sqrt(dx * dx + dy * dy + dz * dz)
+    if length < 1e-10:
+        dx, dy, dz = 1.0, 1.0, 1.0
+        length = math.sqrt(3.0)
+    dx, dy, dz = dx / length, dy / length, dz / length
+
+    cam_pos = (
+        center[0] + dx * cam_dist,
+        center[1] + dy * cam_dist,
+        center[2] + dz * cam_dist,
+    )
+
+    # Set camera via Coin3D
+    try:
+        from pivy.coin import SbVec3f  # type: ignore[import-untyped]
+        cam = view.getCameraNode()
+        cam.position.setValue(SbVec3f(cam_pos[0], cam_pos[1], cam_pos[2]))
+        cam.pointAt(SbVec3f(center[0], center[1], center[2]), SbVec3f(up[0], up[1], up[2]))
+        if near_clip is not None:
+            cam.nearDistance.setValue(near_clip)
+    except ImportError:
+        # pivy not available — fall back to ViewFit
+        FreeCADGui.SendMsgToActiveView("ViewFit")
+
+    # Auto-fit: adjust zoom to frame the model while keeping the viewing direction
+    FreeCADGui.SendMsgToActiveView("ViewFit")
+
+    # Re-read actual camera position after ViewFit so returned values are accurate
+    try:
+        cam = view.getCameraNode()
+        pos = cam.position.getValue()
+        cam_pos = (pos[0], pos[1], pos[2])
+    except Exception:
+        pass  # keep original cam_pos if we can't read back
+
+    # Capture to temp file
+    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+        tmp_path = tmp.name
+    view.saveImage(tmp_path, width, height)
+
+    # Read and base64-encode
+    with open(tmp_path, "rb") as f:
+        image_data = base64.b64encode(f.read()).decode("ascii")
+
+    # Clean up
+    try:
+        Path(tmp_path).unlink()
+    except OSError:
+        pass
+
+    return {
+        "image_base64": image_data,
+        "mime_type": "image/png",
+        "camera_position": list(cam_pos),
+        "camera_target": list(center),
+    }
+
+
+def _capture_verification_views(
+    doc: Any,
+    width: int = 512,
+    height: int = 512,
+) -> list[dict[str, Any]]:
+    """Capture 3 verification views: iso, front, top."""
+    views: list[dict[str, Any]] = []
+    for view_name in ("iso", "front", "top"):
+        direction = _PRESET_DIRECTIONS[view_name]
+        img = _capture_image(doc, direction=direction, width=width, height=height)
+        img["view"] = view_name
+        views.append(img)
+    return views
+
+
+def _model_bounding_box(doc: Any) -> Any:
+    """Get the combined bounding box of all shapes in the document."""
+    combined = FreeCAD.BoundBox()
+    for obj in doc.Objects:
+        if hasattr(obj, "Shape") and obj.Shape is not None and not obj.Shape.isNull():
+            combined.add(obj.Shape.BoundBox)
+    return combined
+
+
+def _resolve_target(
+    target: str | list[float],
+    doc: Any,
+    body: Any | None = None,
+) -> tuple[tuple[float, float, float], tuple[float, float, float] | None]:
+    """Resolve a screenshot target to (look_at_point, direction_or_None).
+
+    Returns:
+        (target_point, direction) where direction is None if not determined
+        by the target itself (caller should use a default).
+    """
+    # Preset view name
+    if isinstance(target, str) and target.lower() in _PRESET_DIRECTIONS:
+        direction = _PRESET_DIRECTIONS[target.lower()]
+        return (
+            _bbox_center(_model_bounding_box(doc)),
+            direction,
+        )
+
+    # Explicit [x, y, z] point
+    if isinstance(target, list) and len(target) == 3:
+        return (tuple(target), None)  # type: ignore[return-value]
+
+    # Face reference like "Face3"
+    if isinstance(target, str) and target.startswith("Face"):
+        if body is None:
+            body_obj = _resolve_body(doc, None)
+        else:
+            body_obj = body
+        tip = _get_tip(body_obj)
+        shape = tip.Shape
+        try:
+            face = shape.getElement(target)
+        except Exception:
+            raise ValueError(f"Face '{target}' not found on shape")
+        center = _vec_to_list(face.CenterOfMass)
+        normal = None
+        if hasattr(face, "Surface") and hasattr(face.Surface, "Axis"):
+            normal = _vec_to_list(face.Surface.Axis)
+        return (
+            tuple(center),  # type: ignore[arg-type]
+            tuple(normal) if normal else None,  # type: ignore[arg-type]
+        )
+
+    # Feature name like "Pocket001"
+    if isinstance(target, str):
+        obj = doc.getObject(target)
+        if obj is not None and hasattr(obj, "Shape") and obj.Shape is not None:
+            bb = obj.Shape.BoundBox
+            return (_bbox_center(bb), _PRESET_DIRECTIONS["iso"])
+        raise ValueError(f"Feature '{target}' not found or has no shape")
+
+    raise ValueError(f"Invalid target: {target}")
+
+
+def _bbox_center(bb: Any) -> tuple[float, float, float]:
+    return (
+        (bb.XMin + bb.XMax) / 2,
+        (bb.YMin + bb.YMax) / 2,
+        (bb.ZMin + bb.ZMax) / 2,
+    )
+
+
+def screenshot(
+    target: str | list[float] = "iso",
+    distance: float = 2.0,
+    direction: list[float] | None = None,
+    up: list[float] | None = None,
+    near_clip: float | None = None,
+    width: int = 512,
+    height: int = 512,
+    doc: str | None = None,
+) -> dict[str, Any]:
+    """Smart screenshot: compute view from target, capture image."""
+    d = _get_doc(doc)
+    up_vec = tuple(up) if up else (0.0, 0.0, 1.0)
+
+    target_point, resolved_dir = _resolve_target(target, d)
+
+    if direction is not None:
+        cam_dir = tuple(direction)
+    elif resolved_dir is not None:
+        cam_dir = resolved_dir
+    else:
+        cam_dir = _PRESET_DIRECTIONS["iso"]
+
+    img = _capture_image(
+        d,
+        direction=cam_dir,  # type: ignore[arg-type]
+        up=up_vec,  # type: ignore[arg-type]
+        distance_mult=distance,
+        target_point=target_point,  # type: ignore[arg-type]
+        near_clip=near_clip,
+        width=width,
+        height=height,
+    )
+    return {
+        "ok": True,
+        "width": width,
+        "height": height,
+        **img,
+    }
+
+
+def set_camera(
+    position: list[float] | None = None,
+    target: list[float] | None = None,
+    up: list[float] | None = None,
+    near_clip: float | None = None,
+    fit_all: bool = False,
+    doc: str | None = None,
+) -> dict[str, Any]:
+    """Low-level camera control via Coin3D."""
+    if FreeCADGui is None:
+        raise RuntimeError("No GUI available (headless mode)")
+
+    d = _get_doc(doc)
+    view = FreeCADGui.ActiveDocument.ActiveView
+
+    if fit_all:
+        FreeCADGui.SendMsgToActiveView("ViewFit")
+
+    try:
+        from pivy.coin import SbVec3f  # type: ignore[import-untyped]
+        cam = view.getCameraNode()
+
+        if position is not None:
+            cam.position.setValue(SbVec3f(position[0], position[1], position[2]))
+
+        if target is not None:
+            up_vec = up if up else [0.0, 0.0, 1.0]
+            cam.pointAt(
+                SbVec3f(target[0], target[1], target[2]),
+                SbVec3f(up_vec[0], up_vec[1], up_vec[2]),
+            )
+
+        if near_clip is not None:
+            cam.nearDistance.setValue(near_clip)
+
+        # Read back camera state
+        pos = cam.position.getValue()
+        result_pos = [pos[0], pos[1], pos[2]]
+    except ImportError:
+        result_pos = position or [0, 0, 0]
+
+    return {
+        "camera_set": True,
+        "position": result_pos,
+    }
+
+
+def get_camera(doc: str | None = None) -> dict[str, Any]:
+    """Read current camera state."""
+    if FreeCADGui is None:
+        raise RuntimeError("No GUI available (headless mode)")
+
+    _get_doc(doc)  # validate doc exists
+    view = FreeCADGui.ActiveDocument.ActiveView
+
+    try:
+        cam = view.getCameraNode()
+        pos = cam.position.getValue()
+        near_d = cam.nearDistance.getValue()
+        far_d = cam.farDistance.getValue()
+
+        return {
+            "position": [pos[0], pos[1], pos[2]],
+            "near_clip": near_d,
+            "far_clip": far_d,
+        }
+    except Exception as e:
+        raise RuntimeError(f"Failed to read camera: {e}")
+
+
+# ---------------------------------------------------------------------------
 # Export
 # ---------------------------------------------------------------------------
 
@@ -1180,6 +1733,7 @@ _FEATURE_HINTS: dict[str, str] = {
     "PartDesign::Fillet": "radius may be too large for the selected edges, or edge references may be invalid",
     "PartDesign::Chamfer": "size may be too large for the selected edges, or edge references may be invalid",
     "PartDesign::Revolution": "sketch profile may be invalid, not closed, or axis may intersect the profile",
+    "PartDesign::AdditiveHelix": "sketch profile may be invalid, or helix parameters (pitch/height/turns) may be inconsistent",
     "PartDesign::PolarPattern": "pattern may produce overlapping or self-intersecting geometry",
 }
 
@@ -1349,6 +1903,7 @@ COMMAND_HANDLERS: dict[str, Any] = {
     "sketch_circle": sketch_circle,
     "sketch_line": sketch_line,
     "sketch_arc": sketch_arc,
+    "sketch_bspline": sketch_bspline,
     "sketch_constrain": sketch_constrain,
     "close_sketch": close_sketch,
     "pad": pad,
@@ -1356,6 +1911,9 @@ COMMAND_HANDLERS: dict[str, Any] = {
     "revolution": revolution,
     "polar_pattern": polar_pattern,
     "hole": hole,
+    "sweep": sweep,
+    "helix": helix,
+    "loft": loft,
     "fillet": fillet,
     "chamfer": chamfer,
     "get_selection": get_selection,
@@ -1366,5 +1924,8 @@ COMMAND_HANDLERS: dict[str, Any] = {
     "resolve_selection": resolve_selection,
     "list_selections": list_selections,
     "delete_selection": delete_selection,
+    "screenshot": screenshot,
+    "set_camera": set_camera,
+    "get_camera": get_camera,
     "export": export,
 }

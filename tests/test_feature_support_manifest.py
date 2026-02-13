@@ -69,9 +69,9 @@ class TestFeatureSupportManifest(unittest.TestCase):
     def test_snapshot_counts_match_matrix(self) -> None:
         results = evaluate_manifest(MANIFEST_PATH)
         counts = summarize(results)
-        self.assertEqual(11, counts["Yes"])
-        self.assertEqual(5, counts["Partial"])
-        self.assertEqual(12, counts["No"])
+        self.assertEqual(14, counts["Yes"])
+        self.assertEqual(0, counts["Partial"])
+        self.assertEqual(5, counts["No"])
 
 
 if __name__ == "__main__":

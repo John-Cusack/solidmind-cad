@@ -78,42 +78,6 @@ def _registry() -> dict[str, Resource]:
             mime_type="text/yaml",
             description="FDM 3D printing design guidelines and constraints.",
         ),
-        # -- ME design intelligence registry --
-        Resource(
-            uri="resource://me_knowledge/index.yml",
-            path=data_path("me_knowledge", "index.yml"),
-            name="ME knowledge index",
-            mime_type="text/yaml",
-            description="Index of ME domain tags, archetypes, templates, and source policies.",
-        ),
-        Resource(
-            uri="resource://me_knowledge/domain_tags.yml",
-            path=data_path("me_knowledge", "domain_tags.yml"),
-            name="ME domain tags registry",
-            mime_type="text/yaml",
-            description="Controlled vocabulary for ME request routing, validation, and retrieval triggers.",
-        ),
-        Resource(
-            uri="resource://me_knowledge/archetypes/turbocharger_turbine_wheel_v1.yml",
-            path=data_path("me_knowledge", "archetypes", "turbocharger_turbine_wheel_v1.yml"),
-            name="Turbocharger turbine wheel archetype card",
-            mime_type="text/yaml",
-            description="Archetype card for radial turbocharger turbine wheel v1.",
-        ),
-        Resource(
-            uri="resource://me_knowledge/constraint_templates/turbocharger_turbine_wheel_v1.yml",
-            path=data_path("me_knowledge", "constraint_templates", "turbocharger_turbine_wheel_v1.yml"),
-            name="Turbocharger turbine wheel constraint template",
-            mime_type="text/yaml",
-            description="Constraint sheet template for radial turbocharger turbine wheel v1.",
-        ),
-        Resource(
-            uri="resource://me_knowledge/standards_sources.yml",
-            path=data_path("me_knowledge", "standards_sources.yml"),
-            name="ME standards and sources policy",
-            mime_type="text/yaml",
-            description="Authority ranking and provenance policy for engineering sources.",
-        ),
     ]
     return {r.uri: r for r in items}
 

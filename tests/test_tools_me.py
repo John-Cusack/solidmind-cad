@@ -3,56 +3,77 @@ from __future__ import annotations
 import unittest
 
 from server.tools_me import (
+    me_apply_risk_gates,
     me_build_traceability,
     me_design_loop,
-    me_get_archetype_card,
-    me_get_knowledge_policy,
-    me_instantiate_constraint_sheet,
-    me_list_archetypes,
-    me_list_domain_tags,
-    me_route_request,
-    me_validate_constraint_sheet,
+    me_list_validators,
+    me_validate_constraints,
 )
 
 
 class TestMETools(unittest.TestCase):
-    def test_list_domain_tags(self) -> None:
-        out = me_list_domain_tags()
+    def test_validate_constraints(self) -> None:
+        sheet = {
+            "geometry_interfaces": {"min_blade_thickness_mm": 2.0},
+            "manufacturing": {"min_feature_size_mm": 1.0},
+        }
+        out = me_validate_constraints(sheet)
         self.assertTrue(out["ok"])
-        self.assertGreater(out["count"], 0)
+        self.assertGreater(len(out["validators_run"]), 0)
 
-    def test_list_archetypes(self) -> None:
-        out = me_list_archetypes()
-        self.assertTrue(out["ok"])
-        self.assertIn("turbine_wheel.turbocharger.radial.v1", out["archetype_ids"])
+    def test_validate_constraints_invalid_input(self) -> None:
+        out = me_validate_constraints("not a dict")  # type: ignore[arg-type]
+        self.assertFalse(out["ok"])
+        self.assertEqual(out["error"]["code"], "INVALID_INPUT")
 
-    def test_get_archetype_card(self) -> None:
-        out = me_get_archetype_card("turbine_wheel.turbocharger.radial.v1")
-        self.assertTrue(out["ok"])
-        self.assertEqual(out["archetype_card"]["archetype_id"], "turbine_wheel.turbocharger.radial.v1")
-
-    def test_route_and_validate(self) -> None:
-        route = me_route_request("Build me a turbocharger turbine wheel")
-        self.assertTrue(route["ok"])
-
-        inst = me_instantiate_constraint_sheet(route["archetype_id"])
-        self.assertTrue(inst["ok"])
-
-        report = me_validate_constraint_sheet(inst["constraint_sheet"])
-        self.assertTrue(report["ok"])
-
-        trace = me_build_traceability(inst["constraint_sheet"], report)
+    def test_build_traceability(self) -> None:
+        sheet = {
+            "requirements": [
+                {
+                    "requirement_id": "REQ-001",
+                    "statement": "test",
+                    "validator": "min_thickness_check",
+                },
+            ],
+            "geometry_interfaces": {"min_blade_thickness_mm": 2.0},
+            "manufacturing": {"min_feature_size_mm": 1.0},
+        }
+        report = me_validate_constraints(sheet)
+        trace = me_build_traceability(sheet, report)
         self.assertTrue(trace["ok"])
 
+    def test_apply_risk_gates(self) -> None:
+        sheet = {"operating_envelope": {"max_rpm": 180000, "gas_temp_max_c": 1050}}
+        report = me_validate_constraints(sheet)
+        gates = me_apply_risk_gates(sheet, report)
+        self.assertTrue(gates["ok"])
+        self.assertIn(gates["risk_class"], {"high", "critical"})
+
     def test_design_loop(self) -> None:
-        out = me_design_loop("Design a radial turbine wheel for a turbocharger")
+        constraints = {
+            "geometry_interfaces": {"min_blade_thickness_mm": 2.0},
+            "manufacturing": {"min_feature_size_mm": 1.0},
+            "operating_envelope": {"max_rpm": 100000},
+        }
+        out = me_design_loop(constraints)
         self.assertTrue(out["ok"])
         self.assertIn("summary", out)
+        self.assertIn("validation", out)
+        self.assertIn("risk_gates", out)
 
-    def test_knowledge_policy(self) -> None:
-        out = me_get_knowledge_policy()
+    def test_design_loop_invalid_input(self) -> None:
+        out = me_design_loop("not a dict")  # type: ignore[arg-type]
+        self.assertFalse(out["ok"])
+        self.assertEqual(out["error"]["code"], "INVALID_INPUT")
+
+    def test_list_validators(self) -> None:
+        out = me_list_validators()
         self.assertTrue(out["ok"])
-        self.assertIn("knowledge_policy", out)
+        self.assertIsInstance(out["validators"], list)
+        self.assertGreater(len(out["validators"]), 0)
+        names = {v["name"] for v in out["validators"]}
+        self.assertIn("min_thickness_check", names)
+        self.assertIn("centrifugal_stress_proxy", names)
 
 
 if __name__ == "__main__":

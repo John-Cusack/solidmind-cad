@@ -24,6 +24,7 @@ from server.tools import (
     spec_finalize,
     spec_generate_cad,
     spec_next_question,
+    spec_plan_geometry,
     spec_select_schema,
     spec_validate,
 )
@@ -35,11 +36,14 @@ from server.tools_cad import (
     cad_fillet,
     cad_find_edges,
     cad_get_body_topology,
+    cad_get_camera,
     cad_get_dimensions,
     cad_get_model_tree,
     cad_get_selection,
+    cad_helix,
     cad_hole,
     cad_list_selections,
+    cad_loft,
     cad_new_body,
     cad_new_document,
     cad_pad,
@@ -47,7 +51,10 @@ from server.tools_cad import (
     cad_polar_pattern,
     cad_resolve_selection,
     cad_revolution,
+    cad_screenshot,
+    cad_set_camera,
     cad_sketch,
+    cad_sweep,
     cad_undo,
 )
 from server.tools_mfg import (
@@ -55,17 +62,19 @@ from server.tools_mfg import (
     mfg_readiness_check,
     mfg_set_property,
 )
+from server.tools_knowledge import (
+    knowledge_extract,
+    knowledge_ingest,
+    knowledge_ingest_status,
+    knowledge_search,
+    knowledge_status,
+)
 from server.tools_me import (
     me_apply_risk_gates,
     me_build_traceability,
     me_design_loop,
-    me_get_archetype_card,
-    me_get_knowledge_policy,
-    me_instantiate_constraint_sheet,
-    me_list_archetypes,
-    me_list_domain_tags,
-    me_route_request,
-    me_validate_constraint_sheet,
+    me_list_validators,
+    me_validate_constraints,
 )
 
 
@@ -136,6 +145,13 @@ def _rpc_result(rpc_id: Any, result: Any) -> dict[str, Any]:
 # Tool definitions
 # ---------------------------------------------------------------------------
 
+_VERIFY_PROP: dict[str, Any] = {
+    "type": "boolean",
+    "default": True,
+    "description": "Capture verification screenshots from 3 angles after the operation. Set false to skip for speed.",
+}
+
+
 def _cad_tool_list() -> list[dict[str, Any]]:
     """CAD geometry tools — drive FreeCAD PartDesign directly."""
     return [
@@ -167,7 +183,11 @@ def _cad_tool_list() -> list[dict[str, Any]]:
             "description": (
                 "Create a sketch with geometry and constraints. Combines sketch creation, "
                 "geometry addition, constraint application, and sketch closing into one call. "
-                "Elements: rect, circle, line, arc. Constraints: Coincident, Horizontal, "
+                "Elements: rect, circle, line, arc, spline. ALL element types are fully supported "
+                "including splines (B-spline curves from control points with degree/weights/periodic options). "
+                "Use splines for smooth contours, airfoils, blade profiles, and organic shapes — "
+                "never approximate with line segments. "
+                "Constraints: Coincident, Horizontal, "
                 "Vertical, Distance, Radius, Angle, etc."
             ),
             "inputSchema": {
@@ -185,7 +205,7 @@ def _cad_tool_list() -> list[dict[str, Any]]:
                         "items": {
                             "type": "object",
                             "properties": {
-                                "type": {"type": "string", "enum": ["rect", "circle", "line", "arc"]},
+                                "type": {"type": "string", "enum": ["rect", "circle", "line", "arc", "spline"]},
                             },
                             "required": ["type"],
                         },
@@ -211,6 +231,7 @@ def _cad_tool_list() -> list[dict[str, Any]]:
                     "length": {"type": "number", "description": "Extrusion length in mm"},
                     "symmetric": {"type": "boolean", "description": "Pad symmetrically from sketch plane", "default": False},
                     "reversed": {"type": "boolean", "description": "Reverse pad direction", "default": False},
+                    "verify": _VERIFY_PROP,
                     "doc": {"type": "string", "description": "Document name (optional)"},
                 },
                 "required": ["sketch", "length"],
@@ -236,6 +257,7 @@ def _cad_tool_list() -> list[dict[str, Any]]:
                     "angle": {"type": "number", "description": "Revolution angle in degrees", "default": 360.0},
                     "symmetric": {"type": "boolean", "description": "Revolve symmetrically from sketch plane", "default": False},
                     "reversed": {"type": "boolean", "description": "Reverse revolution direction", "default": False},
+                    "verify": _VERIFY_PROP,
                     "doc": {"type": "string", "description": "Document name (optional)"},
                 },
                 "required": ["sketch"],
@@ -270,6 +292,7 @@ def _cad_tool_list() -> list[dict[str, Any]]:
                     "angle": {"type": "number", "description": "Total angle span in degrees", "default": 360.0},
                     "reversed": {"type": "boolean", "description": "Reverse pattern direction", "default": False},
                     "body": {"type": "string", "description": "Body name (optional)"},
+                    "verify": _VERIFY_PROP,
                     "doc": {"type": "string", "description": "Document name (optional)"},
                 },
                 "required": ["features"],
@@ -294,9 +317,107 @@ def _cad_tool_list() -> list[dict[str, Any]]:
                         "default": False,
                         "description": "Reverse pocket direction",
                     },
+                    "verify": _VERIFY_PROP,
                     "doc": {"type": "string", "description": "Document name (optional)"},
                 },
                 "required": ["sketch"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "cad.sweep",
+            "description": (
+                "Sweep a profile sketch along a spine sketch to create a solid. "
+                "Creates a PartDesign::AdditivePipe (or SubtractivePipe) feature."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "profile_sketch": {"type": "string", "description": "Sketch name for the sweep profile"},
+                    "spine_sketch": {"type": "string", "description": "Sketch name for the sweep path/spine"},
+                    "subtractive": {
+                        "type": "boolean",
+                        "description": "If true, create a subtractive (cut) sweep",
+                        "default": False,
+                    },
+                    "verify": _VERIFY_PROP,
+                    "doc": {"type": "string", "description": "Document name (optional)"},
+                },
+                "required": ["profile_sketch", "spine_sketch"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "cad.helix",
+            "description": (
+                "Create a helical sweep of a sketch profile around an axis. "
+                "Creates a PartDesign::AdditiveHelix feature. "
+                "Use for threads, springs, spiral features, and helical cuts."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "sketch": {"type": "string", "description": "Sketch name for the helix profile"},
+                    "pitch": {"type": "number", "description": "Distance between turns in mm (used in pitch-height and pitch-turns modes)"},
+                    "height": {"type": "number", "description": "Total helix height in mm (used in pitch-height and height-turns modes)"},
+                    "turns": {"type": "number", "description": "Number of turns (used in pitch-turns and height-turns modes)"},
+                    "axis": {
+                        "type": "string",
+                        "enum": ["V", "H", "Base_X", "Base_Y", "Base_Z"],
+                        "description": "Helix axis: V (sketch vertical), H (sketch horizontal), or Base_X/Y/Z (document origin axes)",
+                        "default": "V",
+                    },
+                    "angle": {"type": "number", "description": "Taper angle in degrees (0 = straight helix)", "default": 0.0},
+                    "growth": {"type": "number", "description": "Radial growth per revolution in mm (0 = constant radius)", "default": 0.0},
+                    "left_handed": {"type": "boolean", "description": "Create a left-handed helix", "default": False},
+                    "reversed": {"type": "boolean", "description": "Reverse helix direction", "default": False},
+                    "mode": {
+                        "type": "string",
+                        "enum": ["pitch-height", "pitch-turns", "height-turns"],
+                        "description": "How to define the helix: pitch-height (default), pitch-turns, or height-turns",
+                        "default": "pitch-height",
+                    },
+                    "verify": _VERIFY_PROP,
+                    "doc": {"type": "string", "description": "Document name (optional)"},
+                },
+                "required": ["sketch"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "cad.loft",
+            "description": (
+                "Loft between two or more sketch profiles to create a solid. "
+                "Creates a PartDesign::AdditiveLoft (or SubtractiveLoft) feature."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "sketches": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Sketch names to loft between (at least 2)",
+                        "minItems": 2,
+                    },
+                    "ruled": {
+                        "type": "boolean",
+                        "description": "Use ruled surfaces between sections",
+                        "default": False,
+                    },
+                    "closed": {
+                        "type": "boolean",
+                        "description": "Close the loft (connect last section back to first)",
+                        "default": False,
+                    },
+                    "subtractive": {
+                        "type": "boolean",
+                        "description": "If true, create a subtractive (cut) loft",
+                        "default": False,
+                    },
+                    "verify": _VERIFY_PROP,
+                    "doc": {"type": "string", "description": "Document name (optional)"},
+                },
+                "required": ["sketches"],
                 "additionalProperties": False,
             },
         },
@@ -311,6 +432,7 @@ def _cad_tool_list() -> list[dict[str, Any]]:
                     "depth": {"type": "number", "description": "Hole depth in mm"},
                     "body": {"type": "string", "description": "Body name (optional)"},
                     "hole_type": {"type": "string", "enum": ["Dimension", "ThroughAll"], "default": "Dimension"},
+                    "verify": _VERIFY_PROP,
                     "doc": {"type": "string", "description": "Document name (optional)"},
                 },
                 "required": ["face", "diameter", "depth"],
@@ -334,6 +456,7 @@ def _cad_tool_list() -> list[dict[str, Any]]:
                     "radius": {"type": "number", "description": "Fillet radius in mm"},
                     "selection": {"type": "string", "description": "Named selection set to use instead of edges"},
                     "body": {"type": "string", "description": "Body name (optional)"},
+                    "verify": _VERIFY_PROP,
                     "doc": {"type": "string", "description": "Document name (optional)"},
                 },
                 "required": ["radius"],
@@ -357,6 +480,7 @@ def _cad_tool_list() -> list[dict[str, Any]]:
                     "size": {"type": "number", "description": "Chamfer size in mm"},
                     "selection": {"type": "string", "description": "Named selection set to use instead of edges"},
                     "body": {"type": "string", "description": "Body name (optional)"},
+                    "verify": _VERIFY_PROP,
                     "doc": {"type": "string", "description": "Document name (optional)"},
                 },
                 "required": ["size"],
@@ -518,6 +642,97 @@ def _cad_tool_list() -> list[dict[str, Any]]:
                     "name": {"type": "string", "description": "Name of the selection set to delete"},
                 },
                 "required": ["name"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "cad.screenshot",
+            "description": (
+                "Take a screenshot of the model with smart camera targeting. "
+                "Supports presets (iso, front, top, right, back, bottom, left), "
+                "face references (Face3), feature names (Pocket001), or explicit [x,y,z] points."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "target": {
+                        "description": (
+                            "What to look at. Preset name (iso, front, top, right, back, bottom, left), "
+                            "face ref (Face3), feature name (Pocket001), or [x,y,z] point."
+                        ),
+                        "default": "iso",
+                    },
+                    "distance": {
+                        "type": "number",
+                        "description": "Distance multiplier on bounding-box diagonal. 1.0=tight, 3.0=far",
+                        "default": 2.0,
+                    },
+                    "direction": {
+                        "type": "array",
+                        "items": {"type": "number"},
+                        "description": "Override look-from direction [x,y,z]. If null, computed from target.",
+                    },
+                    "up": {
+                        "type": "array",
+                        "items": {"type": "number"},
+                        "description": "Camera up vector [x,y,z]",
+                        "default": [0, 0, 1],
+                    },
+                    "near_clip": {
+                        "type": "number",
+                        "description": "Near clipping plane in mm. Set to slice into model for cavity views.",
+                    },
+                    "width": {"type": "integer", "description": "Image width in pixels", "default": 512},
+                    "height": {"type": "integer", "description": "Image height in pixels", "default": 512},
+                    "doc": {"type": "string", "description": "Document name (optional)"},
+                },
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "cad.set_camera",
+            "description": "Set camera position and orientation for precise control (cavity inspection, clipping planes).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "position": {
+                        "type": "array",
+                        "items": {"type": "number"},
+                        "description": "Camera position [x,y,z] in mm",
+                    },
+                    "target": {
+                        "type": "array",
+                        "items": {"type": "number"},
+                        "description": "Look-at point [x,y,z] in mm",
+                    },
+                    "up": {
+                        "type": "array",
+                        "items": {"type": "number"},
+                        "description": "Up vector [x,y,z]",
+                        "default": [0, 0, 1],
+                    },
+                    "near_clip": {
+                        "type": "number",
+                        "description": "Near clipping plane in mm",
+                    },
+                    "fit_all": {
+                        "type": "boolean",
+                        "description": "Fit all objects in view first",
+                        "default": False,
+                    },
+                    "doc": {"type": "string", "description": "Document name (optional)"},
+                },
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "cad.get_camera",
+            "description": "Get current camera position, orientation, and clipping planes.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "doc": {"type": "string", "description": "Document name (optional)"},
+                },
                 "additionalProperties": False,
             },
         },
@@ -734,62 +949,31 @@ def _spec_tool_list() -> list[dict[str, Any]]:
                 "additionalProperties": False,
             },
         },
+        {
+            "name": "spec.plan_geometry",
+            "description": (
+                "Read-only observability tool: plan geometry from a finalized spec, "
+                "returning GIR (Geometry Intent Representation) and EIR (Execution Intent "
+                "Representation) with notices and hashes, without executing any CAD operations."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "spec": {"type": "object"},
+                },
+                "required": ["spec"],
+                "additionalProperties": False,
+            },
+        },
     ]
 
 
 def _me_tool_list() -> list[dict[str, Any]]:
-    """ME-grade archetype/constraint/validation tools."""
+    """ME-grade constraint validation and risk gate tools."""
     return [
         {
-            "name": "me.list_domain_tags",
-            "description": "List the controlled ME domain-tag vocabulary used for routing and validator selection.",
-            "inputSchema": {"type": "object", "additionalProperties": False},
-        },
-        {
-            "name": "me.list_archetypes",
-            "description": "List available archetype card IDs.",
-            "inputSchema": {"type": "object", "additionalProperties": False},
-        },
-        {
-            "name": "me.get_archetype_card",
-            "description": "Load a specific archetype card by archetype_id.",
-            "inputSchema": {
-                "type": "object",
-                "properties": {"archetype_id": {"type": "string"}},
-                "required": ["archetype_id"],
-                "additionalProperties": False,
-            },
-        },
-        {
-            "name": "me.route_request",
-            "description": (
-                "Route user request text to best-matching archetype and domain tags. "
-                "Useful as a lightweight preflight signal before deciding whether to run me.design_loop."
-            ),
-            "inputSchema": {
-                "type": "object",
-                "properties": {"request_text": {"type": "string"}},
-                "required": ["request_text"],
-                "additionalProperties": False,
-            },
-        },
-        {
-            "name": "me.instantiate_constraint_sheet",
-            "description": "Instantiate an archetype constraint sheet with optional overrides and assumptions.",
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "archetype_id": {"type": "string"},
-                    "overrides": {"type": "object"},
-                    "assumptions": {"type": "array", "items": {"type": "string"}},
-                },
-                "required": ["archetype_id"],
-                "additionalProperties": False,
-            },
-        },
-        {
-            "name": "me.validate_constraint_sheet",
-            "description": "Run deterministic Tier 0/1 proxy validators over a constraint sheet.",
+            "name": "me.validate_constraints",
+            "description": "Run deterministic Tier 0/1 proxy validators over a constraint dict.",
             "inputSchema": {
                 "type": "object",
                 "properties": {"constraint_sheet": {"type": "object"}},
@@ -827,30 +1011,130 @@ def _me_tool_list() -> list[dict[str, Any]]:
             "name": "me.design_loop",
             "description": (
                 "Optional ME preflight for complex/high-risk parts. "
-                "Runs full loop: route -> constrain -> validate -> traceability -> risk gates. "
+                "Takes a constraint dict constructed by the LLM, runs validate -> trace -> risk gates. "
                 "Call when needed, then continue geometry with cad.*."
             ),
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "request_text": {"type": "string"},
-                    "overrides": {"type": "object"},
-                    "assumptions": {"type": "array", "items": {"type": "string"}},
+                    "constraints": {"type": "object", "description": "Constraint dict with geometry_interfaces, operating_envelope, material, manufacturing, etc."},
                 },
-                "required": ["request_text"],
+                "required": ["constraints"],
                 "additionalProperties": False,
             },
         },
         {
-            "name": "me.get_knowledge_policy",
-            "description": "Return standards/materials source policy and authority ordering metadata.",
-            "inputSchema": {"type": "object", "additionalProperties": False},
+            "name": "me.list_validators",
+            "description": (
+                "List available validators with metadata: what fields they read, "
+                "what thresholds they accept, and their priority. Use this to discover "
+                "what to put in a constraint dict before calling me.validate_constraints."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "additionalProperties": False,
+            },
+        },
+    ]
+
+
+def _knowledge_tool_list() -> list[dict[str, Any]]:
+    """Knowledge management tools — semantic search, extraction, ingestion."""
+    return [
+        {
+            "name": "knowledge.extract",
+            "description": (
+                "Send a file to Docling for processing, return extracted text/markdown "
+                "content directly to the LLM. No indexing — just parsing. "
+                "LLM can then decide what to do with the content."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "file_path": {"type": "string", "description": "Path to the file to extract (PDF, DOCX, etc.)"},
+                },
+                "required": ["file_path"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "knowledge.ingest",
+            "description": (
+                "Submit a file OR directory for ingestion into the knowledge base. "
+                "Single files return a task_id. Directories are walked recursively "
+                "for PDF/DOCX/MD files — returns a list of task_ids. "
+                "Use knowledge.ingest_status to poll completion."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "File or directory path to ingest"},
+                    "extensions": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "File extensions to include for directory ingestion (default: .pdf, .docx, .md)",
+                    },
+                },
+                "required": ["path"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "knowledge.ingest_status",
+            "description": (
+                "Poll ingestion status for one or more task IDs. "
+                "Returns status (processing/complete/failed) and document metadata when done."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "task_id": {"type": "string", "description": "Single task ID to check"},
+                    "task_ids": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Multiple task IDs to check",
+                    },
+                },
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "knowledge.search",
+            "description": (
+                "Semantic search across all ingested docs. Returns ranked results "
+                "with source, score, and relevant chunks. Falls back to listing "
+                "local me_knowledge/notes/ files when OpenRAG is unavailable."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Search query"},
+                    "top_k": {"type": "integer", "description": "Number of results to return", "default": 5},
+                    "filters": {"type": "object", "description": "Optional filters"},
+                },
+                "required": ["query"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "knowledge.status",
+            "description": "Check OpenRAG health, document count, index info.",
+            "inputSchema": {
+                "type": "object",
+                "additionalProperties": False,
+            },
         },
     ]
 
 
 def _tool_list() -> list[dict[str, Any]]:
-    return _cad_tool_list() + _mfg_tool_list() + _spec_tool_list() + _me_tool_list()
+    return (
+        _cad_tool_list()
+        + _mfg_tool_list()
+        + _spec_tool_list()
+        + _me_tool_list()
+        + _knowledge_tool_list()
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -865,6 +1149,9 @@ _CAD_DISPATCH: dict[str, Any] = {
     "cad.revolution": cad_revolution,
     "cad.polar_pattern": cad_polar_pattern,
     "cad.pocket": cad_pocket,
+    "cad.sweep": cad_sweep,
+    "cad.helix": cad_helix,
+    "cad.loft": cad_loft,
     "cad.hole": cad_hole,
     "cad.fillet": cad_fillet,
     "cad.chamfer": cad_chamfer,
@@ -877,6 +1164,9 @@ _CAD_DISPATCH: dict[str, Any] = {
     "cad.resolve_selection": cad_resolve_selection,
     "cad.list_selections": cad_list_selections,
     "cad.delete_selection": cad_delete_selection,
+    "cad.screenshot": cad_screenshot,
+    "cad.set_camera": cad_set_camera,
+    "cad.get_camera": cad_get_camera,
     "cad.undo": cad_undo,
     "cad.export": cad_export,
 }
@@ -897,19 +1187,23 @@ _SPEC_DISPATCH: dict[str, Any] = {
     "spec.export_rfq_summary": spec_export_rfq_summary,
     "spec.assess_design_path": spec_assess_design_path,
     "spec.generate_cad": spec_generate_cad,
+    "spec.plan_geometry": spec_plan_geometry,
 }
 
 _ME_DISPATCH: dict[str, Any] = {
-    "me.list_domain_tags": me_list_domain_tags,
-    "me.list_archetypes": me_list_archetypes,
-    "me.get_archetype_card": me_get_archetype_card,
-    "me.route_request": me_route_request,
-    "me.instantiate_constraint_sheet": me_instantiate_constraint_sheet,
-    "me.validate_constraint_sheet": me_validate_constraint_sheet,
+    "me.validate_constraints": me_validate_constraints,
     "me.build_traceability": me_build_traceability,
     "me.apply_risk_gates": me_apply_risk_gates,
     "me.design_loop": me_design_loop,
-    "me.get_knowledge_policy": me_get_knowledge_policy,
+    "me.list_validators": me_list_validators,
+}
+
+_KNOWLEDGE_DISPATCH: dict[str, Any] = {
+    "knowledge.extract": knowledge_extract,
+    "knowledge.ingest": knowledge_ingest,
+    "knowledge.ingest_status": knowledge_ingest_status,
+    "knowledge.search": knowledge_search,
+    "knowledge.status": knowledge_status,
 }
 
 
@@ -919,6 +1213,7 @@ def _call_tool(name: str, arguments: dict[str, Any]) -> Any:
         or _MFG_DISPATCH.get(name)
         or _SPEC_DISPATCH.get(name)
         or _ME_DISPATCH.get(name)
+        or _KNOWLEDGE_DISPATCH.get(name)
     )
     if handler is None:
         raise KeyError(f"Unknown tool: {name}")
@@ -963,7 +1258,30 @@ def serve() -> int:
                     _send(_rpc_result(rpc_id, {"isError": True, "content": [{"type": "text", "text": "Invalid params"}]}))
                     continue
                 out = _call_tool(name, arguments)
-                _send(_rpc_result(rpc_id, {"isError": False, "content": [{"type": "text", "text": json.dumps(out)}]}))
+                content: list[dict[str, Any]] = []
+
+                # Handle verification images from modeling operations
+                if isinstance(out, dict) and "verification_images" in out:
+                    images = out.pop("verification_images")
+                    for img in images:
+                        content.append({
+                            "type": "image",
+                            "data": img["image_base64"],
+                            "mimeType": img["mime_type"],
+                        })
+
+                # Handle single image from cad.screenshot
+                if isinstance(out, dict) and "image_base64" in out:
+                    content.append({
+                        "type": "image",
+                        "data": out.pop("image_base64"),
+                        "mimeType": out.pop("mime_type", "image/png"),
+                    })
+
+                # Always include text result (remaining metadata)
+                content.append({"type": "text", "text": json.dumps(out)})
+
+                _send(_rpc_result(rpc_id, {"isError": False, "content": content}))
                 continue
 
             if method == "resources/list":

@@ -1,24 +1,11 @@
 from __future__ import annotations
 
 import math
-from copy import deepcopy
+from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
-from server.me_registry import domain_tags_by_id, list_archetype_ids, load_archetype_card, load_constraint_template
-from server.models import Finding, Severity
-
-
-def _normalize_text(s: str) -> str:
-    return " ".join(s.lower().replace("_", " ").replace("-", " ").split())
-
-
-def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
-    for key, value in override.items():
-        if isinstance(value, dict) and isinstance(base.get(key), dict):
-            _deep_merge(base[key], value)
-        else:
-            base[key] = deepcopy(value)
-    return base
+from server.models import Finding, Severity, ValidatorInfo, ValidatorResult
 
 
 def _as_float(value: Any) -> float | None:
@@ -44,413 +31,521 @@ def _as_int(value: Any) -> int | None:
     return int(round(f))
 
 
-def _collect_tbd_fields(obj: Any, pointer_prefix: str = "") -> list[str]:
-    tbd: list[str] = []
-    if isinstance(obj, dict):
-        for key in sorted(obj.keys()):
-            token = key.replace("~", "~0").replace("/", "~1")
-            child_ptr = f"{pointer_prefix}/{token}" if pointer_prefix else f"/{token}"
-            tbd.extend(_collect_tbd_fields(obj[key], child_ptr))
-    elif isinstance(obj, list):
-        for idx, value in enumerate(obj):
-            child_ptr = f"{pointer_prefix}/{idx}" if pointer_prefix else f"/{idx}"
-            tbd.extend(_collect_tbd_fields(value, child_ptr))
-    elif isinstance(obj, str) and obj.strip().upper() == "TBD":
-        tbd.append(pointer_prefix or "/")
-    return tbd
+def _geom_float(geom: dict[str, Any], *keys: str) -> float | None:
+    """Try multiple field names in order, return the first valid float."""
+    for key in keys:
+        val = _as_float(geom.get(key))
+        if val is not None:
+            return val
+    return None
 
 
-def route_request(request_text: str) -> dict[str, Any]:
-    """Route a free-text request to the best matching archetype and ME domain tags."""
-    normalized = _normalize_text(request_text)
-    tags = domain_tags_by_id()
+def _safe_section(sheet: dict[str, Any], key: str) -> dict[str, Any]:
+    """Extract a dict section from the constraint sheet, defaulting to {}."""
+    val = sheet.get(key, {})
+    return val if isinstance(val, dict) else {}
 
-    best: dict[str, Any] | None = None
-    candidates: list[dict[str, Any]] = []
 
-    for archetype_id in list_archetype_ids():
-        card = load_archetype_card(archetype_id)
-        routing = card.get("routing_signals", {}) if isinstance(card, dict) else {}
-        keywords = routing.get("keywords", []) if isinstance(routing, dict) else []
-        phrases = routing.get("phrases", []) if isinstance(routing, dict) else []
+# ---------------------------------------------------------------------------
+# Individual validator functions
+# ---------------------------------------------------------------------------
 
-        matched_signals: list[str] = []
-        score = 0.0
+def _check_min_thickness(sheet: dict[str, Any]) -> ValidatorResult:
+    """Compare thinnest wall/blade against process minimum feature size."""
+    geom = _safe_section(sheet, "geometry_interfaces")
+    mfg = _safe_section(sheet, "manufacturing")
+    min_wall = _geom_float(geom, "min_wall_thickness_mm", "min_blade_thickness_mm")
+    min_feature = _as_float(mfg.get("min_feature_size_mm"))
 
-        for phrase in phrases:
-            if isinstance(phrase, str) and _normalize_text(phrase) in normalized:
-                matched_signals.append(phrase)
-                score += 2.5
+    if min_wall is None or min_feature is None:
+        return ValidatorResult(
+            name="min_thickness_check", status="warn",
+            message="Cannot evaluate min_thickness_check: wall thickness or process feature size is missing.",
+            measured={"min_wall_thickness_mm": min_wall, "min_feature_size_mm": min_feature},
+            priority=910,
+        )
+    if min_wall < min_feature:
+        return ValidatorResult(
+            name="min_thickness_check", status="fail",
+            message=(
+                f"Minimum wall thickness {min_wall:.3f} mm is below "
+                f"process minimum feature size {min_feature:.3f} mm."
+            ),
+            measured={"min_wall_thickness_mm": min_wall, "min_feature_size_mm": min_feature},
+            priority=910,
+        )
+    if min_wall < (min_feature * 1.1):
+        return ValidatorResult(
+            name="min_thickness_check", status="warn",
+            message=(
+                f"Minimum wall thickness {min_wall:.3f} mm is close to "
+                f"the process floor {min_feature:.3f} mm."
+            ),
+            measured={"min_wall_thickness_mm": min_wall, "min_feature_size_mm": min_feature},
+            priority=910,
+        )
+    return ValidatorResult(
+        name="min_thickness_check", status="pass",
+        message="Minimum wall thickness is above process minimum feature size.",
+        measured={"min_wall_thickness_mm": min_wall, "min_feature_size_mm": min_feature},
+        priority=910,
+    )
 
-        for keyword in keywords:
-            if isinstance(keyword, str) and _normalize_text(keyword) in normalized:
-                matched_signals.append(keyword)
-                score += 1.0
 
-        for tag_id in card.get("domain_tags", []):
-            tag = tags.get(str(tag_id), {})
-            signals = tag.get("signals", {}) if isinstance(tag, dict) else {}
-            kw_list = signals.get("keywords", []) if isinstance(signals, dict) else []
-            for kw in kw_list:
-                if isinstance(kw, str) and _normalize_text(kw) in normalized:
-                    score += 0.25
+def _check_sharp_edge(sheet: dict[str, Any]) -> ValidatorResult:
+    """Check fillet radii against stress-riser threshold."""
+    geom = _safe_section(sheet, "geometry_interfaces")
+    mfg = _safe_section(sheet, "manufacturing")
+    thresholds = _safe_section(sheet, "thresholds")
+    min_fillet = _as_float(geom.get("min_fillet_radius_mm"))
+    min_feature = _as_float(mfg.get("min_feature_size_mm"))
 
-        confidence = 0.0
-        if keywords:
-            confidence = min(0.99, score / (len(keywords) + 2.0))
-        elif score > 0:
-            confidence = min(0.99, score / 4.0)
+    fillet_threshold = _as_float(thresholds.get("min_fillet_threshold_mm"))
+    if fillet_threshold is None:
+        fillet_threshold = None if min_feature is None else max(0.5, min_feature * 0.5)
 
-        candidate = {
-            "archetype_id": archetype_id,
-            "score": round(score, 4),
-            "confidence": round(confidence, 4),
-            "matched_signals": sorted(set(matched_signals)),
-            "domain_tags": sorted(card.get("domain_tags", [])),
+    measured = {"min_fillet_radius_mm": min_fillet, "threshold_mm": fillet_threshold}
+
+    if min_fillet is None or fillet_threshold is None:
+        return ValidatorResult(
+            name="sharp_edge_check", status="warn",
+            message="Cannot evaluate sharp_edge_check: fillet radius or threshold is missing.",
+            measured=measured, priority=900,
+        )
+    if min_fillet < fillet_threshold:
+        return ValidatorResult(
+            name="sharp_edge_check", status="fail",
+            message=(
+                f"Minimum fillet radius {min_fillet:.3f} mm is below "
+                f"threshold {fillet_threshold:.3f} mm."
+            ),
+            measured=measured, priority=900,
+        )
+    return ValidatorResult(
+        name="sharp_edge_check", status="pass",
+        message="Minimum fillet radius satisfies stress-riser threshold.",
+        measured=measured, priority=900,
+    )
+
+
+def _check_symmetry(sheet: dict[str, Any]) -> ValidatorResult:
+    """Check polar symmetry and blade/feature count against LLM-provided range."""
+    geom = _safe_section(sheet, "geometry_interfaces")
+    bal = _safe_section(sheet, "balance_rotor")
+    thresholds = _safe_section(sheet, "thresholds")
+
+    symmetry_required = bool(bal.get("symmetry_required", False))
+    blade_count = _as_int(geom.get("blade_count"))
+    min_blade_count = _as_int(thresholds.get("min_blade_count"))
+    if min_blade_count is None:
+        min_blade_count = 2  # safe default for any rotating part
+
+    measured = {"symmetry_required": symmetry_required, "blade_count": blade_count, "min_blade_count": min_blade_count}
+
+    if not symmetry_required:
+        return ValidatorResult(
+            name="symmetry_check", status="warn",
+            message="symmetry_required not set; rotating parts typically need polar symmetry.",
+            measured=measured, priority=870,
+        )
+    if blade_count is None:
+        return ValidatorResult(
+            name="symmetry_check", status="warn",
+            message="Cannot verify symmetry: blade_count is missing.",
+            measured=measured, priority=870,
+        )
+    if blade_count < min_blade_count:
+        return ValidatorResult(
+            name="symmetry_check", status="warn",
+            message=(
+                f"Blade count {blade_count} is below expected minimum "
+                f"of {min_blade_count} for this part type."
+            ),
+            measured=measured, priority=870,
+        )
+    return ValidatorResult(
+        name="symmetry_check", status="pass",
+        message=(
+            f"Symmetry requirement present, blade count {blade_count} "
+            f"is within expected range (>= {min_blade_count})."
+        ),
+        measured=measured, priority=870,
+    )
+
+
+def _check_centrifugal_stress(sheet: dict[str, Any]) -> ValidatorResult:
+    """Hoop stress estimate for rotating parts: sigma = rho*omega^2*r^2/3 (solid disc proxy)."""
+    geom = _safe_section(sheet, "geometry_interfaces")
+    env = _safe_section(sheet, "operating_envelope")
+    mat = _safe_section(sheet, "material")
+    thresholds = _safe_section(sheet, "thresholds")
+
+    outer_diam_mm = _geom_float(geom, "outer_diameter_mm", "exducer_diameter_mm")
+    max_rpm = _as_float(env.get("max_rpm"))
+    density = _as_float(mat.get("density_kg_m3"))
+    yield_mpa = _as_float(mat.get("yield_strength_at_temp_mpa"))
+    creep_mpa = _as_float(mat.get("creep_limit_at_temp_mpa"))
+
+    sf_fail = _as_float(thresholds.get("min_safety_factor")) or 1.5
+    sf_warn = _as_float(thresholds.get("preferred_safety_factor")) or max(sf_fail, 2.0)
+
+    sigma_mpa = None
+    safety_factor = None
+
+    if max_rpm is None or density is None or outer_diam_mm is None:
+        return ValidatorResult(
+            name="centrifugal_stress_proxy", status="warn",
+            message="Cannot compute centrifugal stress: rpm, density, or diameter is missing.",
+            measured={
+                "max_rpm": max_rpm, "outer_diameter_mm": outer_diam_mm,
+                "density_kg_m3": density, "sigma_mpa": None,
+                "yield_strength_at_temp_mpa": yield_mpa, "creep_limit_at_temp_mpa": creep_mpa,
+                "safety_factor": None, "min_safety_factor": sf_fail, "preferred_safety_factor": sf_warn,
+            },
+            priority=950,
+        )
+
+    omega = max_rpm * (2.0 * math.pi / 60.0)
+    radius_m = outer_diam_mm / 2000.0
+    sigma_pa = density * (omega ** 2) * (radius_m ** 2) / 3.0
+    sigma_mpa = sigma_pa / 1_000_000.0
+
+    if yield_mpa is not None and sigma_mpa > 0:
+        safety_factor = yield_mpa / sigma_mpa
+
+    measured = {
+        "max_rpm": max_rpm, "outer_diameter_mm": outer_diam_mm,
+        "density_kg_m3": density, "sigma_mpa": sigma_mpa,
+        "yield_strength_at_temp_mpa": yield_mpa, "creep_limit_at_temp_mpa": creep_mpa,
+        "safety_factor": safety_factor, "min_safety_factor": sf_fail, "preferred_safety_factor": sf_warn,
+    }
+
+    if creep_mpa is not None and sigma_mpa > creep_mpa:
+        return ValidatorResult(
+            name="centrifugal_stress_proxy", status="fail",
+            message=(
+                f"Centrifugal stress proxy {sigma_mpa:.1f} MPa exceeds "
+                f"creep limit {creep_mpa:.1f} MPa."
+            ),
+            measured=measured, priority=950,
+        )
+    if safety_factor is None:
+        return ValidatorResult(
+            name="centrifugal_stress_proxy", status="warn",
+            message=(
+                f"Centrifugal stress proxy {sigma_mpa:.1f} MPa computed, "
+                f"but yield strength is missing for safety factor check."
+            ),
+            measured=measured, priority=950,
+        )
+    if safety_factor < sf_fail:
+        return ValidatorResult(
+            name="centrifugal_stress_proxy", status="fail",
+            message=(
+                f"Centrifugal safety factor {safety_factor:.2f} is below "
+                f"minimum {sf_fail:.2f} at {max_rpm:.0f} rpm."
+            ),
+            measured=measured, priority=950,
+        )
+    if safety_factor < sf_warn:
+        return ValidatorResult(
+            name="centrifugal_stress_proxy", status="warn",
+            message=(
+                f"Centrifugal safety factor {safety_factor:.2f} is below "
+                f"preferred {sf_warn:.2f}; consider adding margin."
+            ),
+            measured=measured, priority=950,
+        )
+    return ValidatorResult(
+        name="centrifugal_stress_proxy", status="pass",
+        message=f"Centrifugal stress proxy gives safety factor {safety_factor:.2f}.",
+        measured=measured, priority=950,
+    )
+
+
+def _check_mass_properties(sheet: dict[str, Any]) -> ValidatorResult:
+    """Rough mass estimate from annular disc proxy."""
+    geom = _safe_section(sheet, "geometry_interfaces")
+    mat = _safe_section(sheet, "material")
+    thresholds = _safe_section(sheet, "thresholds")
+
+    min_wall = _geom_float(geom, "min_wall_thickness_mm", "min_blade_thickness_mm")
+    outer_diam_mm = _geom_float(geom, "outer_diameter_mm", "exducer_diameter_mm")
+    hub_diam_mm = _geom_float(geom, "hub_diameter_mm", "inner_diameter_mm")
+    density = _as_float(mat.get("density_kg_m3"))
+    max_mass = _as_float(thresholds.get("max_mass_kg"))
+
+    mass_kg = None
+    polar_inertia_kg_m2 = None
+
+    if density is None or outer_diam_mm is None or hub_diam_mm is None or min_wall is None:
+        return ValidatorResult(
+            name="mass_properties", status="warn",
+            message="Cannot compute mass proxy: density, diameters, or wall thickness is incomplete.",
+            measured={"mass_kg": None, "polar_inertia_kg_m2": None, "max_mass_kg": max_mass},
+            priority=740,
+        )
+
+    r_out = outer_diam_mm / 2000.0
+    r_in = max(0.0, hub_diam_mm / 2000.0)
+    thickness_m = max(0.004, (min_wall / 1000.0) * 6.0)
+    volume_m3 = math.pi * max(0.0, (r_out ** 2) - (r_in ** 2)) * thickness_m
+    mass_kg = density * volume_m3
+    polar_inertia_kg_m2 = 0.5 * mass_kg * ((r_out ** 2) + (r_in ** 2))
+    measured = {"mass_kg": mass_kg, "polar_inertia_kg_m2": polar_inertia_kg_m2, "max_mass_kg": max_mass}
+
+    if mass_kg <= 0:
+        return ValidatorResult(
+            name="mass_properties", status="fail",
+            message="Mass proxy produced non-positive mass; check geometry/material inputs.",
+            measured=measured, priority=740,
+        )
+    if max_mass is not None and mass_kg > max_mass:
+        return ValidatorResult(
+            name="mass_properties", status="warn",
+            message=f"Mass proxy {mass_kg:.3f} kg exceeds target maximum {max_mass:.3f} kg.",
+            measured=measured, priority=740,
+        )
+    return ValidatorResult(
+        name="mass_properties", status="pass",
+        message=f"Mass proxy computed at {mass_kg:.3f} kg.",
+        measured=measured, priority=740,
+    )
+
+
+def _check_manufacturability(sheet: dict[str, Any]) -> ValidatorResult:
+    """Process-specific manufacturability heuristics."""
+    geom = _safe_section(sheet, "geometry_interfaces")
+    mfg = _safe_section(sheet, "manufacturing")
+
+    min_wall = _geom_float(geom, "min_wall_thickness_mm", "min_blade_thickness_mm")
+    min_fillet = _as_float(geom.get("min_fillet_radius_mm"))
+    process = str(mfg.get("process", "unknown"))
+    draft_angle = _as_float(mfg.get("draft_angle_min_deg"))
+    measured = {"process": process, "draft_angle_min_deg": draft_angle}
+
+    if process == "casting":
+        if draft_angle is None:
+            return ValidatorResult(
+                name="manufacturability_heuristics", status="warn",
+                message="Casting process selected but draft_angle_min_deg is TBD.",
+                measured=measured, priority=780,
+            )
+        if draft_angle < 1.0:
+            return ValidatorResult(
+                name="manufacturability_heuristics", status="fail",
+                message=f"Draft angle {draft_angle:.2f} deg is below castability floor (1.0 deg).",
+                measured=measured, priority=780,
+            )
+        if draft_angle < 2.0:
+            return ValidatorResult(
+                name="manufacturability_heuristics", status="warn",
+                message=f"Draft angle {draft_angle:.2f} deg is manufacturable but tight for casting.",
+                measured=measured, priority=780,
+            )
+        return ValidatorResult(
+            name="manufacturability_heuristics", status="pass",
+            message="Casting draft-angle is within recommended range.",
+            measured=measured, priority=780,
+        )
+
+    if process in ("5axis_machining", "machining"):
+        if min_fillet is not None and min_fillet < 0.5:
+            return ValidatorResult(
+                name="manufacturability_heuristics", status="warn",
+                message="Small internal radii may require non-standard tooling.",
+                measured=measured, priority=780,
+            )
+        return ValidatorResult(
+            name="manufacturability_heuristics", status="pass",
+            message="Machining assumptions appear reasonable.",
+            measured=measured, priority=780,
+        )
+
+    if process in ("fdm", "sla", "sls"):
+        min_wall_print = _as_float(mfg.get("min_wall_thickness_mm"))
+        if min_wall_print is None:
+            min_wall_print = {"fdm": 0.8, "sla": 0.5, "sls": 0.7}.get(process)
+        issues: list[str] = []
+        if min_wall is not None and min_wall_print is not None and min_wall < min_wall_print:
+            issues.append(
+                f"Wall thickness {min_wall:.2f} mm below {process.upper()} "
+                f"minimum {min_wall_print:.2f} mm."
+            )
+        max_overhang = _as_float(mfg.get("max_overhang_angle_deg"))
+        if process == "fdm" and max_overhang is not None and max_overhang > 45:
+            issues.append(
+                f"Overhang angle {max_overhang:.0f} deg exceeds 45 deg; "
+                f"supports likely needed."
+            )
+        if issues:
+            return ValidatorResult(
+                name="manufacturability_heuristics", status="warn",
+                message=" ".join(issues),
+                measured=measured, priority=780,
+            )
+        return ValidatorResult(
+            name="manufacturability_heuristics", status="pass",
+            message=f"{process.upper()} manufacturing assumptions appear reasonable.",
+            measured=measured, priority=780,
+        )
+
+    return ValidatorResult(
+        name="manufacturability_heuristics", status="pass",
+        message=f"No process-specific heuristics for {process!r}; skipping.",
+        measured=measured, priority=780,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Validator registry
+# ---------------------------------------------------------------------------
+
+VALIDATORS: dict[str, tuple[Callable[[dict[str, Any]], ValidatorResult], ValidatorInfo]] = {
+    "min_thickness_check": (_check_min_thickness, ValidatorInfo(
+        name="min_thickness_check",
+        description="Compares thinnest wall/blade against process minimum feature size.",
+        reads=(
+            "geometry_interfaces.min_wall_thickness_mm",
+            "geometry_interfaces.min_blade_thickness_mm",
+            "manufacturing.min_feature_size_mm",
+        ),
+        thresholds={},
+        priority=910,
+    )),
+    "sharp_edge_check": (_check_sharp_edge, ValidatorInfo(
+        name="sharp_edge_check",
+        description="Checks fillet radii against stress-riser threshold.",
+        reads=(
+            "geometry_interfaces.min_fillet_radius_mm",
+            "manufacturing.min_feature_size_mm",
+        ),
+        thresholds={"min_fillet_threshold_mm": "max(0.5, min_feature_size * 0.5)"},
+        priority=900,
+    )),
+    "symmetry_check": (_check_symmetry, ValidatorInfo(
+        name="symmetry_check",
+        description="Checks polar symmetry and blade/feature count against LLM-provided range.",
+        reads=(
+            "geometry_interfaces.blade_count",
+            "balance_rotor.symmetry_required",
+        ),
+        thresholds={"min_blade_count": 2},
+        priority=870,
+    )),
+    "centrifugal_stress_proxy": (_check_centrifugal_stress, ValidatorInfo(
+        name="centrifugal_stress_proxy",
+        description=(
+            "Hoop stress estimate for rotating parts (solid disc proxy). "
+            "Computes safety factor against yield and checks creep limit."
+        ),
+        reads=(
+            "geometry_interfaces.outer_diameter_mm",
+            "geometry_interfaces.exducer_diameter_mm",
+            "operating_envelope.max_rpm",
+            "material.density_kg_m3",
+            "material.yield_strength_at_temp_mpa",
+            "material.creep_limit_at_temp_mpa",
+        ),
+        thresholds={"min_safety_factor": 1.5, "preferred_safety_factor": 2.0},
+        priority=950,
+    )),
+    "mass_properties": (_check_mass_properties, ValidatorInfo(
+        name="mass_properties",
+        description="Rough mass estimate from annular disc proxy with optional max-mass threshold.",
+        reads=(
+            "geometry_interfaces.outer_diameter_mm",
+            "geometry_interfaces.hub_diameter_mm",
+            "geometry_interfaces.min_wall_thickness_mm",
+            "material.density_kg_m3",
+        ),
+        thresholds={"max_mass_kg": "None (optional upper bound)"},
+        priority=740,
+    )),
+    "manufacturability_heuristics": (_check_manufacturability, ValidatorInfo(
+        name="manufacturability_heuristics",
+        description=(
+            "Process-specific checks for casting (draft angle), "
+            "machining (internal radii), and 3D printing (wall thickness, overhangs)."
+        ),
+        reads=(
+            "manufacturing.process",
+            "manufacturing.draft_angle_min_deg",
+            "manufacturing.min_wall_thickness_mm",
+            "manufacturing.max_overhang_angle_deg",
+            "geometry_interfaces.min_fillet_radius_mm",
+        ),
+        thresholds={},
+        priority=780,
+    )),
+}
+
+
+def list_validators() -> list[dict[str, Any]]:
+    """Return metadata for all registered validators."""
+    return [
+        {
+            "name": info.name,
+            "description": info.description,
+            "reads": list(info.reads),
+            "thresholds": info.thresholds,
+            "priority": info.priority,
         }
-        candidates.append(candidate)
-        if best is None or candidate["score"] > best["score"]:
-            best = candidate
-
-    if best is None or best["score"] <= 0:
-        return {
-            "ok": True,
-            "archetype_id": None,
-            "confidence": 0.0,
-            "domain_tags": [],
-            "matched_signals": [],
-            "assumptions": [
-                "No known archetype matched the request text.",
-                "Proceeding requires manual archetype selection or adding a new archetype card.",
-            ],
-            "candidates": sorted(candidates, key=lambda c: (-float(c["score"]), str(c["archetype_id"]))),
-        }
-
-    return {
-        "ok": True,
-        "archetype_id": best["archetype_id"],
-        "confidence": best["confidence"],
-        "domain_tags": best["domain_tags"],
-        "matched_signals": best["matched_signals"],
-        "assumptions": [
-            "Routing used lexical signal matching against archetype card and domain tag metadata.",
-            "Confidence reflects signal overlap, not physical feasibility.",
-        ],
-        "candidates": sorted(candidates, key=lambda c: (-float(c["score"]), str(c["archetype_id"]))),
-    }
+        for _, info in VALIDATORS.values()
+    ]
 
 
-def instantiate_constraint_sheet(
-    archetype_id: str,
-    overrides: dict[str, Any] | None = None,
-    assumptions: list[str] | None = None,
-) -> dict[str, Any]:
-    """Instantiate a constraint sheet from an archetype card and template."""
-    card = load_archetype_card(archetype_id)
-    template_id = card.get("constraint_template_id")
-    if not isinstance(template_id, str) or not template_id:
-        raise ValueError(f"Archetype {archetype_id!r} missing constraint_template_id")
-
-    sheet = load_constraint_template(template_id)
-    metadata = sheet.setdefault("metadata", {})
-    if not isinstance(metadata, dict):
-        raise ValueError("Constraint template metadata must be a mapping")
-
-    metadata["archetype_id"] = archetype_id
-    metadata.setdefault("template_version", sheet.get("version", 1))
-
-    if assumptions:
-        existing = metadata.get("assumptions")
-        if not isinstance(existing, list):
-            existing = []
-        metadata["assumptions"] = list(existing) + [str(a) for a in assumptions]
-
-    if overrides:
-        _deep_merge(sheet, overrides)
-
-    tbd_fields = _collect_tbd_fields(sheet)
-
-    return {
-        "ok": True,
-        "archetype_id": archetype_id,
-        "constraint_sheet": sheet,
-        "tbd_fields": sorted(set(tbd_fields)),
-        "assumption_impact_notes": list(metadata.get("assumption_impact_notes", []) or []),
-    }
-
-
-def _result_entry(
-    validator: str,
-    status: str,
-    message: str,
-    measured: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    return {
-        "validator": validator,
-        "status": status,
-        "message": message,
-        "measured": measured or {},
-    }
-
+# ---------------------------------------------------------------------------
+# validate_constraint_sheet — runs selected validators from the registry
+# ---------------------------------------------------------------------------
 
 def validate_constraint_sheet(constraint_sheet: dict[str, Any]) -> dict[str, Any]:
-    """Run deterministic Tier 0/1 proxy validators against a constraint sheet."""
-    validators = constraint_sheet.get("validators", [])
-    if not isinstance(validators, list) or not validators:
-        validators = [
-            "mass_properties",
-            "min_thickness_check",
-            "sharp_edge_check",
-            "symmetry_check",
-            "centrifugal_stress_proxy",
-            "manufacturability_heuristics",
-        ]
+    """Run deterministic proxy validators against a constraint dict.
 
-    geom = constraint_sheet.get("geometry_interfaces", {}) if isinstance(constraint_sheet, dict) else {}
-    mfg = constraint_sheet.get("manufacturing", {}) if isinstance(constraint_sheet, dict) else {}
-    env = constraint_sheet.get("operating_envelope", {}) if isinstance(constraint_sheet, dict) else {}
-    mat = constraint_sheet.get("material", {}) if isinstance(constraint_sheet, dict) else {}
-    bal = constraint_sheet.get("balance_rotor", {}) if isinstance(constraint_sheet, dict) else {}
-
-    min_blade = _as_float(geom.get("min_blade_thickness_mm")) if isinstance(geom, dict) else None
-    min_feature = _as_float(mfg.get("min_feature_size_mm")) if isinstance(mfg, dict) else None
-    min_fillet = _as_float(geom.get("min_fillet_radius_mm")) if isinstance(geom, dict) else None
-    blade_count = _as_int(geom.get("blade_count")) if isinstance(geom, dict) else None
-
-    exducer_diam_mm = _as_float(geom.get("exducer_diameter_mm")) if isinstance(geom, dict) else None
-    hub_diam_mm = _as_float(geom.get("hub_diameter_mm")) if isinstance(geom, dict) else None
-    max_rpm = _as_float(env.get("max_rpm")) if isinstance(env, dict) else None
-    density = _as_float(mat.get("density_kg_m3")) if isinstance(mat, dict) else None
-    yield_mpa = _as_float(mat.get("yield_strength_at_temp_mpa")) if isinstance(mat, dict) else None
-    creep_mpa = _as_float(mat.get("creep_limit_at_temp_mpa")) if isinstance(mat, dict) else None
-
-    process = str(mfg.get("process", "unknown")) if isinstance(mfg, dict) else "unknown"
-    draft_angle = _as_float(mfg.get("draft_angle_min_deg")) if isinstance(mfg, dict) else None
+    All thresholds (min_blade_count, max_mass_kg, min_safety_factor, etc.)
+    are read from the constraint dict itself — the LLM sets them based on
+    its engineering knowledge and research for the specific part type.
+    """
+    requested = constraint_sheet.get("validators", [])
+    if not isinstance(requested, list) or not requested:
+        requested = list(VALIDATORS.keys())
 
     results: list[dict[str, Any]] = []
     blockers: list[dict[str, Any]] = []
     warnings: list[dict[str, Any]] = []
     notes: list[dict[str, Any]] = []
 
-    def push_finding(validator: str, status: str, message: str, priority: int = 500) -> None:
-        if status == "fail":
-            blockers.append(
-                Finding(
-                    rule_id=f"me.{validator}",
-                    severity=Severity.BLOCK,
-                    message=message,
-                    priority=priority,
-                ).to_dict()
-            )
-        elif status == "warn":
-            warnings.append(
-                Finding(
-                    rule_id=f"me.{validator}",
-                    severity=Severity.WARN,
-                    message=message,
-                    priority=priority,
-                ).to_dict()
-            )
+    for name in requested:
+        entry = VALIDATORS.get(name)
+        if entry is None:
+            continue
+        fn, _info = entry
+        vr = fn(constraint_sheet)
+
+        results.append({
+            "validator": vr.name,
+            "status": vr.status,
+            "message": vr.message,
+            "measured": vr.measured,
+        })
+
+        finding = Finding(
+            rule_id=f"me.{vr.name}",
+            severity=(
+                Severity.BLOCK if vr.status == "fail"
+                else Severity.WARN if vr.status == "warn"
+                else Severity.NOTE
+            ),
+            message=vr.message,
+            priority=vr.priority,
+        ).to_dict()
+
+        if vr.status == "fail":
+            blockers.append(finding)
+        elif vr.status == "warn":
+            warnings.append(finding)
         else:
-            notes.append(
-                Finding(
-                    rule_id=f"me.{validator}",
-                    severity=Severity.NOTE,
-                    message=message,
-                    priority=priority,
-                ).to_dict()
-            )
-
-    if "min_thickness_check" in validators:
-        if min_blade is None or min_feature is None:
-            status = "warn"
-            message = "Cannot fully evaluate min_thickness_check because min_blade_thickness or min_feature_size is TBD."
-        elif min_blade < min_feature:
-            status = "fail"
-            message = (
-                f"Minimum blade thickness {min_blade:.3f} mm is below process minimum feature size {min_feature:.3f} mm."
-            )
-        elif min_blade < (min_feature * 1.1):
-            status = "warn"
-            message = (
-                f"Minimum blade thickness {min_blade:.3f} mm is close to the process floor {min_feature:.3f} mm."
-            )
-        else:
-            status = "pass"
-            message = "Minimum blade thickness is above process minimum feature size."
-
-        results.append(_result_entry(
-            "min_thickness_check",
-            status,
-            message,
-            {"min_blade_thickness_mm": min_blade, "min_feature_size_mm": min_feature},
-        ))
-        push_finding("min_thickness_check", status, message, priority=910)
-
-    if "sharp_edge_check" in validators:
-        threshold = None if min_feature is None else max(0.5, min_feature * 0.5)
-        if min_fillet is None or threshold is None:
-            status = "warn"
-            message = "Cannot fully evaluate sharp_edge_check because fillet radius or process feature floor is TBD."
-        elif min_fillet < threshold:
-            status = "fail"
-            message = (
-                f"Minimum fillet radius {min_fillet:.3f} mm is below threshold {threshold:.3f} mm for rotating service."
-            )
-        else:
-            status = "pass"
-            message = "Minimum fillet radius satisfies sharp-edge stress-riser threshold."
-
-        results.append(_result_entry(
-            "sharp_edge_check",
-            status,
-            message,
-            {"min_fillet_radius_mm": min_fillet, "threshold_mm": threshold},
-        ))
-        push_finding("sharp_edge_check", status, message, priority=900)
-
-    if "symmetry_check" in validators:
-        symmetry_required = bool(bal.get("symmetry_required", False)) if isinstance(bal, dict) else False
-        if not symmetry_required:
-            status = "fail"
-            message = "symmetry_required is false; rotating wheel should enforce polar symmetry."
-        elif blade_count is None:
-            status = "warn"
-            message = "Cannot verify balance proxy because blade_count is TBD."
-        elif blade_count < 8:
-            status = "warn"
-            message = f"Blade count {blade_count} is unusually low for a turbocharger turbine wheel."
-        else:
-            status = "pass"
-            message = "Polar symmetry requirement is present and blade count is in expected range."
-
-        results.append(_result_entry(
-            "symmetry_check",
-            status,
-            message,
-            {"symmetry_required": symmetry_required, "blade_count": blade_count},
-        ))
-        push_finding("symmetry_check", status, message, priority=870)
-
-    if "centrifugal_stress_proxy" in validators:
-        sigma_mpa = None
-        safety_factor = None
-        if max_rpm is None or density is None or exducer_diam_mm is None:
-            status = "warn"
-            message = "Cannot compute centrifugal stress proxy because rpm, density, or exducer diameter is TBD."
-        else:
-            omega = max_rpm * (2.0 * math.pi / 60.0)
-            radius_m = exducer_diam_mm / 2000.0
-            sigma_pa = density * (omega ** 2) * (radius_m ** 2) / 3.0
-            sigma_mpa = sigma_pa / 1_000_000.0
-
-            if yield_mpa is not None and sigma_mpa > 0:
-                safety_factor = yield_mpa / sigma_mpa
-
-            if safety_factor is None:
-                status = "warn"
-                message = (
-                    f"Computed centrifugal stress proxy {sigma_mpa:.1f} MPa, but yield_strength_at_temp_mpa is missing."
-                )
-            elif safety_factor < 1.5:
-                status = "fail"
-                message = (
-                    f"Centrifugal safety factor {safety_factor:.2f} is below minimum target 1.50 at {max_rpm:.0f} rpm."
-                )
-            elif safety_factor < 2.0:
-                status = "warn"
-                message = (
-                    f"Centrifugal safety factor {safety_factor:.2f} is acceptable but low; consider adding margin."
-                )
-            else:
-                status = "pass"
-                message = f"Centrifugal stress proxy gives safety factor {safety_factor:.2f}."
-
-            if creep_mpa is not None and sigma_mpa is not None and sigma_mpa > creep_mpa:
-                status = "fail"
-                message = (
-                    f"Centrifugal stress proxy {sigma_mpa:.1f} MPa exceeds creep limit {creep_mpa:.1f} MPa."
-                )
-
-        results.append(_result_entry(
-            "centrifugal_stress_proxy",
-            status,
-            message,
-            {
-                "max_rpm": max_rpm,
-                "exducer_diameter_mm": exducer_diam_mm,
-                "density_kg_m3": density,
-                "sigma_mpa": sigma_mpa,
-                "yield_strength_at_temp_mpa": yield_mpa,
-                "creep_limit_at_temp_mpa": creep_mpa,
-                "safety_factor": safety_factor,
-            },
-        ))
-        push_finding("centrifugal_stress_proxy", status, message, priority=950)
-
-    if "mass_properties" in validators:
-        mass_kg = None
-        polar_inertia_kg_m2 = None
-        if density is None or exducer_diam_mm is None or hub_diam_mm is None or min_blade is None:
-            status = "warn"
-            message = "Cannot compute mass properties proxy because density/diameter/thickness inputs are incomplete."
-        else:
-            r_out = exducer_diam_mm / 2000.0
-            r_in = max(0.0, hub_diam_mm / 2000.0)
-            thickness_m = max(0.004, (min_blade / 1000.0) * 6.0)
-            volume_m3 = math.pi * max(0.0, (r_out ** 2) - (r_in ** 2)) * thickness_m
-            mass_kg = density * volume_m3
-            polar_inertia_kg_m2 = 0.5 * mass_kg * ((r_out ** 2) + (r_in ** 2))
-            if mass_kg <= 0:
-                status = "fail"
-                message = "Mass properties proxy produced non-positive mass; check geometry/material inputs."
-            elif mass_kg > 2.0:
-                status = "warn"
-                message = f"Mass proxy {mass_kg:.3f} kg is high for a typical turbocharger wheel envelope."
-            else:
-                status = "pass"
-                message = f"Mass proxy computed at {mass_kg:.3f} kg with polar inertia estimate available."
-
-        results.append(_result_entry(
-            "mass_properties",
-            status,
-            message,
-            {"mass_kg": mass_kg, "polar_inertia_kg_m2": polar_inertia_kg_m2},
-        ))
-        push_finding("mass_properties", status, message, priority=740)
-
-    if "manufacturability_heuristics" in validators:
-        if process == "casting":
-            if draft_angle is None:
-                status = "warn"
-                message = "Casting process selected but draft_angle_min_deg is TBD."
-            elif draft_angle < 1.0:
-                status = "fail"
-                message = f"Draft angle {draft_angle:.2f} deg is below castability floor (1.0 deg)."
-            elif draft_angle < 2.0:
-                status = "warn"
-                message = f"Draft angle {draft_angle:.2f} deg is manufacturable but tight for casting robustness."
-            else:
-                status = "pass"
-                message = "Casting draft-angle assumption is within recommended range."
-        elif process in ("5axis_machining", "machining"):
-            if min_fillet is not None and min_fillet < 0.5:
-                status = "warn"
-                message = "Small internal radii may require non-standard tooling in machining route."
-            else:
-                status = "pass"
-                message = "Machining route assumptions appear reasonable at proxy level."
-        else:
-            status = "warn"
-            message = f"Manufacturability heuristics for process {process!r} are limited in this version."
-
-        results.append(_result_entry(
-            "manufacturability_heuristics",
-            status,
-            message,
-            {"process": process, "draft_angle_min_deg": draft_angle},
-        ))
-        push_finding("manufacturability_heuristics", status, message, priority=780)
+            notes.append(finding)
 
     blockers.sort(key=lambda f: (-int(f.get("priority", 0)), str(f.get("rule_id", ""))))
     warnings.sort(key=lambda f: (-int(f.get("priority", 0)), str(f.get("rule_id", ""))))
@@ -458,14 +553,14 @@ def validate_constraint_sheet(constraint_sheet: dict[str, Any]) -> dict[str, Any
 
     return {
         "ok": True,
-        "validators_run": [str(v) for v in validators],
+        "validators_run": [str(v) for v in requested],
         "results": results,
         "blockers": blockers,
         "warnings": warnings,
         "notes": notes,
         "summary": (
             f"Validation complete: {len(blockers)} blockers, {len(warnings)} warnings, "
-            f"{len(notes)} notes across {len(validators)} validators."
+            f"{len(notes)} notes across {len(requested)} validators."
         ),
     }
 
@@ -630,68 +725,99 @@ def apply_risk_gates(constraint_sheet: dict[str, Any], validation_report: dict[s
     }
 
 
-def suggest_high_value_questions(tbd_fields: list[str]) -> list[str]:
-    """Return up to two targeted clarification questions from TBD fields."""
-    questions: list[str] = []
-
-    mapping = {
-        "/operating_envelope/max_rpm": "What is the confirmed maximum operating RPM?",
-        "/operating_envelope/gas_temp_max_c": "What is the maximum gas-side operating temperature in degC?",
-        "/manufacturing/process": "Should manufacturing be assumed as casting, machining, or additive metal?",
-        "/material/yield_strength_at_temp_mpa": "Do you have certified yield strength at operating temperature for the selected material?",
-        "/balance_rotor/balance_grade_target": "What rotor balance grade target should be enforced?",
-    }
-
-    for field in sorted(set(tbd_fields)):
-        q = mapping.get(field)
-        if q and q not in questions:
-            questions.append(q)
-        if len(questions) >= 2:
-            break
-
-    return questions
+def _find_local_notes() -> list[str]:
+    """List existing research notes in me_knowledge/notes/."""
+    notes_dir = Path(__file__).resolve().parent.parent / "me_knowledge" / "notes"
+    if not notes_dir.is_dir():
+        return []
+    return sorted(p.name for p in notes_dir.glob("*.md"))
 
 
-def run_design_loop(
-    request_text: str,
-    overrides: dict[str, Any] | None = None,
-    assumptions: list[str] | None = None,
-) -> dict[str, Any]:
-    """Route -> instantiate -> validate -> trace -> risk gates (deterministic ME loop)."""
-    route = route_request(request_text)
-    archetype_id = route.get("archetype_id")
-    if not isinstance(archetype_id, str) or not archetype_id:
+# Keep old name as alias for backward compatibility
+_find_relevant_notes = _find_local_notes
+
+
+def _search_knowledge(query: str) -> dict[str, Any] | None:
+    """Search the OpenRAG knowledge base if available.
+
+    Returns search results dict or ``None`` if OpenRAG is not configured.
+    """
+    try:
+        from server.openrag_client import get_openrag_client
+        client = get_openrag_client()
+        if client is None:
+            return None
+        results = client.search(query, top_k=3)
         return {
-            "ok": False,
-            "error": {
-                "code": "NO_ARCHETYPE_MATCH",
-                "message": "No archetype match found for request. Add or select an archetype card.",
-            },
-            "routing": route,
+            "source": "openrag",
+            "result_count": len(results),
+            "results": [
+                {"content": r.content, "source": r.source, "score": r.score}
+                for r in results
+            ],
         }
+    except Exception:
+        return None
 
-    inst = instantiate_constraint_sheet(archetype_id, overrides=overrides, assumptions=assumptions)
-    constraint_sheet = inst["constraint_sheet"]
 
-    validation = validate_constraint_sheet(constraint_sheet)
-    traceability = build_traceability_matrix(constraint_sheet, validation)
-    risk = apply_risk_gates(constraint_sheet, validation)
-    questions = suggest_high_value_questions(inst.get("tbd_fields", []))
+def _derive_search_query(constraints: dict[str, Any]) -> str:
+    """Build a suggested knowledge search query from constraint domain tags."""
+    parts: list[str] = []
+    geom = constraints.get("geometry_interfaces", {})
+    env = constraints.get("operating_envelope", {})
+    mat = constraints.get("material", {})
+    mfg = constraints.get("manufacturing", {})
 
-    return {
+    # Part type hints
+    if geom.get("blade_count"):
+        parts.append("turbine blade")
+    if env.get("max_rpm"):
+        parts.append("rotating")
+    if mat.get("material_grade"):
+        parts.append(str(mat["material_grade"]))
+    if mfg.get("process"):
+        parts.append(str(mfg["process"]))
+
+    return " ".join(parts) if parts else "engineering design"
+
+
+def run_design_loop(constraints: dict[str, Any]) -> dict[str, Any]:
+    """Validate constraints, build traceability, apply risk gates (deterministic ME loop).
+
+    The LLM constructs the constraint dict from its own engineering knowledge
+    and research notes, then passes it here for deterministic validation.
+    """
+    validation = validate_constraint_sheet(constraints)
+
+    requirements = constraints.get("requirements", [])
+    if isinstance(requirements, list) and requirements:
+        traceability = build_traceability_matrix(constraints, validation)
+    else:
+        traceability = {"ok": True, "traceability_matrix": [], "status_counts": {"pass": 0, "fail": 0, "tbd": 0, "waived": 0}}
+
+    risk = apply_risk_gates(constraints, validation)
+    notes_available = _find_local_notes()
+
+    # Suggest a knowledge search query based on constraint domain
+    search_query = _derive_search_query(constraints)
+    knowledge_search_result = _search_knowledge(search_query)
+
+    result: dict[str, Any] = {
         "ok": True,
-        "routing": route,
-        "constraint_instantiation": inst,
         "validation": validation,
         "traceability": traceability,
         "risk_gates": risk,
-        "next_questions": questions,
+        "notes_available": notes_available,
+        "knowledge_search_hint": search_query,
         "summary": {
-            "archetype_id": archetype_id,
             "risk_class": risk["risk_class"],
             "gate_decision": risk["gate_decision"],
             "blocker_count": len(validation.get("blockers", [])),
             "warning_count": len(validation.get("warnings", [])),
-            "tbd_count": len(inst.get("tbd_fields", [])),
         },
     }
+
+    if knowledge_search_result is not None:
+        result["knowledge_search"] = knowledge_search_result
+
+    return result

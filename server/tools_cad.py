@@ -121,6 +121,20 @@ def cad_sketch(
                     **cmd_kwargs,
                 )
                 geometry_indices.append({"type": "arc", "index": r.get("geometry_index")})
+            elif elem_type == "spline":
+                sp_kwargs: dict[str, Any] = {"points": elem["points"]}
+                if "degree" in elem:
+                    sp_kwargs["degree"] = elem["degree"]
+                if "periodic" in elem:
+                    sp_kwargs["periodic"] = elem["periodic"]
+                if "weights" in elem:
+                    sp_kwargs["weights"] = elem["weights"]
+                r = client.send_command(
+                    "sketch_bspline",
+                    **sp_kwargs,
+                    **cmd_kwargs,
+                )
+                geometry_indices.append({"type": "spline", "index": r.get("geometry_index")})
             else:
                 return _error_result("INVALID_ELEMENT", f"Unknown element type: {elem_type}")
 
@@ -154,6 +168,7 @@ def cad_pad(
     length: float,
     symmetric: bool = False,
     reversed: bool = False,
+    verify: bool = True,
     doc: str | None = None,
 ) -> dict[str, Any]:
     """Extrude (pad) a sketch to create a solid."""
@@ -163,6 +178,7 @@ def cad_pad(
         "length": length,
         "symmetric": symmetric,
         "reversed": reversed,
+        "verify": verify,
     }
     if doc is not None:
         kwargs["doc"] = doc
@@ -177,6 +193,7 @@ def cad_revolution(
     angle: float = 360.0,
     symmetric: bool = False,
     reversed: bool = False,
+    verify: bool = True,
     doc: str | None = None,
 ) -> dict[str, Any]:
     """Revolve a sketch around an axis to create a solid of revolution."""
@@ -187,6 +204,7 @@ def cad_revolution(
         "angle": angle,
         "symmetric": symmetric,
         "reversed": reversed,
+        "verify": verify,
     }
     if doc is not None:
         kwargs["doc"] = doc
@@ -202,6 +220,7 @@ def cad_polar_pattern(
     angle: float = 360.0,
     reversed: bool = False,
     body: str | None = None,
+    verify: bool = True,
     doc: str | None = None,
 ) -> dict[str, Any]:
     """Create a polar (circular) pattern of features around an axis."""
@@ -212,6 +231,7 @@ def cad_polar_pattern(
         "occurrences": occurrences,
         "angle": angle,
         "reversed": reversed,
+        "verify": verify,
     }
     if body is not None:
         kwargs["body"] = body
@@ -227,6 +247,7 @@ def cad_pocket(
     length: float = 0.0,
     pocket_type: str = "Dimension",
     reversed: bool = False,
+    verify: bool = True,
     doc: str | None = None,
 ) -> dict[str, Any]:
     """Cut a pocket from a sketch."""
@@ -236,10 +257,93 @@ def cad_pocket(
         "length": length,
         "pocket_type": pocket_type,
         "reversed": reversed,
+        "verify": verify,
     }
     if doc is not None:
         kwargs["doc"] = doc
     result = client.send_command("pocket", **kwargs)
+    return {"ok": True, **result}
+
+
+@_wrap
+def cad_sweep(
+    profile_sketch: str,
+    spine_sketch: str,
+    subtractive: bool = False,
+    verify: bool = True,
+    doc: str | None = None,
+) -> dict[str, Any]:
+    """Sweep a profile sketch along a spine sketch."""
+    client = get_client()
+    kwargs: dict[str, Any] = {
+        "profile_sketch": profile_sketch,
+        "spine_sketch": spine_sketch,
+        "subtractive": subtractive,
+        "verify": verify,
+    }
+    if doc is not None:
+        kwargs["doc"] = doc
+    result = client.send_command("sweep", **kwargs)
+    return {"ok": True, **result}
+
+
+@_wrap
+def cad_helix(
+    sketch: str,
+    pitch: float = 0.0,
+    height: float = 0.0,
+    turns: float = 0.0,
+    axis: str = "V",
+    angle: float = 0.0,
+    growth: float = 0.0,
+    left_handed: bool = False,
+    reversed: bool = False,
+    mode: str = "pitch-height",
+    verify: bool = True,
+    doc: str | None = None,
+) -> dict[str, Any]:
+    """Create a helical sweep of a sketch profile."""
+    client = get_client()
+    kwargs: dict[str, Any] = {
+        "sketch": sketch,
+        "pitch": pitch,
+        "height": height,
+        "turns": turns,
+        "axis": axis,
+        "angle": angle,
+        "growth": growth,
+        "left_handed": left_handed,
+        "reversed": reversed,
+        "mode": mode,
+        "verify": verify,
+    }
+    if doc is not None:
+        kwargs["doc"] = doc
+    result = client.send_command("helix", **kwargs)
+    return {"ok": True, **result}
+
+
+@_wrap
+def cad_loft(
+    sketches: list[str],
+    ruled: bool = False,
+    closed: bool = False,
+    subtractive: bool = False,
+    verify: bool = True,
+    doc: str | None = None,
+) -> dict[str, Any]:
+    """Loft between two or more sketch profiles."""
+    client = get_client()
+    kwargs: dict[str, Any] = {
+        "sketches": sketches,
+        "ruled": ruled,
+        "closed": closed,
+        "subtractive": subtractive,
+        "verify": verify,
+    }
+    if doc is not None:
+        kwargs["doc"] = doc
+    result = client.send_command("loft", **kwargs)
     return {"ok": True, **result}
 
 
@@ -250,6 +354,7 @@ def cad_hole(
     depth: float,
     body: str | None = None,
     hole_type: str = "Dimension",
+    verify: bool = True,
     doc: str | None = None,
 ) -> dict[str, Any]:
     """Add a hole on a face."""
@@ -259,6 +364,7 @@ def cad_hole(
         "diameter": diameter,
         "depth": depth,
         "hole_type": hole_type,
+        "verify": verify,
     }
     if body is not None:
         kwargs["body"] = body
@@ -273,12 +379,13 @@ def cad_fillet(
     edges: list[str] | None = None,
     radius: float = 1.0,
     body: str | None = None,
+    verify: bool = True,
     doc: str | None = None,
     selection: str | None = None,
 ) -> dict[str, Any]:
     """Fillet edges. Accepts edges list or a named selection."""
     client = get_client()
-    kwargs: dict[str, Any] = {"radius": radius}
+    kwargs: dict[str, Any] = {"radius": radius, "verify": verify}
     if edges is not None:
         kwargs["edges"] = edges
     if body is not None:
@@ -296,12 +403,13 @@ def cad_chamfer(
     edges: list[str] | None = None,
     size: float = 1.0,
     body: str | None = None,
+    verify: bool = True,
     doc: str | None = None,
     selection: str | None = None,
 ) -> dict[str, Any]:
     """Chamfer edges. Accepts edges list or a named selection."""
     client = get_client()
-    kwargs: dict[str, Any] = {"size": size}
+    kwargs: dict[str, Any] = {"size": size, "verify": verify}
     if edges is not None:
         kwargs["edges"] = edges
     if body is not None:
@@ -459,6 +567,74 @@ def cad_undo(doc: str | None = None) -> dict[str, Any]:
     if doc is not None:
         kwargs["doc"] = doc
     result = client.send_command("undo", **kwargs)
+    return {"ok": True, **result}
+
+
+@_wrap
+def cad_screenshot(
+    target: str | list[float] = "iso",
+    distance: float = 2.0,
+    direction: list[float] | None = None,
+    up: list[float] | None = None,
+    near_clip: float | None = None,
+    width: int = 512,
+    height: int = 512,
+    doc: str | None = None,
+) -> dict[str, Any]:
+    """Take a screenshot with smart camera targeting."""
+    client = get_client()
+    kwargs: dict[str, Any] = {
+        "target": target,
+        "distance": distance,
+        "width": width,
+        "height": height,
+    }
+    if direction is not None:
+        kwargs["direction"] = direction
+    if up is not None:
+        kwargs["up"] = up
+    if near_clip is not None:
+        kwargs["near_clip"] = near_clip
+    if doc is not None:
+        kwargs["doc"] = doc
+    result = client.send_command("screenshot", **kwargs)
+    return {"ok": True, **result}
+
+
+@_wrap
+def cad_set_camera(
+    position: list[float] | None = None,
+    target: list[float] | None = None,
+    up: list[float] | None = None,
+    near_clip: float | None = None,
+    fit_all: bool = False,
+    doc: str | None = None,
+) -> dict[str, Any]:
+    """Set camera position and orientation."""
+    client = get_client()
+    kwargs: dict[str, Any] = {"fit_all": fit_all}
+    if position is not None:
+        kwargs["position"] = position
+    if target is not None:
+        kwargs["target"] = target
+    if up is not None:
+        kwargs["up"] = up
+    if near_clip is not None:
+        kwargs["near_clip"] = near_clip
+    if doc is not None:
+        kwargs["doc"] = doc
+    result = client.send_command("set_camera", **kwargs)
+    return {"ok": True, **result}
+
+
+@_wrap
+def cad_get_camera(doc: str | None = None) -> dict[str, Any]:
+    """Get current camera state."""
+    client = get_client()
+    kwargs: dict[str, Any] = {}
+    if doc is not None:
+        kwargs["doc"] = doc
+    result = client.send_command("get_camera", **kwargs)
     return {"ok": True, **result}
 
 

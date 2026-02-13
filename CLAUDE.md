@@ -31,7 +31,11 @@ import freecad_addon; freecad_addon.start()
 ```
 Claude Code CLI ──stdio──▶ MCP Bridge Server ──TCP socket──▶ FreeCAD Addon
                            (server/main.py)                  (freecad_addon/)
-                                                             runs inside FreeCAD GUI
+                               │                             runs inside FreeCAD GUI
+                               │── HTTP ──▶ OpenRAG (localhost:8080, optional)
+                                              ├─ OpenSearch (vector DB)
+                                              ├─ Langflow (orchestration)
+                                              └─ Docling (PDF/doc processing)
 ```
 
 **MCP bridge server** (`server/main.py`): Launched by Claude Code via stdio. Connects to FreeCAD addon over TCP socket (localhost:9876). Translates MCP tool calls into FreeCAD commands and FreeCAD selection into MCP responses.
@@ -52,7 +56,9 @@ Claude Code CLI ──stdio──▶ MCP Bridge Server ──TCP socket──▶
 - `freecad_client.py` — TCP socket client connecting to FreeCAD addon, retry/reconnect logic
 - `tools_cad.py` — CAD MCP tool implementations (cad.new_document, cad.sketch, cad.pad, cad.pocket, cad.hole, cad.fillet, cad.chamfer, cad.get_selection, cad.get_model_tree, cad.undo, cad.export)
 - `tools_mfg.py` — Manufacturing readiness tools (mfg.set_property, mfg.readiness_check, mfg.export_rfq)
-- `tools_me.py` — ME design-loop tools (routing, constraint sheets, deterministic validation, traceability, risk gates)
+- `tools_me.py` — ME design-loop tools (deterministic validation, traceability, risk gates)
+- `tools_knowledge.py` — Knowledge management tools (extract, ingest, search via OpenRAG)
+- `openrag_client.py` — Synchronous HTTP client for OpenRAG (httpx-based, module-level singleton)
 - `prompts.py` — System prompts including `cad_copilot_system` for live co-pilot mode
 - `models.py` — Finding, Severity, ToolError, ConversationSignals
 
@@ -62,24 +68,63 @@ Claude Code CLI ──stdio──▶ MCP Bridge Server ──TCP socket──▶
 |-------|-------|---------|
 | `cad.*` | new_document, new_body, sketch, pad, pocket, hole, fillet, chamfer, get_selection, get_model_tree, undo, export | Drive FreeCAD PartDesign |
 | `mfg.*` | set_property, readiness_check, export_rfq | Manufacturing readiness (on-demand) |
-| `me.*` | list_domain_tags, list_archetypes, get_archetype_card, route_request, instantiate_constraint_sheet, validate_constraint_sheet, build_traceability, apply_risk_gates, design_loop, get_knowledge_policy | Deterministic ME preflight loop |
+| `me.*` | validate_constraints, build_traceability, apply_risk_gates, design_loop, list_validators | Deterministic ME preflight (validators + risk gates) |
+| `knowledge.*` | extract, ingest, ingest_status, search, status | Knowledge base — semantic search, PDF extraction, document ingestion (via OpenRAG) |
+
+### Sketch element types
+
+`cad.sketch` supports **all** element types: `rect`, `circle`, `line`, `arc`, **`spline`** (B-spline curves from control points with degree/weights/periodic options). Splines are fully implemented and must be used for smooth contours, airfoils, blade profiles, and organic shapes — never approximate with line segments.
 
 ### Interaction flow
 
 1. User describes part → LLM decides whether ME preflight is needed.
-2. If needed, LLM calls `me.design_loop` once, then uses constraints/findings to guide CAD.
-3. LLM calls `cad.new_document` → `cad.new_body` → `cad.sketch` → `cad.pad`
-4. User clicks face/edge in FreeCAD → LLM calls `cad.get_selection` → sees geometry context
-5. User says "add holes here" → LLM calls `cad.hole` with face reference
-6. User says "check manufacturing readiness" → LLM calls `mfg.readiness_check`
+2. If needed, LLM reads research notes + does web research, constructs a constraint dict, calls `me.design_loop(constraints)`.
+3. LLM reviews validation findings + risk gates, then builds geometry with `cad.*` tools.
+4. LLM calls `cad.new_document` → `cad.new_body` → `cad.sketch` → `cad.pad`
+5. User clicks face/edge in FreeCAD → LLM calls `cad.get_selection` → sees geometry context
+6. User says "add holes here" → LLM calls `cad.hole` with face reference
+7. User says "check manufacturing readiness" → LLM calls `mfg.readiness_check`
+8. User provides a PDF → LLM calls `knowledge.extract(file_path)` to read it, then `knowledge.ingest(path)` to index for future sessions
+9. LLM researches a topic → `knowledge.search(query)` first, then WebSearch/WebFetch for gaps
 
 ### Automatic ME preflight policy
 
 - Use `me.*` only when the model judges it necessary.
 - Skip ME preflight for simple geometry (spacers, simple brackets, simple blocks/plates) unless the user asks.
 - Trigger ME preflight for high-risk/specialized requests (rotors/turbines/gears, high-temp service, explicit signoff/traceability, ambiguous critical constraints).
-- If `me.design_loop` returns no archetype match, proceed with `cad.*` and ask focused clarification questions.
 - Do not rerun `me.design_loop` after every edit; rerun only when requirements materially change.
+- The LLM constructs constraint dicts from its own engineering knowledge + research notes, then passes them to `me.design_loop(constraints)` or `me.validate_constraints(constraint_sheet)` for deterministic validation.
+- ME constraints inform geometry decisions but don't dictate them — the LLM applies its own engineering knowledge to translate constraints into CAD operations.
+- For unfamiliar or specialized geometry, check `me_knowledge/notes/` for existing research, then search for real engineering references (NASA technical reports, textbook descriptions, design guidelines) and read them before building.
+- Write research findings to `me_knowledge/notes/<topic_slug>.md` so they persist across sessions and can be reused.
+
+### Self-assessment and visual verification
+
+- After building complex geometry, critically examine the verification screenshots.
+- Compare what you see to what the part should actually look like.
+- Be explicit about confidence levels: "I'm confident about X" vs "I'm uncertain about Y".
+- For specialized parts (turbines, gears, airfoils), acknowledge uncertainty and ask for feedback.
+- Do not declare a complex part "complete" without examining the result and inviting user feedback.
+
+## Critical Conventions
+
+### OpenRAG knowledge backend (optional)
+
+OpenRAG provides semantic search, PDF ingestion, and document extraction. It runs as a Docker sidecar and is **optional** — when not available, `knowledge.*` tools gracefully fall back to listing local `me_knowledge/notes/` files.
+
+```bash
+# Start OpenRAG stack
+bash scripts/setup_openrag.sh
+
+# Or manually
+docker compose -f docker/docker-compose.yml up -d
+
+# Batch ingest files
+python scripts/ingest_knowledge.py me_knowledge/notes/
+python scripts/ingest_knowledge.py ~/some-pdfs/
+```
+
+Set `OPENRAG_URL=http://localhost:8080` in your environment for the MCP server to connect.
 
 ## Critical Conventions
 
