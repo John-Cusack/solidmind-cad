@@ -30,8 +30,10 @@ import freecad_addon; freecad_addon.start()
 
 ```
 Claude Code CLI ──stdio──▶ MCP Bridge Server ──TCP socket──▶ FreeCAD Addon
-                           (server/main.py)                  (freecad_addon/)
+                           (server/main.py)     :9876         (freecad_addon/)
                                │                             runs inside FreeCAD GUI
+                               ├─ TCP socket :9877 ──▶ Chrono Daemon (chrono_daemon/)
+                               │                      C++ MBS simulation (optional)
                                ├─ LanceDB (in-process, me_knowledge/lancedb/)
                                ├─ Docling (in-process, pip package)
                                └─ Ollama (optional, for GPU embeddings)
@@ -40,6 +42,8 @@ Claude Code CLI ──stdio──▶ MCP Bridge Server ──TCP socket──▶
 **MCP bridge server** (`server/main.py`): Launched by Claude Code via stdio. Connects to FreeCAD addon over TCP socket (localhost:9876). Translates MCP tool calls into FreeCAD commands and FreeCAD selection into MCP responses.
 
 **FreeCAD addon** (`freecad_addon/`): Runs inside FreeCAD's GUI process. Socket server in a background thread accepts JSON commands, executes FreeCAD Python API, returns results. Selection observer tracks user clicks on geometry.
+
+**Chrono daemon** (`chrono_daemon/`): Optional standalone C++ binary for Tier 3 dynamic simulation via Project Chrono. TCP socket server on localhost:9877 (same JSON protocol as FreeCAD addon). Builds Chrono multibody systems from mechanism definitions, runs time-domain simulations, returns time-series results. Only needed for `motion.simulate` — Tier 1 analytical validation works without it. See `chrono_daemon/README.md` for build instructions.
 
 ### Key modules
 
@@ -57,10 +61,15 @@ Claude Code CLI ──stdio──▶ MCP Bridge Server ──TCP socket──▶
 - `tools_mfg.py` — Manufacturing readiness tools (mfg.set_property, mfg.readiness_check, mfg.export_rfq)
 - `tools_me.py` — ME design-loop tools (deterministic validation, traceability, risk gates)
 - `tools_study.py` — Parametric study tools (create, run, status, results, cancel, list, get_variant)
+- `tools_motion.py` — Motion validation tools (Tier 1: define_mechanism, validate, propagate_motion, check_gear_train; Tier 2: create_assembly, drive_joint, check_interference; Tier 3: simulate)
+- `motion_models.py` — Mechanism data models (PartNode, JointEdge, DriveCondition, Mechanism)
+- `motion_store.py` — Session-scoped mechanism storage (UUID handles)
+- `motion_validators.py` — Analytical validators (gear ratio, speed/torque propagation, DOF, Grashof, power conservation)
+- `chrono_client.py` — TCP client to Chrono daemon on localhost:9877 (Tier 3 dynamic simulation)
 - `study_models.py` — Study data models (Study, DesignVariable, Variant, SolverConfig, ObjectiveConfig)
 - `study_store.py` — JSON-file persistence for studies in `studies/<study_id>/`
 - `study_runner.py` — Background subprocess runner (coarse sweep → refine → rank)
-- `study_solvers.py` — Solver adapters (MockSolver, BEMTXfoilSolver stub, OpenFOAMSolver stub)
+- `study_solvers.py` — Solver adapters (MockSolver, BEMTXfoilSolver stub, OpenFOAMSolver stub, ChronoSolver)
 - `tools_knowledge.py` — Knowledge management tools (extract, ingest, search via LanceDB)
 - `knowledge_store.py` — In-process knowledge store (LanceDB + Docling, module-level singleton)
 - `prompts.py` — System prompts including `cad_copilot_system` for live co-pilot mode
@@ -75,6 +84,7 @@ Claude Code CLI ──stdio──▶ MCP Bridge Server ──TCP socket──▶
 | `me.*` | validate_constraints, build_traceability, apply_risk_gates, design_loop, list_validators | Deterministic ME preflight (validators + risk gates) |
 | `knowledge.*` | extract, ingest, ingest_status, search, status | Knowledge base — hybrid search, PDF extraction, document ingestion (LanceDB + Docling) |
 | `study.*` | create, run, status, results, cancel, list, get_variant | Parametric design optimization (sweep variables, run solvers, rank results) |
+| `motion.*` | define_mechanism, list_mechanisms, validate, propagate_motion, check_gear_train, create_assembly, drive_joint, check_interference, simulate | Motion validation pipeline — analytical (Tier 1), kinematic via FreeCAD Assembly (Tier 2), dynamic via Chrono (Tier 3) |
 
 ### Sketch element types
 
@@ -128,6 +138,28 @@ After `study.results`, distill findings into `me_knowledge/notes/<part_type>_stu
 - What to do differently next time
 
 Then `knowledge.ingest(path=...)` to index it. In future sessions, `knowledge.search` surfaces prior study findings BEFORE defining new studies — so `pinned_values` and variable ranges start from prior learnings instead of from scratch. Each study makes the next one smarter.
+
+### Motion validation policy
+
+Motion validation is **user-initiated and human-gated**. It applies only to mechanisms
+with moving parts (gears, linkages, cams, belt drives). Skip for static parts
+(brackets, enclosures, pen holders, spacers).
+
+**When the user asks to validate a mechanism:**
+1. Research expected performance via knowledge.search + engineering knowledge
+2. Define mechanism with motion.define_mechanism (derive expected_outputs from research)
+3. Run Tier 1 (analytical): motion.validate + motion.propagate_motion
+4. Report results to user. Wait for user approval before escalating.
+5. If user requests Tier 2: motion.create_assembly + motion.drive_joint + motion.check_interference (requires FreeCAD Assembly workbench)
+6. If user requests Tier 3: motion.simulate (requires Chrono daemon)
+
+**When to suggest validation (but always let user decide):**
+- After building a gear train, linkage, or cam mechanism
+- When the user specifies performance targets (ratio, torque, speed)
+- When the mechanism is complex enough that errors aren't visually obvious
+
+**Never auto-run motion validation.** Always present it as a suggestion:
+"I've built the gearbox. Would you like me to validate the gear ratios and torque?"
 
 ### Automatic ME preflight policy
 

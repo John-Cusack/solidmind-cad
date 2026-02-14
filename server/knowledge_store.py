@@ -510,7 +510,8 @@ class KnowledgeStore:
         """Remove all rows matching a source name."""
         try:
             table = self._db.open_table(_TABLE_NAME)
-            table.delete(f"source = '{source}'")
+            escaped_source = source.replace("'", "''")
+            table.delete(f"source = '{escaped_source}'")
         except Exception:
             pass
 

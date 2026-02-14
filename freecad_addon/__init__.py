@@ -23,6 +23,23 @@ logger = logging.getLogger("solidmind")
 _started = False
 
 
+def _reload_submodules() -> None:
+    """Reload all addon submodules so code changes take effect without restarting FreeCAD."""
+    import importlib
+    import sys
+
+    submodules = [
+        "freecad_addon.commands",
+        "freecad_addon.protocol",
+        "freecad_addon.selection_observer",
+        "freecad_addon.socket_server",
+    ]
+    for name in submodules:
+        if name in sys.modules:
+            importlib.reload(sys.modules[name])
+            logger.info("Reloaded %s", name)
+
+
 def _setup_session_logging() -> Path:
     """Configure file logging into a per-session subdirectory.
 
@@ -58,6 +75,9 @@ def start(host: str = "127.0.0.1", port: int = 9876) -> None:
     session_dir = _setup_session_logging()
     logger.info("Session log directory: %s", session_dir)
 
+    # Reload submodules to pick up code changes (dev hot-reload)
+    _reload_submodules()
+
     from freecad_addon.selection_observer import get_observer
     from freecad_addon.socket_server import start_server
 
@@ -82,3 +102,36 @@ def stop() -> None:
     observer.stop()
     _started = False
     logger.info("SolidMind addon stopped")
+
+
+def restart(host: str = "127.0.0.1", port: int = 9876) -> None:
+    """Stop, reload all submodules, and start again.
+
+    Convenience wrapper for the common dev workflow of picking up code
+    changes without restarting FreeCAD.  Equivalent to::
+
+        freecad_addon.stop()
+        freecad_addon.start()
+
+    but also reloads *this* ``__init__`` module so that changes to
+    ``start()``/``stop()`` themselves take effect.
+    """
+    import importlib
+    import sys
+
+    stop()
+
+    # Reload all submodules + this package so every layer picks up changes
+    for name in [
+        "freecad_addon.commands",
+        "freecad_addon.protocol",
+        "freecad_addon.selection_observer",
+        "freecad_addon.socket_server",
+        "freecad_addon",
+    ]:
+        if name in sys.modules:
+            importlib.reload(sys.modules[name])
+            logger.info("Reloaded %s", name)
+
+    # After reloading freecad_addon, call the *new* start()
+    sys.modules["freecad_addon"].start(host=host, port=port)

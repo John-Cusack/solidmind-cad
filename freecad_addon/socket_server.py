@@ -69,6 +69,29 @@ def _filter_kwargs(handler: Callable[..., Any], args: dict[str, Any]) -> dict[st
     return {k: v for k, v in args.items() if k in accepted}
 
 
+_DEFAULT_TIMEOUT = 30.0
+_LONG_TIMEOUT_COMMANDS = frozenset({"export", "sketch_populate"})
+
+
+def _command_timeout(cmd: str, args: dict[str, Any]) -> float:
+    """Compute an adaptive timeout for a command.
+
+    ``sketch_populate`` scales with element+constraint count.
+    ``export`` gets a flat 120s (STL tessellation of complex geometry).
+    Everything else uses the default 30s.
+    """
+    if cmd == "sketch_populate":
+        n_elements = len(args.get("elements", []))
+        n_constraints = len(args.get("constraints", []))
+        # Base 30s + 0.1s per item, minimum 30s
+        return max(_DEFAULT_TIMEOUT, 30.0 + (n_elements + n_constraints) * 0.1)
+    if cmd == "export":
+        return 120.0
+    if cmd in _LONG_TIMEOUT_COMMANDS:
+        return 120.0
+    return _DEFAULT_TIMEOUT
+
+
 class _MainThreadJob:
     """A command to be executed on the main thread."""
 
@@ -250,9 +273,13 @@ class AddonSocketServer:
         if self._timer is not None:
             job = _MainThreadJob(handler, args)
             self._job_queue.put(job)
-            job.event.wait(timeout=30.0)
+            # Adaptive timeout: longer for commands that may process many items
+            timeout = _command_timeout(cmd.cmd, args)
+            job.event.wait(timeout=timeout)
             if job.response is None:
-                return Response.failure("Command timed out (main thread busy)")
+                return Response.failure(
+                    f"Command timed out after {timeout:.0f}s (main thread busy)"
+                )
             return job.response
         else:
             try:

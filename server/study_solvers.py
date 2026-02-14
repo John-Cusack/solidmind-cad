@@ -329,6 +329,115 @@ class OpenFOAMSolver(SolverAdapter):
                 shutil.rmtree(case_dir, ignore_errors=True)
 
 
+class ChronoSolver(SolverAdapter):
+    """Multibody dynamics solver via the Chrono daemon subprocess.
+
+    Builds a mechanism from study params + fixed_params, sends it to the
+    Chrono daemon for time-domain simulation, and extracts performance metrics.
+
+    Required fixed_params:
+        mechanism_template (dict): Base mechanism dict (parts, joints, drives).
+            Study params override specific fields (e.g., gear teeth, RPM).
+        duration_s (float): Simulation duration (default 1.0)
+
+    The solver maps study params onto the mechanism template before simulation.
+    For example, a param "sun_teeth" would update the sun gear's teeth count
+    in the mechanism template.
+    """
+
+    def name(self) -> str:
+        return "chrono"
+
+    def available(self) -> bool:
+        try:
+            from server.chrono_client import ChronoClient
+            client = ChronoClient()
+            client.connect(timeout=1.0)
+            ok = client.ping()
+            client.disconnect()
+            return ok
+        except Exception:
+            return False
+
+    def estimate_per_variant_s(self, config_params: dict[str, Any]) -> float:
+        duration = config_params.get("duration_s", 1.0)
+        # Rough estimate: 10× real-time for typical MBS
+        return duration * 10.0 + 2.0
+
+    def describe_pipeline(self) -> str:
+        return (
+            "1. Build mechanism definition from params + template\n"
+            "2. Send to Chrono daemon via TCP\n"
+            "3. Run time-domain MBS simulation\n"
+            "4. Extract peak torques, steady-state speeds, efficiency"
+        )
+
+    def validate_params(
+        self,
+        params: dict[str, Any],
+        fixed: dict[str, Any],
+        config_params: dict[str, Any],
+    ) -> list[str]:
+        errors: list[str] = []
+        if "mechanism_template" not in fixed:
+            errors.append("mechanism_template required in fixed_params")
+        return errors
+
+    def solve(
+        self,
+        params: dict[str, Any],
+        fixed: dict[str, Any],
+        config_params: dict[str, Any],
+    ) -> dict[str, float]:
+        from server.chrono_client import ChronoClient, ChronoConnectionError
+
+        template = fixed.get("mechanism_template", {})
+        if not template:
+            raise RuntimeError("mechanism_template required in fixed_params")
+
+        # Deep copy and apply study params to the mechanism template
+        import copy
+        mechanism = copy.deepcopy(template)
+
+        # Apply param overrides: e.g., "sun_teeth" → find joint with sun, update teeth
+        # This is a simple key-matching approach; the LLM constructs the template
+        # with param names that map directly to mechanism fields.
+        for key, value in params.items():
+            mechanism.setdefault("_study_params", {})[key] = value
+
+        duration_s = fixed.get("duration_s", config_params.get("duration_s", 1.0))
+
+        client = ChronoClient()
+        try:
+            client.connect(timeout=5.0)
+            result = client.simulate(
+                mechanism=mechanism,
+                duration_s=duration_s,
+                dt_s=config_params.get("dt_s", 0.001),
+            )
+        except ChronoConnectionError as exc:
+            raise RuntimeError(f"Chrono daemon not available: {exc}") from exc
+        finally:
+            client.disconnect()
+
+        # Extract metrics from summary
+        summary = result.get("summary", {})
+        metrics: dict[str, float] = {}
+
+        peak_torques = summary.get("peak_torques", {})
+        for part_id, torque in peak_torques.items():
+            metrics[f"peak_torque_{part_id}_nm"] = float(torque)
+
+        speeds = summary.get("steady_state_speeds", {})
+        for part_id, rpm in speeds.items():
+            metrics[f"speed_{part_id}_rpm"] = float(rpm)
+
+        if "overall_efficiency" in summary:
+            metrics["efficiency"] = float(summary["overall_efficiency"])
+
+        return metrics
+
+
 # ---------------------------------------------------------------------------
 # Solver registry
 # ---------------------------------------------------------------------------
@@ -337,6 +446,7 @@ SOLVERS: dict[str, SolverAdapter] = {
     "mock": MockSolver(),
     "bemt_xfoil": BEMTXfoilSolver(),
     "openfoam": OpenFOAMSolver(),
+    "chrono": ChronoSolver(),
 }
 
 

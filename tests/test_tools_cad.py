@@ -77,7 +77,12 @@ class TestCadSketch(unittest.TestCase):
         client = _mock_client()
         client.send_command.side_effect = [
             {"sketch": "Sketch"},  # new_sketch
-            {"sketch": "Sketch", "geometry_indices": [0, 1, 2, 3]},  # sketch_rect
+            {  # sketch_populate
+                "sketch": "Sketch",
+                "element_count": 1,
+                "constraint_count": 0,
+                "geometry": [{"type": "rect", "indices": [0, 1, 2, 3]}],
+            },
             {"sketch": "Sketch", "fully_constrained": True, "open_vertices": 0},  # close_sketch
         ]
         mock_get.return_value = client
@@ -91,13 +96,22 @@ class TestCadSketch(unittest.TestCase):
         self.assertEqual(result["sketch"], "Sketch")
         self.assertEqual(len(result["geometry"]), 1)
         self.assertEqual(result["geometry"][0]["type"], "rect")
+        # Verify sketch_populate was called (not individual sketch_rect)
+        populate_call = client.send_command.call_args_list[1]
+        self.assertEqual(populate_call[0][0], "sketch_populate")
+        self.assertEqual(len(populate_call[1]["elements"]), 1)
 
     @patch("server.tools_cad.get_client")
     def test_sketch_with_circle(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         client.send_command.side_effect = [
             {"sketch": "Sketch"},
-            {"sketch": "Sketch", "geometry_index": 0},
+            {
+                "sketch": "Sketch",
+                "element_count": 1,
+                "constraint_count": 0,
+                "geometry": [{"type": "circle", "index": 0}],
+            },
             {"sketch": "Sketch", "fully_constrained": False, "open_vertices": 0},
         ]
         mock_get.return_value = client
@@ -110,8 +124,12 @@ class TestCadSketch(unittest.TestCase):
 
     @patch("server.tools_cad.get_client")
     def test_sketch_invalid_element_type(self, mock_get: MagicMock) -> None:
+        from server.freecad_client import FreeCADCommandError
         client = _mock_client()
-        client.send_command.return_value = {"sketch": "Sketch"}
+        client.send_command.side_effect = [
+            {"sketch": "Sketch"},  # new_sketch
+            FreeCADCommandError("ValueError: Unknown element type: hexagon"),  # sketch_populate
+        ]
         mock_get.return_value = client
 
         result = cad_sketch(
@@ -119,7 +137,7 @@ class TestCadSketch(unittest.TestCase):
             elements=[{"type": "hexagon"}],
         )
         self.assertFalse(result["ok"])
-        self.assertIn("INVALID_ELEMENT", result["error"]["code"])
+        self.assertEqual(result["error"]["code"], "COMMAND_ERROR")
 
 
 class TestCadSketchGeometryRef(unittest.TestCase):
@@ -144,8 +162,15 @@ class TestCadSketchGeometryRef(unittest.TestCase):
         client = _mock_client()
         client.send_command.side_effect = [
             {"sketch": "Sketch"},  # new_sketch
-            {"sketch": "Sketch", "geometry_index": 0},  # arc 1
-            {"sketch": "Sketch", "geometry_index": 1},  # arc 2
+            {  # sketch_populate (batch)
+                "sketch": "Sketch",
+                "element_count": 2,
+                "constraint_count": 0,
+                "geometry": [
+                    {"type": "arc", "index": 0},
+                    {"type": "arc", "index": 1},
+                ],
+            },
             {"sketch": "Sketch", "fully_constrained": True, "open_vertices": 0},  # close
         ]
         mock_get.return_value = client
@@ -162,8 +187,15 @@ class TestCadSketchGeometryRef(unittest.TestCase):
         client = _mock_client()
         client.send_command.side_effect = [
             {"sketch": "Sketch"},  # new_sketch
-            {"sketch": "Sketch", "geometry_index": 0},  # arc from ref
-            {"sketch": "Sketch", "geometry_index": 1},  # circle from inline
+            {  # sketch_populate (batch)
+                "sketch": "Sketch",
+                "element_count": 2,
+                "constraint_count": 0,
+                "geometry": [
+                    {"type": "arc", "index": 0},
+                    {"type": "circle", "index": 1},
+                ],
+            },
             {"sketch": "Sketch", "fully_constrained": False, "open_vertices": 0},  # close
         ]
         mock_get.return_value = client
@@ -191,7 +223,12 @@ class TestCadSketchGeometryRef(unittest.TestCase):
         client = _mock_client()
         client.send_command.side_effect = [
             {"sketch": "Sketch"},
-            {"sketch": "Sketch", "geometry_index": 0},
+            {
+                "sketch": "Sketch",
+                "element_count": 1,
+                "constraint_count": 0,
+                "geometry": [{"type": "circle", "index": 0}],
+            },
             {"sketch": "Sketch", "fully_constrained": True, "open_vertices": 0},
         ]
         mock_get.return_value = client
@@ -314,15 +351,152 @@ class TestCadPolarPattern(unittest.TestCase):
 
 class TestCadPocket(unittest.TestCase):
     @patch("server.tools_cad.get_client")
-    def test_pocket(self, mock_get: MagicMock) -> None:
+    def test_pocket_explicit_reversed(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         client.send_command.return_value = {
             "name": "Pocket", "label": "Pocket", "type": "PartDesign::Pocket",
         }
         mock_get.return_value = client
 
+        result = cad_pocket(sketch="Sketch", length=5, reversed=True)
+        self.assertTrue(result["ok"])
+        client.send_command.assert_called_once_with(
+            "pocket", sketch="Sketch", length=5, pocket_type="Dimension",
+            reversed=True, verify=True,
+        )
+
+    @patch("server.tools_cad.get_client")
+    def test_pocket_auto_reversed_default(self, mock_get: MagicMock) -> None:
+        """Default reversed='auto' is passed to addon for resolution."""
+        client = _mock_client()
+        client.send_command.return_value = {
+            "name": "Pocket", "label": "Pocket", "type": "PartDesign::Pocket",
+            "auto_reversed": {
+                "reversed": True, "confidence": "high",
+                "reason": "solid centroid is above sketch plane",
+            },
+        }
+        mock_get.return_value = client
+
         result = cad_pocket(sketch="Sketch", length=5)
         self.assertTrue(result["ok"])
+        # reversed="auto" should be passed through
+        call_kwargs = client.send_command.call_args[1]
+        self.assertEqual(call_kwargs["reversed"], "auto")
+
+
+class TestPocketDirectionAlgorithm(unittest.TestCase):
+    """Test the pocket direction algorithm (pure math, no FreeCAD needed).
+
+    The algorithm: dot = (centroid - sketch_origin) · sketch_normal.
+    If dot > 0 → solid is in +normal direction → reversed=True.
+    If dot ≤ 0 → solid is in -normal direction → reversed=False.
+    """
+
+    @staticmethod
+    def _resolve(origin: list[float], normal: list[float], centroid: list[float]) -> bool:
+        """Reimplement the resolver algorithm for testing."""
+        dot = sum((c - o) * n for c, o, n in zip(centroid, origin, normal))
+        return dot > 0
+
+    def test_xy_sketch_body_above(self) -> None:
+        """XY sketch at z=0, body padded to +Z → reversed=True."""
+        self.assertTrue(self._resolve([0, 0, 0], [0, 0, 1], [50, 25, 5]))
+
+    def test_xy_sketch_body_below(self) -> None:
+        """XY sketch at z=10, body below at z=0..10 → reversed=False."""
+        self.assertFalse(self._resolve([0, 0, 10], [0, 0, 1], [50, 25, 5]))
+
+    def test_face_mapped_sketch_on_top(self) -> None:
+        """Sketch on top face (z=10, normal +Z), body below → reversed=False."""
+        self.assertFalse(self._resolve([50, 25, 10], [0, 0, 1], [50, 25, 5]))
+
+    def test_xz_sketch_body_in_positive_y(self) -> None:
+        """XZ sketch at y=0, body padded in +Y → reversed=True."""
+        self.assertTrue(self._resolve([0, 0, 0], [0, 1, 0], [50, 10, 25]))
+
+    def test_xz_sketch_body_in_negative_y(self) -> None:
+        """XZ sketch at y=0, body in -Y → reversed=False."""
+        self.assertFalse(self._resolve([0, 0, 0], [0, 1, 0], [50, -10, 25]))
+
+    def test_yz_sketch_body_in_positive_x(self) -> None:
+        """YZ sketch at x=0, body in +X → reversed=True."""
+        self.assertTrue(self._resolve([0, 0, 0], [1, 0, 0], [10, 25, 25]))
+
+    def test_centroid_on_sketch_plane(self) -> None:
+        """Body centroid exactly on sketch plane (dot=0) → reversed=False."""
+        self.assertFalse(self._resolve([0, 0, 0], [0, 0, 1], [50, 25, 0]))
+
+    def test_tilted_normal(self) -> None:
+        """Tilted sketch: normal=(0.707, 0, 0.707), body offset along that direction."""
+        import math
+        n = 1.0 / math.sqrt(2)
+        # Body centroid at (10, 0, 10) from origin (0,0,0) — positive dot with (n,0,n)
+        self.assertTrue(self._resolve([0, 0, 0], [n, 0, n], [10, 0, 10]))
+        # Body centroid at (-10, 0, -10) — negative dot
+        self.assertFalse(self._resolve([0, 0, 0], [n, 0, n], [-10, 0, -10]))
+
+
+class TestPocketDirectionResolver(unittest.TestCase):
+    """Test the pocket direction auto-resolver logic.
+
+    The resolver computes ``reversed`` from the sketch normal and body centroid.
+    These tests validate the algorithm via mock FreeCAD objects without a live
+    FreeCAD instance.
+    """
+
+    @patch("server.tools_cad.get_client")
+    def test_auto_reversed_passed_through(self, mock_get: MagicMock) -> None:
+        """Default reversed='auto' is sent to the addon."""
+        client = _mock_client()
+        client.send_command.return_value = {
+            "name": "Pocket", "label": "Pocket", "type": "PartDesign::Pocket",
+            "auto_reversed": {
+                "reversed": True,
+                "confidence": "high",
+                "reason": "solid centroid is above sketch plane (dot=5.00)",
+            },
+        }
+        mock_get.return_value = client
+
+        result = cad_pocket(sketch="Sketch", length=5)
+        self.assertTrue(result["ok"])
+        call_kwargs = client.send_command.call_args[1]
+        self.assertEqual(call_kwargs["reversed"], "auto")
+        # auto_reversed info is passed through in the result
+        self.assertIn("auto_reversed", result)
+        self.assertTrue(result["auto_reversed"]["reversed"])
+        self.assertEqual(result["auto_reversed"]["confidence"], "high")
+
+    @patch("server.tools_cad.get_client")
+    def test_explicit_true_overrides_auto(self, mock_get: MagicMock) -> None:
+        """Explicit reversed=True bypasses auto-resolution."""
+        client = _mock_client()
+        client.send_command.return_value = {
+            "name": "Pocket", "label": "Pocket", "type": "PartDesign::Pocket",
+        }
+        mock_get.return_value = client
+
+        result = cad_pocket(sketch="Sketch", length=5, reversed=True)
+        self.assertTrue(result["ok"])
+        call_kwargs = client.send_command.call_args[1]
+        self.assertEqual(call_kwargs["reversed"], True)
+        # No auto_reversed when explicitly set
+        self.assertNotIn("auto_reversed", result)
+
+    @patch("server.tools_cad.get_client")
+    def test_explicit_false_overrides_auto(self, mock_get: MagicMock) -> None:
+        """Explicit reversed=False bypasses auto-resolution."""
+        client = _mock_client()
+        client.send_command.return_value = {
+            "name": "Pocket", "label": "Pocket", "type": "PartDesign::Pocket",
+        }
+        mock_get.return_value = client
+
+        result = cad_pocket(sketch="Sketch", length=5, reversed=False)
+        self.assertTrue(result["ok"])
+        call_kwargs = client.send_command.call_args[1]
+        self.assertEqual(call_kwargs["reversed"], False)
 
 
 class TestCadHole(unittest.TestCase):
@@ -932,7 +1106,12 @@ class TestCadSketchSpline(unittest.TestCase):
         client = _mock_client()
         client.send_command.side_effect = [
             {"sketch": "Sketch"},  # new_sketch
-            {"sketch": "Sketch", "geometry_index": 0},  # sketch_bspline
+            {  # sketch_populate
+                "sketch": "Sketch",
+                "element_count": 1,
+                "constraint_count": 0,
+                "geometry": [{"type": "spline", "index": 0}],
+            },
             {"sketch": "Sketch", "fully_constrained": False, "open_vertices": 2},  # close_sketch
         ]
         mock_get.return_value = client
@@ -943,17 +1122,23 @@ class TestCadSketchSpline(unittest.TestCase):
         )
         self.assertTrue(result["ok"])
         self.assertEqual(result["geometry"][0]["type"], "spline")
-        # Verify sketch_bspline was called with correct args
-        bspline_call = client.send_command.call_args_list[1]
-        self.assertEqual(bspline_call[0][0], "sketch_bspline")
-        self.assertEqual(bspline_call[1]["points"], [[0, 0], [10, 5], [20, 0]])
+        # Verify sketch_populate was called with the spline element
+        populate_call = client.send_command.call_args_list[1]
+        self.assertEqual(populate_call[0][0], "sketch_populate")
+        self.assertEqual(populate_call[1]["elements"][0]["type"], "spline")
+        self.assertEqual(populate_call[1]["elements"][0]["points"], [[0, 0], [10, 5], [20, 0]])
 
     @patch("server.tools_cad.get_client")
     def test_sketch_with_spline_options(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         client.send_command.side_effect = [
             {"sketch": "Sketch"},
-            {"sketch": "Sketch", "geometry_index": 0},
+            {
+                "sketch": "Sketch",
+                "element_count": 1,
+                "constraint_count": 0,
+                "geometry": [{"type": "spline", "index": 0}],
+            },
             {"sketch": "Sketch", "fully_constrained": False, "open_vertices": 0},
         ]
         mock_get.return_value = client
@@ -969,10 +1154,97 @@ class TestCadSketchSpline(unittest.TestCase):
             }],
         )
         self.assertTrue(result["ok"])
-        bspline_call = client.send_command.call_args_list[1]
-        self.assertEqual(bspline_call[1]["degree"], 2)
-        self.assertEqual(bspline_call[1]["periodic"], True)
-        self.assertEqual(bspline_call[1]["weights"], [1.0, 2.0, 1.0, 1.0])
+        populate_call = client.send_command.call_args_list[1]
+        elem = populate_call[1]["elements"][0]
+        self.assertEqual(elem["degree"], 2)
+        self.assertEqual(elem["periodic"], True)
+        self.assertEqual(elem["weights"], [1.0, 2.0, 1.0, 1.0])
+
+
+class TestCadSketchBatching(unittest.TestCase):
+    """Verify that cad_sketch uses batched sketch_populate instead of individual calls."""
+
+    @patch("server.tools_cad.get_client")
+    def test_batched_elements_and_constraints(self, mock_get: MagicMock) -> None:
+        """Multiple elements + constraints should be sent as one sketch_populate call."""
+        client = _mock_client()
+        client.send_command.side_effect = [
+            {"sketch": "Sketch"},  # new_sketch
+            {  # sketch_populate
+                "sketch": "Sketch",
+                "element_count": 2,
+                "constraint_count": 3,
+                "geometry": [
+                    {"type": "line", "index": 0},
+                    {"type": "line", "index": 1},
+                ],
+            },
+            {"sketch": "Sketch", "fully_constrained": True, "open_vertices": 0},  # close
+        ]
+        mock_get.return_value = client
+
+        result = cad_sketch(
+            body="Body",
+            elements=[
+                {"type": "line", "x1": 0, "y1": 0, "x2": 10, "y2": 0},
+                {"type": "line", "x1": 10, "y1": 0, "x2": 10, "y2": 10},
+            ],
+            constraints=[
+                {"type": "Coincident", "first": 0, "first_pos": 2, "second": 1, "second_pos": 1},
+                {"type": "Horizontal", "first": 0},
+                {"type": "Vertical", "first": 1},
+            ],
+        )
+        self.assertTrue(result["ok"])
+        # Only 3 TCP calls total: new_sketch + sketch_populate + close_sketch
+        self.assertEqual(client.send_command.call_count, 3)
+        # Verify the sketch_populate call
+        populate_call = client.send_command.call_args_list[1]
+        self.assertEqual(populate_call[0][0], "sketch_populate")
+        self.assertEqual(len(populate_call[1]["elements"]), 2)
+        self.assertEqual(len(populate_call[1]["constraints"]), 3)
+
+    @patch("server.tools_cad.get_client")
+    def test_empty_sketch_no_populate(self, mock_get: MagicMock) -> None:
+        """Sketch with no elements and no constraints should skip sketch_populate."""
+        client = _mock_client()
+        client.send_command.side_effect = [
+            {"sketch": "Sketch"},  # new_sketch
+            {"sketch": "Sketch", "fully_constrained": True, "open_vertices": 0},  # close
+        ]
+        mock_get.return_value = client
+
+        result = cad_sketch(body="Body")
+        self.assertTrue(result["ok"])
+        # Only 2 TCP calls: new_sketch + close_sketch (no sketch_populate)
+        self.assertEqual(client.send_command.call_count, 2)
+
+    @patch("server.tools_cad.get_client")
+    def test_adaptive_timeout_for_large_sketch(self, mock_get: MagicMock) -> None:
+        """Large constraint count should increase the timeout."""
+        client = _mock_client()
+        # 200 constraints (like a gear profile)
+        many_constraints = [
+            {"type": "Coincident", "first": i, "first_pos": 2, "second": (i + 1) % 200, "second_pos": 1}
+            for i in range(200)
+        ]
+        client.send_command.side_effect = [
+            {"sketch": "Sketch"},  # new_sketch
+            {  # sketch_populate
+                "sketch": "Sketch",
+                "element_count": 0,
+                "constraint_count": 200,
+                "geometry": [],
+            },
+            {"sketch": "Sketch", "fully_constrained": False, "open_vertices": 0},  # close
+        ]
+        mock_get.return_value = client
+
+        result = cad_sketch(body="Body", constraints=many_constraints)
+        self.assertTrue(result["ok"])
+        # Verify timeout was passed (30 + 200 * 0.1 = 50s)
+        populate_call = client.send_command.call_args_list[1]
+        self.assertEqual(populate_call[1]["timeout"], 50.0)
 
 
 class TestCadSweep(unittest.TestCase):

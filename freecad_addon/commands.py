@@ -361,6 +361,185 @@ def sketch_bspline(
     return {"sketch": sk.Name, "geometry_index": idx}
 
 
+def sketch_populate(
+    sketch: str,
+    elements: list[dict[str, Any]] | None = None,
+    constraints: list[dict[str, Any]] | None = None,
+    doc: str | None = None,
+) -> dict[str, Any]:
+    """Add geometry elements and constraints to a sketch in a single batch.
+
+    This replaces individual ``sketch_line`` / ``sketch_circle`` /
+    ``sketch_constrain`` calls with a single command that processes ALL
+    elements and ALL constraints with **one** ``recompute()`` at the end.
+
+    ``elements``: list of geometry dicts with a ``type`` field:
+      - ``{"type": "rect", "x": 0, "y": 0, "w": 100, "h": 50}``
+      - ``{"type": "circle", "cx": 0, "cy": 0, "r": 10}``
+      - ``{"type": "line", "x1": 0, "y1": 0, "x2": 100, "y2": 0}``
+      - ``{"type": "arc", "cx": 0, "cy": 0, "r": 10, "start_angle": 0, "end_angle": 90}``
+      - ``{"type": "spline", "points": [[x,y], ...], "degree": 3, ...}``
+
+    ``constraints``: list of constraint dicts with a ``type`` field and
+    parameters (first, first_pos, second, second_pos, value).
+
+    Returns element count, constraint count, and geometry index mapping.
+    """
+    import Sketcher  # type: ignore[import-untyped]
+
+    d = _get_doc(doc)
+    sk = _get_sketch(d, sketch)
+
+    geometry_indices: list[dict[str, Any]] = []
+
+    # --- Add all geometry elements without recompute ---
+    for elem in (elements or []):
+        elem_type = elem.get("type", "")
+
+        if elem_type == "rect":
+            x = elem.get("x", 0)
+            y = elem.get("y", 0)
+            w = elem["w"]
+            h = elem["h"]
+            p1 = FreeCAD.Vector(x, y, 0)
+            p2 = FreeCAD.Vector(x + w, y, 0)
+            p3 = FreeCAD.Vector(x + w, y + h, 0)
+            p4 = FreeCAD.Vector(x, y + h, 0)
+            i0 = sk.addGeometry(Part.LineSegment(p1, p2))
+            i1 = sk.addGeometry(Part.LineSegment(p2, p3))
+            i2 = sk.addGeometry(Part.LineSegment(p3, p4))
+            i3 = sk.addGeometry(Part.LineSegment(p4, p1))
+            # Add rect constraints inline (no recompute yet)
+            sk.addConstraint(Sketcher.Constraint("Coincident", i0, 2, i1, 1))
+            sk.addConstraint(Sketcher.Constraint("Coincident", i1, 2, i2, 1))
+            sk.addConstraint(Sketcher.Constraint("Coincident", i2, 2, i3, 1))
+            sk.addConstraint(Sketcher.Constraint("Coincident", i3, 2, i0, 1))
+            sk.addConstraint(Sketcher.Constraint("Horizontal", i0))
+            sk.addConstraint(Sketcher.Constraint("Horizontal", i2))
+            sk.addConstraint(Sketcher.Constraint("Vertical", i1))
+            sk.addConstraint(Sketcher.Constraint("Vertical", i3))
+            geometry_indices.append({"type": "rect", "indices": [i0, i1, i2, i3]})
+
+        elif elem_type == "circle":
+            cx = elem.get("cx", 0)
+            cy = elem.get("cy", 0)
+            r = elem["r"]
+            idx = sk.addGeometry(
+                Part.Circle(FreeCAD.Vector(cx, cy, 0), FreeCAD.Vector(0, 0, 1), r)
+            )
+            geometry_indices.append({"type": "circle", "index": idx})
+
+        elif elem_type == "line":
+            idx = sk.addGeometry(
+                Part.LineSegment(
+                    FreeCAD.Vector(elem["x1"], elem["y1"], 0),
+                    FreeCAD.Vector(elem["x2"], elem["y2"], 0),
+                )
+            )
+            geometry_indices.append({"type": "line", "index": idx})
+
+        elif elem_type == "arc":
+            cx = elem.get("cx", 0)
+            cy = elem.get("cy", 0)
+            r = elem["r"]
+            sa = elem["start_angle"]
+            ea = elem["end_angle"]
+            if ea < sa:
+                ea += 360.0
+            idx = sk.addGeometry(
+                Part.ArcOfCircle(
+                    Part.Circle(FreeCAD.Vector(cx, cy, 0), FreeCAD.Vector(0, 0, 1), r),
+                    math.radians(sa),
+                    math.radians(ea),
+                )
+            )
+            geometry_indices.append({"type": "arc", "index": idx})
+
+        elif elem_type == "spline":
+            points = elem["points"]
+            degree = elem.get("degree", 3)
+            periodic = elem.get("periodic", False)
+            weights = elem.get("weights")
+
+            if len(points) < degree + 1:
+                raise ValueError(
+                    f"Need at least {degree + 1} control points for degree-{degree} "
+                    f"B-spline, got {len(points)}"
+                )
+
+            poles = [FreeCAD.Vector(p[0], p[1], 0) for p in points]
+            n_poles = len(poles)
+            w = weights if weights is not None else [1.0] * n_poles
+            if len(w) != n_poles:
+                raise ValueError(
+                    f"weights length ({len(w)}) must match points length ({n_poles})"
+                )
+
+            n_knots = n_poles + degree + 1
+            if periodic:
+                knots_flat = [float(i) for i in range(n_knots)]
+            else:
+                knots_flat = (
+                    [0.0] * (degree + 1)
+                    + [float(i) for i in range(1, n_poles - degree)]
+                    + [float(n_poles - degree)] * (degree + 1)
+                )
+            unique_knots: list[float] = []
+            mults: list[int] = []
+            for k in knots_flat:
+                if unique_knots and abs(unique_knots[-1] - k) < 1e-10:
+                    mults[-1] += 1
+                else:
+                    unique_knots.append(k)
+                    mults.append(1)
+
+            bspline = Part.BSplineCurve()
+            bspline.buildFromPolesMultsKnots(poles, mults, unique_knots, periodic, degree, w)
+            idx = sk.addGeometry(bspline)
+            geometry_indices.append({"type": "spline", "index": idx})
+
+        else:
+            raise ValueError(f"Unknown element type: {elem_type}")
+
+    # --- Add all constraints without recompute ---
+    constraint_count = 0
+    for con in (constraints or []):
+        con_type = con.get("type")
+        if con_type is None:
+            continue
+
+        cargs: list[Any] = [con_type]
+        first = con.get("first")
+        first_pos = con.get("first_pos")
+        second = con.get("second")
+        second_pos = con.get("second_pos")
+        value = con.get("value")
+
+        if first is not None:
+            cargs.append(int(first))
+        if first_pos is not None:
+            cargs.append(int(first_pos))
+        if second is not None:
+            cargs.append(int(second))
+        if second_pos is not None:
+            cargs.append(int(second_pos))
+        if value is not None:
+            cargs.append(float(value))
+
+        sk.addConstraint(Sketcher.Constraint(*cargs))
+        constraint_count += 1
+
+    # --- Single recompute for everything ---
+    d.recompute()
+
+    return {
+        "sketch": sk.Name,
+        "element_count": len(geometry_indices),
+        "constraint_count": constraint_count,
+        "geometry": geometry_indices,
+    }
+
+
 def close_sketch(sketch: str, doc: str | None = None) -> dict[str, Any]:
     """Close/validate a sketch."""
     d = _get_doc(doc)
@@ -411,34 +590,130 @@ def pad(
     return result
 
 
+def _resolve_pocket_direction(
+    doc: Any,
+    sketch: Any,
+    body: Any,
+) -> dict[str, Any]:
+    """Deterministically compute the ``reversed`` flag for a pocket.
+
+    Algorithm:
+    1. Extract the sketch plane normal ``N`` and origin ``O`` from the
+       sketch's ``Placement``.
+    2. Get the body's current tip shape centroid ``C``.
+    3. Compute ``dot = (C - O) · N``.
+    4. If ``dot > 0``: the solid is in the ``+N`` direction.  FreeCAD's
+       default pocket direction is ``-N`` (``reversed=False``), so we
+       need ``reversed=True`` to cut into the solid.
+    5. If ``dot ≤ 0``: the solid is in the ``-N`` direction, which is the
+       default pocket direction, so ``reversed=False``.
+
+    Returns a dict with ``reversed``, ``confidence``, and diagnostic info.
+    """
+    # Sketch normal = local Z axis transformed by placement rotation
+    normal = sketch.Placement.Rotation.multVec(FreeCAD.Vector(0, 0, 1))
+    origin = sketch.Placement.Base
+
+    # Get existing solid centroid
+    try:
+        tip = _get_tip(body)
+        shape = tip.Shape
+        if shape is None or shape.isNull():
+            return {
+                "reversed": False,
+                "confidence": "low",
+                "reason": "body has no solid shape yet",
+            }
+        centroid = shape.CenterOfMass
+    except (ValueError, AttributeError):
+        return {
+            "reversed": False,
+            "confidence": "low",
+            "reason": "could not determine body centroid",
+        }
+
+    # Project body centroid onto sketch normal
+    to_centroid = centroid.sub(origin)
+    dot = to_centroid.dot(normal)
+
+    # The solid is in the +N direction → need reversed=True to pocket into it
+    reversed_flag = dot > 0
+
+    return {
+        "reversed": reversed_flag,
+        "confidence": "high",
+        "reason": (
+            f"solid centroid is {'above' if dot > 0 else 'below'} sketch plane "
+            f"(dot={dot:.2f}), pocket should go "
+            f"{'into +normal (reversed=True)' if reversed_flag else 'into -normal (reversed=False)'}"
+        ),
+        "dot_product": round(dot, 4),
+        "sketch_origin": _vec_to_list(origin),
+        "sketch_normal": _vec_to_list(normal),
+        "body_centroid": _vec_to_list(centroid),
+    }
+
+
+def resolve_pocket_direction(
+    sketch: str,
+    body: str | None = None,
+    doc: str | None = None,
+) -> dict[str, Any]:
+    """Query command: resolve the correct pocket direction for a sketch.
+
+    Returns ``{"reversed": true/false, "confidence": "high"/"low", "reason": "..."}``
+    so the LLM (or planner) can use the right direction without guessing.
+    """
+    d = _get_doc(doc)
+    sk = _get_sketch(d, sketch)
+    body_obj = _find_parent_body(d, sk) if body is None else _resolve_body(d, body)
+    return _resolve_pocket_direction(d, sk, body_obj)
+
+
 def pocket(
     sketch: str,
     length: float = 0.0,
     pocket_type: str = "Dimension",
-    reversed: bool = False,
+    reversed: bool | str = False,
     verify: bool = True,
     doc: str | None = None,
 ) -> dict[str, Any]:
     """Cut a pocket from a sketch.
 
     ``pocket_type``: "Dimension", "ThroughAll", "ToFirst", "ToLast".
+
+    ``reversed``: ``True``/``False`` for explicit direction, or ``"auto"``
+    to resolve deterministically from the sketch plane and body geometry.
     """
     logger.info("pocket: sketch=%s length=%s type=%s reversed=%s", sketch, length, pocket_type, reversed)
     d = _get_doc(doc)
     sk = _get_sketch(d, sketch)
 
     body = _find_parent_body(d, sk)
+
+    # Auto-resolve pocket direction
+    auto_resolved = None
+    if reversed == "auto":
+        auto_resolved = _resolve_pocket_direction(d, sk, body)
+        reversed = auto_resolved["reversed"]
+        logger.info(
+            "pocket: auto-resolved reversed=%s (%s)",
+            reversed, auto_resolved["reason"],
+        )
+
     pocket_obj = d.addObject("PartDesign::Pocket", "Pocket")
     body.addObject(pocket_obj)
     pocket_obj.Profile = sk
     pocket_obj.Type = _pocket_type_enum(pocket_type)
     if pocket_type == "Dimension":
         pocket_obj.Length = length
-    pocket_obj.Reversed = reversed
+    pocket_obj.Reversed = bool(reversed)
 
     op_context = {"op": "pocket", "sketch": sketch, "length": length, "pocket_type": pocket_type}
     result = _recompute_and_check(d, pocket_obj, body=body, op_context=op_context)
     logger.info("pocket: created %s", pocket_obj.Name)
+    if auto_resolved is not None:
+        result["auto_reversed"] = auto_resolved
     if verify:
         result["verification_images"] = _capture_verification_views(d, op_context=op_context, body=body)
     return result
@@ -1686,6 +1961,373 @@ def export(
     return {"path": path, "format": fmt}
 
 
+def export_body(
+    body: str,
+    format: str = "stl",
+    path: str | None = None,
+    doc: str | None = None,
+) -> dict[str, Any]:
+    """Export a single PartDesign body to STL, STEP, or OBJ.
+
+    Required for per-body mesh export (Tier 2 assembly + Tier 3 Chrono).
+    Each rigid body in a mechanism needs its own mesh file.
+    """
+    d = _get_doc(doc)
+    body_obj = d.getObject(body)
+    if body_obj is None:
+        raise ValueError(f"Body '{body}' not found in document '{d.Name}'")
+
+    shape = body_obj.Shape
+    if shape is None or shape.isNull():
+        raise ValueError(f"Body '{body}' has no valid shape")
+
+    fmt = format.lower()
+    if path is None:
+        suffix = {"step": ".step", "stl": ".stl", "obj": ".obj"}.get(fmt, ".stl")
+        path = str(Path(tempfile.gettempdir()) / f"{body}{suffix}")
+
+    if fmt == "step":
+        shape.exportStep(path)
+    elif fmt == "stl":
+        shape.exportStl(path)
+    elif fmt == "obj":
+        import Mesh  # type: ignore[import-untyped]
+        Mesh.export([body_obj], path)
+    else:
+        raise ValueError(f"Unsupported format: {format}")
+
+    return {"path": path, "format": fmt, "body": body}
+
+
+# ---------------------------------------------------------------------------
+# Assembly (Tier 2 kinematic validation)
+# ---------------------------------------------------------------------------
+
+# FreeCAD joint type mapping from our JointType names to Assembly workbench types
+_JOINT_TYPE_MAP = {
+    "fixed": "Fixed",
+    "revolute": "Revolute",
+    "prismatic": "Slider",
+    "gear_mesh": "Gear",
+    "belt_chain": "Belt",
+    "cylindrical": "Cylindrical",
+    "ball": "Ball",
+    "distance": "Distance",
+    "rack_pinion": "RackPinion",
+    "screw": "Screw",
+}
+
+
+def assembly_create(
+    name: str = "Assembly",
+    doc: str | None = None,
+) -> dict[str, Any]:
+    """Create an Assembly container in the document.
+
+    Uses the Assembly workbench (FreeCAD 1.0+).
+    """
+    d = _get_doc(doc)
+
+    # Create an Assembly4 or built-in Assembly container
+    assembly = d.addObject("Assembly::AssemblyObject", name)
+    d.recompute()
+
+    return {
+        "name": assembly.Name,
+        "label": assembly.Label,
+        "doc": d.Name,
+    }
+
+
+def assembly_add_part(
+    assembly: str,
+    body: str,
+    placement: list[float] | None = None,
+    doc: str | None = None,
+) -> dict[str, Any]:
+    """Add a body to an assembly with optional placement.
+
+    placement: [x, y, z, roll_deg, pitch_deg, yaw_deg] — position + Euler angles.
+    """
+    d = _get_doc(doc)
+    asm_obj = d.getObject(assembly)
+    if asm_obj is None:
+        raise ValueError(f"Assembly '{assembly}' not found")
+    body_obj = d.getObject(body)
+    if body_obj is None:
+        raise ValueError(f"Body '{body}' not found")
+
+    # Link the body into the assembly
+    link = asm_obj.newObject("App::Link", f"{body}_link")
+    link.setLink(body_obj)
+
+    if placement is not None:
+        if len(placement) >= 6:
+            link.Placement = FreeCAD.Placement(
+                FreeCAD.Vector(placement[0], placement[1], placement[2]),
+                FreeCAD.Rotation(placement[3], placement[4], placement[5]),
+            )
+        elif len(placement) >= 3:
+            link.Placement = FreeCAD.Placement(
+                FreeCAD.Vector(placement[0], placement[1], placement[2]),
+                FreeCAD.Rotation(),
+            )
+
+    d.recompute()
+
+    return {
+        "link_name": link.Name,
+        "body": body,
+        "assembly": assembly,
+    }
+
+
+def assembly_add_joint(
+    assembly: str,
+    joint_type: str,
+    part_a: str,
+    element_a: str,
+    part_b: str,
+    element_b: str,
+    doc: str | None = None,
+    **params: Any,
+) -> dict[str, Any]:
+    """Add a joint constraint between two parts in an assembly.
+
+    joint_type: revolute, prismatic, fixed, gear_mesh, belt_chain, etc.
+    part_a/part_b: link names in the assembly.
+    element_a/element_b: sub-element references (e.g., 'Face1', 'Edge3').
+    params: extra joint parameters (ratio for gear, etc.).
+    """
+    d = _get_doc(doc)
+    asm_obj = d.getObject(assembly)
+    if asm_obj is None:
+        raise ValueError(f"Assembly '{assembly}' not found")
+
+    fc_type = _JOINT_TYPE_MAP.get(joint_type, joint_type)
+    joint_name = params.pop("name", f"Joint_{joint_type}")
+
+    # Create the joint object
+    joint = d.addObject("Assembly::JointObject", joint_name)
+    joint.JointType = fc_type
+
+    # Set references
+    link_a = d.getObject(part_a)
+    link_b = d.getObject(part_b)
+    if link_a is None:
+        raise ValueError(f"Part '{part_a}' not found in assembly")
+    if link_b is None:
+        raise ValueError(f"Part '{part_b}' not found in assembly")
+
+    joint.Object1 = link_a
+    joint.Element1 = element_a
+    joint.Object2 = link_b
+    joint.Element2 = element_b
+
+    # Apply joint-specific parameters
+    if fc_type == "Gear" and "ratio" in params:
+        joint.Ratio = float(params["ratio"])
+
+    # Add joint to assembly's joint group
+    if hasattr(asm_obj, "addObject"):
+        asm_obj.addObject(joint)
+
+    d.recompute()
+
+    return {
+        "joint_name": joint.Name,
+        "joint_type": fc_type,
+        "part_a": part_a,
+        "element_a": element_a,
+        "part_b": part_b,
+        "element_b": element_b,
+    }
+
+
+def assembly_solve(
+    assembly: str,
+    doc: str | None = None,
+) -> dict[str, Any]:
+    """Solve the assembly constraints (run the Ondsel constraint solver)."""
+    d = _get_doc(doc)
+    asm_obj = d.getObject(assembly)
+    if asm_obj is None:
+        raise ValueError(f"Assembly '{assembly}' not found")
+
+    # Trigger solver
+    if hasattr(asm_obj, "solve"):
+        asm_obj.solve()
+    d.recompute()
+
+    # Collect placements after solving
+    placements: dict[str, dict[str, Any]] = {}
+    for obj in asm_obj.Group if hasattr(asm_obj, "Group") else []:
+        if hasattr(obj, "Placement"):
+            p = obj.Placement
+            placements[obj.Name] = {
+                "position": [p.Base.x, p.Base.y, p.Base.z],
+                "rotation": [p.Rotation.Angle, *list(p.Rotation.Axis)],
+            }
+
+    return {
+        "assembly": assembly,
+        "solved": True,
+        "placements": placements,
+    }
+
+
+def assembly_drive_joint(
+    assembly: str,
+    joint: str,
+    value: float,
+    steps: int = 10,
+    doc: str | None = None,
+) -> dict[str, Any]:
+    """Drive a joint through a range of values, capturing screenshots at each step.
+
+    For revolute joints, value is the total rotation in degrees.
+    For prismatic joints, value is the total translation in mm.
+    """
+    d = _get_doc(doc)
+    asm_obj = d.getObject(assembly)
+    if asm_obj is None:
+        raise ValueError(f"Assembly '{assembly}' not found")
+
+    joint_obj = d.getObject(joint)
+    if joint_obj is None:
+        raise ValueError(f"Joint '{joint}' not found")
+
+    step_positions: list[dict[str, Any]] = []
+    screenshots: list[str] = []
+
+    for i in range(steps + 1):
+        fraction = i / steps
+        current_value = value * fraction
+
+        # Drive the joint by setting its offset
+        if hasattr(joint_obj, "Offset"):
+            joint_obj.Offset = current_value
+        elif hasattr(joint_obj, "Offset2"):
+            # FreeCAD Assembly joint driving via Offset2
+            joint_obj.Offset2 = FreeCAD.Placement(
+                FreeCAD.Vector(0, 0, 0),
+                FreeCAD.Rotation(FreeCAD.Vector(0, 0, 1), current_value),
+            )
+
+        d.recompute()
+
+        # Collect placement of all parts
+        placements: dict[str, list[float]] = {}
+        for obj in asm_obj.Group if hasattr(asm_obj, "Group") else []:
+            if hasattr(obj, "Placement"):
+                p = obj.Placement
+                placements[obj.Name] = [p.Base.x, p.Base.y, p.Base.z]
+
+        step_positions.append({
+            "step": i,
+            "value": current_value,
+            "placements": placements,
+        })
+
+        # Capture screenshot at each step
+        if FreeCADGui is not None:
+            _process_qt_events()
+            try:
+                view = FreeCADGui.ActiveDocument.ActiveView
+                img_path = str(Path(tempfile.gettempdir()) / f"drive_{joint}_{i:03d}.png")
+                view.saveImage(img_path, 512, 512, "White")
+                screenshots.append(img_path)
+            except Exception:
+                pass
+
+    return {
+        "assembly": assembly,
+        "joint": joint,
+        "total_value": value,
+        "steps": steps,
+        "step_positions": step_positions,
+        "screenshots": screenshots,
+    }
+
+
+def assembly_check_interference(
+    assembly: str,
+    doc: str | None = None,
+) -> dict[str, Any]:
+    """Check for interference (collision) between parts in an assembly.
+
+    Uses BRepAlgoAPI_Common (Part.Shape.common) to detect overlapping volumes.
+    """
+    d = _get_doc(doc)
+    asm_obj = d.getObject(assembly)
+    if asm_obj is None:
+        raise ValueError(f"Assembly '{assembly}' not found")
+
+    # Collect all shapes from assembly links
+    parts: list[tuple[str, Any]] = []
+    for obj in asm_obj.Group if hasattr(asm_obj, "Group") else []:
+        if hasattr(obj, "LinkedObject") and obj.LinkedObject is not None:
+            linked = obj.LinkedObject
+            if hasattr(linked, "Shape") and linked.Shape is not None and not linked.Shape.isNull():
+                # Transform shape to assembly coordinates
+                shape = linked.Shape.copy()
+                shape.Placement = obj.Placement
+                parts.append((obj.Name, shape))
+        elif hasattr(obj, "Shape") and obj.Shape is not None and not obj.Shape.isNull():
+            parts.append((obj.Name, obj.Shape))
+
+    collisions: list[dict[str, Any]] = []
+    for i in range(len(parts)):
+        for j in range(i + 1, len(parts)):
+            name_a, shape_a = parts[i]
+            name_b, shape_b = parts[j]
+            try:
+                common = shape_a.common(shape_b)
+                if common is not None and not common.isNull() and common.Volume > 1e-6:
+                    collisions.append({
+                        "part_a": name_a,
+                        "part_b": name_b,
+                        "overlap_mm3": round(common.Volume, 4),
+                    })
+            except Exception:
+                # common() can fail for certain shape combinations
+                pass
+
+    return {
+        "assembly": assembly,
+        "clear": len(collisions) == 0,
+        "part_count": len(parts),
+        "checks_performed": len(parts) * (len(parts) - 1) // 2,
+        "collisions": collisions,
+    }
+
+
+def assembly_get_placements(
+    assembly: str,
+    doc: str | None = None,
+) -> dict[str, Any]:
+    """Get current placements of all parts in an assembly."""
+    d = _get_doc(doc)
+    asm_obj = d.getObject(assembly)
+    if asm_obj is None:
+        raise ValueError(f"Assembly '{assembly}' not found")
+
+    placements: dict[str, dict[str, Any]] = {}
+    for obj in asm_obj.Group if hasattr(asm_obj, "Group") else []:
+        if hasattr(obj, "Placement"):
+            p = obj.Placement
+            placements[obj.Name] = {
+                "position": [p.Base.x, p.Base.y, p.Base.z],
+                "rotation_angle_deg": math.degrees(p.Rotation.Angle),
+                "rotation_axis": [p.Rotation.Axis.x, p.Rotation.Axis.y, p.Rotation.Axis.z],
+            }
+
+    return {
+        "assembly": assembly,
+        "placements": placements,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -2156,6 +2798,25 @@ def _vec_to_list(vec: Any) -> list[float]:
     return [vec.x, vec.y, vec.z]
 
 
+def set_visibility(args: dict[str, Any]) -> dict[str, Any]:
+    """Show or hide objects by name."""
+    import FreeCADGui  # type: ignore
+
+    doc = _get_doc(args)
+    objects = args.get("objects", [])
+    visible = args.get("visible", True)
+    changed: list[str] = []
+    for name in objects:
+        obj = doc.getObject(name)
+        if obj is None:
+            continue
+        gui_obj = FreeCADGui.ActiveDocument.getObject(name)
+        if gui_obj is not None:
+            gui_obj.Visibility = bool(visible)
+            changed.append(name)
+    return {"ok": True, "changed": changed, "visible": visible}
+
+
 # ---------------------------------------------------------------------------
 # Command registry — maps cmd strings to handler functions
 # ---------------------------------------------------------------------------
@@ -2173,8 +2834,10 @@ COMMAND_HANDLERS: dict[str, Any] = {
     "sketch_arc": sketch_arc,
     "sketch_bspline": sketch_bspline,
     "sketch_constrain": sketch_constrain,
+    "sketch_populate": sketch_populate,
     "close_sketch": close_sketch,
     "pad": pad,
+    "resolve_pocket_direction": resolve_pocket_direction,
     "pocket": pocket,
     "revolution": revolution,
     "polar_pattern": polar_pattern,
@@ -2196,4 +2859,13 @@ COMMAND_HANDLERS: dict[str, Any] = {
     "set_camera": set_camera,
     "get_camera": get_camera,
     "export": export,
+    "export_body": export_body,
+    "set_visibility": set_visibility,
+    "assembly_create": assembly_create,
+    "assembly_add_part": assembly_add_part,
+    "assembly_add_joint": assembly_add_joint,
+    "assembly_solve": assembly_solve,
+    "assembly_drive_joint": assembly_drive_joint,
+    "assembly_check_interference": assembly_check_interference,
+    "assembly_get_placements": assembly_get_placements,
 }

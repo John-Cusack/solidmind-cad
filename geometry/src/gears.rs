@@ -179,12 +179,17 @@ pub fn spur_gear_profile(
         let (nrx, nry) = rotate_point(next_inv_start[0][0], next_inv_start[0][1], next_right_angle);
         let next_right_root_angle = (nry).atan2(nrx);
 
+        let root_start = left_root_angle.to_degrees();
+        let mut root_end = next_right_root_angle.to_degrees();
+        if root_end < root_start {
+            root_end += 360.0;
+        }
         elements.push(SketchElement::Arc {
             cx,
             cy,
             r: rf,
-            start_angle: left_root_angle.to_degrees(),
-            end_angle: next_right_root_angle.to_degrees(),
+            start_angle: root_start,
+            end_angle: root_end,
         });
     }
 
@@ -391,12 +396,17 @@ pub fn internal_gear_profile(
         let mut right_reversed = right_pts;
         right_reversed.reverse();
 
+        let outer_start = left_outer_angle.to_degrees();
+        let mut outer_end = next_right_inner_angle.to_degrees();
+        if outer_end < outer_start {
+            outer_end += 360.0;
+        }
         elements.push(SketchElement::Arc {
             cx,
             cy,
             r: rf,
-            start_angle: left_outer_angle.to_degrees(),
-            end_angle: next_right_inner_angle.to_degrees(),
+            start_angle: outer_start,
+            end_angle: outer_end,
         });
 
         // Right flank spline (outer to inner) — only needed for first tooth display
@@ -515,6 +525,59 @@ mod tests {
         let result = internal_gear_profile(&p, [0.0, 0.0], 20);
         // 4 elements per tooth
         assert_eq!(result.elements.len(), 30 * 4);
+    }
+
+    #[test]
+    fn test_spur_gear_arc_angles_no_wrap() {
+        // 57-tooth gear triggers the ±180° wrapping bug on the last tooth
+        let p = compute_gear_params(2.0, 57, 20.0, 0.25, 0.0, 0.0);
+        let result = spur_gear_profile(&p, [0.0, 0.0], 20);
+        for elem in &result.elements {
+            if let SketchElement::Arc {
+                start_angle,
+                end_angle,
+                ..
+            } = elem
+            {
+                assert!(
+                    end_angle >= start_angle,
+                    "Arc end_angle ({}) < start_angle ({}): wrapping bug",
+                    end_angle,
+                    start_angle
+                );
+                assert!(
+                    (end_angle - start_angle) < 180.0,
+                    "Arc span {} deg is too large (likely wrapped incorrectly)",
+                    end_angle - start_angle
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_internal_gear_arc_angles_no_wrap() {
+        let p = compute_internal_gear_params(2.0, 57, 20.0, 0.25, 0.0, 0.0);
+        let result = internal_gear_profile(&p, [0.0, 0.0], 20);
+        for elem in &result.elements {
+            if let SketchElement::Arc {
+                start_angle,
+                end_angle,
+                ..
+            } = elem
+            {
+                assert!(
+                    end_angle >= start_angle,
+                    "Arc end_angle ({}) < start_angle ({}): wrapping bug",
+                    end_angle,
+                    start_angle
+                );
+                assert!(
+                    (end_angle - start_angle) < 180.0,
+                    "Arc span {} deg is too large (likely wrapped incorrectly)",
+                    end_angle - start_angle
+                );
+            }
+        }
     }
 
     #[test]

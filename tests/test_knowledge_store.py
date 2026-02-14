@@ -221,7 +221,14 @@ class TestKnowledgeStoreUnit(unittest.TestCase):
         mock_table = MagicMock()
         store._db.open_table.return_value = mock_table
         store.delete_document("old.md")
-        mock_table.delete.assert_called_once()
+        mock_table.delete.assert_called_once_with("source = 'old.md'")
+
+    def test_delete_document_escapes_single_quotes(self):
+        store = self._make_store()
+        mock_table = MagicMock()
+        store._db.open_table.return_value = mock_table
+        store.delete_document("o'reilly.md")
+        mock_table.delete.assert_called_once_with("source = 'o''reilly.md'")
 
 
 class TestSingleton(unittest.TestCase):

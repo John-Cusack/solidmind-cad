@@ -84,8 +84,11 @@ def _wrap(fn: Any) -> Any:
 @_wrap
 def cad_new_document(name: str = "Unnamed") -> dict[str, Any]:
     """Create a new FreeCAD document."""
+    from server.main import switch_document_log
+
     client = get_client()
     result = client.send_command("new_document", name=name)
+    switch_document_log(name)
     return {"ok": True, **result}
 
 
@@ -111,8 +114,10 @@ def cad_sketch(
 ) -> dict[str, Any]:
     """Create a sketch, populate it with geometry and constraints, and close it.
 
-    This is a compound tool that combines new_sketch + geometry + constraints +
-    close_sketch into a single MCP tool call for convenience.
+    This is a compound tool that combines new_sketch + sketch_populate +
+    close_sketch into a single MCP tool call.  All elements and constraints
+    are sent in **one** batched command to the addon, which processes them
+    with a single recompute — dramatically faster than individual calls.
 
     ``geometry_ref`` is a handle returned by a ``geometry.*`` tool.  When
     provided, the stored elements are resolved server-side and added to the
@@ -124,6 +129,7 @@ def cad_sketch(
     - ``{"type": "circle", "cx": 0, "cy": 0, "r": 10}``
     - ``{"type": "line", "x1": 0, "y1": 0, "x2": 100, "y2": 0}``
     - ``{"type": "arc", "cx": 0, "cy": 0, "r": 10, "start_angle": 0, "end_angle": 90}``
+    - ``{"type": "spline", "points": [[x,y], ...], "degree": 3, ...}``
 
     ``constraints`` is a list of constraint dicts with a ``type`` field and
     parameters specific to the constraint type.
@@ -158,78 +164,25 @@ def cad_sketch(
     if doc is not None:
         cmd_kwargs["doc"] = doc
 
+    # 2. Batch-add all elements + constraints in a single command
+    #    The addon's sketch_populate handler processes everything with
+    #    one recompute(), eliminating N+M individual round-trips.
     geometry_indices: list[dict[str, Any]] = []
+    if all_elements or constraints:
+        # Estimate timeout: base 30s + 0.1s per element/constraint
+        n_items = len(all_elements or []) + len(constraints or [])
+        timeout = max(30.0, 30.0 + n_items * 0.1)
 
-    # 2. Add geometry elements
-    if all_elements:
-        elements = all_elements
-    if elements:
-        for elem in elements:
-            elem_type = elem.get("type", "")
-            if elem_type == "rect":
-                r = client.send_command(
-                    "sketch_rect",
-                    x=elem.get("x", 0), y=elem.get("y", 0),
-                    w=elem["w"], h=elem["h"],
-                    **cmd_kwargs,
-                )
-                geometry_indices.append({"type": "rect", "indices": r.get("geometry_indices", [])})
-            elif elem_type == "circle":
-                r = client.send_command(
-                    "sketch_circle",
-                    cx=elem.get("cx", 0), cy=elem.get("cy", 0),
-                    r=elem["r"],
-                    **cmd_kwargs,
-                )
-                geometry_indices.append({"type": "circle", "index": r.get("geometry_index")})
-            elif elem_type == "line":
-                r = client.send_command(
-                    "sketch_line",
-                    x1=elem["x1"], y1=elem["y1"],
-                    x2=elem["x2"], y2=elem["y2"],
-                    **cmd_kwargs,
-                )
-                geometry_indices.append({"type": "line", "index": r.get("geometry_index")})
-            elif elem_type == "arc":
-                r = client.send_command(
-                    "sketch_arc",
-                    cx=elem.get("cx", 0), cy=elem.get("cy", 0),
-                    r=elem["r"],
-                    start_angle=elem["start_angle"], end_angle=elem["end_angle"],
-                    **cmd_kwargs,
-                )
-                geometry_indices.append({"type": "arc", "index": r.get("geometry_index")})
-            elif elem_type == "spline":
-                sp_kwargs: dict[str, Any] = {"points": elem["points"]}
-                if "degree" in elem:
-                    sp_kwargs["degree"] = elem["degree"]
-                if "periodic" in elem:
-                    sp_kwargs["periodic"] = elem["periodic"]
-                if "weights" in elem:
-                    sp_kwargs["weights"] = elem["weights"]
-                r = client.send_command(
-                    "sketch_bspline",
-                    **sp_kwargs,
-                    **cmd_kwargs,
-                )
-                geometry_indices.append({"type": "spline", "index": r.get("geometry_index")})
-            else:
-                return _error_result("INVALID_ELEMENT", f"Unknown element type: {elem_type}")
+        populate_result = client.send_command(
+            "sketch_populate",
+            elements=all_elements or [],
+            constraints=constraints or [],
+            timeout=timeout,
+            **cmd_kwargs,
+        )
+        geometry_indices = populate_result.get("geometry", [])
 
-    # 3. Add constraints
-    if constraints:
-        for con in constraints:
-            con_type = con.pop("type", None)
-            if con_type is None:
-                continue
-            client.send_command(
-                "sketch_constrain",
-                constraint_type=con_type,
-                **{k: v for k, v in con.items() if k != "type"},
-                **cmd_kwargs,
-            )
-
-    # 4. Close sketch
+    # 3. Close sketch
     close_result = client.send_command("close_sketch", **cmd_kwargs)
 
     return {
@@ -326,11 +279,17 @@ def cad_pocket(
     sketch: str,
     length: float = 0.0,
     pocket_type: str = "Dimension",
-    reversed: bool = False,
+    reversed: bool | str = "auto",
     verify: bool = True,
     doc: str | None = None,
 ) -> dict[str, Any]:
-    """Cut a pocket from a sketch."""
+    """Cut a pocket from a sketch.
+
+    ``reversed``: ``True``/``False`` for explicit direction, or ``"auto"``
+    (default) to resolve deterministically from sketch plane and body geometry.
+    When ``"auto"``, the addon inspects the sketch normal and body centroid
+    to determine which direction cuts into the solid.
+    """
     client = get_client()
     kwargs: dict[str, Any] = {
         "sketch": sketch,
@@ -732,4 +691,18 @@ def cad_export(
     if doc is not None:
         kwargs["doc"] = doc
     result = client.send_command("export", **kwargs)
+    return {"ok": True, **result}
+
+
+def cad_set_visibility(
+    objects: list[str],
+    visible: bool = True,
+    doc: str | None = None,
+) -> dict[str, Any]:
+    """Show or hide objects in the FreeCAD viewport."""
+    client = get_client()
+    kwargs: dict[str, Any] = {"objects": objects, "visible": visible}
+    if doc is not None:
+        kwargs["doc"] = doc
+    result = client.send_command("set_visibility", **kwargs)
     return {"ok": True, **result}

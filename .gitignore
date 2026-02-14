@@ -216,3 +216,6 @@ me_knowledge/lancedb/
 
 # Parametric study outputs
 studies/
+
+# SolidMind local data (server logs, session state)
+.solidmind/

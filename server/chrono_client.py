@@ -1,7 +1,8 @@
-"""Socket client for communicating with the FreeCAD addon.
+"""Socket client for communicating with the Chrono daemon.
 
-The MCP bridge server uses this client to send commands to the FreeCAD addon
-running inside the FreeCAD GUI process over a TCP socket.
+Same architecture as freecad_client.py — TCP socket client with retry/reconnect.
+The Chrono daemon is a standalone C++ executable that listens on localhost:9877
+and runs multibody dynamics simulations via Project Chrono.
 """
 from __future__ import annotations
 
@@ -11,26 +12,26 @@ import socket
 import time
 from typing import Any
 
-logger = logging.getLogger("solidmind.freecad_client")
+logger = logging.getLogger("solidmind.chrono_client")
 
 DEFAULT_HOST = "127.0.0.1"
-DEFAULT_PORT = 9876
+DEFAULT_PORT = 9877
 CONNECT_TIMEOUT = 5.0
-READ_TIMEOUT = 30.0
+READ_TIMEOUT = 120.0  # Simulations can take longer than CAD commands
 MAX_RETRIES = 3
 RETRY_DELAY = 1.0
 
 
-class FreeCADConnectionError(Exception):
-    """Raised when the client cannot connect to the FreeCAD addon."""
+class ChronoConnectionError(Exception):
+    """Raised when the client cannot connect to the Chrono daemon."""
 
 
-class FreeCADCommandError(Exception):
-    """Raised when a command fails on the FreeCAD side."""
+class ChronoCommandError(Exception):
+    """Raised when a command fails on the Chrono side."""
 
 
-class FreeCADClient:
-    """TCP client that sends commands to the FreeCAD addon socket server."""
+class ChronoClient:
+    """TCP client that sends commands to the Chrono daemon socket server."""
 
     def __init__(
         self,
@@ -47,7 +48,7 @@ class FreeCADClient:
         return self._sock is not None
 
     def connect(self, timeout: float = CONNECT_TIMEOUT) -> None:
-        """Connect to the FreeCAD addon socket server."""
+        """Connect to the Chrono daemon socket server."""
         if self._sock is not None:
             return
 
@@ -57,14 +58,14 @@ class FreeCADClient:
             sock.connect((self._host, self._port))
         except (ConnectionRefusedError, OSError) as e:
             sock.close()
-            raise FreeCADConnectionError(
-                f"Cannot connect to FreeCAD addon at {self._host}:{self._port}. "
-                "Please start FreeCAD with the SolidMind addon loaded."
+            raise ChronoConnectionError(
+                f"Cannot connect to Chrono daemon at {self._host}:{self._port}. "
+                "Please start the chrono_daemon binary."
             ) from e
 
         self._sock = sock
         self._buffer = b""
-        logger.info("Connected to FreeCAD addon at %s:%d", self._host, self._port)
+        logger.info("Connected to Chrono daemon at %s:%d", self._host, self._port)
 
     def connect_with_retry(
         self,
@@ -77,19 +78,19 @@ class FreeCADClient:
             try:
                 self.connect()
                 return
-            except FreeCADConnectionError as e:
+            except ChronoConnectionError as e:
                 last_error = e
                 if attempt < max_retries - 1:
                     delay = retry_delay * (2 ** attempt)
                     logger.warning(
-                        "Connection attempt %d/%d failed, retrying in %.1fs",
+                        "Chrono connection attempt %d/%d failed, retrying in %.1fs",
                         attempt + 1, max_retries, delay,
                     )
                     time.sleep(delay)
 
-        raise FreeCADConnectionError(
-            f"Failed to connect after {max_retries} attempts. "
-            "Please start FreeCAD with the SolidMind addon loaded."
+        raise ChronoConnectionError(
+            f"Failed to connect to Chrono daemon after {max_retries} attempts. "
+            "Please start the chrono_daemon binary."
         ) from last_error
 
     def disconnect(self) -> None:
@@ -101,7 +102,7 @@ class FreeCADClient:
                 pass
             self._sock = None
             self._buffer = b""
-            logger.info("Disconnected from FreeCAD addon")
+            logger.info("Disconnected from Chrono daemon")
 
     def ping(self) -> bool:
         """Check if the connection is alive."""
@@ -119,35 +120,46 @@ class FreeCADClient:
     ) -> Any:
         """Send a command and return the result.
 
-        ``timeout`` controls the read timeout for this specific command.
-        It is NOT forwarded to the addon as an arg — it only affects how
-        long the client waits for a response.
-
-        Raises ``FreeCADCommandError`` if the command fails on the FreeCAD
-        side, or ``FreeCADConnectionError`` if the connection is lost.
+        Raises ``ChronoCommandError`` if the command fails on the Chrono side,
+        or ``ChronoConnectionError`` if the connection is lost.
         """
-        # Pop timeout from args if it leaked in from the caller kwargs
-        args.pop("timeout", None)
-
         self._ensure_connected()
         assert self._sock is not None
 
-        # Encode and send
         message = json.dumps({"cmd": cmd, "args": args}, separators=(",", ":")) + "\n"
         try:
             self._sock.sendall(message.encode("utf-8"))
         except (BrokenPipeError, ConnectionResetError, OSError) as e:
             self._sock = None
-            raise FreeCADConnectionError(f"Connection lost while sending: {e}") from e
+            raise ChronoConnectionError(f"Connection lost while sending: {e}") from e
 
-        # Read response
         response = self._read_response(timeout)
 
         if not response.get("ok", False):
             error_msg = response.get("error", "Unknown error")
-            raise FreeCADCommandError(error_msg)
+            raise ChronoCommandError(error_msg)
 
         return response.get("result")
+
+    def simulate(
+        self,
+        mechanism: dict[str, Any],
+        duration_s: float = 1.0,
+        dt_s: float = 0.001,
+        output_interval: float = 0.01,
+    ) -> dict[str, Any]:
+        """Run a dynamic simulation and return results.
+
+        This is a convenience wrapper around send_command("simulate", ...).
+        """
+        return self.send_command(
+            "simulate",
+            timeout=max(READ_TIMEOUT, duration_s * 100),  # Scale timeout with sim duration
+            mechanism=mechanism,
+            duration_s=duration_s,
+            dt_s=dt_s,
+            output_interval=output_interval,
+        )
 
     def _ensure_connected(self) -> None:
         """Ensure we have an active connection, reconnecting if needed."""
@@ -161,20 +173,20 @@ class FreeCADClient:
 
         while b"\n" not in self._buffer:
             try:
-                data = self._sock.recv(4096)
+                data = self._sock.recv(65536)  # Larger buffer for simulation results
             except socket.timeout as e:
-                raise FreeCADConnectionError(
-                    f"Timed out waiting for response ({timeout}s)"
+                raise ChronoConnectionError(
+                    f"Timed out waiting for Chrono response ({timeout}s)"
                 ) from e
             except (ConnectionResetError, OSError) as e:
                 self._sock = None
-                raise FreeCADConnectionError(
+                raise ChronoConnectionError(
                     f"Connection lost while reading: {e}"
                 ) from e
 
             if not data:
                 self._sock = None
-                raise FreeCADConnectionError("Connection closed by FreeCAD addon")
+                raise ChronoConnectionError("Connection closed by Chrono daemon")
 
             self._buffer += data
 
@@ -183,20 +195,29 @@ class FreeCADClient:
 
 
 # Module-level singleton
-_client: FreeCADClient | None = None
+_client: ChronoClient | None = None
 
 
-def get_client() -> FreeCADClient:
-    """Get or create the global FreeCAD client."""
-    global _client
+def get_client() -> ChronoClient | None:
+    """Get or create the global Chrono client.
+
+    Returns None if the daemon is not running (graceful degradation).
+    Unlike FreeCAD client, Chrono is optional — Tier 1 and 2 work without it.
+    """
+    global _client  # noqa: PLW0603
     if _client is None:
-        _client = FreeCADClient()
+        _client = ChronoClient()
+    try:
+        if not _client.is_connected:
+            _client.connect(timeout=2.0)
+    except ChronoConnectionError:
+        return None
     return _client
 
 
 def reset_client() -> None:
     """Disconnect and reset the global client."""
-    global _client
+    global _client  # noqa: PLW0603
     if _client is not None:
         _client.disconnect()
         _client = None

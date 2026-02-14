@@ -3,19 +3,62 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import sys
 from pathlib import Path
 from typing import Any
 
-from dotenv import load_dotenv
+try:
+    from dotenv import load_dotenv
+except ImportError:
+    def load_dotenv(*_args: Any, **_kwargs: Any) -> bool:
+        return False
 
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
+# Stderr handler — always present, keeps MCP host (Claude Code) informed
 logging.basicConfig(
     level=logging.DEBUG,
     format="%(asctime)s %(levelname)-5s %(name)s: %(message)s",
     stream=sys.stderr,
 )
+
+
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+_LOG_DIR = _PROJECT_ROOT / ".solidmind" / "logs"
+
+# Current document-specific file handler (swapped on cad.new_document)
+_doc_handler: logging.FileHandler | None = None
+
+
+def switch_document_log(doc_name: str) -> Path:
+    """Switch the file log handler to .solidmind/logs/<doc_name>/server.log.
+
+    Called from cad_new_document when a new part is created.
+    Returns the new log file path.
+    """
+    global _doc_handler  # noqa: PLW0603
+
+    log_dir = _LOG_DIR / doc_name
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_file = log_dir / "server.log"
+
+    root_logger = logging.getLogger()
+
+    # Remove previous document handler if any
+    if _doc_handler is not None:
+        root_logger.removeHandler(_doc_handler)
+        _doc_handler.close()
+
+    handler = logging.FileHandler(log_file, encoding="utf-8")
+    handler.setFormatter(logging.Formatter(
+        "%(asctime)s %(levelname)-5s %(name)s: %(message)s",
+    ))
+    root_logger.addHandler(handler)
+    _doc_handler = handler
+
+    logging.getLogger("mcp.serve").info("Document log: %s", log_file)
+    return log_file
 
 from server.jsonutil import dumps as json_dumps
 from server.jsonutil import loads as json_loads
@@ -58,6 +101,7 @@ from server.tools_cad import (
     cad_revolution,
     cad_screenshot,
     cad_set_camera,
+    cad_set_visibility,
     cad_sketch,
     cad_sweep,
     cad_undo,
@@ -96,6 +140,17 @@ from server.tools_study import (
     study_results,
     study_run,
     study_status,
+)
+from server.tools_motion import (
+    motion_check_gear_train,
+    motion_check_interference,
+    motion_create_assembly,
+    motion_define_mechanism,
+    motion_drive_joint,
+    motion_list_mechanisms,
+    motion_propagate_motion,
+    motion_simulate,
+    motion_validate,
 )
 
 
@@ -343,9 +398,12 @@ def _cad_tool_list() -> list[dict[str, Any]]:
                         "default": "Dimension",
                     },
                     "reversed": {
-                        "type": "boolean",
-                        "default": False,
-                        "description": "Reverse pocket direction",
+                        "default": "auto",
+                        "description": (
+                            "Pocket direction. 'auto' (default) resolves deterministically "
+                            "from sketch plane and body geometry — no guessing needed. "
+                            "Set true/false to override."
+                        ),
                     },
                     "verify": _VERIFY_PROP,
                     "doc": {"type": "string", "description": "Document name (optional)"},
@@ -787,6 +845,28 @@ def _cad_tool_list() -> list[dict[str, Any]]:
                     "path": {"type": "string", "description": "Output file path (optional, auto-generated if omitted)"},
                     "doc": {"type": "string", "description": "Document name (optional)"},
                 },
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "cad.set_visibility",
+            "description": "Show or hide objects in the FreeCAD viewport by name.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "objects": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Object names to show/hide",
+                    },
+                    "visible": {
+                        "type": "boolean",
+                        "default": True,
+                        "description": "True to show, False to hide",
+                    },
+                    "doc": {"type": "string", "description": "Document name (optional)"},
+                },
+                "required": ["objects"],
                 "additionalProperties": False,
             },
         },
@@ -1419,6 +1499,173 @@ def _study_tool_list() -> list[dict[str, Any]]:
     ]
 
 
+def _motion_tool_list() -> list[dict[str, Any]]:
+    """Motion validation pipeline tools (Tier 1: analytical)."""
+    return [
+        {
+            "name": "motion.define_mechanism",
+            "description": (
+                "Define a mechanism for motion validation. Takes parts (nodes), "
+                "joints (edges), drives (input conditions), and expected_outputs. "
+                "Returns a mechanism_id handle for subsequent validation calls."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "mechanism": {
+                        "type": "object",
+                        "description": (
+                            "Mechanism definition with name, parts[], joints[], drives[], "
+                            "expected_outputs{}. Parts need id and is_ground. Joints need "
+                            "id, joint_type (revolute/gear_mesh/belt_chain/prismatic/cam/fixed/planar), "
+                            "parent_part, child_part. Gear meshes need gear_ratio or teeth_parent+teeth_child."
+                        ),
+                    },
+                },
+                "required": ["mechanism"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "motion.list_mechanisms",
+            "description": "List all stored mechanism definitions with summary info.",
+            "inputSchema": {"type": "object", "additionalProperties": False},
+        },
+        {
+            "name": "motion.validate",
+            "description": (
+                "Run analytical validators on a mechanism: gear ratio consistency, "
+                "speed propagation, torque balance, power conservation, DOF analysis, "
+                "Grashof criterion, expected output checks. Returns blockers, warnings, notes."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "mechanism_id": {"type": "string", "description": "Mechanism handle from motion.define_mechanism"},
+                    "validators": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": (
+                            "Optional list of validator names to run. If omitted, runs all. "
+                            "Available: gear_ratio_consistency, speed_propagation, torque_balance, "
+                            "power_conservation, dof_analysis, center_distance_check, "
+                            "planet_spacing_check, linkage_grashof, expected_output_check"
+                        ),
+                    },
+                },
+                "required": ["mechanism_id"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "motion.propagate_motion",
+            "description": (
+                "Compute speeds (RPM), torques (Nm), and power (W) at every part "
+                "via BFS propagation from driven joints. Returns per-part states and "
+                "overall efficiency."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "mechanism_id": {"type": "string", "description": "Mechanism handle"},
+                },
+                "required": ["mechanism_id"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "motion.check_gear_train",
+            "description": (
+                "Analyze the gear train: overall ratio, per-stage ratios, "
+                "approximate contact ratios. Works on gear_mesh and belt_chain joints."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "mechanism_id": {"type": "string", "description": "Mechanism handle"},
+                },
+                "required": ["mechanism_id"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "motion.create_assembly",
+            "description": (
+                "Create a FreeCAD Assembly from a mechanism definition (Tier 2). "
+                "Links each part's body into an assembly, adds joint constraints, "
+                "and solves. Requires FreeCAD with Assembly workbench."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "mechanism_id": {"type": "string", "description": "Mechanism handle from motion.define_mechanism"},
+                    "doc": {"type": "string", "description": "Document name (optional)"},
+                },
+                "required": ["mechanism_id"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "motion.drive_joint",
+            "description": (
+                "Drive a joint through a range of values for visual verification (Tier 2). "
+                "Captures screenshots at each step. For revolute joints, value is total "
+                "rotation in degrees. For prismatic, total translation in mm."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "mechanism_id": {"type": "string", "description": "Mechanism handle"},
+                    "joint_id": {"type": "string", "description": "Joint ID within the mechanism"},
+                    "value": {"type": "number", "description": "Total range to drive (degrees for revolute, mm for prismatic)"},
+                    "steps": {"type": "integer", "default": 10, "description": "Number of steps to divide the motion into"},
+                    "doc": {"type": "string", "description": "Document name (optional)"},
+                },
+                "required": ["mechanism_id", "joint_id", "value"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "motion.check_interference",
+            "description": (
+                "Check for collision between parts in the mechanism's assembly (Tier 2). "
+                "Uses BRepAlgoAPI_Common to detect overlapping volumes between all part pairs. "
+                "Returns clear=true if no collisions, or a list of colliding part pairs with overlap volume."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "mechanism_id": {"type": "string", "description": "Mechanism handle"},
+                    "doc": {"type": "string", "description": "Document name (optional)"},
+                },
+                "required": ["mechanism_id"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "motion.simulate",
+            "description": (
+                "Run dynamic simulation via Project Chrono daemon (Tier 3). "
+                "Requires chrono_daemon binary running on localhost:9877. "
+                "Returns time-series of positions/velocities, peak torques, "
+                "steady-state speeds, and overall efficiency. "
+                "Gracefully returns error if daemon is not running."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "mechanism_id": {"type": "string", "description": "Mechanism handle from motion.define_mechanism"},
+                    "duration_s": {"type": "number", "default": 1.0, "description": "Simulation duration in seconds"},
+                    "dt_s": {"type": "number", "default": 0.001, "description": "Time step in seconds"},
+                    "output_interval": {"type": "number", "default": 0.01, "description": "Output sampling interval in seconds"},
+                },
+                "required": ["mechanism_id"],
+                "additionalProperties": False,
+            },
+        },
+    ]
+
+
 def _tool_list() -> list[dict[str, Any]]:
     return (
         _cad_tool_list()
@@ -1428,6 +1675,7 @@ def _tool_list() -> list[dict[str, Any]]:
         + _knowledge_tool_list()
         + _geometry_tool_list()
         + _study_tool_list()
+        + _motion_tool_list()
     )
 
 
@@ -1463,6 +1711,7 @@ _CAD_DISPATCH: dict[str, Any] = {
     "cad.get_camera": cad_get_camera,
     "cad.undo": cad_undo,
     "cad.export": cad_export,
+    "cad.set_visibility": cad_set_visibility,
 }
 
 _MFG_DISPATCH: dict[str, Any] = {
@@ -1518,6 +1767,18 @@ _STUDY_DISPATCH: dict[str, Any] = {
     "study.get_variant": study_get_variant,
 }
 
+_MOTION_DISPATCH: dict[str, Any] = {
+    "motion.define_mechanism": motion_define_mechanism,
+    "motion.list_mechanisms": motion_list_mechanisms,
+    "motion.validate": motion_validate,
+    "motion.propagate_motion": motion_propagate_motion,
+    "motion.check_gear_train": motion_check_gear_train,
+    "motion.create_assembly": motion_create_assembly,
+    "motion.drive_joint": motion_drive_joint,
+    "motion.check_interference": motion_check_interference,
+    "motion.simulate": motion_simulate,
+}
+
 
 def _call_tool(name: str, arguments: dict[str, Any]) -> Any:
     handler = (
@@ -1528,6 +1789,7 @@ def _call_tool(name: str, arguments: dict[str, Any]) -> Any:
         or _KNOWLEDGE_DISPATCH.get(name)
         or _GEOMETRY_DISPATCH.get(name)
         or _STUDY_DISPATCH.get(name)
+        or _MOTION_DISPATCH.get(name)
     )
     if handler is None:
         raise KeyError(f"Unknown tool: {name}")
