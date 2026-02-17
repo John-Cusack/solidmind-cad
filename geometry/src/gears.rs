@@ -108,6 +108,8 @@ pub fn spur_gear_profile(
 
     let mut elements = Vec::new();
 
+    let needs_radial_lines = rf < rb;
+
     for i in 0..z {
         let tooth_angle = i as f64 * tooth_pitch;
 
@@ -169,18 +171,32 @@ pub fn spur_gear_profile(
             weights: None,
         });
 
-        // Root arc connecting this tooth's left root to next tooth's right root
-        let left_root = left_reversed.last().unwrap();
-        let left_root_angle = (left_root[1] - cy).atan2(left_root[0] - cx);
+        // Bridge from left involute base down to root circle (if needed)
+        let left_base = left_reversed.last().unwrap();
+        let left_base_angle = (left_base[1] - cy).atan2(left_base[0] - cx);
 
+        if needs_radial_lines {
+            let left_root_on_rf = [
+                cx + rf * left_base_angle.cos(),
+                cy + rf * left_base_angle.sin(),
+            ];
+            elements.push(SketchElement::Line {
+                x1: left_base[0],
+                y1: left_base[1],
+                x2: left_root_on_rf[0],
+                y2: left_root_on_rf[1],
+            });
+        }
+
+        // Root arc connecting this tooth's left root to next tooth's right root
         let next_tooth_angle = (i + 1) as f64 * tooth_pitch;
         let next_right_angle = next_tooth_angle - tooth_half_angle;
         let next_inv_start = involute_curve_points(rb, involute_start_r, involute_start_r, 1);
         let (nrx, nry) = rotate_point(next_inv_start[0][0], next_inv_start[0][1], next_right_angle);
-        let next_right_root_angle = (nry).atan2(nrx);
+        let next_right_base_angle = (nry).atan2(nrx);
 
-        let root_start = left_root_angle.to_degrees();
-        let mut root_end = next_right_root_angle.to_degrees();
+        let root_start = left_base_angle.to_degrees();
+        let mut root_end = next_right_base_angle.to_degrees();
         if root_end < root_start {
             root_end += 360.0;
         }
@@ -191,6 +207,23 @@ pub fn spur_gear_profile(
             start_angle: root_start,
             end_angle: root_end,
         });
+
+        // Bridge from root circle back up to next tooth's right involute base (if needed)
+        if needs_radial_lines {
+            let next_right_root_on_rf = [
+                cx + rf * next_right_base_angle.cos(),
+                cy + rf * next_right_base_angle.sin(),
+            ];
+            // Compute the actual involute start point at base radius
+            let next_inv_base = involute_curve_points(rb, involute_start_r, involute_start_r, 1);
+            let (next_bx, next_by) = rotate_point(next_inv_base[0][0], next_inv_base[0][1], next_right_angle);
+            elements.push(SketchElement::Line {
+                x1: next_right_root_on_rf[0],
+                y1: next_right_root_on_rf[1],
+                x2: cx + next_bx,
+                y2: cy + next_by,
+            });
+        }
     }
 
     SketchResult {
@@ -203,6 +236,10 @@ pub fn spur_gear_profile(
 ///
 /// This creates the profile of one tooth gap (the space between two teeth)
 /// that can be pocketed from a blank cylinder and then polar-patterned.
+///
+/// When the root circle is below the base circle (common for low tooth counts),
+/// radial line segments bridge the gap between the involute endpoints and the
+/// root arc, ensuring a fully closed wire suitable for FreeCAD pocket operations.
 pub fn single_tooth_slot(
     params: &GearParams,
     center: [f64; 2],
@@ -216,6 +253,7 @@ pub fn single_tooth_slot(
     let pa = params.pressure_angle_deg.to_radians();
 
     let involute_start_r = rf.max(rb);
+    let needs_radial_lines = rf < rb;
 
     let rp = params.pitch_diameter / 2.0;
     let inv_pa = involute_function(pa);
@@ -238,10 +276,6 @@ pub fn single_tooth_slot(
         })
         .collect();
 
-    // Root arc
-    let left_root = left_pts.last().unwrap();
-    let left_root_angle = (left_root[1] - cy).atan2(left_root[0] - cx);
-
     let right_angle_next = tooth_pitch - tooth_half_angle;
     let right_pts: Vec<[f64; 2]> = inv_pts
         .iter()
@@ -250,9 +284,6 @@ pub fn single_tooth_slot(
             [rx + cx, ry + cy]
         })
         .collect();
-
-    let right_root = &right_pts[0];
-    let right_root_angle = (right_root[1] - cy).atan2(right_root[0] - cx);
 
     // Tip arc (closing the slot at the outside)
     let left_tip = &left_pts[0];
@@ -264,20 +295,72 @@ pub fn single_tooth_slot(
 
     // Left flank (tip to root)
     elements.push(SketchElement::Spline {
-        points: left_pts,
+        points: left_pts.clone(),
         degree: 3,
         periodic: false,
         weights: None,
     });
 
-    // Root arc
-    elements.push(SketchElement::Arc {
-        cx,
-        cy,
-        r: rf,
-        start_angle: left_root_angle.to_degrees(),
-        end_angle: right_root_angle.to_degrees(),
-    });
+    if needs_radial_lines {
+        // Radial line from left involute base point down to root circle
+        let left_base = left_pts.last().unwrap();
+        let left_base_angle = (left_base[1] - cy).atan2(left_base[0] - cx);
+        let left_root_on_rf = [
+            cx + rf * left_base_angle.cos(),
+            cy + rf * left_base_angle.sin(),
+        ];
+        elements.push(SketchElement::Line {
+            x1: left_base[0],
+            y1: left_base[1],
+            x2: left_root_on_rf[0],
+            y2: left_root_on_rf[1],
+        });
+
+        // Root arc from left root point to right root point
+        let right_base = &right_pts[0];
+        let right_base_angle = (right_base[1] - cy).atan2(right_base[0] - cx);
+        let left_root_angle_deg = left_base_angle.to_degrees();
+        let mut right_root_angle_deg = right_base_angle.to_degrees();
+        if right_root_angle_deg < left_root_angle_deg {
+            right_root_angle_deg += 360.0;
+        }
+        elements.push(SketchElement::Arc {
+            cx,
+            cy,
+            r: rf,
+            start_angle: left_root_angle_deg,
+            end_angle: right_root_angle_deg,
+        });
+
+        // Radial line from root circle back up to right involute base point
+        let right_root_on_rf = [
+            cx + rf * right_base_angle.cos(),
+            cy + rf * right_base_angle.sin(),
+        ];
+        elements.push(SketchElement::Line {
+            x1: right_root_on_rf[0],
+            y1: right_root_on_rf[1],
+            x2: right_base[0],
+            y2: right_base[1],
+        });
+    } else {
+        // Root circle is at or above base circle — no gap, direct connection
+        let left_root = left_pts.last().unwrap();
+        let right_root = &right_pts[0];
+        let left_root_angle = (left_root[1] - cy).atan2(left_root[0] - cx);
+        let right_root_angle = (right_root[1] - cy).atan2(right_root[0] - cx);
+        let mut end_deg = right_root_angle.to_degrees();
+        if end_deg < left_root_angle.to_degrees() {
+            end_deg += 360.0;
+        }
+        elements.push(SketchElement::Arc {
+            cx,
+            cy,
+            r: rf,
+            start_angle: left_root_angle.to_degrees(),
+            end_angle: end_deg,
+        });
+    }
 
     // Right flank (root to tip)
     elements.push(SketchElement::Spline {
@@ -321,6 +404,8 @@ pub fn internal_gear_profile(
 
     let involute_start_r = ra.min(rf).max(rb);
     let involute_end_r = ra.max(rf);
+    // For internal gears, tip is inner. If rb > ra, involute doesn't reach tip circle.
+    let needs_radial_lines = ra < rb;
 
     let rp = params.pitch_diameter / 2.0;
     let inv_pa = involute_function(pa);
@@ -339,7 +424,7 @@ pub fn internal_gear_profile(
 
         let inv_pts = involute_curve_points(rb, involute_start_r, involute_end_r, num_involute_pts);
 
-        // Right flank
+        // Right flank (inner → outer, i.e. towards rf)
         let right_angle = tooth_center - slot_half_angle;
         let right_pts: Vec<[f64; 2]> = inv_pts
             .iter()
@@ -349,7 +434,7 @@ pub fn internal_gear_profile(
             })
             .collect();
 
-        // Left flank (mirrored)
+        // Left flank (mirrored, inner → outer)
         let left_angle = tooth_center + slot_half_angle;
         let left_pts: Vec<[f64; 2]> = inv_pts
             .iter()
@@ -360,21 +445,13 @@ pub fn internal_gear_profile(
             })
             .collect();
 
-        // Tip arc (inner, smaller radius) — from right to left
-        let right_inner = &right_pts[0];
-        let left_inner = &left_pts[0];
-        let right_inner_angle = (right_inner[1] - cy).atan2(right_inner[0] - cx);
-        let left_inner_angle = (left_inner[1] - cy).atan2(left_inner[0] - cx);
+        // For internal gears, the mirror flips angular ordering within a tooth:
+        //   left_outer has SMALLER angle than right_outer
+        //   right_inner has SMALLER angle than left_inner
+        // So CCW arcs go: left_outer → right_outer (root, same tooth)
+        //                  right_inner → next_left_inner (tip, cross-tooth)
 
-        elements.push(SketchElement::Arc {
-            cx,
-            cy,
-            r: ra,
-            start_angle: right_inner_angle.to_degrees(),
-            end_angle: left_inner_angle.to_degrees(),
-        });
-
-        // Left flank spline (inner to outer)
+        // 1. Left flank spline (inner → outer)
         elements.push(SketchElement::Spline {
             points: left_pts.clone(),
             degree: 3,
@@ -382,41 +459,89 @@ pub fn internal_gear_profile(
             weights: None,
         });
 
-        // Root arc (outer, larger radius) — from left to next right
+        // 2. Root arc (rf, same tooth): left_outer → right_outer (CCW, short way)
         let left_outer = left_pts.last().unwrap();
+        let right_outer = right_pts.last().unwrap();
         let left_outer_angle = (left_outer[1] - cy).atan2(left_outer[0] - cx);
+        let right_outer_angle = (right_outer[1] - cy).atan2(right_outer[0] - cx);
 
-        let next_tooth_center = (i + 1) as f64 * tooth_pitch;
-        let next_right_angle = next_tooth_center - slot_half_angle;
-        let next_start = involute_curve_points(rb, involute_start_r, involute_start_r, 1);
-        let (nrx, nry) = rotate_point(next_start[0][0], next_start[0][1], next_right_angle);
-        let next_right_inner_angle = nry.atan2(nrx);
-
-        // Right flank of current tooth (outer to inner, reversed)
-        let mut right_reversed = right_pts;
-        right_reversed.reverse();
-
-        let outer_start = left_outer_angle.to_degrees();
-        let mut outer_end = next_right_inner_angle.to_degrees();
-        if outer_end < outer_start {
-            outer_end += 360.0;
+        let root_start = left_outer_angle.to_degrees();
+        let mut root_end = right_outer_angle.to_degrees();
+        if root_end < root_start {
+            root_end += 360.0;
         }
         elements.push(SketchElement::Arc {
             cx,
             cy,
             r: rf,
-            start_angle: outer_start,
-            end_angle: outer_end,
+            start_angle: root_start,
+            end_angle: root_end,
         });
 
-        // Right flank spline (outer to inner) — only needed for first tooth display
-        // Actually for internal gears, we swap: right flank goes outer→inner
+        // 3. Right flank spline reversed (outer → inner)
+        let mut right_reversed = right_pts;
+        right_reversed.reverse();
         elements.push(SketchElement::Spline {
-            points: right_reversed,
+            points: right_reversed.clone(),
             degree: 3,
             periodic: false,
             weights: None,
         });
+
+        // Bridge from right involute inner end down to tip circle (if needed)
+        let right_inner = right_reversed.last().unwrap();
+        let right_inner_angle = (right_inner[1] - cy).atan2(right_inner[0] - cx);
+
+        if needs_radial_lines {
+            // 4. Radial line from right involute base (at rb) inward to tip circle (at ra)
+            let right_tip_on_ra = [
+                cx + ra * right_inner_angle.cos(),
+                cy + ra * right_inner_angle.sin(),
+            ];
+            elements.push(SketchElement::Line {
+                x1: right_inner[0],
+                y1: right_inner[1],
+                x2: right_tip_on_ra[0],
+                y2: right_tip_on_ra[1],
+            });
+        }
+
+        // 5. Tip arc (ra, cross-tooth): right_tip → next tooth's left_tip (CCW)
+        let tip_start_angle = right_inner_angle;
+
+        let next_tooth_center = (i + 1) as f64 * tooth_pitch;
+        let next_left_angle = next_tooth_center + slot_half_angle;
+        let next_inv_start = involute_curve_points(rb, involute_start_r, involute_start_r, 1);
+        let (nmx, nmy) = mirror_y(next_inv_start[0][0], next_inv_start[0][1]);
+        let (nlx, nly) = rotate_point(nmx, nmy, next_left_angle);
+        let next_left_inner_angle = (nly).atan2(nlx);
+
+        let tip_start = tip_start_angle.to_degrees();
+        let mut tip_end = next_left_inner_angle.to_degrees();
+        if tip_end < tip_start {
+            tip_end += 360.0;
+        }
+        elements.push(SketchElement::Arc {
+            cx,
+            cy,
+            r: ra,
+            start_angle: tip_start,
+            end_angle: tip_end,
+        });
+
+        // Bridge from tip circle back up to next tooth's left involute base (if needed)
+        if needs_radial_lines {
+            let next_left_tip_on_ra = [
+                cx + ra * next_left_inner_angle.cos(),
+                cy + ra * next_left_inner_angle.sin(),
+            ];
+            elements.push(SketchElement::Line {
+                x1: next_left_tip_on_ra[0],
+                y1: next_left_tip_on_ra[1],
+                x2: cx + nlx,
+                y2: cy + nly,
+            });
+        }
     }
 
     SketchResult {
@@ -471,8 +596,17 @@ mod tests {
     fn test_spur_gear_profile_element_count() {
         let p = default_params(12);
         let result = spur_gear_profile(&p, [0.0, 0.0], 20);
-        // 4 elements per tooth: right spline, tip arc, left spline, root arc
-        assert_eq!(result.elements.len(), 12 * 4);
+        // For 12T m=1: root_d=9.5, base_d=11.28 → rf < rb → needs radial lines
+        // 6 elements per tooth: right spline, tip arc, left spline, line down, root arc, line up
+        assert_eq!(result.elements.len(), 12 * 6);
+    }
+
+    #[test]
+    fn test_spur_gear_profile_element_count_high_teeth() {
+        // For z >= 42, root_d >= base_d, no radial lines needed → 4 per tooth
+        let p = compute_gear_params(1.0, 50, 20.0, 0.25, 0.0, 0.0);
+        let result = spur_gear_profile(&p, [0.0, 0.0], 20);
+        assert_eq!(result.elements.len(), 50 * 4);
     }
 
     #[test]
@@ -507,8 +641,80 @@ mod tests {
     fn test_single_tooth_slot_element_count() {
         let p = default_params(18);
         let result = single_tooth_slot(&p, [0.0, 0.0], 20);
-        // 4 elements: left spline, root arc, right spline, tip arc
+        // For 18T m=1: root_d=15.5, base_d=16.91 → rf < rb → needs radial lines
+        // 6 elements: left spline, line down, root arc, line up, right spline, tip arc
+        assert_eq!(result.elements.len(), 6);
+    }
+
+    #[test]
+    fn test_single_tooth_slot_element_count_high_teeth() {
+        // For z >= 42, no radial lines needed → 4 elements
+        let p = compute_gear_params(1.0, 50, 20.0, 0.25, 0.0, 0.0);
+        let result = single_tooth_slot(&p, [0.0, 0.0], 20);
         assert_eq!(result.elements.len(), 4);
+    }
+
+    /// Helper: get the endpoint of a sketch element (start or end).
+    fn element_endpoint(elem: &SketchElement, cx: f64, cy: f64, start: bool) -> [f64; 2] {
+        match elem {
+            SketchElement::Spline { points, .. } => {
+                if start { points[0] } else { *points.last().unwrap() }
+            }
+            SketchElement::Line { x1, y1, x2, y2 } => {
+                if start { [*x1, *y1] } else { [*x2, *y2] }
+            }
+            SketchElement::Arc { cx: acx, cy: acy, r, start_angle, end_angle, .. } => {
+                let a = if start { start_angle } else { end_angle };
+                let rad = a.to_radians();
+                [acx + r * rad.cos(), acy + r * rad.sin()]
+            }
+            SketchElement::Circle { .. } => [cx, cy],
+        }
+    }
+
+    #[test]
+    fn test_single_tooth_slot_closed_wire() {
+        // Test that the tooth slot forms a closed wire for various tooth counts
+        for teeth in [12, 16, 18, 20, 24, 30, 50] {
+            let p = compute_gear_params(2.0, teeth, 20.0, 0.25, 0.0, 0.0);
+            let result = single_tooth_slot(&p, [0.0, 0.0], 20);
+            let n = result.elements.len();
+            for i in 0..n {
+                let end_of_i = element_endpoint(&result.elements[i], 0.0, 0.0, false);
+                let start_of_next = element_endpoint(&result.elements[(i + 1) % n], 0.0, 0.0, true);
+                let gap = ((end_of_i[0] - start_of_next[0]).powi(2)
+                    + (end_of_i[1] - start_of_next[1]).powi(2))
+                .sqrt();
+                assert!(
+                    gap < 1e-6,
+                    "Gap of {:.6}mm between elements {} and {} for {}T gear (rf={:.3}, rb={:.3})",
+                    gap, i, (i + 1) % n, teeth,
+                    p.root_diameter / 2.0, p.base_diameter / 2.0,
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_spur_gear_profile_closed_wire() {
+        // Test that the full gear profile forms a closed wire
+        for teeth in [12, 16, 20, 50] {
+            let p = compute_gear_params(2.0, teeth, 20.0, 0.25, 0.0, 0.0);
+            let result = spur_gear_profile(&p, [0.0, 0.0], 20);
+            let n = result.elements.len();
+            for i in 0..n {
+                let end_of_i = element_endpoint(&result.elements[i], 0.0, 0.0, false);
+                let start_of_next = element_endpoint(&result.elements[(i + 1) % n], 0.0, 0.0, true);
+                let gap = ((end_of_i[0] - start_of_next[0]).powi(2)
+                    + (end_of_i[1] - start_of_next[1]).powi(2))
+                .sqrt();
+                assert!(
+                    gap < 1e-6,
+                    "Gap of {:.6}mm between elements {} and {} for {}T gear",
+                    gap, i, (i + 1) % n, teeth,
+                );
+            }
+        }
     }
 
     #[test]
@@ -521,10 +727,18 @@ mod tests {
 
     #[test]
     fn test_internal_gear_profile_element_count() {
+        // z=30 m=1: ra=14.0, rb=14.095 → rb > ra → needs radial lines → 6 per tooth
         let p = compute_internal_gear_params(1.0, 30, 20.0, 0.25, 0.0, 0.0);
         let result = internal_gear_profile(&p, [0.0, 0.0], 20);
-        // 4 elements per tooth
-        assert_eq!(result.elements.len(), 30 * 4);
+        assert_eq!(result.elements.len(), 30 * 6);
+    }
+
+    #[test]
+    fn test_internal_gear_profile_element_count_high_teeth() {
+        // z=40 m=1: ra=19.0, rb=18.79 → rb < ra → no radial lines → 4 per tooth
+        let p = compute_internal_gear_params(1.0, 40, 20.0, 0.25, 0.0, 0.0);
+        let result = internal_gear_profile(&p, [0.0, 0.0], 20);
+        assert_eq!(result.elements.len(), 40 * 4);
     }
 
     #[test]
@@ -549,6 +763,28 @@ mod tests {
                     (end_angle - start_angle) < 180.0,
                     "Arc span {} deg is too large (likely wrapped incorrectly)",
                     end_angle - start_angle
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_internal_gear_profile_closed_wire() {
+        // Test that the internal gear profile forms a closed wire
+        for teeth in [30, 40, 54, 57] {
+            let p = compute_internal_gear_params(1.25, teeth, 20.0, 0.25, 0.0, 0.0);
+            let result = internal_gear_profile(&p, [0.0, 0.0], 20);
+            let n = result.elements.len();
+            for i in 0..n {
+                let end_of_i = element_endpoint(&result.elements[i], 0.0, 0.0, false);
+                let start_of_next = element_endpoint(&result.elements[(i + 1) % n], 0.0, 0.0, true);
+                let gap = ((end_of_i[0] - start_of_next[0]).powi(2)
+                    + (end_of_i[1] - start_of_next[1]).powi(2))
+                .sqrt();
+                assert!(
+                    gap < 1e-6,
+                    "Gap of {:.6}mm between elements {} and {} for {}T internal gear",
+                    gap, i, (i + 1) % n, teeth,
                 );
             }
         }

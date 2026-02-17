@@ -61,8 +61,8 @@ class TestSpurGear(unittest.TestCase):
 
     def test_element_count(self):
         result = geom.spur_gear(1.0, 12)
-        # 4 elements per tooth: right spline, tip arc, left spline, root arc
-        self.assertEqual(len(result["elements"]), 12 * 4)
+        # For 12T m=1: rf < rb → 6 elements per tooth (with radial lines)
+        self.assertEqual(len(result["elements"]), 12 * 6)
 
     def test_elements_are_cad_sketch_dicts(self):
         result = geom.spur_gear(1.0, 18)
@@ -104,9 +104,10 @@ class TestSpurGear(unittest.TestCase):
 
 @unittest.skipUnless(HAS_GEOM, "solidmind_geometry not built")
 class TestToothSlot(unittest.TestCase):
-    def test_returns_four_elements(self):
+    def test_returns_correct_elements(self):
         result = geom.tooth_slot(1.0, 18)
-        self.assertEqual(len(result["elements"]), 4)
+        # For 18T m=1: rf < rb → 6 elements (with radial lines)
+        self.assertEqual(len(result["elements"]), 6)
 
     def test_has_build_hint(self):
         result = geom.tooth_slot(1.0, 18)
@@ -178,11 +179,12 @@ class TestMCPToolWrappers(unittest.TestCase):
         self.assertTrue(result["ok"])
         self.assertIn("geometry_ref", result)
         self.assertNotIn("elements", result)
-        self.assertEqual(result["element_count"], 18 * 4)
+        # For 18T m=1.25: rf < rb → 6 elements per tooth
+        self.assertEqual(result["element_count"], 18 * 6)
         # Verify ref resolves to actual elements
         elems = retrieve(result["geometry_ref"])
         self.assertIsNotNone(elems)
-        self.assertEqual(len(elems), 18 * 4)
+        self.assertEqual(len(elems), 18 * 6)
 
     def test_gear_params_tool(self):
         from server.tools_geometry import geometry_gear_params
@@ -225,10 +227,11 @@ class TestMCPToolWrappers(unittest.TestCase):
         self.assertTrue(result["ok"])
         self.assertIn("geometry_ref", result)
         self.assertNotIn("elements", result)
-        self.assertEqual(result["element_count"], 4)
+        # For 18T m=1: rf < rb → 6 elements (with radial lines)
+        self.assertEqual(result["element_count"], 6)
         elems = retrieve(result["geometry_ref"])
         self.assertIsNotNone(elems)
-        self.assertEqual(len(elems), 4)
+        self.assertEqual(len(elems), 6)
 
 
 if __name__ == "__main__":

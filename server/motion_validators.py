@@ -56,10 +56,42 @@ def _build_adjacency(mech: Mechanism) -> dict[str, list[tuple[str, Any]]]:
 def propagate_speeds(mech: Mechanism) -> dict[str, float]:
     """BFS from driven joints to compute RPM at every part.
 
+    For planetary gear sets (detected via ``detect_planetary_sets``), the
+    Willis equation is used instead of naive BFS propagation:
+      - carrier speed: ``w_carrier = w_sun / (1 + z_ring/z_sun)``  (ring fixed)
+      - planet speed:  ``w_planet = w_carrier - (z_sun/z_planet) * (w_sun - w_carrier)``
+
     Returns {part_id: rpm}.  Parts not reachable from a drive get rpm=0.
     """
+    from server.motion_planetary import detect_planetary_sets
+
     speeds: dict[str, float] = {}
     adj = _build_adjacency(mech)
+
+    # Detect planetary topology
+    planetary_sets = detect_planetary_sets(mech)
+    # Collect planet part IDs — they are derived via Willis, not BFS
+    planet_part_ids: set[str] = set()
+    # Map carrier/sun/ring to their planetary set for Willis computation
+    planetary_member_to_set: dict[str, Any] = {}
+    for ps in planetary_sets:
+        for pid in ps.planets:
+            planet_part_ids.add(pid)
+        for member_id in [ps.carrier, ps.sun, ps.ring]:
+            planetary_member_to_set[member_id] = ps
+
+    # Identify revolute joints within planetary sets (skip in normal BFS)
+    # Any revolute connecting two members of the same planetary set should
+    # be handled by Willis, not by speed inheritance.
+    planetary_revolute_pairs: set[tuple[str, str]] = set()
+    for ps in planetary_sets:
+        all_members = {ps.carrier, ps.sun, ps.ring} | set(ps.planets)
+        for j in mech.joints:
+            if j.joint_type != JointType.REVOLUTE:
+                continue
+            if j.parent_part in all_members and j.child_part in all_members:
+                planetary_revolute_pairs.add((j.parent_part, j.child_part))
+                planetary_revolute_pairs.add((j.child_part, j.parent_part))
 
     # Seed driven parts
     for drive in mech.drives:
@@ -71,15 +103,81 @@ def propagate_speeds(mech: Mechanism) -> dict[str, float]:
         # The drive applies to the parent part of the joint
         speeds[joint.parent_part] = drive.speed_rpm
 
-    # BFS
+    # Seed ground parts at 0 (if not already seeded by a drive).
+    # This is needed so Willis can use ground ring speed during BFS.
+    for part in mech.parts:
+        if part.is_ground and part.id not in speeds:
+            speeds[part.id] = 0.0
+
+    # BFS with Willis-aware propagation
     queue = list(speeds.keys())
     visited = set(speeds.keys())
+
+    def _try_willis(ps: Any) -> bool:
+        """Try to compute carrier/sun speeds via Willis if enough info is known.
+
+        Returns True if new speeds were derived and added to the queue.
+        """
+        derived = False
+        w_sun = speeds.get(ps.sun)
+        w_ring = speeds.get(ps.ring)
+        w_carrier = speeds.get(ps.carrier)
+
+        ratio = 1 + ps.teeth_ring / ps.teeth_sun  # e.g. 3.0
+
+        if w_sun is not None and w_ring is not None and w_carrier is None:
+            # Willis: w_carrier = (w_sun + (z_ring/z_sun) * w_ring) / (1 + z_ring/z_sun)
+            w_carrier = (w_sun + (ps.teeth_ring / ps.teeth_sun) * w_ring) / ratio
+            speeds[ps.carrier] = w_carrier
+            if ps.carrier not in visited:
+                visited.add(ps.carrier)
+                queue.append(ps.carrier)
+            derived = True
+
+        elif w_carrier is not None and w_ring is not None and w_sun is None:
+            w_sun = w_carrier * ratio - (ps.teeth_ring / ps.teeth_sun) * w_ring
+            speeds[ps.sun] = w_sun
+            if ps.sun not in visited:
+                visited.add(ps.sun)
+                queue.append(ps.sun)
+            derived = True
+
+        elif w_sun is not None and w_carrier is not None and w_ring is None:
+            w_ring = (w_carrier * ratio - w_sun) / (ps.teeth_ring / ps.teeth_sun)
+            speeds[ps.ring] = w_ring
+            if ps.ring not in visited:
+                visited.add(ps.ring)
+                queue.append(ps.ring)
+            derived = True
+
+        # Derive planet speeds if carrier and sun are both known
+        w_sun = speeds.get(ps.sun)
+        w_carrier = speeds.get(ps.carrier)
+        if w_sun is not None and w_carrier is not None:
+            teeth_ratio = ps.teeth_sun / ps.teeth_planet if ps.teeth_planet > 0 else 1.0
+            for pid in ps.planets:
+                if pid not in speeds:
+                    w_planet = w_carrier - teeth_ratio * (w_sun - w_carrier)
+                    speeds[pid] = w_planet
+                    visited.add(pid)
+                    derived = True
+
+        return derived
+
+    # Initial Willis pass for any planetary sets that already have enough seeds
+    for ps in planetary_sets:
+        _try_willis(ps)
+
     while queue:
         current = queue.pop(0)
         current_rpm = speeds[current]
         for neighbor, joint in adj.get(current, []):
             if neighbor in visited:
                 continue
+            # Skip planets in BFS — they are derived via Willis
+            if neighbor in planet_part_ids:
+                continue
+
             ratio = _effective_ratio(joint)
             if ratio is not None and joint.joint_type in (
                 JointType.GEAR_MESH, JointType.BELT_CHAIN,
@@ -93,8 +191,11 @@ def propagate_speeds(mech: Mechanism) -> dict[str, float]:
             elif joint.joint_type == JointType.FIXED:
                 neighbor_rpm = current_rpm
             elif joint.joint_type == JointType.REVOLUTE:
-                # Revolute joints don't enforce a speed relationship
-                # but for carriers/linked parts the speed is inherited
+                # Planetary carrier-planet revolutes are handled by Willis
+                pair = (current, neighbor)
+                if pair in planetary_revolute_pairs:
+                    continue
+                # Non-planetary revolutes: inherit speed (linked parts)
                 neighbor_rpm = current_rpm
             else:
                 neighbor_rpm = current_rpm
@@ -102,10 +203,21 @@ def propagate_speeds(mech: Mechanism) -> dict[str, float]:
             visited.add(neighbor)
             queue.append(neighbor)
 
+            # After setting a new speed, try Willis for any planetary set
+            # this neighbor belongs to
+            if neighbor in planetary_member_to_set:
+                _try_willis(planetary_member_to_set[neighbor])
+
+        # Also try Willis after processing each node (current might be a
+        # planetary member whose speed was just used)
+        if current in planetary_member_to_set:
+            _try_willis(planetary_member_to_set[current])
+
     # Parts with no drive path get 0
     for part in mech.parts:
         if part.id not in speeds and not part.is_ground:
             speeds[part.id] = 0.0
+    # Ground parts are always 0 (override any BFS-propagated values)
     for part in mech.parts:
         if part.is_ground:
             speeds[part.id] = 0.0

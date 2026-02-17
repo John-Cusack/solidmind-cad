@@ -1,4 +1,7 @@
 // simulator.h — Time-stepping loop and result collection for Chrono simulations.
+//
+// Handles both 1D shaft elements and 3D body elements.  The BuiltMechanism
+// struct may contain shafts, bodies, or both.
 
 #pragma once
 
@@ -17,11 +20,11 @@ namespace chrono_daemon {
 ///
 /// Returns JSON with:
 ///   {
-///     "time_series": [{"t": 0.0, "parts": {"sun": {"pos": [...], "rot": [...], "omega_rpm": ...}}}],
+///     "time_series": [{"t": 0.0, "parts": {"sun": {"omega_rpm": ...}}}],
 ///     "summary": {
 ///       "steady_state_speeds": {"sun": 1000, "carrier": 333.3},
-///       "peak_torques": {"sun": 5.2, "carrier": 15.1},
-///       "overall_efficiency": 0.97
+///       "peak_torques": {"sun_motor": 5.2},
+///       "efficiency_model": "none"
 ///     }
 ///   }
 inline json run_simulation(
@@ -33,11 +36,8 @@ inline json run_simulation(
     auto& sys = *mech.system;
     json time_series = json::array();
 
-    // Track peak values
     std::unordered_map<std::string, double> peak_torques;
     std::unordered_map<std::string, double> last_speeds;
-    double total_motor_power_in = 0.0;
-    int output_sample_count = 0;
 
     double next_output = 0.0;
     double t = 0.0;
@@ -46,18 +46,34 @@ inline json run_simulation(
         sys.DoStepDynamics(dt_s);
         t += dt_s;
 
-        // Collect output at intervals
         if (t >= next_output - dt_s * 0.01) {
             json step;
-            step["t"] = std::round(t * 10000.0) / 10000.0;  // Round to 0.1ms
+            step["t"] = std::round(t * 10000.0) / 10000.0;
             json parts_state;
 
+            // Collect shaft states (1D elements)
+            for (auto& [id, shaft] : mech.shafts) {
+                // GetPosDt() returns angular velocity in rad/s
+                double omega_rad_s = shaft->GetPosDt();
+                double rpm = omega_rad_s * 60.0 / (2.0 * M_PI);
+                double angle_rad = shaft->GetPos();
+
+                parts_state[id] = {
+                    {"pos", {0, 0, 0}},
+                    {"rot", {1, 0, 0, 0}},
+                    {"omega_rpm", std::round(rpm * 100.0) / 100.0},
+                    {"angle_rad", std::round(angle_rad * 1000.0) / 1000.0}
+                };
+
+                last_speeds[id] = rpm;
+            }
+
+            // Collect body states (3D elements)
             for (auto& [id, body] : mech.bodies) {
                 auto pos = body->GetPos();
                 auto rot = body->GetRot();
-                auto wvel = body->GetWvel_loc();
+                auto wvel = body->GetAngVelLocal();
 
-                // Angular velocity in RPM (about Z axis for planar mechanisms)
                 double omega_rad_s = wvel.z();
                 double rpm = omega_rad_s * 60.0 / (2.0 * M_PI);
 
@@ -70,22 +86,26 @@ inline json run_simulation(
                 last_speeds[id] = rpm;
             }
 
-            // Collect motor torques
-            for (auto& [joint_id, motor] : mech.motors) {
+            // Collect shaft motor torques
+            for (auto& [motor_id, motor] : mech.shaft_motors) {
+                double torque = motor->GetMotorLoad();
+                double abs_torque = std::abs(torque);
+                if (abs_torque > peak_torques[motor_id]) {
+                    peak_torques[motor_id] = abs_torque;
+                }
+            }
+
+            // Collect body motor torques
+            for (auto& [motor_id, motor] : mech.body_motors) {
                 double torque = motor->GetMotorTorque();
                 double abs_torque = std::abs(torque);
-                if (abs_torque > peak_torques[joint_id]) {
-                    peak_torques[joint_id] = abs_torque;
+                if (abs_torque > peak_torques[motor_id]) {
+                    peak_torques[motor_id] = abs_torque;
                 }
-
-                // Accumulate power for efficiency calculation
-                double omega = std::abs(motor->GetMotorRot_dt());
-                total_motor_power_in += std::abs(torque * omega) * output_interval;
             }
 
             step["parts"] = parts_state;
             time_series.push_back(step);
-            output_sample_count++;
             next_output += output_interval;
         }
     }
@@ -101,22 +121,16 @@ inline json run_simulation(
         peak_torques_json[id] = std::round(torque * 1000.0) / 1000.0;
     }
 
-    // Compute overall efficiency from motor power
-    double avg_motor_power = (output_sample_count > 0)
-        ? total_motor_power_in / (output_sample_count * output_interval)
-        : 0.0;
-
-    // Efficiency estimation: sum of output body kinetic energy rates vs input power
-    // For a simplified version, we use the gear mesh efficiencies from analytical model
-    double efficiency = 0.97;  // Default estimate — refined by comparing with analytical
+    int output_samples = static_cast<int>(time_series.size());
 
     json summary = {
         {"steady_state_speeds", steady_state_speeds},
         {"peak_torques", peak_torques_json},
-        {"overall_efficiency", efficiency},
+        {"efficiency_model", "none"},
+        {"efficiency_note", "1D shaft model — no friction losses modeled"},
         {"simulation_time_s", duration_s},
         {"time_steps", static_cast<int>(duration_s / dt_s)},
-        {"output_samples", output_sample_count}
+        {"output_samples", output_samples}
     };
 
     return {

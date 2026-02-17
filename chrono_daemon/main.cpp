@@ -58,16 +58,18 @@ static json handle_command(const json& msg) {
 
     if (cmd == "simulate") {
         try {
-            if (!args.contains("mechanism")) {
-                return error_response("Missing 'mechanism' in args");
+            if (!args.contains("mechanism") && !args.contains("simulation_spec")) {
+                return error_response("Missing 'mechanism' or 'simulation_spec' in args");
             }
 
             double duration_s = args.value("duration_s", 1.0);
             double dt_s = args.value("dt_s", 0.001);
             double output_interval = args.value("output_interval", 0.01);
 
-            // Build the Chrono system from the mechanism definition
-            auto built = build_mechanism(args["mechanism"]);
+            // Build Chrono system — new spec path or legacy mechanism path
+            auto built = args.contains("simulation_spec")
+                ? build_mechanism_from_spec(args["simulation_spec"])
+                : build_mechanism(args["mechanism"]);
 
             if (!built.warnings.empty()) {
                 // Log warnings but continue

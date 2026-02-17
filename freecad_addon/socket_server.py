@@ -150,16 +150,13 @@ class AddonSocketServer:
     def _start_main_thread_timer(self) -> None:
         """Set up a QTimer to process jobs on the main GUI thread."""
         try:
-            from PySide2.QtCore import QTimer  # type: ignore[import-untyped]
+            from freecad_addon.qt_compat import QTimer
         except ImportError:
-            try:
-                from PySide6.QtCore import QTimer  # type: ignore[import-untyped]
-            except ImportError:
-                _fc_log(
-                    "No PySide found — commands will run on background thread (unsafe)",
-                    error=True,
-                )
-                return
+            _fc_log(
+                "No PySide found — commands will run on background thread (unsafe)",
+                error=True,
+            )
+            return
 
         self._timer = QTimer()
         self._timer.setInterval(10)  # 10ms polling

@@ -4,6 +4,8 @@ Standalone C++ TCP server for multibody dynamics simulation via [Project Chrono]
 
 Mirrors the FreeCAD addon architecture: separate process, JSON protocol, TCP socket on `localhost:9877`.
 
+**This is entirely optional.** Tier 1 (analytical) and Tier 2 (kinematic) validation work without it.
+
 ## Prerequisites
 
 - GCC 11+ or Clang 14+
@@ -33,9 +35,33 @@ make
 
 ## Run
 
+The wrapper script sets up `LD_LIBRARY_PATH` automatically:
+
 ```bash
-./build/chrono_daemon              # Default: localhost:9877
-./build/chrono_daemon --port 9878  # Custom port
+# Set CHRONO_LIB_DIR if Chrono is not in /usr/local/lib
+export CHRONO_LIB_DIR=~/chrono/install/lib
+
+chrono_daemon/run.sh              # Default: localhost:9877
+chrono_daemon/run.sh --port 9878  # Custom port
+```
+
+Or run the binary directly:
+
+```bash
+LD_LIBRARY_PATH=/path/to/chrono/lib ./build/chrono_daemon
+```
+
+## Systemd User Service (optional)
+
+For auto-start on login:
+
+```bash
+# Edit chrono-daemon.service to set correct paths, then:
+chrono_daemon/install-service.sh
+
+systemctl --user start chrono-daemon    # start now
+systemctl --user enable chrono-daemon   # auto-start on login
+journalctl --user -u chrono-daemon -f   # view logs
 ```
 
 ## Protocol

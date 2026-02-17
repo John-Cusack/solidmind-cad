@@ -706,3 +706,71 @@ def cad_set_visibility(
         kwargs["doc"] = doc
     result = client.send_command("set_visibility", **kwargs)
     return {"ok": True, **result}
+
+
+@_wrap
+def cad_set_placement(
+    object_name: str,
+    position: list[float] | None = None,
+    rotation_axis: list[float] | None = None,
+    rotation_angle_deg: float = 0.0,
+    doc: str | None = None,
+) -> dict[str, Any]:
+    """Set the Placement of any FreeCAD object (body, link, etc.)."""
+    client = get_client()
+    kwargs: dict[str, Any] = {"object_name": object_name}
+    if position is not None:
+        kwargs["position"] = position
+    if rotation_axis is not None:
+        kwargs["rotation_axis"] = rotation_axis
+    kwargs["rotation_angle_deg"] = rotation_angle_deg
+    if doc is not None:
+        kwargs["doc"] = doc
+    result = client.send_command("set_placement", **kwargs)
+    return {"ok": True, **result}
+
+
+@_wrap
+def cad_delete_objects(names: list[str], doc: str | None = None) -> dict[str, Any]:
+    """Delete objects from the FreeCAD document by name."""
+    client = get_client()
+    kwargs: dict[str, Any] = {"names": names}
+    if doc is not None:
+        kwargs["doc"] = doc
+    result = client.send_command("delete_objects", **kwargs)
+    return {"ok": True, **result}
+
+
+@_wrap
+def cad_animate(
+    frames: list[dict[str, Any]],
+    duration_s: float = 10.0,
+    fps: int = 30,
+    assembly: str | None = None,
+    doc: str | None = None,
+) -> dict[str, Any]:
+    """Play a looping animation of placement frames in FreeCAD."""
+    client = get_client()
+    kwargs: dict[str, Any] = {"frames": frames, "duration_s": duration_s, "fps": fps}
+    if assembly is not None:
+        kwargs["assembly"] = assembly
+    if doc is not None:
+        kwargs["doc"] = doc
+    result = client.send_command("assembly_animate", **kwargs)
+    return {"ok": True, **result}
+
+
+@_wrap
+def cad_animate_stop() -> dict[str, Any]:
+    """Stop any running animation."""
+    client = get_client()
+    result = client.send_command("assembly_animate_stop")
+    return {"ok": True, **result}
+
+
+@_wrap
+def cad_freecad_info() -> dict[str, Any]:
+    """Get FreeCAD runtime environment information (version, modules, workbenches)."""
+    client = get_client()
+    result = client.send_command("freecad_info")
+    return {"ok": True, **result}

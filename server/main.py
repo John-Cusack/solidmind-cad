@@ -77,12 +77,16 @@ from server.tools import (
     spec_validate,
 )
 from server.tools_cad import (
+    cad_animate,
+    cad_animate_stop,
     cad_chamfer,
     cad_define_selection,
+    cad_delete_objects,
     cad_delete_selection,
     cad_export,
     cad_fillet,
     cad_find_edges,
+    cad_freecad_info,
     cad_get_body_topology,
     cad_get_camera,
     cad_get_dimensions,
@@ -101,6 +105,7 @@ from server.tools_cad import (
     cad_revolution,
     cad_screenshot,
     cad_set_camera,
+    cad_set_placement,
     cad_set_visibility,
     cad_sketch,
     cad_sweep,
@@ -849,6 +854,47 @@ def _cad_tool_list() -> list[dict[str, Any]]:
             },
         },
         {
+            "name": "cad.delete_objects",
+            "description": "Delete objects from the FreeCAD document by name. Use to clean up stale assemblies, unused bodies, or failed features.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "names": {"type": "array", "items": {"type": "string"}, "description": "Object names to delete"},
+                    "doc": {"type": "string", "description": "Document name (optional)"},
+                },
+                "required": ["names"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "cad.set_placement",
+            "description": "Set the Placement of any FreeCAD object (body, link, etc.). Use to position objects with explicit translation and rotation.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "object_name": {"type": "string", "description": "Name of the FreeCAD object"},
+                    "position": {
+                        "type": "array",
+                        "items": {"type": "number"},
+                        "description": "Translation [x, y, z] in mm (optional, keeps current if omitted)",
+                    },
+                    "rotation_axis": {
+                        "type": "array",
+                        "items": {"type": "number"},
+                        "description": "Rotation axis [ax, ay, az] (default: [0,0,1])",
+                    },
+                    "rotation_angle_deg": {
+                        "type": "number",
+                        "default": 0.0,
+                        "description": "Rotation angle in degrees",
+                    },
+                    "doc": {"type": "string", "description": "Document name (optional)"},
+                },
+                "required": ["object_name"],
+                "additionalProperties": False,
+            },
+        },
+        {
             "name": "cad.set_visibility",
             "description": "Show or hide objects in the FreeCAD viewport by name.",
             "inputSchema": {
@@ -867,6 +913,65 @@ def _cad_tool_list() -> list[dict[str, Any]]:
                     "doc": {"type": "string", "description": "Document name (optional)"},
                 },
                 "required": ["objects"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "cad.animate",
+            "description": (
+                "Play a looping animation of placement frames in FreeCAD viewport. "
+                "Pass frames from motion.drive_joint step_positions or build custom frames. "
+                "Animation loops for duration_s seconds then auto-stops."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "frames": {
+                        "type": "array",
+                        "items": {"type": "object"},
+                        "description": (
+                            "List of placement dicts, one per frame. Each is "
+                            "{link_name: {position, rotation_axis, rotation_angle_deg}} "
+                            "or {link_name: {angle_deg, axis, center}}."
+                        ),
+                    },
+                    "duration_s": {
+                        "type": "number",
+                        "default": 10.0,
+                        "description": "Total animation duration in seconds",
+                    },
+                    "fps": {
+                        "type": "integer",
+                        "default": 30,
+                        "description": "Target frames per second",
+                    },
+                    "assembly": {
+                        "type": "string",
+                        "description": "Assembly name (optional, auto-detected if one exists)",
+                    },
+                    "doc": {"type": "string", "description": "Document name (optional)"},
+                },
+                "required": ["frames"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "cad.animate_stop",
+            "description": "Stop any running animation in FreeCAD viewport.",
+            "inputSchema": {
+                "type": "object",
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "cad.freecad_info",
+            "description": (
+                "Get FreeCAD runtime environment information: version, available workbenches, "
+                "module availability (Sketcher, Part, PartDesign, JointObject, UtilsAssembly), "
+                "and Qt backend. Use for diagnostics when operations fail."
+            ),
+            "inputSchema": {
+                "type": "object",
                 "additionalProperties": False,
             },
         },
@@ -1395,7 +1500,7 @@ def _study_tool_list() -> list[dict[str, Any]]:
                     "solver": {
                         "type": "object",
                         "properties": {
-                            "solver_type": {"type": "string", "enum": ["mock", "bemt_xfoil", "openfoam"]},
+                            "solver_type": {"type": "string", "enum": ["mock", "bemt_xfoil", "openfoam", "chrono"]},
                             "params": {"type": "object"},
                             "timeout_s": {"type": "number"},
                         },
@@ -1710,8 +1815,13 @@ _CAD_DISPATCH: dict[str, Any] = {
     "cad.set_camera": cad_set_camera,
     "cad.get_camera": cad_get_camera,
     "cad.undo": cad_undo,
+    "cad.delete_objects": cad_delete_objects,
     "cad.export": cad_export,
+    "cad.set_placement": cad_set_placement,
     "cad.set_visibility": cad_set_visibility,
+    "cad.animate": cad_animate,
+    "cad.animate_stop": cad_animate_stop,
+    "cad.freecad_info": cad_freecad_info,
 }
 
 _MFG_DISPATCH: dict[str, Any] = {

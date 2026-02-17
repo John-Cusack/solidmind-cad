@@ -29,6 +29,7 @@ def _reload_submodules() -> None:
     import sys
 
     submodules = [
+        "freecad_addon.compat",
         "freecad_addon.commands",
         "freecad_addon.protocol",
         "freecad_addon.selection_observer",
@@ -65,6 +66,28 @@ def _setup_session_logging() -> Path:
     return session_dir
 
 
+def _run_health_check() -> None:
+    """Log FreeCAD version and probe critical modules at startup."""
+    try:
+        from freecad_addon.compat import IS_V1_PLUS, VERSION_TUPLE, probe_modules
+        logger.info(
+            "FreeCAD version: %d.%d (v1+: %s)",
+            VERSION_TUPLE[0], VERSION_TUPLE[1], IS_V1_PLUS,
+        )
+        modules = probe_modules()
+        for mod, available in modules.items():
+            status = "[OK]" if available else "[MISSING]"
+            logger.info("  Module %-20s %s", mod, status)
+        if not modules.get("JointObject", False) or not modules.get("UtilsAssembly", False):
+            logger.warning(
+                "Assembly workbench modules not available — "
+                "Tier 2 motion features (create_assembly, drive_joint, check_interference) won't work. "
+                "Tier 1 analytical validation still works."
+            )
+    except Exception as exc:
+        logger.warning("Health check failed: %s", exc)
+
+
 def start(host: str = "127.0.0.1", port: int = 9876) -> None:
     """Start the SolidMind addon (socket server + selection observer)."""
     global _started
@@ -77,6 +100,9 @@ def start(host: str = "127.0.0.1", port: int = 9876) -> None:
 
     # Reload submodules to pick up code changes (dev hot-reload)
     _reload_submodules()
+
+    # Run health check to log version and module availability
+    _run_health_check()
 
     from freecad_addon.selection_observer import get_observer
     from freecad_addon.socket_server import start_server
@@ -123,6 +149,7 @@ def restart(host: str = "127.0.0.1", port: int = 9876) -> None:
 
     # Reload all submodules + this package so every layer picks up changes
     for name in [
+        "freecad_addon.compat",
         "freecad_addon.commands",
         "freecad_addon.protocol",
         "freecad_addon.selection_observer",

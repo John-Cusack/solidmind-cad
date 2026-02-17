@@ -31,10 +31,12 @@ add_executable(chrono_daemon
 target_include_directories(chrono_daemon PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CHRONO_INCLUDE_DIRS}
+    ${CHRONO_PACKAGE_PREFIX_DIR}/include
 )
 
 target_link_libraries(chrono_daemon PRIVATE
     ${CHRONO_LIBRARIES}
+    ${CHRONO_TARGETS}
     nlohmann_json::nlohmann_json
 )
 

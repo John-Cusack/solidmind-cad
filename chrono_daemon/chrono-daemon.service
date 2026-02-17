@@ -1,0 +1,12 @@
+[Unit]
+Description=SolidMind Chrono Daemon (Tier 3 dynamic simulation)
+
+[Service]
+Type=simple
+ExecStart=%h/repos/solidmind-cad/chrono_daemon/run.sh
+Restart=on-failure
+RestartSec=2
+Environment=CHRONO_LIB_DIR=%h/chrono/install/lib
+
+[Install]
+WantedBy=default.target

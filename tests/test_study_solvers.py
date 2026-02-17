@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import patch
 
 from server.study_solvers import (
     BEMTXfoilSolver,
@@ -71,9 +72,40 @@ class TestBEMTXfoilSolver(unittest.TestCase):
 
 
 class TestOpenFOAMSolver(unittest.TestCase):
-    def test_not_available(self) -> None:
+    def test_available_true_when_dependencies_present(self) -> None:
         solver = OpenFOAMSolver()
-        self.assertFalse(solver.available())
+        with patch(
+            "server.study_solvers.shutil.which",
+            side_effect=lambda name: {
+                "simpleFoam": "/usr/bin/simpleFoam",
+                "FreeCADCmd": "/usr/bin/FreeCADCmd",
+            }.get(name),
+        ):
+            self.assertTrue(solver.available())
+
+    def test_available_false_when_openfoam_missing(self) -> None:
+        solver = OpenFOAMSolver()
+        with patch(
+            "server.study_solvers.shutil.which",
+            side_effect=lambda name: {
+                "simpleFoam": None,
+                "FreeCADCmd": "/usr/bin/FreeCADCmd",
+            }.get(name),
+        ):
+            self.assertFalse(solver.available())
+
+    def test_available_false_when_freecadcmd_missing(self) -> None:
+        solver = OpenFOAMSolver()
+        with patch(
+            "server.study_solvers.shutil.which",
+            side_effect=lambda name: {
+                "simpleFoam": "/usr/bin/simpleFoam",
+                "FreeCADCmd": None,
+                "freecadcmd": None,
+                "freecad-cmd": None,
+            }.get(name),
+        ):
+            self.assertFalse(solver.available())
 
     def test_estimate_scales_with_refinement(self) -> None:
         solver = OpenFOAMSolver()

@@ -85,7 +85,7 @@ def _planetary_3to1(
             teeth_child=planet_teeth,
             gear_ratio=sun_teeth / planet_teeth,
         ))
-        # Planet-to-ring mesh
+        # Planet-to-ring mesh (internal gear)
         joints.append(JointEdge(
             id=f"planet_ring_{i}",
             joint_type=JointType.GEAR_MESH,
@@ -94,6 +94,7 @@ def _planetary_3to1(
             teeth_parent=planet_teeth,
             teeth_child=ring_teeth,
             gear_ratio=planet_teeth / ring_teeth,
+            internal=True,
         ))
         # Planet on carrier (revolute)
         joints.append(JointEdge(
@@ -301,10 +302,133 @@ class TestPlanetaryMechanism(unittest.TestCase):
         # Ring is ground
         self.assertAlmostEqual(speeds["ring"], 0.0)
 
+    def test_propagate_speeds_planetary_willis(self):
+        """Verify Willis equation gives correct carrier and planet speeds.
+
+        For ring-fixed planetary: ratio = 1 + z_ring/z_sun = 1 + 36/18 = 3
+        Carrier speed = sun_speed / 3 = 1000 / 3 = 333.33 RPM
+        Planet speed = w_carrier - (z_sun/z_planet) * (w_sun - w_carrier)
+                     = 333.33 - (18/9) * (1000 - 333.33)
+                     = 333.33 - 2 * 666.67 = -1000 RPM
+        """
+        mech = _planetary_3to1(sun_teeth=18, planet_teeth=9, ring_teeth=36, input_rpm=1000)
+        speeds = propagate_speeds(mech)
+
+        # Sun at 1000 RPM
+        self.assertAlmostEqual(speeds["sun"], 1000.0)
+        # Ring is ground
+        self.assertAlmostEqual(speeds["ring"], 0.0)
+        # Carrier via Willis: 1000 / (1 + 36/18) = 333.33
+        self.assertAlmostEqual(speeds["carrier"], 1000.0 / 3.0, places=2)
+        # Planet via Willis: 333.33 - 2 * (1000 - 333.33) = -1000
+        for i in range(3):
+            self.assertAlmostEqual(speeds[f"planet_{i}"], -1000.0, places=2)
+
+    def test_propagate_speeds_planetary_different_ratio(self):
+        """Willis equation with different tooth counts: z_sun=20, z_planet=10, z_ring=40.
+
+        ratio = 1 + 40/20 = 3
+        carrier = 600 / 3 = 200 RPM
+        planet = 200 - (20/10)*(600-200) = 200 - 800 = -600 RPM
+        """
+        mech = _planetary_3to1(sun_teeth=20, planet_teeth=10, ring_teeth=40, input_rpm=600)
+        speeds = propagate_speeds(mech)
+
+        self.assertAlmostEqual(speeds["sun"], 600.0)
+        self.assertAlmostEqual(speeds["ring"], 0.0)
+        self.assertAlmostEqual(speeds["carrier"], 200.0, places=2)
+        for i in range(3):
+            self.assertAlmostEqual(speeds[f"planet_{i}"], -600.0, places=2)
+
     def test_planetary_gear_train(self):
         mech = _planetary_3to1()
         result = analyze_gear_train(mech)
         self.assertGreater(len(result["stages"]), 0)
+
+
+class TestSerializationNullSafety(unittest.TestCase):
+    """Regression tests: to_dict() must never emit None values (Issue #1)."""
+
+    def test_part_node_omits_none_fields(self):
+        d = PartNode(id="x").to_dict()
+        self.assertNotIn("mass_kg", d)
+        self.assertNotIn("inertia_kg_m2", d)
+        self.assertNotIn("body_name", d)
+        self.assertNotIn("mesh_path", d)
+
+    def test_joint_edge_omits_none_fields(self):
+        j = JointEdge(
+            id="j", joint_type=JointType.REVOLUTE,
+            parent_part="a", child_part="b",
+        )
+        d = j.to_dict()
+        self.assertNotIn("gear_ratio", d)
+        self.assertNotIn("teeth_parent", d)
+        self.assertNotIn("teeth_child", d)
+        self.assertNotIn("link_length_mm", d)
+
+    def test_drive_condition_omits_none_fields(self):
+        d = DriveCondition(joint_id="x").to_dict()
+        self.assertNotIn("speed_rpm", d)
+        self.assertNotIn("torque_nm", d)
+        self.assertNotIn("force_n", d)
+
+    def test_no_none_values_in_any_to_dict(self):
+        """No value in any to_dict() output should be None."""
+        part = PartNode(id="p")
+        joint = JointEdge(
+            id="j", joint_type=JointType.REVOLUTE,
+            parent_part="a", child_part="b",
+        )
+        drive = DriveCondition(joint_id="d")
+        for obj in (part, joint, drive):
+            d = obj.to_dict()
+            for k, v in d.items():
+                self.assertIsNotNone(v, f"{type(obj).__name__}.to_dict()['{k}'] is None")
+
+
+class TestInternalFieldSerialization(unittest.TestCase):
+    """Tests for the internal flag on gear mesh joints (Issue #3)."""
+
+    def test_internal_true_included(self):
+        j = JointEdge(
+            id="pr", joint_type=JointType.GEAR_MESH,
+            parent_part="planet", child_part="ring",
+            teeth_parent=9, teeth_child=36,
+            gear_ratio=0.25, internal=True,
+        )
+        d = j.to_dict()
+        self.assertTrue(d["internal"])
+
+    def test_internal_false_omitted(self):
+        j = JointEdge(
+            id="sp", joint_type=JointType.GEAR_MESH,
+            parent_part="sun", child_part="planet",
+            teeth_parent=18, teeth_child=9,
+            gear_ratio=2.0, internal=False,
+        )
+        d = j.to_dict()
+        self.assertNotIn("internal", d)
+
+    def test_internal_round_trips(self):
+        j = JointEdge(
+            id="pr", joint_type=JointType.GEAR_MESH,
+            parent_part="planet", child_part="ring",
+            teeth_parent=9, teeth_child=36,
+            gear_ratio=0.25, internal=True,
+        )
+        d = j.to_dict()
+        j2 = JointEdge.from_dict(d)
+        self.assertTrue(j2.internal)
+
+    def test_planetary_mechanism_has_internal_on_ring_joints(self):
+        mech = _planetary_3to1()
+        d = mech.to_dict()
+        ring_joints = [j for j in d["joints"] if "ring" in j["id"]]
+        self.assertGreater(len(ring_joints), 0)
+        for j in ring_joints:
+            self.assertTrue(j.get("internal", False),
+                            f"Joint {j['id']} missing internal=true")
 
 
 if __name__ == "__main__":

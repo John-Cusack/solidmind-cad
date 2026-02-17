@@ -9,8 +9,11 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 from server.tools_cad import (
+    cad_animate,
+    cad_animate_stop,
     cad_chamfer,
     cad_define_selection,
+    cad_delete_objects,
     cad_delete_selection,
     cad_export,
     cad_fillet,
@@ -920,6 +923,119 @@ class TestCadListSelections(unittest.TestCase):
         self.assertTrue(result["ok"])
         self.assertEqual(result["count"], 1)
         client.send_command.assert_called_once_with("list_selections")
+
+
+class TestCadDeleteObjects(unittest.TestCase):
+    @patch("server.tools_cad.get_client")
+    def test_delete_objects(self, mock_get: MagicMock) -> None:
+        client = _mock_client()
+        client.send_command.return_value = {"deleted": ["Assembly", "Assembly001"], "not_found": []}
+        mock_get.return_value = client
+
+        result = cad_delete_objects(names=["Assembly", "Assembly001"])
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["deleted"], ["Assembly", "Assembly001"])
+        self.assertEqual(result["not_found"], [])
+        client.send_command.assert_called_once_with("delete_objects", names=["Assembly", "Assembly001"])
+
+    @patch("server.tools_cad.get_client")
+    def test_delete_objects_with_not_found(self, mock_get: MagicMock) -> None:
+        client = _mock_client()
+        client.send_command.return_value = {"deleted": ["Body"], "not_found": ["NoSuch"]}
+        mock_get.return_value = client
+
+        result = cad_delete_objects(names=["Body", "NoSuch"])
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["deleted"], ["Body"])
+        self.assertEqual(result["not_found"], ["NoSuch"])
+
+    @patch("server.tools_cad.get_client")
+    def test_delete_objects_with_doc(self, mock_get: MagicMock) -> None:
+        client = _mock_client()
+        client.send_command.return_value = {"deleted": ["Obj1"], "not_found": []}
+        mock_get.return_value = client
+
+        result = cad_delete_objects(names=["Obj1"], doc="MyDoc")
+        self.assertTrue(result["ok"])
+        client.send_command.assert_called_once_with("delete_objects", names=["Obj1"], doc="MyDoc")
+
+
+class TestCadSetPlacement(unittest.TestCase):
+    @patch("server.tools_cad.get_client")
+    def test_set_placement_position_and_rotation(self, mock_get: MagicMock) -> None:
+        client = _mock_client()
+        client.send_command.return_value = {
+            "object": "Body_Sun",
+            "position": [10.0, 20.0, 0.0],
+            "rotation_angle_deg": 45.0,
+            "rotation_axis": [0.0, 0.0, 1.0],
+        }
+        mock_get.return_value = client
+
+        from server.tools_cad import cad_set_placement
+        result = cad_set_placement(
+            object_name="Body_Sun",
+            position=[10.0, 20.0, 0.0],
+            rotation_axis=[0.0, 0.0, 1.0],
+            rotation_angle_deg=45.0,
+        )
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["object"], "Body_Sun")
+        self.assertEqual(result["position"], [10.0, 20.0, 0.0])
+        client.send_command.assert_called_once_with(
+            "set_placement",
+            object_name="Body_Sun",
+            position=[10.0, 20.0, 0.0],
+            rotation_axis=[0.0, 0.0, 1.0],
+            rotation_angle_deg=45.0,
+        )
+
+    @patch("server.tools_cad.get_client")
+    def test_set_placement_minimal(self, mock_get: MagicMock) -> None:
+        client = _mock_client()
+        client.send_command.return_value = {
+            "object": "Body",
+            "position": [0.0, 0.0, 0.0],
+            "rotation_angle_deg": 0.0,
+            "rotation_axis": [0.0, 0.0, 1.0],
+        }
+        mock_get.return_value = client
+
+        from server.tools_cad import cad_set_placement
+        result = cad_set_placement(object_name="Body")
+        self.assertTrue(result["ok"])
+        client.send_command.assert_called_once_with(
+            "set_placement",
+            object_name="Body",
+            rotation_angle_deg=0.0,
+        )
+
+    @patch("server.tools_cad.get_client")
+    def test_set_placement_with_doc(self, mock_get: MagicMock) -> None:
+        client = _mock_client()
+        client.send_command.return_value = {
+            "object": "Link",
+            "position": [5.0, 0.0, 0.0],
+            "rotation_angle_deg": 90.0,
+            "rotation_axis": [0.0, 0.0, 1.0],
+        }
+        mock_get.return_value = client
+
+        from server.tools_cad import cad_set_placement
+        result = cad_set_placement(
+            object_name="Link",
+            position=[5.0, 0.0, 0.0],
+            rotation_angle_deg=90.0,
+            doc="MyDoc",
+        )
+        self.assertTrue(result["ok"])
+        client.send_command.assert_called_once_with(
+            "set_placement",
+            object_name="Link",
+            position=[5.0, 0.0, 0.0],
+            rotation_angle_deg=90.0,
+            doc="MyDoc",
+        )
 
 
 class TestCadDeleteSelection(unittest.TestCase):
@@ -1891,6 +2007,80 @@ class TestVerificationViewCount(unittest.TestCase):
         self.assertIn("face_map", text_data)
         self.assertIn("operation_summary", text_data)
         self.assertEqual(text_data["verification_views"], ["iso", "sketch-normal"])
+
+
+class TestCadAnimate(unittest.TestCase):
+    @patch("server.tools_cad.get_client")
+    def test_animate_sends_correct_command(self, mock_get: MagicMock) -> None:
+        client = _mock_client()
+        mock_get.return_value = client
+        client.send_command.return_value = {
+            "status": "started",
+            "assembly": "Assembly",
+            "frame_count": 2,
+            "duration_s": 5.0,
+            "fps": 30,
+        }
+
+        frames = [
+            {"Link_Sun": {"angle_deg": 0, "axis": [0, 0, 1], "center": [0, 0, 0]}},
+            {"Link_Sun": {"angle_deg": 10, "axis": [0, 0, 1], "center": [0, 0, 0]}},
+        ]
+        result = cad_animate(frames=frames, duration_s=5.0, fps=30)
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["status"], "started")
+        self.assertEqual(result["frame_count"], 2)
+        client.send_command.assert_called_once_with(
+            "assembly_animate",
+            frames=frames,
+            duration_s=5.0,
+            fps=30,
+        )
+
+    @patch("server.tools_cad.get_client")
+    def test_animate_with_assembly_and_doc(self, mock_get: MagicMock) -> None:
+        client = _mock_client()
+        mock_get.return_value = client
+        client.send_command.return_value = {
+            "status": "started",
+            "assembly": "MyAsm",
+            "frame_count": 1,
+            "duration_s": 10.0,
+            "fps": 60,
+        }
+
+        frames = [{"Link_A": {"position": [0, 0, 0], "rotation_axis": [0, 0, 1], "rotation_angle_deg": 0}}]
+        result = cad_animate(frames=frames, assembly="MyAsm", doc="Doc1", fps=60)
+
+        self.assertTrue(result["ok"])
+        client.send_command.assert_called_once_with(
+            "assembly_animate",
+            frames=frames,
+            duration_s=10.0,
+            fps=60,
+            assembly="MyAsm",
+            doc="Doc1",
+        )
+
+
+class TestCadAnimateStop(unittest.TestCase):
+    @patch("server.tools_cad.get_client")
+    def test_animate_stop_sends_correct_command(self, mock_get: MagicMock) -> None:
+        client = _mock_client()
+        mock_get.return_value = client
+        client.send_command.return_value = {
+            "status": "stopped",
+            "frames_played": 150,
+            "elapsed_s": 5.0,
+        }
+
+        result = cad_animate_stop()
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["status"], "stopped")
+        self.assertEqual(result["frames_played"], 150)
+        client.send_command.assert_called_once_with("assembly_animate_stop")
 
 
 class TestConnectionError(unittest.TestCase):

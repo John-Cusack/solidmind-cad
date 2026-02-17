@@ -1,122 +1,87 @@
 # SolidMind CAD
 
-FreeCAD-integrated MCP CAD co-pilot for turning plain-language ideas into real, buildable designs.
+FreeCAD-integrated MCP CAD co-pilot for turning plain-language ideas into buildable mechanical designs.
 
 ## Goal
 
-Make it possible for any person, not only CAD experts, to use CAD software to design real things.
+Make advanced CAD workflows accessible while keeping engineering logic deterministic, inspectable, and testable.
 
-## Design Philosophy
+## Runtime Surface (Current)
 
-1. Start from intent, not jargon.
-The system asks structured questions in plain language and translates answers into engineering-ready fields.
+The MCP server currently exposes **72 tools** across 8 families:
 
-2. Make the LLM mechanically grounded.
-It uses deterministic constraint validation, ME knowledge resources, and a source policy (`me_knowledge/standards_sources.yml`) to tie decisions to engineering context.
+| Family | Count | Module |
+|---|---:|---|
+| `cad.*` | 28 | `server/tools_cad.py` |
+| `mfg.*` | 3 | `server/tools_mfg.py` |
+| `spec.*` | 10 | `server/tools.py` |
+| `me.*` | 5 | `server/tools_me.py` |
+| `knowledge.*` | 5 | `server/tools_knowledge.py` |
+| `geometry.*` | 5 | `server/tools_geometry.py` |
+| `study.*` | 7 | `server/tools_study.py` |
+| `motion.*` | 9 | `server/tools_motion.py` |
 
-3. Convert ideas into explicit constraints.
-Before geometry, the system builds a concrete list of requirements: function, materials, dimensions, interfaces, tolerances, manufacturing constraints, and risks.
+## What It Supports
 
-4. Validate before building.
-The ME loop runs deterministic checks, creates traceability, and emits risk notices so unresolved issues are visible without hard blocking generation.
-
-5. Build to the constraints.
-For constrained workflows, the CAD flow executes `cad.*` operations after ME preflight; for fast iteration, live `cad.*` co-pilot operation is also available directly.
-
-## Design Process Flow
-
-```mermaid
-flowchart TD
-    A[User describes the part goal in plain language<br/>Why: start from intent, not CAD jargon] --> B{Choose workflow mode<br/>Why: balance speed vs engineering rigor}
-    B -->|Fast iteration| C[Build and adjust geometry live in CAD<br/>Why: immediate visual feedback speeds learning and design]
-    C --> D[Run manufacturability checks and prepare exports<br/>Why: confirm the part can actually be built and quoted]
-    B -->|Constraint-first| E[Ask guided intake questions<br/>Why: remove ambiguity before modeling]
-    E --> F[Capture requirements assumptions and unknowns<br/>Why: make decisions explicit and auditable]
-    F --> G[Match request to relevant engineering domain pattern<br/>Why: apply domain-specific thinking early]
-    G --> H[Create a structured constraint sheet<br/>Why: design against real limits like loads materials tolerances and process constraints]
-    H --> I[Validate constraints build traceability and assess risk<br/>Why: catch failures early and justify decisions]
-    I --> J{Are key unknowns or risks still present?<br/>Why: surface uncertainty while still allowing iteration}
-    J -->|Yes| K[Ask targeted follow-up questions and update constraints<br/>Why: close gaps instead of guessing]
-    K --> F
-    J -->|No| C
-    D --> L[Deliver final outputs<br/>Why: provide production-ready CAD files and vendor-facing summary]
-```
+1. Live FreeCAD co-pilot modeling (`cad.*`) including sketches, solids, selection stability, cameras/screenshots, and visibility controls.
+2. Manufacturing readiness and RFQ export (`mfg.*`).
+3. Deterministic spec interview/finalization and policy-driven geometry planning (`spec.*`).
+4. Deterministic ME preflight loop (`me.*`) with validators, traceability, and risk notices.
+5. Knowledge extraction/ingestion/search with graceful local fallback (`knowledge.*`).
+6. Parametric geometry generators (gears/involutes/planetary layouts) via handle-based transfer (`geometry.*`).
+7. Background parametric studies (`study.*`) with coarse/refined sweeps and solver adapters.
+8. Motion validation pipeline (`motion.*`) spanning analytical, kinematic, and dynamic tiers.
 
 ## Architecture At A Glance
 
 ```mermaid
 flowchart LR
-    U[User in FreeCAD plus MCP host] --> H[LLM host]
+    U[User in FreeCAD + MCP host] --> H[LLM host]
     H -->|JSON-RPC over stdio| S[Bridge server: server/main.py]
     S -->|TCP localhost:9876| F[FreeCAD addon]
-    F --> G[FreeCAD Python API operations]
+    F --> G[FreeCAD API operations]
+
+    S -->|subprocess| R[server.study_runner]
+    R --> V[Study solvers]
+
+    S -->|TCP localhost:9877 optional| C[Chrono daemon]
 ```
 
-## What It Supports
+Core modeling remains the two-process bridge (`server/main.py` <-> `freecad_addon`).
+`study.run` adds a background runner subprocess, and `motion.simulate` uses an optional Chrono sidecar daemon.
 
-1. Live CAD co-pilot in FreeCAD (`cad.*` tools) — pad, pocket, revolution, sweep, loft, helix, polar pattern, fillet, chamfer, hole, screenshot, and more.
-2. Manufacturing readiness and RFQ export (`mfg.*` tools).
-3. ME preflight design loop (`me.*` tools) with constraint validation, traceability, and risk gates.
-4. LLM-managed spec interview and finalization (`spec.*` tools).
+## Simulation Stack
 
-Current policy:
-- Coverage and ME risk outputs are notify-only by default.
-- Geometry generation continues while warnings/required actions are returned for review.
+- **Tier 1 (analytical)**: `motion.validate`, `motion.propagate_motion`, `motion.check_gear_train`.
+- **Tier 2 (kinematic in FreeCAD Assembly)**: `motion.create_assembly`, `motion.drive_joint`, `motion.check_interference`.
+- **Tier 3 (dynamic via Project Chrono)**: `motion.simulate` using `localhost:9877` with graceful error when unavailable.
+
+## LLM Interaction Contract
+
+- `spec.apply_answer` uses JSON-pointer addressing with deterministic ops: `set`, `append`, `remove`.
+- Bulk geometry is exchanged via **handles** (`geometry_ref`) rather than large arrays in model text.
+- `cad.sketch` resolves `geometry_ref` server-side and uses batched `sketch_populate` for one-recompute sketch creation.
+- Modeling responses include structured spatial feedback for reasoning and self-check:
+  - `face_map`
+  - `operation_summary`
+  - verification images/views
+  - `selection_drift` signals for topology-sensitive selectors
 
 ## Policy-Driven Planning (V1)
 
-The geometry pipeline now supports an opt-in policy layer between spec input and GIR/EIR generation.
-
-- Default mode: `legacy` (existing behavior).
-- New mode: `policy_v1` (process/archetype-aware planning).
-- V1 process scope: CNC + FDM.
-- V1 policy keys:
-  - `cnc_prismatic`
-  - `cnc_revolved`
-  - `fdm_prismatic`
-  - `fdm_thin_wall`
-
-In `policy_v1`, planning includes deterministic phase/checkpoint planning:
-- `BASE`
-- `INTERFACES`
-- `STRUCTURE`
-- `PATTERNS`
-- `FINISH`
-
-Planning-question budget notes:
-- Default budget is loaded from `feature_support/planning_policy.yml`.
-- The "max 2 questions" rule applies only to planning runs (not the full interview flow).
-
-## Spec Geometry Planning API Notes
-
-`spec.plan_geometry` now accepts optional `options`:
-
-```json
-{
-  "planning_mode": "legacy | policy_v1",
-  "strict_mode": false,
-  "question_budget_override": 2
-}
-```
-
-When `planning_mode=policy_v1`, additional output fields are returned:
-- `planning_plan`
-- `planning_plan_hash`
-- `policy_key`
-- `archetype`
-- `assumptions`
-- `question_budget`
-
-`spec.generate_cad` metadata now includes:
-- `planning_plan_hash`
-- `policy_key`
-- `checkpoint_summary`
-- `repair_recommendations_present`
+`spec.plan_geometry` supports `planning_mode=legacy|policy_v1` with process/archetype-aware planning and deterministic checkpoints (`BASE`, `INTERFACES`, `STRUCTURE`, `PATTERNS`, `FINISH`).
 
 ## Requirements
 
 - Python `>= 3.12`
-- FreeCAD (optional, required for live `cad.*` operations)
+- FreeCAD `>= 1.0` (required for live `cad.*` and Tier 2 motion; FreeCAD 0.21 is **not** supported)
+
+Optional/conditional components:
+
+- Chrono daemon binary (required for `motion.simulate` and `study` `chrono` solver runs)
+- OpenFOAM + `FreeCADCmd` (required for OpenFOAM study pipeline)
+- Rust toolchain + maturin build path for `solidmind_geometry` extension (if missing, `geometry.*` tools return availability errors)
+- LanceDB/Docling/embedding runtime for full knowledge store mode (tools degrade to local-note fallback when unavailable)
 
 ## Install
 
@@ -144,22 +109,10 @@ Replay a golden transcript:
 python3 scripts/replay_transcript.py tests/transcripts/cnc_L2.yml
 ```
 
-## ME Design Loop Quick Flow
-
-Typical sequence:
-
-1. `me.validate_constraints` — run deterministic validators over a constraint dict
-2. `me.build_traceability` — build requirement-to-evidence traceability matrix
-3. `me.apply_risk_gates` — assign risk class and signoff gates
-
-Or run all at once with `me.design_loop`.
-
-Use `me.list_validators` to discover available validators and what fields they read.
-
 ## Documentation
 
-- `ARCHITECTURE.md`: system architecture and protocol surface
-- `docs/adr/0001-runtime-module-contracts.md`: runtime module/source-of-truth contract
-- `SPEC_GUIDE.md`: spec structure and interview/finalization guidance
-- `schemas/planning_policy.schema.json`: planning policy contract
-- `schemas/planning_plan.schema.json`: planning artifact contract
+- `ARCHITECTURE.md`: architecture and protocol surface
+- `docs/adr/0001-runtime-module-contracts.md`: runtime source-of-truth contract
+- `SPEC_GUIDE.md`: spec interview/finalization guidance
+- `schemas/planning_policy.schema.json`: planning policy schema
+- `schemas/planning_plan.schema.json`: planning artifact schema

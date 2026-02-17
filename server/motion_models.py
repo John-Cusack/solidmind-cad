@@ -32,14 +32,16 @@ class PartNode:
     is_ground: bool = False
 
     def to_dict(self) -> dict[str, Any]:
-        return {
-            "id": self.id,
-            "body_name": self.body_name,
-            "mesh_path": self.mesh_path,
-            "mass_kg": self.mass_kg,
-            "inertia_kg_m2": self.inertia_kg_m2,
-            "is_ground": self.is_ground,
-        }
+        d: dict[str, Any] = {"id": self.id, "is_ground": self.is_ground}
+        if self.body_name is not None:
+            d["body_name"] = self.body_name
+        if self.mesh_path is not None:
+            d["mesh_path"] = self.mesh_path
+        if self.mass_kg is not None:
+            d["mass_kg"] = self.mass_kg
+        if self.inertia_kg_m2 is not None:
+            d["inertia_kg_m2"] = self.inertia_kg_m2
+        return d
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> PartNode:
@@ -67,6 +69,7 @@ class JointEdge:
     teeth_parent: int | None = None
     teeth_child: int | None = None
     mesh_efficiency: float = 1.0
+    internal: bool = False
     # Linkage parameters
     link_length_mm: float | None = None
     # Joint limits
@@ -76,23 +79,34 @@ class JointEdge:
     max_travel_mm: float | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        d: dict[str, Any] = {
             "id": self.id,
             "joint_type": self.joint_type.value,
             "parent_part": self.parent_part,
             "child_part": self.child_part,
             "axis": list(self.axis),
             "origin": list(self.origin),
-            "gear_ratio": self.gear_ratio,
-            "teeth_parent": self.teeth_parent,
-            "teeth_child": self.teeth_child,
             "mesh_efficiency": self.mesh_efficiency,
-            "link_length_mm": self.link_length_mm,
-            "min_angle_deg": self.min_angle_deg,
-            "max_angle_deg": self.max_angle_deg,
-            "min_travel_mm": self.min_travel_mm,
-            "max_travel_mm": self.max_travel_mm,
         }
+        if self.gear_ratio is not None:
+            d["gear_ratio"] = self.gear_ratio
+        if self.teeth_parent is not None:
+            d["teeth_parent"] = self.teeth_parent
+        if self.teeth_child is not None:
+            d["teeth_child"] = self.teeth_child
+        if self.internal:
+            d["internal"] = True
+        if self.link_length_mm is not None:
+            d["link_length_mm"] = self.link_length_mm
+        if self.min_angle_deg is not None:
+            d["min_angle_deg"] = self.min_angle_deg
+        if self.max_angle_deg is not None:
+            d["max_angle_deg"] = self.max_angle_deg
+        if self.min_travel_mm is not None:
+            d["min_travel_mm"] = self.min_travel_mm
+        if self.max_travel_mm is not None:
+            d["max_travel_mm"] = self.max_travel_mm
+        return d
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> JointEdge:
@@ -109,6 +123,7 @@ class JointEdge:
             teeth_parent=d.get("teeth_parent"),
             teeth_child=d.get("teeth_child"),
             mesh_efficiency=d.get("mesh_efficiency", 1.0),
+            internal=d.get("internal", False),
             link_length_mm=d.get("link_length_mm"),
             min_angle_deg=d.get("min_angle_deg"),
             max_angle_deg=d.get("max_angle_deg"),
@@ -124,14 +139,19 @@ class DriveCondition:
     speed_rpm: float | None = None
     torque_nm: float | None = None
     force_n: float | None = None
+    driven_part: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return {
-            "joint_id": self.joint_id,
-            "speed_rpm": self.speed_rpm,
-            "torque_nm": self.torque_nm,
-            "force_n": self.force_n,
-        }
+        d: dict[str, Any] = {"joint_id": self.joint_id}
+        if self.speed_rpm is not None:
+            d["speed_rpm"] = self.speed_rpm
+        if self.torque_nm is not None:
+            d["torque_nm"] = self.torque_nm
+        if self.force_n is not None:
+            d["force_n"] = self.force_n
+        if self.driven_part is not None:
+            d["driven_part"] = self.driven_part
+        return d
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> DriveCondition:
@@ -140,6 +160,7 @@ class DriveCondition:
             speed_rpm=d.get("speed_rpm"),
             torque_nm=d.get("torque_nm"),
             force_n=d.get("force_n"),
+            driven_part=d.get("driven_part"),
         )
 
 

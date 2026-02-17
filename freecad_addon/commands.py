@@ -21,6 +21,13 @@ import Part  # type: ignore[import-untyped]
 
 logger = logging.getLogger("solidmind.commands")
 
+
+def _set_sketch_support(sketch: Any, support: Any, map_mode: str = "FlatFace") -> None:
+    """Set sketch attachment support — delegates to compat layer."""
+    from freecad_addon.compat import set_sketch_support
+    set_sketch_support(sketch, support, map_mode)
+
+
 # FreeCADGui may not be available in headless mode (FreeCADCmd).
 try:
     import FreeCADGui  # type: ignore[import-untyped]
@@ -139,8 +146,7 @@ def new_sketch(
         # Face reference like "Face3" — must reference the tip feature, not
         # the Body, otherwise FreeCAD complains about DAG scope violations.
         tip = _get_tip(body_obj)
-        sketch.Support = [(tip, plane)]
-        sketch.MapMode = "FlatFace"
+        _set_sketch_support(sketch, [(tip, plane)])
 
     d.recompute()
     logger.info("new_sketch: created %s", sketch.Name)
@@ -741,8 +747,7 @@ def hole(
     # Create a sketch on the face
     sk = d.addObject("Sketcher::SketchObject", "HoleSketch")
     body_obj.addObject(sk)
-    sk.Support = [(body_obj, face)]
-    sk.MapMode = "FlatFace"
+    _set_sketch_support(sk, [(body_obj, face)])
 
     # Add a point at origin (center of face)
     sk.addGeometry(Part.Point(FreeCAD.Vector(0, 0, 0)))
@@ -1596,6 +1601,30 @@ def find_edges(
 # Screenshot & Camera
 # ---------------------------------------------------------------------------
 
+def _sb_vec3f(x: float, y: float, z: float) -> Any:
+    """Create an SbVec3f, coercing all args to Python float.
+
+    FreeCAD 1.0.2's pivy SWIG bindings can reject the 3-arg constructor
+    even with Python floats.  We try three strategies:
+    1. Array form  ``SbVec3f([fx, fy, fz])``  → ``float const [3]``
+    2. Three-arg   ``SbVec3f(fx, fy, fz)``    → ``float, float, float``
+    3. Default + setValue  (last resort)
+    """
+    from pivy.coin import SbVec3f  # type: ignore[import-untyped]
+    fx, fy, fz = float(x), float(y), float(z)
+    try:
+        return SbVec3f([fx, fy, fz])
+    except TypeError:
+        pass
+    try:
+        return SbVec3f(fx, fy, fz)
+    except TypeError:
+        pass
+    v = SbVec3f()
+    v.setValue(fx, fy, fz)
+    return v
+
+
 _PRESET_DIRECTIONS: dict[str, tuple[float, float, float]] = {
     "iso": (1.0, 1.0, 1.0),
     "front": (0.0, -1.0, 0.0),
@@ -1631,15 +1660,19 @@ def _capture_image(
     # Compute model center and bbox diagonal
     bbox = _model_bounding_box(doc)
     if target_point is None:
-        center = (
-            (bbox.XMin + bbox.XMax) / 2,
-            (bbox.YMin + bbox.YMax) / 2,
-            (bbox.ZMin + bbox.ZMax) / 2,
-        )
+        cx = float((bbox.XMin + bbox.XMax) / 2)
+        cy = float((bbox.YMin + bbox.YMax) / 2)
+        cz = float((bbox.ZMin + bbox.ZMax) / 2)
+        if not (math.isfinite(cx) and math.isfinite(cy) and math.isfinite(cz)):
+            cx, cy, cz = 0.0, 0.0, 0.0
+        center = (cx, cy, cz)
     else:
         center = target_point
 
     diagonal = bbox.DiagonalLength if bbox.DiagonalLength > 0 else 100.0
+    # Guard against Inf/NaN from degenerate bounding boxes
+    if not math.isfinite(diagonal) or diagonal > 1e10:
+        diagonal = 100.0
     cam_dist = diagonal * distance_mult
 
     # Normalize direction
@@ -1660,12 +1693,11 @@ def _capture_image(
 
     # Set camera via Coin3D
     try:
-        from pivy.coin import SbVec3f  # type: ignore[import-untyped]
         cam = view.getCameraNode()
-        cam.position.setValue(SbVec3f(cam_pos[0], cam_pos[1], cam_pos[2]))
-        cam.pointAt(SbVec3f(center[0], center[1], center[2]), SbVec3f(up[0], up[1], up[2]))
+        cam.position.setValue(_sb_vec3f(cam_pos[0], cam_pos[1], cam_pos[2]))
+        cam.pointAt(_sb_vec3f(center[0], center[1], center[2]), _sb_vec3f(up[0], up[1], up[2]))
         if near_clip is not None:
-            cam.nearDistance.setValue(near_clip)
+            cam.nearDistance.setValue(float(near_clip))
     except ImportError:
         # pivy not available — fall back to ViewFit
         FreeCADGui.SendMsgToActiveView("ViewFit")
@@ -1737,11 +1769,20 @@ def _capture_verification_views(
 
 
 def _model_bounding_box(doc: Any) -> Any:
-    """Get the combined bounding box of all shapes in the document."""
+    """Get the combined bounding box of all solid shapes in the document.
+
+    Skips infinite-extent helper objects (Origin axes/planes) whose
+    bounding-box diagonal exceeds a sanity threshold.
+    """
+    _MAX_DIAG = 1e10  # anything larger is an axis/plane/infinite helper
     combined = FreeCAD.BoundBox()
     for obj in doc.Objects:
-        if hasattr(obj, "Shape") and obj.Shape is not None and not obj.Shape.isNull():
-            combined.add(obj.Shape.BoundBox)
+        if not hasattr(obj, "Shape") or obj.Shape is None or obj.Shape.isNull():
+            continue
+        bb = obj.Shape.BoundBox
+        if bb.DiagonalLength > _MAX_DIAG or bb.XMin > bb.XMax:
+            continue
+        combined.add(bb)
     return combined
 
 
@@ -1802,9 +1843,9 @@ def _resolve_target(
 
 def _bbox_center(bb: Any) -> tuple[float, float, float]:
     return (
-        (bb.XMin + bb.XMax) / 2,
-        (bb.YMin + bb.YMax) / 2,
-        (bb.ZMin + bb.ZMax) / 2,
+        float((bb.XMin + bb.XMax) / 2),
+        float((bb.YMin + bb.YMax) / 2),
+        float((bb.ZMin + bb.ZMax) / 2),
     )
 
 
@@ -1869,21 +1910,20 @@ def set_camera(
         _process_qt_events()
 
     try:
-        from pivy.coin import SbVec3f  # type: ignore[import-untyped]
         cam = view.getCameraNode()
 
         if position is not None:
-            cam.position.setValue(SbVec3f(position[0], position[1], position[2]))
+            cam.position.setValue(_sb_vec3f(position[0], position[1], position[2]))
 
         if target is not None:
             up_vec = up if up else [0.0, 0.0, 1.0]
             cam.pointAt(
-                SbVec3f(target[0], target[1], target[2]),
-                SbVec3f(up_vec[0], up_vec[1], up_vec[2]),
+                _sb_vec3f(target[0], target[1], target[2]),
+                _sb_vec3f(up_vec[0], up_vec[1], up_vec[2]),
             )
 
         if near_clip is not None:
-            cam.nearDistance.setValue(near_clip)
+            cam.nearDistance.setValue(float(near_clip))
 
         # Read back camera state
         pos = cam.position.getValue()
@@ -2003,18 +2043,21 @@ def export_body(
 # Assembly (Tier 2 kinematic validation)
 # ---------------------------------------------------------------------------
 
-# FreeCAD joint type mapping from our JointType names to Assembly workbench types
-_JOINT_TYPE_MAP = {
-    "fixed": "Fixed",
-    "revolute": "Revolute",
-    "prismatic": "Slider",
-    "gear_mesh": "Gear",
-    "belt_chain": "Belt",
-    "cylindrical": "Cylindrical",
-    "ball": "Ball",
-    "distance": "Distance",
-    "rack_pinion": "RackPinion",
-    "screw": "Screw",
+# FreeCAD 1.0+ joint type indices (Assembly.JointObject.Joint constructor)
+_JOINT_TYPE_INDEX = {
+    "fixed": 0,
+    "revolute": 1,
+    "cylindrical": 2,
+    "prismatic": 3,
+    "ball": 4,
+    "distance": 5,
+    "parallel": 6,
+    "perpendicular": 7,
+    "angle": 8,
+    "rack_pinion": 9,
+    "screw": 10,
+    "gear_mesh": 11,
+    "belt_chain": 12,
 }
 
 
@@ -2026,6 +2069,9 @@ def assembly_create(
 
     Uses the Assembly workbench (FreeCAD 1.0+).
     """
+    from freecad_addon.compat import require_v1_plus
+    require_v1_plus("Assembly creation")
+
     d = _get_doc(doc)
 
     # Create an Assembly4 or built-in Assembly container
@@ -2049,13 +2095,18 @@ def assembly_add_part(
 
     placement: [x, y, z, roll_deg, pitch_deg, yaw_deg] — position + Euler angles.
     """
+    from freecad_addon.compat import require_v1_plus
+    require_v1_plus("Assembly add_part")
+
     d = _get_doc(doc)
     asm_obj = d.getObject(assembly)
     if asm_obj is None:
-        raise ValueError(f"Assembly '{assembly}' not found")
+        available = [o.Name for o in d.Objects if "Assembly" in o.TypeId]
+        raise ValueError(f"Assembly '{assembly}' not found. Available assemblies: {available}")
     body_obj = d.getObject(body)
     if body_obj is None:
-        raise ValueError(f"Body '{body}' not found")
+        available_bodies = [o.Name for o in d.Objects if o.TypeId == "PartDesign::Body"]
+        raise ValueError(f"Body '{body}' not found. Available bodies: {available_bodies}")
 
     # Link the body into the assembly
     link = asm_obj.newObject("App::Link", f"{body}_link")
@@ -2082,6 +2133,89 @@ def assembly_add_part(
     }
 
 
+def _resolve_joint_element(
+    link_obj: Any,
+    joint_type: str,
+    *,
+    origin: list[float] | None = None,
+    axis: list[float] | None = None,
+) -> str:
+    """Auto-resolve the best sub-element reference for a joint type.
+
+    For revolute/cylindrical/gear_mesh joints, finds a cylindrical face whose
+    axis aligns with *axis* (defaults to Z).  When no cylindrical face exists
+    (e.g. involute gear profiles with only BSpline surfaces), falls back to
+    circular edges whose normal aligns with *axis*.
+
+    *origin* is used to rank candidates by proximity — the closest match wins.
+    Falls back to ``"Face1"`` when nothing suitable is found.
+    """
+    import math
+
+    _CYLINDRICAL_TYPES = {"revolute", "cylindrical", "gear_mesh"}
+
+    if joint_type not in _CYLINDRICAL_TYPES:
+        return "Face1"
+
+    try:
+        # link_obj is an App::Link — follow to the real body shape
+        shape = link_obj.LinkedObject.Shape
+    except Exception:
+        return "Face1"
+
+    # Default axis/origin when not provided
+    ax = axis or [0.0, 0.0, 1.0]
+    org = origin or [0.0, 0.0, 0.0]
+
+    def _dot(a: Any, b: list[float]) -> float:
+        """Dot product between a FreeCAD Vector and a list."""
+        return a.x * b[0] + a.y * b[1] + a.z * b[2]
+
+    def _dist_to_origin(pt: Any) -> float:
+        """Euclidean distance from pt to org."""
+        return math.sqrt(
+            (pt.x - org[0]) ** 2 + (pt.y - org[1]) ** 2 + (pt.z - org[2]) ** 2
+        )
+
+    # --- Pass 1: cylindrical faces aligned with axis ---
+    cyl_candidates: list[tuple[float, str]] = []
+    for i, face in enumerate(shape.Faces, start=1):
+        surface = face.Surface
+        if surface.__class__.__name__ == "Cylinder":
+            try:
+                face_axis = surface.Axis
+                alignment = abs(_dot(face_axis, ax))
+                if alignment > 0.9:
+                    dist = _dist_to_origin(surface.Center)
+                    cyl_candidates.append((dist, f"Face{i}"))
+            except Exception:
+                pass
+
+    if cyl_candidates:
+        cyl_candidates.sort()  # closest to origin first
+        return cyl_candidates[0][1]
+
+    # --- Pass 2: circular edge fallback (gear bodies with no cylinders) ---
+    edge_candidates: list[tuple[float, str]] = []
+    for i, edge in enumerate(shape.Edges, start=1):
+        curve = edge.Curve
+        if curve.__class__.__name__ == "Circle":
+            try:
+                edge_axis = curve.Axis
+                alignment = abs(_dot(edge_axis, ax))
+                if alignment > 0.9:
+                    dist = _dist_to_origin(curve.Center)
+                    edge_candidates.append((dist, f"Edge{i}"))
+            except Exception:
+                pass
+
+    if edge_candidates:
+        edge_candidates.sort()  # closest to origin first
+        return edge_candidates[0][1]
+
+    return "Face1"
+
+
 def assembly_add_joint(
     assembly: str,
     joint_type: str,
@@ -2094,49 +2228,81 @@ def assembly_add_joint(
 ) -> dict[str, Any]:
     """Add a joint constraint between two parts in an assembly.
 
+    Uses the FreeCAD 1.0+ JointObject API (bare imports — Assembly workbench
+    adds src/Mod/Assembly/ to sys.path).
+
     joint_type: revolute, prismatic, fixed, gear_mesh, belt_chain, etc.
     part_a/part_b: link names in the assembly.
     element_a/element_b: sub-element references (e.g., 'Face1', 'Edge3').
     params: extra joint parameters (ratio for gear, etc.).
     """
+    from freecad_addon.compat import get_assembly_modules, require_v1_plus
+    require_v1_plus("Assembly joints")
+    JointObject, UtilsAssembly = get_assembly_modules()
+
     d = _get_doc(doc)
     asm_obj = d.getObject(assembly)
     if asm_obj is None:
-        raise ValueError(f"Assembly '{assembly}' not found")
+        available = [o.Name for o in d.Objects if "Assembly" in o.TypeId]
+        raise ValueError(f"Assembly '{assembly}' not found. Available assemblies: {available}")
 
-    fc_type = _JOINT_TYPE_MAP.get(joint_type, joint_type)
+    type_index = _JOINT_TYPE_INDEX.get(joint_type)
+    if type_index is None:
+        raise ValueError(
+            f"Unknown joint type '{joint_type}'. "
+            f"Valid types: {', '.join(_JOINT_TYPE_INDEX)}"
+        )
+
     joint_name = params.pop("name", f"Joint_{joint_type}")
 
-    # Create the joint object
-    joint = d.addObject("Assembly::JointObject", joint_name)
-    joint.JointType = fc_type
-
-    # Set references
-    link_a = d.getObject(part_a)
-    link_b = d.getObject(part_b)
+    from freecad_addon.compat import find_object
+    link_a = find_object(d, part_a)
+    link_b = find_object(d, part_b)
     if link_a is None:
-        raise ValueError(f"Part '{part_a}' not found in assembly")
+        available_links = [o.Name for o in d.Objects if "Link" in o.TypeId or "link" in o.Name.lower()]
+        raise ValueError(f"Part '{part_a}' not found in assembly. Available links: {available_links}")
     if link_b is None:
-        raise ValueError(f"Part '{part_b}' not found in assembly")
+        available_links = [o.Name for o in d.Objects if "Link" in o.TypeId or "link" in o.Name.lower()]
+        raise ValueError(f"Part '{part_b}' not found in assembly. Available links: {available_links}")
 
-    joint.Object1 = link_a
-    joint.Element1 = element_a
-    joint.Object2 = link_b
-    joint.Element2 = element_b
+    # Auto-resolve element references when set to "auto"
+    joint_origin = params.pop("joint_origin", None)
+    joint_axis = params.pop("joint_axis", None)
+    if element_a == "auto":
+        element_a = _resolve_joint_element(link_a, joint_type, origin=joint_origin, axis=joint_axis)
+    if element_b == "auto":
+        element_b = _resolve_joint_element(link_b, joint_type, origin=joint_origin, axis=joint_axis)
+
+    # Create joint via FreeCAD 1.0+ API
+    joint_group = UtilsAssembly.getJointGroup(asm_obj)
+    joint = joint_group.newObject("App::FeaturePython", joint_name)
+    JointObject.Joint(joint, type_index)
+
+    if FreeCADGui is not None:
+        try:
+            JointObject.ViewProviderJoint(joint.ViewObject)
+        except Exception:
+            pass  # headless or ViewProvider unavailable
+
+    # Set references using FreeCAD 1.0 Reference properties
+    joint.Reference1 = (link_a, [element_a])
+    joint.Reference2 = (link_b, [element_b])
 
     # Apply joint-specific parameters
-    if fc_type == "Gear" and "ratio" in params:
-        joint.Ratio = float(params["ratio"])
+    if joint_type == "gear_mesh" and "ratio" in params:
+        if hasattr(joint, "Ratio"):
+            joint.Ratio = float(params["ratio"])
+    if joint_type == "distance" and "distance" in params:
+        if hasattr(joint, "Distance"):
+            joint.Distance = float(params["distance"])
 
-    # Add joint to assembly's joint group
-    if hasattr(asm_obj, "addObject"):
-        asm_obj.addObject(joint)
-
+    joint_group.purgeTouched()
+    asm_obj.purgeTouched()
     d.recompute()
 
     return {
         "joint_name": joint.Name,
-        "joint_type": fc_type,
+        "joint_type": joint_type,
         "part_a": part_a,
         "element_a": element_a,
         "part_b": part_b,
@@ -2149,10 +2315,14 @@ def assembly_solve(
     doc: str | None = None,
 ) -> dict[str, Any]:
     """Solve the assembly constraints (run the Ondsel constraint solver)."""
+    from freecad_addon.compat import require_v1_plus
+    require_v1_plus("Assembly solve")
+
     d = _get_doc(doc)
     asm_obj = d.getObject(assembly)
     if asm_obj is None:
-        raise ValueError(f"Assembly '{assembly}' not found")
+        available = [o.Name for o in d.Objects if "Assembly" in o.TypeId]
+        raise ValueError(f"Assembly '{assembly}' not found. Available assemblies: {available}")
 
     # Trigger solver
     if hasattr(asm_obj, "solve"):
@@ -2188,14 +2358,28 @@ def assembly_drive_joint(
     For revolute joints, value is the total rotation in degrees.
     For prismatic joints, value is the total translation in mm.
     """
+    from freecad_addon.compat import find_joint_in_assembly, require_v1_plus
+    require_v1_plus("Assembly drive_joint")
+
     d = _get_doc(doc)
     asm_obj = d.getObject(assembly)
     if asm_obj is None:
-        raise ValueError(f"Assembly '{assembly}' not found")
+        available = [o.Name for o in d.Objects if "Assembly" in o.TypeId]
+        raise ValueError(f"Assembly '{assembly}' not found. Available assemblies: {available}")
 
-    joint_obj = d.getObject(joint)
+    joint_obj = find_joint_in_assembly(d, asm_obj, joint)
     if joint_obj is None:
-        raise ValueError(f"Joint '{joint}' not found")
+        # Build diagnostic list from the assembly's JointGroup children
+        available_joints: list[str] = []
+        if hasattr(asm_obj, "Group"):
+            for child in asm_obj.Group:
+                if hasattr(child, "Group"):
+                    for gchild in child.Group:
+                        available_joints.append(f"{gchild.Name} (Label={gchild.Label})")
+        raise ValueError(
+            f"Joint '{joint}' not found in assembly '{assembly}'. "
+            f"Joints in JointGroup: {available_joints}"
+        )
 
     step_positions: list[dict[str, Any]] = []
     screenshots: list[str] = []
@@ -2204,16 +2388,15 @@ def assembly_drive_joint(
         fraction = i / steps
         current_value = value * fraction
 
-        # Drive the joint by setting its offset
-        if hasattr(joint_obj, "Offset"):
+        # Drive the joint by setting its offset/angle (FreeCAD 1.0+)
+        if hasattr(joint_obj, "Angle"):
+            joint_obj.Angle = current_value
+        elif hasattr(joint_obj, "Distance"):
+            joint_obj.Distance = current_value
+        elif hasattr(joint_obj, "Offset"):
             joint_obj.Offset = current_value
-        elif hasattr(joint_obj, "Offset2"):
-            # FreeCAD Assembly joint driving via Offset2
-            joint_obj.Offset2 = FreeCAD.Placement(
-                FreeCAD.Vector(0, 0, 0),
-                FreeCAD.Rotation(FreeCAD.Vector(0, 0, 1), current_value),
-            )
 
+        asm_obj.solve()
         d.recompute()
 
         # Collect placement of all parts
@@ -2235,7 +2418,7 @@ def assembly_drive_joint(
             try:
                 view = FreeCADGui.ActiveDocument.ActiveView
                 img_path = str(Path(tempfile.gettempdir()) / f"drive_{joint}_{i:03d}.png")
-                view.saveImage(img_path, 512, 512, "White")
+                view.saveImage(img_path, 512, 512)
                 screenshots.append(img_path)
             except Exception:
                 pass
@@ -2258,10 +2441,14 @@ def assembly_check_interference(
 
     Uses BRepAlgoAPI_Common (Part.Shape.common) to detect overlapping volumes.
     """
+    from freecad_addon.compat import require_v1_plus
+    require_v1_plus("Assembly check_interference")
+
     d = _get_doc(doc)
     asm_obj = d.getObject(assembly)
     if asm_obj is None:
-        raise ValueError(f"Assembly '{assembly}' not found")
+        available = [o.Name for o in d.Objects if "Assembly" in o.TypeId]
+        raise ValueError(f"Assembly '{assembly}' not found. Available assemblies: {available}")
 
     # Collect all shapes from assembly links
     parts: list[tuple[str, Any]] = []
@@ -2302,15 +2489,255 @@ def assembly_check_interference(
     }
 
 
+def assembly_get_links(
+    assembly: str,
+    doc: str | None = None,
+) -> dict[str, Any]:
+    """Return ``{link_name: body_name}`` for every link in an assembly."""
+    d = _get_doc(doc)
+    asm_obj = d.getObject(assembly)
+    if asm_obj is None:
+        raise ValueError(f"Assembly '{assembly}' not found")
+
+    links: dict[str, str] = {}
+    for child in asm_obj.Group:
+        linked = getattr(child, "LinkedObject", None)
+        if linked is not None:
+            links[child.Name] = linked.Name
+    return {"assembly": assembly, "links": links}
+
+
+def _apply_placements(
+    assembly: str,
+    placements: dict[str, dict[str, Any]],
+    doc_name: str | None = None,
+) -> list[str]:
+    """Apply placement specs to assembly links. Returns list of applied link names.
+
+    Each entry in *placements* maps a link name to one of two formats:
+
+    **Legacy format** (rotation around a center)::
+
+        {
+            "angle_deg": float,      # rotation angle
+            "axis": [ax, ay, az],    # rotation axis (unit vector)
+            "center": [cx, cy, cz], # rotation center in mm
+        }
+
+    **Compound format** (explicit position + rotation)::
+
+        {
+            "position": [x, y, z],              # translation in mm
+            "rotation_axis": [ax, ay, az],       # rotation axis (unit vector)
+            "rotation_angle_deg": float,         # rotation angle
+        }
+
+    Detection: if ``"position"`` key is present, compound format is used.
+    """
+    d = _get_doc(doc_name)
+
+    applied: list[str] = []
+    for link_name, spec in placements.items():
+        link = d.getObject(link_name)
+        if link is None:
+            continue
+
+        if "position" in spec:
+            # Compound format: explicit position + rotation
+            pos = spec.get("position", [0.0, 0.0, 0.0])
+            rot_axis = spec.get("rotation_axis", [0.0, 0.0, 1.0])
+            rot_angle = spec.get("rotation_angle_deg", 0.0)
+            rot = FreeCAD.Rotation(FreeCAD.Vector(*rot_axis), rot_angle)
+            link.Placement = FreeCAD.Placement(FreeCAD.Vector(*pos), rot)
+        else:
+            # Legacy format: rotation around a center
+            angle_deg = spec.get("angle_deg", 0.0)
+            ax = spec.get("axis", [0.0, 0.0, 1.0])
+            center = spec.get("center", [0.0, 0.0, 0.0])
+
+            rot = FreeCAD.Rotation(FreeCAD.Vector(*ax), angle_deg)
+            center_vec = FreeCAD.Vector(*center)
+            # Rotation around an arbitrary center:
+            # new_pos = center + rot * (original_pos - center)
+            # For links starting at origin, original_pos = [0,0,0]:
+            new_base = center_vec - rot.multVec(center_vec)
+            link.Placement = FreeCAD.Placement(new_base, rot)
+
+        applied.append(link_name)
+
+    d.recompute()
+    return applied
+
+
+def assembly_set_placements(
+    assembly: str,
+    placements: dict[str, dict[str, Any]],
+    doc: str | None = None,
+    screenshot: bool = False,
+) -> dict[str, Any]:
+    """Set link placements directly (analytical animation, bypasses solver)."""
+    d = _get_doc(doc)
+    asm_obj = d.getObject(assembly)
+    if asm_obj is None:
+        available = [o.Name for o in d.Objects if "Assembly" in o.TypeId]
+        raise ValueError(f"Assembly '{assembly}' not found. Available assemblies: {available}")
+
+    applied = _apply_placements(assembly, placements, doc)
+
+    result: dict[str, Any] = {"assembly": assembly, "applied": applied}
+
+    if screenshot and FreeCADGui is not None:
+        _process_qt_events()
+        try:
+            view = FreeCADGui.ActiveDocument.ActiveView
+            img_path = str(Path(tempfile.gettempdir()) / f"animate_{assembly}.png")
+            view.saveImage(img_path, 512, 512)
+            result["screenshot"] = img_path
+        except Exception:
+            pass
+
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Animation engine (QTimer-based looping playback)
+# ---------------------------------------------------------------------------
+
+_active_animation: dict[str, Any] | None = None
+
+
+def _animation_tick() -> None:
+    """Called by QTimer on each frame. Apply the next frame's placements."""
+    import time
+
+    global _active_animation
+    state = _active_animation
+    if state is None:
+        return
+
+    elapsed = time.monotonic() - state["start_time"]
+    if elapsed >= state["duration_s"]:
+        _animation_stop_internal()
+        return
+
+    frames = state["frames"]
+    idx = state["frame_index"] % len(frames)
+    _apply_placements(state["assembly"], frames[idx], state["doc_name"])
+    _process_qt_events()
+    state["frame_index"] += 1
+
+
+def _animation_stop_internal() -> dict[str, Any]:
+    """Stop the running animation and return stats."""
+    import time
+
+    global _active_animation
+    state = _active_animation
+    if state is None:
+        return {"status": "no_animation_running"}
+
+    timer = state["timer"]
+    timer.stop()
+    elapsed = time.monotonic() - state["start_time"]
+    frames_played = state["frame_index"]
+    _active_animation = None
+    return {"status": "stopped", "frames_played": frames_played, "elapsed_s": round(elapsed, 2)}
+
+
+def assembly_animate(
+    assembly: str | None = None,
+    frames: list[dict[str, Any]] | None = None,
+    duration_s: float = 10.0,
+    fps: int = 30,
+    doc: str | None = None,
+) -> dict[str, Any]:
+    """Play a looping animation of placement frames in FreeCAD.
+
+    *frames* is a list of placement dicts (one per frame).  Each dict maps
+    object names (assembly links or standalone bodies) to placement specs
+    (same format as ``assembly_set_placements``).
+    The animation loops through the frames at *fps* for *duration_s* seconds,
+    then auto-stops.
+
+    When *assembly* is ``"__bodies__"`` or no assembly exists, objects are
+    resolved directly by name (no assembly required).
+    """
+    import time
+    from freecad_addon.qt_compat import QTimer
+
+    global _active_animation
+
+    if frames is None or len(frames) == 0:
+        raise ValueError("frames must be a non-empty list of placement dicts")
+
+    d = _get_doc(doc)
+
+    # Auto-detect or skip assembly lookup
+    if assembly == "__bodies__":
+        # Explicit opt-in: animate standalone bodies, no assembly needed
+        pass
+    elif assembly is None:
+        assemblies = [o.Name for o in d.Objects if "Assembly" in o.TypeId]
+        if len(assemblies) == 0:
+            # No assembly — animate bodies directly
+            assembly = "__bodies__"
+        else:
+            assembly = assemblies[0]
+    else:
+        asm_obj = d.getObject(assembly)
+        if asm_obj is None:
+            available = [o.Name for o in d.Objects if "Assembly" in o.TypeId]
+            raise ValueError(f"Assembly '{assembly}' not found. Available: {available}")
+
+    # Stop any running animation first
+    if _active_animation is not None:
+        _animation_stop_internal()
+
+    timer = QTimer()
+    interval_ms = max(1, 1000 // fps)
+    timer.setInterval(interval_ms)
+    timer.timeout.connect(_animation_tick)
+
+    _active_animation = {
+        "assembly": assembly,
+        "frames": frames,
+        "doc_name": doc,
+        "duration_s": duration_s,
+        "fps": fps,
+        "timer": timer,
+        "frame_index": 0,
+        "start_time": time.monotonic(),
+    }
+
+    timer.start()
+
+    return {
+        "status": "started",
+        "assembly": assembly,
+        "frame_count": len(frames),
+        "duration_s": duration_s,
+        "fps": fps,
+    }
+
+
+def assembly_animate_stop() -> dict[str, Any]:
+    """Stop any running animation."""
+    return _animation_stop_internal()
+
+
 def assembly_get_placements(
     assembly: str,
     doc: str | None = None,
 ) -> dict[str, Any]:
     """Get current placements of all parts in an assembly."""
+    from freecad_addon.compat import require_v1_plus
+    require_v1_plus("Assembly get_placements")
+
     d = _get_doc(doc)
     asm_obj = d.getObject(assembly)
     if asm_obj is None:
-        raise ValueError(f"Assembly '{assembly}' not found")
+        available = [o.Name for o in d.Objects if "Assembly" in o.TypeId]
+        raise ValueError(f"Assembly '{assembly}' not found. Available assemblies: {available}")
 
     placements: dict[str, dict[str, Any]] = {}
     for obj in asm_obj.Group if hasattr(asm_obj, "Group") else []:
@@ -2334,10 +2761,7 @@ def assembly_get_placements(
 
 def _process_qt_events() -> None:
     """Flush pending Qt events so viewport redraws complete."""
-    try:
-        from PySide2.QtWidgets import QApplication  # type: ignore[import-untyped]
-    except ImportError:
-        from PySide6.QtWidgets import QApplication  # type: ignore[import-untyped]
+    from freecad_addon.qt_compat import QApplication
     QApplication.processEvents()
 
 
@@ -2798,16 +3222,21 @@ def _vec_to_list(vec: Any) -> list[float]:
     return [vec.x, vec.y, vec.z]
 
 
-def set_visibility(args: dict[str, Any]) -> dict[str, Any]:
+def set_visibility(
+    objects: list[str] | None = None,
+    visible: bool = True,
+    doc: str | None = None,
+    **_kwargs: Any,
+) -> dict[str, Any]:
     """Show or hide objects by name."""
-    import FreeCADGui  # type: ignore
-
-    doc = _get_doc(args)
-    objects = args.get("objects", [])
-    visible = args.get("visible", True)
+    d = _get_doc(doc)
+    if objects is None:
+        objects = []
+    if FreeCADGui is None:
+        return {"ok": True, "changed": [], "visible": visible}
     changed: list[str] = []
     for name in objects:
-        obj = doc.getObject(name)
+        obj = d.getObject(name)
         if obj is None:
             continue
         gui_obj = FreeCADGui.ActiveDocument.getObject(name)
@@ -2820,6 +3249,77 @@ def set_visibility(args: dict[str, Any]) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 # Command registry — maps cmd strings to handler functions
 # ---------------------------------------------------------------------------
+
+def freecad_info() -> dict[str, Any]:
+    """Return FreeCAD runtime environment information for diagnostics."""
+    from freecad_addon.compat import freecad_info as _freecad_info
+    return _freecad_info()
+
+
+def delete_objects(
+    names: list[str],
+    doc: str | None = None,
+) -> dict[str, Any]:
+    """Delete objects from the document by name."""
+    d = _get_doc(doc)
+    deleted: list[str] = []
+    not_found: list[str] = []
+    for name in names:
+        obj = d.getObject(name)
+        if obj is not None:
+            d.removeObject(name)
+            deleted.append(name)
+        else:
+            not_found.append(name)
+    d.recompute()
+    return {"deleted": deleted, "not_found": not_found}
+
+
+def set_placement(
+    object_name: str,
+    position: list[float] | None = None,
+    rotation_axis: list[float] | None = None,
+    rotation_angle_deg: float = 0.0,
+    doc: str | None = None,
+) -> dict[str, Any]:
+    """Set the Placement of any FreeCAD object (body, link, etc.).
+
+    Parameters:
+        object_name: Name of the FreeCAD object.
+        position: [x, y, z] translation in mm (default: unchanged).
+        rotation_axis: [ax, ay, az] rotation axis (default: [0,0,1]).
+        rotation_angle_deg: rotation angle in degrees.
+        doc: Document name (optional).
+    """
+    d = _get_doc(doc)
+    obj = d.getObject(object_name)
+    if obj is None:
+        available = [o.Name for o in d.Objects]
+        raise ValueError(
+            f"Object '{object_name}' not found. Available: {available[:20]}"
+        )
+
+    if rotation_axis is None:
+        rotation_axis = [0.0, 0.0, 1.0]
+
+    rot = FreeCAD.Rotation(FreeCAD.Vector(*rotation_axis), rotation_angle_deg)
+
+    if position is not None:
+        base = FreeCAD.Vector(*position)
+    else:
+        base = obj.Placement.Base
+
+    obj.Placement = FreeCAD.Placement(base, rot)
+    d.recompute()
+
+    p = obj.Placement
+    return {
+        "object": object_name,
+        "position": [p.Base.x, p.Base.y, p.Base.z],
+        "rotation_angle_deg": round(math.degrees(p.Rotation.Angle), 6),
+        "rotation_axis": list(p.Rotation.Axis),
+    }
+
 
 COMMAND_HANDLERS: dict[str, Any] = {
     "new_document": new_document,
@@ -2867,5 +3367,12 @@ COMMAND_HANDLERS: dict[str, Any] = {
     "assembly_solve": assembly_solve,
     "assembly_drive_joint": assembly_drive_joint,
     "assembly_check_interference": assembly_check_interference,
+    "assembly_get_links": assembly_get_links,
+    "assembly_set_placements": assembly_set_placements,
     "assembly_get_placements": assembly_get_placements,
+    "assembly_animate": assembly_animate,
+    "assembly_animate_stop": assembly_animate_stop,
+    "set_placement": set_placement,
+    "delete_objects": delete_objects,
+    "freecad_info": freecad_info,
 }
