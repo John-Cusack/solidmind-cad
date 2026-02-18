@@ -1,0 +1,17 @@
+version: "1.0"
+links:
+  - policy_key: cnc_prismatic
+    guide_uri: resource://me_patterns/guides/design_for_cnc.yml
+    verification_policy_key: cnc_aluminum
+    notes:
+      - "CNC guide is human-readable advisory material."
+      - "planning_policy + verification_policy carry machine-enforced checks."
+  - policy_key: cnc_revolved
+    guide_uri: resource://me_patterns/guides/design_for_cnc.yml
+    verification_policy_key: cnc_aluminum
+  - policy_key: fdm_prismatic
+    guide_uri: resource://me_patterns/guides/design_for_fdm.yml
+    verification_policy_key: print_3d_pla
+  - policy_key: fdm_thin_wall
+    guide_uri: resource://me_patterns/guides/design_for_fdm.yml
+    verification_policy_key: print_3d_pla

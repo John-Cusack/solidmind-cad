@@ -1,0 +1,118 @@
+version: "1.0"
+backends:
+  freecad:
+    backend_name: "FreeCAD"
+    backend_version: "1.0.0"
+    operations:
+      create_sketch:
+        status: "Yes"
+        stability: "stable"
+        notes: "Via TCP bridge, supports full sketch API"
+        limits:
+          precision: 1.0e-6
+      add_profile:
+        status: "Yes"
+        stability: "stable"
+        notes: "Internal handling within create_sketch"
+      sketch_bspline:
+        status: "Yes"
+        stability: "beta"
+        notes: "B-spline curve from control points, supports degree/weights/periodic"
+      pad:
+        status: "Yes"
+        stability: "stable"
+        notes: "PartDesign::Pad feature"
+        limits:
+          precision: 1.0e-6
+      pocket:
+        status: "Yes"
+        stability: "stable"
+        notes: "PartDesign::Pocket feature, supports ThroughAll/Dimension"
+        limits:
+          precision: 1.0e-6
+      revolve:
+        status: "Yes"
+        stability: "stable"
+        notes: "PartDesign::Revolution feature"
+        limits:
+          precision: 1.0e-6
+      hole:
+        status: "Yes"
+        stability: "stable"
+        notes: "PartDesign::Hole feature, through and blind"
+        limits:
+          diameter_min: 0.5
+          diameter_max: 1000
+      polar_pattern:
+        status: "Yes"
+        stability: "stable"
+        notes: "PartDesign::PolarPattern feature"
+        limits:
+          max_occurrences: 1000
+      fillet:
+        status: "Yes"
+        stability: "stable"
+        notes: "PartDesign::Fillet feature, supports variable radius"
+        limits:
+          radius_min: 1.0e-6
+          radius_max: 1000
+      chamfer:
+        status: "Yes"
+        stability: "stable"
+        notes: "PartDesign::Chamfer feature"
+        limits:
+          distance_min: 1.0e-6
+          distance_max: 1000
+      validate:
+        status: "Yes"
+        stability: "stable"
+        notes: "Via get_dimensions and get_body_topology"
+      linear_pattern:
+        status: "Yes"
+        stability: "stable"
+        notes: "PartDesign::LinearPattern feature"
+      loft_additive:
+        status: "Yes"
+        stability: "beta"
+        notes: "Via cad.loft_additive tool"
+      loft_subtractive:
+        status: "Yes"
+        stability: "beta"
+      sweep_additive:
+        status: "Yes"
+        stability: "beta"
+        notes: "PartDesign::AdditivePipe via cad.sweep tool"
+      sweep_subtractive:
+        status: "Yes"
+        stability: "beta"
+        notes: "PartDesign::SubtractivePipe via cad.sweep(subtractive=true)"
+      pipe_additive:
+        status: "Partial"
+        stability: "experimental"
+        notes: "Requires special handling"
+      pipe_subtractive:
+        status: "Partial"
+        stability: "experimental"
+        notes: "Requires special handling"
+      thicken:
+        status: "Yes"
+        stability: "stable"
+        notes: "Via Part::ThickSolid"
+      boolean_union:
+        status: "Yes"
+        stability: "stable"
+        notes: "Via Part::MultiFuse"
+      boolean_cut:
+        status: "Yes"
+        stability: "stable"
+        notes: "Via Part::MultiCut"
+      boolean_intersect:
+        status: "Yes"
+        stability: "stable"
+        notes: "Via Part::Common"
+    reference_behavior:
+      rebinding_quality: "high"
+      drift_detection: true
+      geometric_query: true
+      topology_aware: true
+      notes: "Selection query system with cad.find_edges, cad.define_selection"

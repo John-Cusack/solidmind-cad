@@ -1,0 +1,284 @@
+version: "1.0"
+default_question_budget: 2
+
+policies:
+  cnc_prismatic:
+    process: "cnc"
+    archetype: "prismatic"
+    required_parameters:
+      - name: stock_envelope
+        priority: P0
+      - name: min_endmill_diameter_mm
+        priority: P0
+        default: 3.0
+      - name: machine_mode
+        priority: P1
+        default: "3_axis"
+      - name: max_setups
+        priority: P1
+        default: 1
+    reference_strategy:
+      prefer_origin_datums: true
+      allow_face_attachments: false
+      face_attachment_notice: "Avoid sketch-on-face unless no stable datum alternative exists."
+    phase_order: [BASE, INTERFACES, STRUCTURE, PATTERNS, FINISH]
+    phase_policies:
+      BASE:
+        checkpoints:
+          - checkpoint_id: CP_BASE
+            validations: [recompute_ok, no_missing_references]
+      INTERFACES:
+        checkpoints:
+          - checkpoint_id: CP_INTERFACES
+            validations: [recompute_ok, no_missing_references]
+      STRUCTURE:
+        checkpoints:
+          - checkpoint_id: CP_STRUCTURE
+            validations: [recompute_ok, no_missing_references, pocket_depth_ratio]
+      PATTERNS:
+        checkpoints:
+          - checkpoint_id: CP_PATTERNS
+            validations: [recompute_ok, pattern_instance_count_matches_plan]
+      FINISH:
+        checkpoints:
+          - checkpoint_id: CP_FINISH
+            validations: [recompute_ok, no_missing_references, internal_radius]
+    dfm_constraints:
+      - id: cnc.min_internal_corner_radius
+        severity: HARD_REJECT
+        metric: MIN_INTERNAL_CORNER_RADIUS
+        operator: ">="
+        value: 1.0
+        rationale: "Round end mills cannot produce zero-radius internal corners."
+        playbook_id: cnc_internal_corner_relief
+      - id: cnc.pocket_depth_ratio
+        severity: SOFT_WARN
+        metric: POCKET_DEPTH_TO_WIDTH
+        operator: ratio_max
+        value: 4.0
+        rationale: "Deep narrow pockets increase deflection/chatter risk."
+        playbook_id: cnc_deep_pocket
+      - id: cnc.hole_depth_ratio
+        severity: SOFT_WARN
+        metric: HOLE_DEPTH_TO_DIAMETER
+        operator: ratio_max
+        value: 10.0
+        rationale: "Very deep holes require special tooling and increase risk."
+        playbook_id: cnc_hole_depth
+    repair_playbooks:
+      - id: sketch_reference_loss
+        trigger: missing_references
+        steps:
+          - "Rollback to prior checkpoint."
+          - "Reattach sketch to origin/datum plane."
+          - "Replace face references with stable references."
+      - id: fillet_failure
+        trigger: fillet_failed
+        steps:
+          - "Split fillet set into smaller features."
+          - "Apply big-before-small ordering."
+          - "Disable chain and isolate failing edge."
+      - id: cnc_internal_corner_relief
+        trigger: min_internal_corner_radius_violation
+        steps:
+          - "Increase internal radius to tool-compatible value."
+          - "Use dogbone relief where square mating is required."
+      - id: cnc_deep_pocket
+        trigger: pocket_depth_ratio_violation
+        steps:
+          - "Reduce depth or widen pocket."
+          - "Split pocket into steps."
+      - id: cnc_hole_depth
+        trigger: hole_depth_ratio_violation
+        steps:
+          - "Reduce hole depth."
+          - "Add process note for special drilling if unavoidable."
+
+  cnc_revolved:
+    process: "cnc"
+    archetype: "revolved"
+    required_parameters:
+      - name: revolve_axis
+        priority: P0
+      - name: min_endmill_diameter_mm
+        priority: P0
+        default: 3.0
+    reference_strategy:
+      prefer_origin_datums: true
+      allow_face_attachments: false
+      face_attachment_notice: "Avoid attach-to-generated faces in early features."
+    phase_order: [BASE, INTERFACES, STRUCTURE, PATTERNS, FINISH]
+    phase_policies:
+      BASE:
+        checkpoints:
+          - checkpoint_id: CP_BASE
+            validations: [recompute_ok, no_missing_references]
+      INTERFACES:
+        checkpoints:
+          - checkpoint_id: CP_INTERFACES
+            validations: [recompute_ok]
+      STRUCTURE:
+        checkpoints:
+          - checkpoint_id: CP_STRUCTURE
+            validations: [recompute_ok]
+      PATTERNS:
+        checkpoints:
+          - checkpoint_id: CP_PATTERNS
+            validations: [recompute_ok]
+      FINISH:
+        checkpoints:
+          - checkpoint_id: CP_FINISH
+            validations: [recompute_ok, internal_radius]
+    dfm_constraints:
+      - id: cnc.min_internal_corner_radius
+        severity: HARD_REJECT
+        metric: MIN_INTERNAL_CORNER_RADIUS
+        operator: ">="
+        value: 1.0
+        rationale: "Tooling limit for internal corners."
+        playbook_id: cnc_internal_corner_relief
+    repair_playbooks:
+      - id: fillet_failure
+        trigger: fillet_failed
+        steps:
+          - "Retry with split fillet features."
+          - "Reorder concave before convex."
+
+  fdm_prismatic:
+    process: "fdm"
+    archetype: "prismatic"
+    required_parameters:
+      - name: nozzle_diameter_mm
+        priority: P0
+        default: 0.4
+      - name: layer_height_mm
+        priority: P0
+        default: 0.2
+      - name: support_policy
+        priority: P1
+        default: "minimize"
+      - name: build_orientation
+        priority: P1
+        default: "Z_up"
+    reference_strategy:
+      prefer_origin_datums: true
+      allow_face_attachments: false
+      face_attachment_notice: "Keep upstream sketches datum-based for edit resilience."
+    phase_order: [BASE, INTERFACES, STRUCTURE, PATTERNS, FINISH]
+    phase_policies:
+      BASE:
+        checkpoints:
+          - checkpoint_id: CP_BASE
+            validations: [recompute_ok, wall_thickness]
+      INTERFACES:
+        checkpoints:
+          - checkpoint_id: CP_INTERFACES
+            validations: [recompute_ok]
+      STRUCTURE:
+        checkpoints:
+          - checkpoint_id: CP_STRUCTURE
+            validations: [recompute_ok, overhang_angle]
+      PATTERNS:
+        checkpoints:
+          - checkpoint_id: CP_PATTERNS
+            validations: [recompute_ok]
+      FINISH:
+        checkpoints:
+          - checkpoint_id: CP_FINISH
+            validations: [recompute_ok, bridge_span]
+    dfm_constraints:
+      - id: fdm.min_wall_thickness
+        severity: HARD_REJECT
+        metric: MIN_WALL_THICKNESS
+        operator: ">="
+        value: 0.8
+        rationale: "Walls below process minimum are not reliably printable."
+        playbook_id: fdm_min_wall
+      - id: fdm.overhang
+        severity: SOFT_WARN
+        metric: MAX_OVERHANG_ANGLE_FROM_VERTICAL
+        operator: "<="
+        value: 45.0
+        rationale: "Steep overhangs typically require supports."
+        playbook_id: fdm_overhang
+      - id: fdm.bridge
+        severity: SOFT_WARN
+        metric: MAX_BRIDGE_SPAN
+        operator: "<="
+        value: 10.0
+        rationale: "Long bridges tend to sag without tuned cooling/support."
+        playbook_id: fdm_bridge
+    repair_playbooks:
+      - id: fdm_min_wall
+        trigger: min_wall_thickness_violation
+        steps:
+          - "Increase nominal wall thickness."
+          - "Add reinforcing ribs if geometry allows."
+      - id: fdm_overhang
+        trigger: overhang_violation
+        steps:
+          - "Redesign to <=45 degree overhang or add supports."
+          - "Use chamfers/teardrops for unsupported regions."
+      - id: fdm_bridge
+        trigger: bridge_span_violation
+        steps:
+          - "Shorten unsupported span."
+          - "Add intermediate support structure."
+      - id: sketch_reference_loss
+        trigger: missing_references
+        steps:
+          - "Rollback and reattach to datum planes."
+
+  fdm_thin_wall:
+    process: "fdm"
+    archetype: "thin_wall"
+    required_parameters:
+      - name: nozzle_diameter_mm
+        priority: P0
+        default: 0.4
+      - name: layer_height_mm
+        priority: P0
+        default: 0.2
+      - name: nominal_wall_mm
+        priority: P0
+        default: 1.2
+    reference_strategy:
+      prefer_origin_datums: true
+      allow_face_attachments: false
+      face_attachment_notice: "Thin-wall models are sensitive to topology drift; keep stable references."
+    phase_order: [BASE, INTERFACES, STRUCTURE, PATTERNS, FINISH]
+    phase_policies:
+      BASE:
+        checkpoints:
+          - checkpoint_id: CP_BASE
+            validations: [recompute_ok, wall_thickness]
+      INTERFACES:
+        checkpoints:
+          - checkpoint_id: CP_INTERFACES
+            validations: [recompute_ok]
+      STRUCTURE:
+        checkpoints:
+          - checkpoint_id: CP_STRUCTURE
+            validations: [recompute_ok, wall_thickness, overhang_angle]
+      PATTERNS:
+        checkpoints:
+          - checkpoint_id: CP_PATTERNS
+            validations: [recompute_ok]
+      FINISH:
+        checkpoints:
+          - checkpoint_id: CP_FINISH
+            validations: [recompute_ok, bridge_span]
+    dfm_constraints:
+      - id: fdm.min_wall_thickness
+        severity: HARD_REJECT
+        metric: MIN_WALL_THICKNESS
+        operator: ">="
+        value: 0.8
+        rationale: "Thin-wall parts must still meet nozzle/layer minima."
+        playbook_id: fdm_min_wall
+    repair_playbooks:
+      - id: fdm_min_wall
+        trigger: min_wall_thickness_violation
+        steps:
+          - "Increase thin-wall target thickness."
+          - "Reduce unsupported spans with ribs."

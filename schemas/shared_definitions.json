@@ -1,0 +1,174 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "shared_definitions.json",
+  "title": "Shared Geometry IR Definitions",
+  "$defs": {
+    "quantity": {
+      "type": "object",
+      "description": "Typed physical quantity with value, unit, and tolerance",
+      "properties": {
+        "value": { "type": "number" },
+        "unit": {
+          "type": "string",
+          "enum": ["mm", "deg", "rad", "m", "cm", "in", "ft"]
+        },
+        "tol": {
+          "type": "object",
+          "description": "Tolerance specification",
+          "properties": {
+            "model": {
+              "type": "string",
+              "enum": ["lower_bound", "plus_minus", "symmetric"]
+            },
+            "lower": { "type": "number", "description": "Lower bound for lower_bound model" },
+            "upper": { "type": "number", "description": "Upper bound for lower_bound model" },
+            "value": { "type": "number", "description": "Tolerance value for plus_minus or symmetric models" }
+          },
+          "required": ["model"]
+        }
+      },
+      "required": ["value", "unit"],
+      "additionalProperties": false
+    },
+    "point3d": {
+      "type": "object",
+      "description": "3D point with typed X, Y, Z coordinates",
+      "properties": {
+        "x": { "$ref": "#/$defs/quantity" },
+        "y": { "$ref": "#/$defs/quantity" },
+        "z": { "$ref": "#/$defs/quantity" }
+      },
+      "required": ["x", "y", "z"],
+      "additionalProperties": false
+    },
+    "vector3d": {
+      "type": "object",
+      "description": "3D direction vector (unitless)",
+      "properties": {
+        "x": { "type": "number" },
+        "y": { "type": "number" },
+        "z": { "type": "number" }
+      },
+      "required": ["x", "y", "z"],
+      "additionalProperties": false
+    },
+    "transform": {
+      "type": "object",
+      "description": "3D affine transformation (rotation + translation)",
+      "properties": {
+        "rotation": {
+          "type": "object",
+          "description": "Rotation matrix (3x3) as row-major array",
+          "items": {
+            "type": "array",
+            "items": { "type": "number" },
+            "minItems": 3,
+            "maxItems": 3
+          },
+          "minItems": 3,
+          "maxItems": 3
+        },
+        "translation": { "$ref": "#/$defs/vector3d" }
+      },
+      "required": ["rotation", "translation"],
+      "additionalProperties": false
+    },
+    "frame": {
+      "type": "object",
+      "description": "Coordinate frame definition",
+      "properties": {
+        "id": { "type": "string", "pattern": "^D[0-9]+$" },
+        "type": { "type": "string", "enum": ["global", "local"] },
+        "parent": { "type": "string", "description": "Parent frame ID for local frames" },
+        "transform": { "$ref": "#/$defs/transform" }
+      },
+      "required": ["id", "type"],
+      "additionalProperties": false
+    },
+    "reference_token": {
+      "type": "object",
+      "description": "Stable geometric reference that survives topology changes",
+      "properties": {
+        "token": { "type": "string" },
+        "origin_op_id": { "type": "string", "pattern": "^OP[0-9]+$" },
+        "selector": {
+          "type": "object",
+          "description": "Geometric query criteria",
+          "properties": {
+            "element_type": { "type": "string", "enum": ["face", "edge", "vertex"] },
+            "axis": { "type": "string", "enum": ["X", "Y", "Z"] },
+            "curve_type": { "type": "string", "enum": ["Line", "Circle", "BSplineCurve", "Ellipse"] },
+            "min_length": { "type": "number" },
+            "max_length": { "type": "number" },
+            "near_point": { "$ref": "#/$defs/point3d" },
+            "near_distance": { "type": "number" },
+            "convexity": { "type": "string", "enum": ["convex", "concave"] },
+            "on_face_token": { "type": "string" },
+            "normal": { "$ref": "#/$defs/vector3d" }
+          }
+        },
+        "invariants": {
+          "type": "object",
+          "description": "Expected properties for validation",
+          "properties": {
+            "expected_count": { "type": "integer", "minimum": 1 },
+            "min_length": { "type": "number" },
+            "max_length": { "type": "number" }
+          }
+        },
+        "tie_break_key": { "type": "number" }
+      },
+      "required": ["token", "origin_op_id"],
+      "additionalProperties": false
+    },
+    "invariant": {
+      "type": "object",
+      "description": "Stability invariant to check during execution",
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "positive_volume",
+            "solid_validity",
+            "min_wall_thickness",
+            "min_hole_diameter",
+            "min_edge_spacing",
+            "reference_count",
+            "feature_count"
+          ]
+        },
+        "threshold": { "type": "number" },
+        "scope": { "type": "string", "description": "Target object or region" }
+      },
+      "required": ["type"],
+      "additionalProperties": false
+    },
+    "notice": {
+      "type": "object",
+      "description": "Structured notice/warning/error message",
+      "properties": {
+        "code": {
+          "type": "string",
+          "pattern": "^[A-Z0-9_]+$"
+        },
+        "severity": {
+          "type": "string",
+          "enum": ["info", "notice", "warning", "error", "critical"]
+        },
+        "message": { "type": "string" },
+        "context": { "type": "object" },
+        "recommended_actions": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      },
+      "required": ["code", "severity", "message"],
+      "additionalProperties": false
+    },
+    "backend_extensions": {
+      "type": "object",
+      "description": "Backend-specific extension properties (x_* namespaces)",
+      "additionalProperties": true
+    }
+  }
+}

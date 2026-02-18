@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "verification_policy.schema.json",
+  "title": "Verification Policy Schema",
+  "description": "Manufacturing verification policies and thresholds",
+  "type": "object",
+  "properties": {
+    "version": {"type": "string", "pattern": "^1\\.[0-9]+$"},
+    "policies": {
+      "type": "object",
+      "description": "Verification policies keyed by process and material",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "process": {"type": "string", "enum": ["cnc", "print_3d", "fdm", "sla", "sls"]},
+          "material_family": {"type": "string"},
+          "thresholds": {
+            "type": "object",
+            "description": "Baseline check thresholds",
+            "properties": {
+              "wall_thickness_min_mm": {"type": "number"},
+              "wall_thickness_nominal_mm": {"type": "number"},
+              "hole_diameter_min_mm": {"type": "number"},
+              "internal_radius_min_mm": {"type": "number"},
+              "edge_spacing_min_mm": {"type": "number"},
+              "feature_remove_angle_max_deg": {"type": "number"},
+              "overhang_angle_max_deg": {"type": "number"},
+              "bridge_length_max_mm": {"type": "number"},
+              "pocket_depth_ratio_max": {"type": "number"},
+              "hole_depth_ratio_max": {"type": "number"}
+            }
+          },
+          "baseline_checks": {
+            "type": "array",
+            "description": "Required baseline verification checks",
+            "items": {
+              "type": "object",
+              "properties": {
+                "check_id": {"type": "string"},
+                "check_type": {
+                  "type": "string",
+                  "enum": [
+                    "solid_validity",
+                    "positive_volume",
+                    "feature_count",
+                    "wall_thickness",
+                    "hole_diameter",
+                    "edge_spacing",
+                    "internal_radius",
+                    "pocket_depth_ratio",
+                    "hole_depth_ratio",
+                    "overhang_angle",
+                    "bridge_span"
+                  ]
+                },
+                "enabled": {"type": "boolean"},
+                "threshold_key": {"type": "string"},
+                "severity": {"type": "string", "enum": ["info", "notice", "warning", "error", "critical"]}
+              },
+              "required": ["check_id", "check_type", "enabled"]
+            }
+          }
+        },
+        "required": ["process", "thresholds", "baseline_checks"]
+      }
+    },
+    "notice_severity_mapping": {
+      "type": "object",
+      "description": "Default severity levels for notice codes",
+      "additionalProperties": {
+        "type": "string",
+        "enum": ["info", "notice", "warning", "error", "critical"]
+      }
+    }
+  },
+  "required": ["version", "policies"],
+  "additionalProperties": false
+}

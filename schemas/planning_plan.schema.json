@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "planning_plan.schema.json",
+  "title": "Planning Plan Artifact",
+  "description": "Deterministic plan artifact emitted by policy_v1 planning",
+  "type": "object",
+  "properties": {
+    "plan_version": {"type": "string", "pattern": "^1\\.[0-9]+$"},
+    "policy_key": {"type": "string"},
+    "process": {"type": "string"},
+    "archetype": {"type": "string"},
+    "question_budget": {
+      "type": "object",
+      "properties": {
+        "max_questions": {"type": "integer", "minimum": 0},
+        "questions_asked": {"type": "array", "items": {"type": "string"}}
+      },
+      "required": ["max_questions", "questions_asked"],
+      "additionalProperties": false
+    },
+    "assumptions": {"type": "array", "items": {"type": "string"}},
+    "phases": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "phase_id": {"type": "string"},
+          "goal": {"type": "string"},
+          "checkpoints": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "checkpoint_id": {"type": "string"},
+                "validations": {"type": "array", "items": {"type": "string"}}
+              },
+              "required": ["checkpoint_id", "validations"],
+              "additionalProperties": false
+            }
+          },
+          "operations": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "op_id": {"type": "string"},
+                "op_type": {"type": "string"},
+                "reference_support_type": {"type": "string"},
+                "topology_sensitive": {"type": "boolean"}
+              },
+              "required": ["op_id", "op_type"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["phase_id", "goal", "checkpoints", "operations"],
+        "additionalProperties": false
+      }
+    },
+    "repair_directives": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "playbook_id": {"type": "string"},
+          "trigger": {"type": "string"},
+          "actions": {"type": "array", "items": {"type": "string"}}
+        },
+        "required": ["playbook_id", "trigger", "actions"],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "plan_version",
+    "policy_key",
+    "process",
+    "archetype",
+    "question_budget",
+    "assumptions",
+    "phases",
+    "repair_directives"
+  ],
+  "additionalProperties": false
+}

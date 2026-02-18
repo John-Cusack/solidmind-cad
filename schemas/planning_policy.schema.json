@@ -1,0 +1,123 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "planning_policy.schema.json",
+  "title": "Planning Policy Schema",
+  "description": "Process/archetype aware planning policy for policy_v1 geometry planning",
+  "type": "object",
+  "properties": {
+    "version": {"type": "string", "pattern": "^1\\.[0-9]+$"},
+    "default_question_budget": {"type": "integer", "minimum": 0},
+    "policies": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "process": {"type": "string", "enum": ["cnc", "fdm", "print_3d"]},
+          "archetype": {
+            "type": "string",
+            "enum": ["prismatic", "revolved", "thin_wall", "loft_sweep", "multi_body", "organic"]
+          },
+          "required_parameters": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {"type": "string"},
+                "priority": {"type": "string", "enum": ["P0", "P1", "P2"]},
+                "default": {},
+                "default_range": {
+                  "type": "array",
+                  "minItems": 2,
+                  "maxItems": 2,
+                  "items": {"type": "number"}
+                }
+              },
+              "required": ["name", "priority"]
+            }
+          },
+          "reference_strategy": {
+            "type": "object",
+            "properties": {
+              "prefer_origin_datums": {"type": "boolean"},
+              "allow_face_attachments": {"type": "boolean"},
+              "face_attachment_notice": {"type": "string"}
+            },
+            "required": ["prefer_origin_datums", "allow_face_attachments"]
+          },
+          "phase_order": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "enum": ["BASE", "INTERFACES", "STRUCTURE", "PATTERNS", "FINISH"]
+            }
+          },
+          "phase_policies": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "properties": {
+                "allowed_feature_classes": {"type": "array", "items": {"type": "string"}},
+                "blocked_feature_classes": {"type": "array", "items": {"type": "string"}},
+                "checkpoints": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "checkpoint_id": {"type": "string"},
+                      "validations": {"type": "array", "items": {"type": "string"}}
+                    },
+                    "required": ["checkpoint_id", "validations"]
+                  }
+                }
+              },
+              "required": ["checkpoints"]
+            }
+          },
+          "dfm_constraints": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {"type": "string"},
+                "severity": {"type": "string", "enum": ["HARD_REJECT", "HARD_REQUIRE_USER_APPROVAL", "SOFT_WARN"]},
+                "metric": {"type": "string"},
+                "operator": {"type": "string", "enum": ["<", "<=", ">", ">=", "between", "ratio_max"]},
+                "value": {"type": "number"},
+                "min": {"type": "number"},
+                "max": {"type": "number"},
+                "rationale": {"type": "string"},
+                "playbook_id": {"type": "string"}
+              },
+              "required": ["id", "severity", "metric", "operator", "rationale"]
+            }
+          },
+          "repair_playbooks": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {"type": "string"},
+                "trigger": {"type": "string"},
+                "steps": {"type": "array", "items": {"type": "string"}}
+              },
+              "required": ["id", "trigger", "steps"]
+            }
+          }
+        },
+        "required": [
+          "process",
+          "archetype",
+          "required_parameters",
+          "reference_strategy",
+          "phase_order",
+          "phase_policies",
+          "dfm_constraints",
+          "repair_playbooks"
+        ]
+      }
+    }
+  },
+  "required": ["version", "default_question_budget", "policies"],
+  "additionalProperties": false
+}

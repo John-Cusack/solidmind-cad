@@ -1,0 +1,101 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "eir.schema.json",
+  "title": "Execution Plan IR (EIR)",
+  "description": "Compiled execution plan with ordered operations and dependencies",
+  "$defs": {
+    "quantity": {
+      "type": "object",
+      "description": "Typed physical quantity with value, unit, and tolerance",
+      "properties": {
+        "value": {"type": "number"},
+        "unit": {"type": "string", "enum": ["mm", "deg", "rad", "m", "cm", "in", "ft"]},
+        "tol": {
+          "type": "object",
+          "description": "Tolerance specification",
+          "properties": {
+            "model": {"type": "string", "enum": ["lower_bound", "plus_minus", "symmetric"]},
+            "lower": {"type": "number"},
+            "upper": {"type": "number"},
+            "value": {"type": "number"}
+          },
+          "required": ["model"]
+        }
+      },
+      "required": ["value", "unit"],
+      "additionalProperties": false
+    },
+    "point3d": {
+      "type": "object",
+      "description": "3D point with typed X, Y, Z coordinates",
+      "properties": {
+        "x": {"$ref": "#/$defs/quantity"},
+        "y": {"$ref": "#/$defs/quantity"},
+        "z": {"$ref": "#/$defs/quantity"}
+      },
+      "required": ["x", "y", "z"],
+      "additionalProperties": false
+    },
+    "vector3d": {
+      "type": "object",
+      "description": "3D direction vector (unitless)",
+      "properties": {
+        "x": {"type": "number"},
+        "y": {"type": "number"},
+        "z": {"type": "number"}
+      },
+      "required": ["x", "y", "z"],
+      "additionalProperties": false
+    },
+    "reference_token": {
+      "type": "object",
+      "description": "Stable geometric reference that survives topology changes",
+      "properties": {
+        "token": {"type": "string"},
+        "origin_op_id": {"type": "string", "pattern": "^OP[0-9]+$"},
+        "selector": {
+          "type": "object",
+          "description": "Geometric query criteria",
+          "properties": {
+            "element_type": {"type": "string", "enum": ["face", "edge", "vertex"]},
+            "axis": {"type": "string", "enum": ["X", "Y", "Z"]},
+            "curve_type": {"type": "string", "enum": ["Line", "Circle", "BSplineCurve", "Ellipse"]},
+            "min_length": {"type": "number"},
+            "max_length": {"type": "number"},
+            "near_point": {"$ref": "#/$defs/point3d"},
+            "near_distance": {"type": "number"},
+            "convexity": {"type": "string", "enum": ["convex", "concave"]},
+            "on_face_token": {"type": "string"},
+            "normal": {"$ref": "#/$defs/vector3d"}
+          }
+        },
+        "invariants": {
+          "type": "object",
+          "description": "Expected properties for validation",
+          "properties": {
+            "expected_count": {"type": "integer", "minimum": 1},
+            "min_length": {"type": "number"},
+            "max_length": {"type": "number"}
+          }
+        },
+        "tie_break_key": {"type": "number"}
+      },
+      "required": ["token", "origin_op_id"],
+      "additionalProperties": false
+    },
+    "invariant": {
+      "type": "object",
+      "description": "Stability invariant to check during execution",
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["positive_volume", "solid_validity", "min_wall_thickness", "min_hole_diameter", "min_edge_spacing"]
+        },
+        "threshold": {"type": "number"},
+        "scope": {"type": "string", "description": "Target object or region"}
+      },
+      "required": ["type"],
+      "additionalProperties": false
+    }
+  }
+}

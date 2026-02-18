@@ -1,0 +1,377 @@
+version: 1
+generated_on: "2026-02-12"
+matrix_source: "FREECAD_CADQUERY_FEATURE_SUPPORT_MATRIX.md"
+features:
+  - id: freecad.constrained_2d_sketching
+    platform: FreeCAD
+    feature: Constrained 2D sketching
+    common_usage: High
+    baseline_status: "Yes"
+    checks:
+      - type: mcp_tool
+        name: cad.sketch
+      - type: dispatch_tool
+        name: cad.sketch
+      - type: py_def
+        path: server/tools_cad.py
+        name: cad_sketch
+        kind: function
+      - type: py_def
+        path: freecad_addon/commands.py
+        name: new_sketch
+        kind: function
+      - type: py_def
+        path: freecad_addon/commands.py
+        name: sketch_constrain
+        kind: function
+
+  - id: freecad.sketch_plane_or_face_mapping
+    platform: FreeCAD
+    feature: Sketch placement on XY/XZ/YZ or existing face
+    common_usage: High
+    baseline_status: "Yes"
+    checks:
+      - type: mcp_tool
+        name: cad.sketch
+      - type: text_contains
+        path: freecad_addon/commands.py
+        text: "if plane.upper() in plane_map:"
+      - type: text_contains
+        path: freecad_addon/commands.py
+        text: "_set_sketch_support(sketch, [(tip, plane)])"
+      - type: text_contains
+        path: server/main.py
+        text: "Sketch plane: XY, XZ, YZ, or a face reference like 'Face1'"
+
+  - id: freecad.pad_extrude
+    platform: FreeCAD
+    feature: Pad (extrude)
+    common_usage: High
+    baseline_status: "Yes"
+    checks:
+      - type: mcp_tool
+        name: cad.pad
+      - type: dispatch_tool
+        name: cad.pad
+      - type: py_def
+        path: server/tools_cad.py
+        name: cad_pad
+        kind: function
+      - type: py_def
+        path: freecad_addon/commands.py
+        name: pad
+        kind: function
+
+  - id: freecad.pocket_cut
+    platform: FreeCAD
+    feature: Pocket (cut)
+    common_usage: High
+    baseline_status: "Yes"
+    checks:
+      - type: mcp_tool
+        name: cad.pocket
+      - type: dispatch_tool
+        name: cad.pocket
+      - type: py_def
+        path: server/tools_cad.py
+        name: cad_pocket
+        kind: function
+      - type: py_def
+        path: freecad_addon/commands.py
+        name: pocket
+        kind: function
+
+  - id: freecad.hole_feature
+    platform: FreeCAD
+    feature: Hole feature
+    common_usage: High
+    baseline_status: "Yes"
+    checks:
+      - type: mcp_tool
+        name: cad.hole
+      - type: dispatch_tool
+        name: cad.hole
+      - type: py_def
+        path: server/tools_cad.py
+        name: cad_hole
+        kind: function
+      - type: py_def
+        path: freecad_addon/commands.py
+        name: hole
+        kind: function
+
+  - id: freecad.revolution
+    platform: FreeCAD
+    feature: Revolution (revolve)
+    common_usage: Medium
+    baseline_status: "Yes"
+    checks:
+      - type: mcp_tool
+        name: cad.revolution
+      - type: dispatch_tool
+        name: cad.revolution
+      - type: py_def
+        path: server/tools_cad.py
+        name: cad_revolution
+        kind: function
+      - type: py_def
+        path: freecad_addon/commands.py
+        name: revolution
+        kind: function
+
+  - id: freecad.polar_pattern
+    platform: FreeCAD
+    feature: Polar/circular pattern
+    common_usage: Medium
+    baseline_status: "Yes"
+    checks:
+      - type: mcp_tool
+        name: cad.polar_pattern
+      - type: dispatch_tool
+        name: cad.polar_pattern
+      - type: py_def
+        path: server/tools_cad.py
+        name: cad_polar_pattern
+        kind: function
+      - type: py_def
+        path: freecad_addon/commands.py
+        name: polar_pattern
+        kind: function
+
+  - id: freecad.fillet
+    platform: FreeCAD
+    feature: Fillet
+    common_usage: High
+    baseline_status: "Yes"
+    checks:
+      - type: mcp_tool
+        name: cad.fillet
+      - type: dispatch_tool
+        name: cad.fillet
+      - type: py_def
+        path: server/tools_cad.py
+        name: cad_fillet
+        kind: function
+      - type: py_def
+        path: freecad_addon/commands.py
+        name: fillet
+        kind: function
+
+  - id: freecad.chamfer
+    platform: FreeCAD
+    feature: Chamfer
+    common_usage: High
+    baseline_status: "Yes"
+    checks:
+      - type: mcp_tool
+        name: cad.chamfer
+      - type: dispatch_tool
+        name: cad.chamfer
+      - type: py_def
+        path: server/tools_cad.py
+        name: cad_chamfer
+        kind: function
+      - type: py_def
+        path: freecad_addon/commands.py
+        name: chamfer
+        kind: function
+
+  - id: freecad.topology_queries_and_selectors
+    platform: FreeCAD
+    feature: Topology query + edge selection filters
+    common_usage: Medium
+    baseline_status: "Yes"
+    checks:
+      - type: mcp_tool
+        name: cad.get_body_topology
+      - type: mcp_tool
+        name: cad.find_edges
+      - type: mcp_tool
+        name: cad.define_selection
+      - type: mcp_tool
+        name: cad.resolve_selection
+      - type: py_def
+        path: freecad_addon/commands.py
+        name: get_body_topology
+        kind: function
+      - type: py_def
+        path: freecad_addon/commands.py
+        name: find_edges
+        kind: function
+      - type: py_def
+        path: freecad_addon/commands.py
+        name: define_selection
+        kind: function
+      - type: py_def
+        path: freecad_addon/commands.py
+        name: resolve_selection
+        kind: function
+
+  - id: freecad.linear_pattern
+    platform: FreeCAD
+    feature: Linear pattern
+    common_usage: Medium
+    baseline_status: "No"
+    checks:
+      - type: mcp_tool
+        name: cad.linear_pattern
+      - type: dispatch_tool
+        name: cad.linear_pattern
+      - type: py_def
+        path: server/tools_cad.py
+        name: cad_linear_pattern
+        kind: function
+      - type: py_def
+        path: freecad_addon/commands.py
+        name: linear_pattern
+        kind: function
+
+  - id: freecad.loft_additive_subtractive
+    platform: FreeCAD
+    feature: Loft (Additive/Subtractive)
+    common_usage: Medium
+    baseline_status: "Yes"
+    checks:
+      - type: mcp_tool
+        name: cad.loft
+      - type: dispatch_tool
+        name: cad.loft
+      - type: py_def
+        path: server/tools_cad.py
+        name: cad_loft
+        kind: function
+      - type: py_def
+        path: freecad_addon/commands.py
+        name: loft
+        kind: function
+
+  - id: freecad.sweep_pipe_additive_subtractive
+    platform: FreeCAD
+    feature: Sweep/Pipe (Additive/Subtractive)
+    common_usage: Medium
+    baseline_status: "Yes"
+    checks:
+      - type: mcp_tool
+        name: cad.sweep
+      - type: dispatch_tool
+        name: cad.sweep
+      - type: py_def
+        path: server/tools_cad.py
+        name: cad_sweep
+        kind: function
+      - type: py_def
+        path: freecad_addon/commands.py
+        name: sweep
+        kind: function
+
+  - id: freecad.helix_based_feature
+    platform: FreeCAD
+    feature: Helix-based feature
+    common_usage: Low
+    baseline_status: "Yes"
+    checks:
+      - type: mcp_tool
+        name: cad.helix
+      - type: dispatch_tool
+        name: cad.helix
+      - type: py_def
+        path: server/tools_cad.py
+        name: cad_helix
+        kind: function
+      - type: py_def
+        path: freecad_addon/commands.py
+        name: helix
+        kind: function
+
+  - id: freecad.partdesign_boolean_ops
+    platform: FreeCAD
+    feature: PartDesign Boolean feature ops
+    common_usage: Medium
+    baseline_status: "No"
+    checks:
+      - type: mcp_tool
+        name: cad.boolean
+      - type: dispatch_tool
+        name: cad.boolean
+      - type: py_def
+        path: server/tools_cad.py
+        name: cad_boolean
+        kind: function
+      - type: py_def
+        path: freecad_addon/commands.py
+        name: boolean_feature
+        kind: function
+
+  - id: freecad.techdraw_2d_production_drawings
+    platform: FreeCAD
+    feature: 2D production drawings (TechDraw)
+    common_usage: Medium
+    baseline_status: "No"
+    checks:
+      - type: mcp_tool
+        name: draw.new_page
+      - type: dispatch_tool
+        name: draw.new_page
+      - type: file_exists
+        path: server/tools_draw.py
+      - type: py_def
+        path: freecad_addon/commands.py
+        name: draw_new_page
+        kind: function
+
+  - id: freecad.fem_fea_workflow
+    platform: FreeCAD
+    feature: FEM/FEA workflow
+    common_usage: Low
+    baseline_status: "No"
+    checks:
+      - type: mcp_tool
+        name: fem.new_analysis
+      - type: dispatch_tool
+        name: fem.new_analysis
+      - type: file_exists
+        path: server/tools_fem.py
+      - type: py_def
+        path: freecad_addon/commands.py
+        name: fem_new_analysis
+        kind: function
+
+  - id: freecad.cam_path_toolpaths
+    platform: FreeCAD
+    feature: CAM/Path toolpaths
+    common_usage: Low
+    baseline_status: "No"
+    checks:
+      - type: mcp_tool
+        name: cam.new_job
+      - type: dispatch_tool
+        name: cam.new_job
+      - type: file_exists
+        path: server/tools_cam.py
+      - type: py_def
+        path: freecad_addon/commands.py
+        name: cam_new_job
+        kind: function
+
+  - id: freecad.step_stl_fcstd_export
+    platform: FreeCAD
+    feature: STEP/STL/FCStd export
+    common_usage: High
+    baseline_status: "Yes"
+    checks:
+      - type: mcp_tool
+        name: cad.export
+      - type: dispatch_tool
+        name: cad.export
+      - type: py_def
+        path: server/tools_cad.py
+        name: cad_export
+        kind: function
+      - type: py_def
+        path: freecad_addon/commands.py
+        name: export
+        kind: function
+      - type: text_contains
+        path: server/main.py
+        text: "\"enum\": [\"step\", \"stl\", \"fcstd\"]"
+

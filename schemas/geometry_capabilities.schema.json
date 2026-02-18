@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "geometry_capabilities.schema.json",
+  "title": "Geometry Capabilities Schema",
+  "description": "Backend capability matrix for geometric operations",
+  "type": "object",
+  "properties": {
+    "version": {"type": "string", "pattern": "^1\\.[0-9]+$"},
+    "backends": {
+      "type": "object",
+      "description": "Capability matrix per backend",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "backend_name": {"type": "string"},
+          "backend_version": {"type": "string"},
+          "operations": {
+            "type": "object",
+            "description": "Supported operations with their status",
+            "additionalProperties": {
+              "type": "object",
+              "properties": {
+                "status": {"type": "string", "enum": ["Yes", "Partial", "No"]},
+                "stability": {"type": "string", "enum": ["experimental", "beta", "stable"]},
+                "notes": {"type": "string"},
+                "variants": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "name": {"type": "string"},
+                      "status": {"type": "string", "enum": ["Yes", "Partial", "No"]}
+                    }
+                  }
+                },
+                "limits": {
+                  "type": "object",
+                  "properties": {
+                    "max_instances": {"type": "integer"},
+                    "min_size": {"type": "number"},
+                    "max_size": {"type": "number"},
+                    "precision": {"type": "number"}
+                  }
+                }
+              },
+              "required": ["status", "stability"]
+            }
+          },
+          "reference_behavior": {
+            "type": "object",
+            "description": "Support for reference rebinding after topology changes",
+            "properties": {
+              "rebinding_quality": {"type": "string", "enum": ["high", "medium", "low", "none"]},
+              "drift_detection": {"type": "boolean"},
+              "geometric_query": {"type": "boolean"},
+              "topology_aware": {"type": "boolean"}
+            }
+          }
+        },
+        "required": ["backend_name", "backend_version", "operations", "reference_behavior"]
+      }
+    }
+  },
+  "required": ["version", "backends"],
+  "additionalProperties": false
+}

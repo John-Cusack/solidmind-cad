@@ -1,0 +1,204 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "gir.schema.json",
+  "title": "Geometry Intent IR (GIR)",
+  "description": "Intermediate representation encoding geometric design intent from requirements",
+  "$defs": {
+    "quantity": {
+      "type": "object",
+      "description": "Typed physical quantity with value, unit, and tolerance",
+      "properties": {
+        "value": {"type": "number"},
+        "unit": {"type": "string", "enum": ["mm", "deg", "rad", "m", "cm", "in", "ft"]},
+        "tol": {
+          "type": "object",
+          "description": "Tolerance specification",
+          "properties": {
+            "model": {"type": "string", "enum": ["lower_bound", "plus_minus", "symmetric"]},
+            "lower": {"type": "number"},
+            "upper": {"type": "number"},
+            "value": {"type": "number"}
+          },
+          "required": ["model"]
+        }
+      },
+      "required": ["value", "unit"],
+      "additionalProperties": false
+    },
+    "point3d": {
+      "type": "object",
+      "description": "3D point with typed X, Y, Z coordinates",
+      "properties": {
+        "x": {"$ref": "#/$defs/quantity"},
+        "y": {"$ref": "#/$defs/quantity"},
+        "z": {"$ref": "#/$defs/quantity"}
+      },
+      "required": ["x", "y", "z"],
+      "additionalProperties": false
+    },
+    "vector3d": {
+      "type": "object",
+      "description": "3D direction vector (unitless)",
+      "properties": {
+        "x": {"type": "number"},
+        "y": {"type": "number"},
+        "z": {"type": "number"}
+      },
+      "required": ["x", "y", "z"],
+      "additionalProperties": false
+    },
+    "backend_extensions": {
+      "type": "object",
+      "description": "Backend-specific extension properties (x_* namespaces)",
+      "additionalProperties": true
+    },
+    "primitive_intent": {
+      "type": "object",
+      "description": "Basic geometric primitive (box, cylinder, sphere)",
+      "properties": {
+        "id": {"type": "string", "pattern": "^F[0-9]+$"},
+        "type": {"const": "primitive"},
+        "primitive_type": {"type": "string", "enum": ["box", "cylinder", "sphere", "cone", "torus"]},
+        "dimensions": {
+          "type": "object",
+          "additionalProperties": {"$ref": "#/$defs/quantity"}
+        },
+        "frame_id": {"type": "string", "pattern": "^D[0-9]+$"},
+        "traces_to": {"type": "array", "items": {"type": "string"}},
+        "x_freecad": {"$ref": "#/$defs/backend_extensions"}
+      },
+      "required": ["id", "type", "primitive_type", "dimensions"],
+      "additionalProperties": false
+    },
+    "sketch_profile_intent": {
+      "type": "object",
+      "description": "2D profile for extrusion/revolve operations",
+      "properties": {
+        "id": {"type": "string", "pattern": "^F[0-9]+$"},
+        "type": {"const": "sketch_profile"},
+        "plane": {"type": "string", "enum": ["XY", "XZ", "YZ"]},
+        "elements": {
+          "type": "array",
+          "description": "2D geometry elements",
+          "items": {
+            "type": "object",
+            "properties": {
+              "type": {"type": "string", "enum": ["line", "arc", "circle"]},
+              "start": {"$ref": "#/$defs/point3d"},
+              "end": {"$ref": "#/$defs/point3d"},
+              "center": {"$ref": "#/$defs/point3d"},
+              "radius": {"$ref": "#/$defs/quantity"}
+            }
+          }
+        },
+        "constraints": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "type": {"type": "string", "enum": ["coincident", "horizontal", "vertical", "distance", "angle", "tangent", "parallel"]},
+              "elements": {"type": "array", "items": {"type": "string"}},
+              "value": {"$ref": "#/$defs/quantity"}
+            }
+          }
+        },
+        "frame_id": {"type": "string", "pattern": "^D[0-9]+$"},
+        "traces_to": {"type": "array", "items": {"type": "string"}},
+        "x_freecad": {"$ref": "#/$defs/backend_extensions"}
+      },
+      "required": ["id", "type", "plane", "elements"],
+      "additionalProperties": false
+    },
+    "extrude_intent": {
+      "type": "object",
+      "description": "Extrude profile along direction to create solid",
+      "properties": {
+        "id": {"type": "string", "pattern": "^F[0-9]+$"},
+        "type": {"const": "extrude_intent"},
+        "base_profile_id": {"type": "string", "pattern": "^F[0-9]+$"},
+        "direction": {"$ref": "#/$defs/vector3d"},
+        "distance": {"$ref": "#/$defs/quantity"},
+        "operation_type": {"type": "string", "enum": ["additive", "subtractive"]},
+        "frame_id": {"type": "string", "pattern": "^D[0-9]+$"},
+        "traces_to": {"type": "array", "items": {"type": "string"}},
+        "x_freecad": {"$ref": "#/$defs/backend_extensions"}
+      },
+      "required": ["id", "type", "base_profile_id", "distance", "operation_type"],
+      "additionalProperties": false
+    },
+    "revolve_intent": {
+      "type": "object",
+      "description": "Revolve profile around axis to create solid of revolution",
+      "properties": {
+        "id": {"type": "string", "pattern": "^F[0-9]+$"},
+        "type": {"const": "revolve_intent"},
+        "base_profile_id": {"type": "string", "pattern": "^F[0-9]+$"},
+        "axis": {"$ref": "#/$defs/vector3d"},
+        "axis_point": {"$ref": "#/$defs/point3d"},
+        "angle": {"$ref": "#/$defs/quantity"},
+        "operation_type": {"type": "string", "enum": ["additive", "subtractive"]},
+        "frame_id": {"type": "string", "pattern": "^D[0-9]+$"},
+        "traces_to": {"type": "array", "items": {"type": "string"}},
+        "x_freecad": {"$ref": "#/$defs/backend_extensions"}
+      },
+      "required": ["id", "type", "base_profile_id", "axis", "axis_point", "angle", "operation_type"],
+      "additionalProperties": false
+    },
+    "hole_intent": {
+      "type": "object",
+      "description": "Cylindrical hole feature (through or blind)",
+      "properties": {
+        "id": {"type": "string", "pattern": "^F[0-9]+$"},
+        "type": {"const": "hole_intent"},
+        "diameter": {"$ref": "#/$defs/quantity"},
+        "depth": {"$ref": "#/$defs/quantity"},
+        "hole_type": {"type": "string", "enum": ["through", "blind", "counterbore", "countersink"]},
+        "location": {"$ref": "#/$defs/point3d"},
+        "face_reference": {"type": "string", "description": "Reference to face on which hole is placed"},
+        "axis": {"$ref": "#/$defs/vector3d"},
+        "frame_id": {"type": "string", "pattern": "^D[0-9]+$"},
+        "traces_to": {"type": "array", "items": {"type": "string"}},
+        "x_freecad": {"$ref": "#/$defs/backend_extensions"}
+      },
+      "required": ["id", "type", "diameter", "depth", "hole_type", "location"],
+      "additionalProperties": false
+    },
+    "pattern_intent": {
+      "type": "object",
+      "description": "Pattern of features (polar or linear)",
+      "properties": {
+        "id": {"type": "string", "pattern": "^F[0-9]+$"},
+        "type": {"const": "pattern_intent"},
+        "pattern_type": {"type": "string", "enum": ["polar", "linear"]},
+        "feature_ids": {"type": "array", "items": {"type": "string", "pattern": "^F[0-9]+$"}},
+        "axis": {"$ref": "#/$defs/vector3d"},
+        "center_point": {"$ref": "#/$defs/point3d"},
+        "count": {"type": "integer", "minimum": 1},
+        "spacing": {"$ref": "#/$defs/quantity"},
+        "total_angle": {"$ref": "#/$defs/quantity"},
+        "frame_id": {"type": "string", "pattern": "^D[0-9]+$"},
+        "traces_to": {"type": "array", "items": {"type": "string"}},
+        "x_freecad": {"$ref": "#/$defs/backend_extensions"}
+      },
+      "required": ["id", "type", "pattern_type", "feature_ids", "count"],
+      "additionalProperties": false
+    },
+    "blend_intent": {
+      "type": "object",
+      "description": "Blend operation (fillet or chamfer)",
+      "properties": {
+        "id": {"type": "string", "pattern": "^F[0-9]+$"},
+        "type": {"const": "blend_intent"},
+        "blend_type": {"type": "string", "enum": ["fillet", "chamfer"]},
+        "edge_references": {"type": "array", "items": {"type": "string"}},
+        "radius": {"$ref": "#/$defs/quantity"},
+        "distance": {"$ref": "#/$defs/quantity"},
+        "frame_id": {"type": "string", "pattern": "^D[0-9]+$"},
+        "traces_to": {"type": "array", "items": {"type": "string"}},
+        "x_freecad": {"$ref": "#/$defs/backend_extensions"}
+      },
+      "required": ["id", "type", "blend_type", "edge_references"],
+      "additionalProperties": false
+    }
+  }
+}

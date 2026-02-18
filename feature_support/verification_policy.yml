@@ -1,0 +1,268 @@
+version: "1.0"
+notice_severity_mapping:
+  THIN_WALL: "warning"
+  SMALL_HOLE: "notice"
+  INVALID_SOLID: "error"
+  NON_POSITIVE_VOLUME: "error"
+  EDGE_VIOLATION: "notice"
+  FEATURE_COUNT_MISMATCH: "info"
+  INTERNAL_RADIUS_SMALL: "notice"
+  OVERHANG_STEEP: "warning"
+  BRIDGE_TOO_LONG: "warning"
+  REFERENCE_DRIFT: "notice"
+
+policies:
+  cnc_aluminum:
+    process: "cnc"
+    material_family: "aluminum"
+    thresholds:
+      wall_thickness_min_mm: 2.0
+      wall_thickness_nominal_mm: 3.0
+      hole_diameter_min_mm: 3.0
+      internal_radius_min_mm: 1.0
+      edge_spacing_min_mm: 2.0
+      feature_remove_angle_max_deg: 0
+      pocket_depth_ratio_max: 4.0
+      hole_depth_ratio_max: 10.0
+    baseline_checks:
+      - check_id: "solid_validity"
+        check_type: "solid_validity"
+        enabled: true
+        severity: "error"
+      - check_id: "positive_volume"
+        check_type: "positive_volume"
+        enabled: true
+        severity: "error"
+      - check_id: "min_wall_thickness"
+        check_type: "wall_thickness"
+        enabled: true
+        threshold_key: "wall_thickness_min_mm"
+        severity: "warning"
+      - check_id: "min_hole_diameter"
+        check_type: "hole_diameter"
+        enabled: true
+        threshold_key: "hole_diameter_min_mm"
+        severity: "notice"
+      - check_id: "min_edge_spacing"
+        check_type: "edge_spacing"
+        enabled: true
+        threshold_key: "edge_spacing_min_mm"
+        severity: "notice"
+      - check_id: "min_internal_radius"
+        check_type: "internal_radius"
+        enabled: true
+        threshold_key: "internal_radius_min_mm"
+        severity: "notice"
+      - check_id: "pocket_depth_ratio"
+        check_type: "pocket_depth_ratio"
+        enabled: true
+        threshold_key: "pocket_depth_ratio_max"
+        severity: "warning"
+      - check_id: "hole_depth_ratio"
+        check_type: "hole_depth_ratio"
+        enabled: true
+        threshold_key: "hole_depth_ratio_max"
+        severity: "warning"
+
+  cnc_steel:
+    process: "cnc"
+    material_family: "steel"
+    thresholds:
+      wall_thickness_min_mm: 2.5
+      wall_thickness_nominal_mm: 4.0
+      hole_diameter_min_mm: 4.0
+      internal_radius_min_mm: 1.5
+      edge_spacing_min_mm: 2.5
+      feature_remove_angle_max_deg: 0
+    baseline_checks:
+      - check_id: "solid_validity"
+        check_type: "solid_validity"
+        enabled: true
+        severity: "error"
+      - check_id: "positive_volume"
+        check_type: "positive_volume"
+        enabled: true
+        severity: "error"
+      - check_id: "min_wall_thickness"
+        check_type: "wall_thickness"
+        enabled: true
+        threshold_key: "wall_thickness_min_mm"
+        severity: "warning"
+      - check_id: "min_hole_diameter"
+        check_type: "hole_diameter"
+        enabled: true
+        threshold_key: "hole_diameter_min_mm"
+        severity: "notice"
+
+  cnc_plastic:
+    process: "cnc"
+    material_family: "plastic"
+    thresholds:
+      wall_thickness_min_mm: 1.5
+      wall_thickness_nominal_mm: 2.5
+      hole_diameter_min_mm: 2.0
+      internal_radius_min_mm: 0.75
+      edge_spacing_min_mm: 1.5
+      feature_remove_angle_max_deg: 0
+    baseline_checks:
+      - check_id: "solid_validity"
+        check_type: "solid_validity"
+        enabled: true
+        severity: "error"
+      - check_id: "positive_volume"
+        check_type: "positive_volume"
+        enabled: true
+        severity: "error"
+      - check_id: "min_wall_thickness"
+        check_type: "wall_thickness"
+        enabled: true
+        threshold_key: "wall_thickness_min_mm"
+        severity: "warning"
+
+  print_3d_pla:
+    process: "print_3d"
+    material_family: "pla"
+    thresholds:
+      wall_thickness_min_mm: 0.8
+      wall_thickness_nominal_mm: 1.2
+      hole_diameter_min_mm: 0.8
+      internal_radius_min_mm: 0.4
+      edge_spacing_min_mm: 0.8
+      feature_remove_angle_max_deg: 45
+      overhang_angle_max_deg: 45
+      bridge_length_max_mm: 10.0
+    baseline_checks:
+      - check_id: "solid_validity"
+        check_type: "solid_validity"
+        enabled: true
+        severity: "error"
+      - check_id: "positive_volume"
+        check_type: "positive_volume"
+        enabled: true
+        severity: "error"
+      - check_id: "min_wall_thickness"
+        check_type: "wall_thickness"
+        enabled: true
+        threshold_key: "wall_thickness_min_mm"
+        severity: "warning"
+      - check_id: "min_hole_diameter"
+        check_type: "hole_diameter"
+        enabled: true
+        threshold_key: "hole_diameter_min_mm"
+        severity: "notice"
+      - check_id: "overhang_limit"
+        check_type: "overhang_angle"
+        enabled: true
+        threshold_key: "overhang_angle_max_deg"
+        severity: "warning"
+      - check_id: "bridge_limit"
+        check_type: "bridge_span"
+        enabled: true
+        threshold_key: "bridge_length_max_mm"
+        severity: "warning"
+
+  print_3d_abs:
+    process: "print_3d"
+    material_family: "abs"
+    thresholds:
+      wall_thickness_min_mm: 0.8
+      wall_thickness_nominal_mm: 1.2
+      hole_diameter_min_mm: 0.8
+      internal_radius_min_mm: 0.4
+      edge_spacing_min_mm: 0.8
+      feature_remove_angle_max_deg: 45
+      overhang_angle_max_deg: 45
+      bridge_length_max_mm: 10.0
+    baseline_checks:
+      - check_id: "solid_validity"
+        check_type: "solid_validity"
+        enabled: true
+        severity: "error"
+      - check_id: "positive_volume"
+        check_type: "positive_volume"
+        enabled: true
+        severity: "error"
+      - check_id: "min_wall_thickness"
+        check_type: "wall_thickness"
+        enabled: true
+        threshold_key: "wall_thickness_min_mm"
+        severity: "warning"
+      - check_id: "min_hole_diameter"
+        check_type: "hole_diameter"
+        enabled: true
+        threshold_key: "hole_diameter_min_mm"
+        severity: "notice"
+
+  print_3d_resin:
+    process: "print_3d"
+    material_family: "resin"
+    thresholds:
+      wall_thickness_min_mm: 0.4
+      wall_thickness_nominal_mm: 0.8
+      hole_diameter_min_mm: 0.5
+      internal_radius_min_mm: 0.2
+      edge_spacing_min_mm: 0.5
+      feature_remove_angle_max_deg: 30
+      overhang_angle_max_deg: 75
+      bridge_length_max_mm: 5.0
+    baseline_checks:
+      - check_id: "solid_validity"
+        check_type: "solid_validity"
+        enabled: true
+        severity: "error"
+      - check_id: "positive_volume"
+        check_type: "positive_volume"
+        enabled: true
+        severity: "error"
+      - check_id: "min_wall_thickness"
+        check_type: "wall_thickness"
+        enabled: true
+        threshold_key: "wall_thickness_min_mm"
+        severity: "warning"
+      - check_id: "min_hole_diameter"
+        check_type: "hole_diameter"
+        enabled: true
+        threshold_key: "hole_diameter_min_mm"
+        severity: "notice"
+
+  default:
+    process: "cnc"
+    material_family: "generic"
+    thresholds:
+      wall_thickness_min_mm: 2.0
+      wall_thickness_nominal_mm: 3.0
+      hole_diameter_min_mm: 3.0
+      internal_radius_min_mm: 1.0
+      edge_spacing_min_mm: 2.0
+      feature_remove_angle_max_deg: 0
+      pocket_depth_ratio_max: 4.0
+      hole_depth_ratio_max: 10.0
+    baseline_checks:
+      - check_id: "solid_validity"
+        check_type: "solid_validity"
+        enabled: true
+        severity: "error"
+      - check_id: "positive_volume"
+        check_type: "positive_volume"
+        enabled: true
+        severity: "error"
+      - check_id: "min_wall_thickness"
+        check_type: "wall_thickness"
+        enabled: true
+        threshold_key: "wall_thickness_min_mm"
+        severity: "warning"
+      - check_id: "min_hole_diameter"
+        check_type: "hole_diameter"
+        enabled: true
+        threshold_key: "hole_diameter_min_mm"
+        severity: "notice"
+      - check_id: "pocket_depth_ratio"
+        check_type: "pocket_depth_ratio"
+        enabled: true
+        threshold_key: "pocket_depth_ratio_max"
+        severity: "warning"
+      - check_id: "hole_depth_ratio"
+        check_type: "hole_depth_ratio"
+        enabled: true
+        threshold_key: "hole_depth_ratio_max"
+        severity: "warning"
