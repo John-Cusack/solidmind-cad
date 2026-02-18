@@ -34,7 +34,7 @@ This is the primary two-process architecture for live CAD work.
 ### 2.2 Optional Sidecars
 
 - `study.run` starts a background subprocess: `python -m server.study_runner <study_id>`.
-- `motion.simulate` connects to optional Chrono daemon on `127.0.0.1:9877`.
+- `motion.simulate` can connect to optional Chrono daemon (`127.0.0.1:9877`) or Isaac bridge (`127.0.0.1:9878`).
 
 If sidecars are absent, base CAD/ME/spec workflows remain available.
 
@@ -66,22 +66,22 @@ Default endpoint: `127.0.0.1:9877`.
 
 ## 4. MCP Protocol Surface
 
-### 4.1 Tools (72 total)
+### 4.1 Tools (81 total)
 
 | Family | Count | Module |
 |---|---:|---|
-| `cad.*` | 28 | `server/tools_cad.py` |
+| `cad.*` | 33 | `server/tools_cad.py` |
 | `mfg.*` | 3 | `server/tools_mfg.py` |
 | `spec.*` | 10 | `server/tools.py` |
 | `me.*` | 5 | `server/tools_me.py` |
 | `knowledge.*` | 5 | `server/tools_knowledge.py` |
 | `geometry.*` | 5 | `server/tools_geometry.py` |
 | `study.*` | 7 | `server/tools_study.py` |
-| `motion.*` | 9 | `server/tools_motion.py` |
+| `motion.*` | 13 | `server/tools_motion.py` |
 
-#### 4.1.1 `cad.*` (28)
+#### 4.1.1 `cad.*` (33)
 
-`cad.new_document`, `cad.new_body`, `cad.sketch`, `cad.pad`, `cad.revolution`, `cad.polar_pattern`, `cad.pocket`, `cad.sweep`, `cad.helix`, `cad.loft`, `cad.hole`, `cad.fillet`, `cad.chamfer`, `cad.get_selection`, `cad.get_model_tree`, `cad.get_dimensions`, `cad.get_body_topology`, `cad.find_edges`, `cad.define_selection`, `cad.resolve_selection`, `cad.list_selections`, `cad.delete_selection`, `cad.screenshot`, `cad.set_camera`, `cad.get_camera`, `cad.undo`, `cad.export`, `cad.set_visibility`.
+`cad.new_document`, `cad.new_body`, `cad.sketch`, `cad.pad`, `cad.revolution`, `cad.polar_pattern`, `cad.pocket`, `cad.sweep`, `cad.helix`, `cad.loft`, `cad.hole`, `cad.fillet`, `cad.chamfer`, `cad.get_selection`, `cad.get_model_tree`, `cad.get_dimensions`, `cad.get_body_topology`, `cad.find_edges`, `cad.define_selection`, `cad.resolve_selection`, `cad.list_selections`, `cad.delete_selection`, `cad.screenshot`, `cad.set_camera`, `cad.get_camera`, `cad.undo`, `cad.export`, `cad.delete_objects`, `cad.set_placement`, `cad.set_visibility`, `cad.animate`, `cad.animate_stop`, `cad.freecad_info`.
 
 #### 4.1.2 `mfg.*` (3)
 
@@ -107,9 +107,9 @@ Default endpoint: `127.0.0.1:9877`.
 
 `study.create`, `study.run`, `study.status`, `study.results`, `study.cancel`, `study.list`, `study.get_variant`.
 
-#### 4.1.8 `motion.*` (9)
+#### 4.1.8 `motion.*` (13)
 
-`motion.define_mechanism`, `motion.list_mechanisms`, `motion.validate`, `motion.propagate_motion`, `motion.check_gear_train`, `motion.create_assembly`, `motion.drive_joint`, `motion.check_interference`, `motion.simulate`.
+`motion.define_mechanism`, `motion.list_mechanisms`, `motion.validate`, `motion.propagate_motion`, `motion.check_gear_train`, `motion.create_assembly`, `motion.drive_joint`, `motion.check_interference`, `motion.simulate`, `motion.teleop_start`, `motion.teleop_command`, `motion.teleop_state`, `motion.teleop_stop`.
 
 ### 4.2 Prompts (2)
 
@@ -153,9 +153,11 @@ Tiered behavior:
 3. Tier 2 kinematic FreeCAD Assembly checks
 - Builds assembly links/joints, solves constraints, drives joints, checks interference.
 
-4. Tier 3 dynamic simulation via Chrono
-- `motion.simulate` requests time-domain simulation.
-- If daemon is absent, returns deterministic `CHRONO_NOT_CONNECTED` error with guidance.
+4. Tier 3 dynamic simulation via selected backend
+- `motion.simulate` supports `backend=chrono|isaac` (default `isaac`).
+- `motion.simulate` supports `mode=batch|teleop` (teleop for Isaac only).
+- If requested backend is absent, returns deterministic `BACKEND_UNAVAILABLE_CHOOSE` with explicit retry choices (no implicit fallback).
+- Isaac teleop lifecycle is exposed via `motion.teleop_start`, `motion.teleop_command`, `motion.teleop_state`, `motion.teleop_stop`.
 
 ## 7. Study Pipeline
 

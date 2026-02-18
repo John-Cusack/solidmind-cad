@@ -16,6 +16,8 @@ from server.tools_cad import (
     cad_delete_objects,
     cad_delete_selection,
     cad_export,
+    cad_export_body,
+    cad_export_sim_package,
     cad_fillet,
     cad_find_edges,
     cad_get_body_topology,
@@ -1610,6 +1612,29 @@ class TestCadScreenshot(unittest.TestCase):
             doc="MyDoc",
         )
 
+    @patch("server.tools_cad.get_client")
+    def test_screenshot_with_hide_bodies(self, mock_get: MagicMock) -> None:
+        client = _mock_client()
+        client.send_command.return_value = {
+            "ok": True,
+            "image_base64": "abc",
+            "mime_type": "image/png",
+            "camera_position": [100, 100, 100],
+            "camera_target": [0, 0, 0],
+        }
+        mock_get.return_value = client
+
+        result = cad_screenshot(hide_bodies=["Body_Ring", "Body_Cover"])
+        self.assertTrue(result["ok"])
+        client.send_command.assert_called_once_with(
+            "screenshot",
+            target="iso",
+            distance=2.0,
+            width=512,
+            height=512,
+            hide_bodies=["Body_Ring", "Body_Cover"],
+        )
+
 
 class TestCadSetCamera(unittest.TestCase):
     @patch("server.tools_cad.get_client")
@@ -2081,6 +2106,167 @@ class TestCadAnimateStop(unittest.TestCase):
         self.assertEqual(result["status"], "stopped")
         self.assertEqual(result["frames_played"], 150)
         client.send_command.assert_called_once_with("assembly_animate_stop")
+
+
+class TestCadExportBody(unittest.TestCase):
+    @patch("server.tools_cad.get_client")
+    def test_export_body(self, mock_get: MagicMock) -> None:
+        client = _mock_client()
+        client.send_command.return_value = {"path": "/tmp/Body_Plate.stl", "format": "stl", "body": "Body_Plate"}
+        mock_get.return_value = client
+
+        result = cad_export_body(body="Body_Plate", format="stl")
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["path"], "/tmp/Body_Plate.stl")
+        self.assertEqual(result["body"], "Body_Plate")
+        client.send_command.assert_called_once_with("export_body", body="Body_Plate", format="stl")
+
+    @patch("server.tools_cad.get_client")
+    def test_export_body_with_path_and_doc(self, mock_get: MagicMock) -> None:
+        client = _mock_client()
+        client.send_command.return_value = {"path": "/out/leg.step", "format": "step", "body": "Body_Leg"}
+        mock_get.return_value = client
+
+        result = cad_export_body(body="Body_Leg", format="step", path="/out/leg.step", doc="Hexapod")
+        self.assertTrue(result["ok"])
+        client.send_command.assert_called_once_with(
+            "export_body", body="Body_Leg", format="step", path="/out/leg.step", doc="Hexapod",
+        )
+
+
+class TestCadGetModelTreeSummary(unittest.TestCase):
+    @patch("server.tools_cad.get_client")
+    def test_summary_mode_passes_param(self, mock_get: MagicMock) -> None:
+        client = _mock_client()
+        client.send_command.return_value = {
+            "doc": "MyDoc",
+            "objects": [
+                {"name": "Body", "label": "Body", "type": "PartDesign::Body"},
+            ],
+        }
+        mock_get.return_value = client
+
+        result = cad_get_model_tree(summary=True)
+        self.assertTrue(result["ok"])
+        client.send_command.assert_called_once_with("get_model_tree", summary=True)
+
+    @patch("server.tools_cad.get_client")
+    def test_default_no_summary(self, mock_get: MagicMock) -> None:
+        client = _mock_client()
+        client.send_command.return_value = {
+            "doc": "MyDoc",
+            "objects": [],
+        }
+        mock_get.return_value = client
+
+        result = cad_get_model_tree()
+        self.assertTrue(result["ok"])
+        # summary=False should not be sent
+        client.send_command.assert_called_once_with("get_model_tree")
+
+
+class TestCadExportSimPackage(unittest.TestCase):
+    @patch("server.tools_cad.get_client")
+    def test_export_sim_package_no_mechanism(self, mock_get: MagicMock) -> None:
+        client = _mock_client()
+        client.send_command.return_value = {
+            "output_dir": "/tmp/sim_pkg_abc",
+            "format": "stl",
+            "body_count": 2,
+            "bodies": [
+                {
+                    "name": "Body_Plate",
+                    "label": "Plate",
+                    "mesh_path": "/tmp/sim_pkg_abc/Body_Plate.stl",
+                    "placement": {"position": [0, 0, 0], "rotation_quat": [1, 0, 0, 0]},
+                },
+                {
+                    "name": "Body_Leg",
+                    "label": "Leg",
+                    "mesh_path": "/tmp/sim_pkg_abc/Body_Leg.stl",
+                    "placement": {"position": [10, 0, 0], "rotation_quat": [1, 0, 0, 0]},
+                },
+            ],
+        }
+        mock_get.return_value = client
+
+        result = cad_export_sim_package()
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["body_count"], 2)
+        self.assertNotIn("urdf_path", result)
+        client.send_command.assert_called_once_with("export_sim_package", format="stl")
+
+    @patch("server.motion_store.get")
+    @patch("server.tools_cad.get_client")
+    def test_export_sim_package_with_mechanism(self, mock_get: MagicMock, mock_mech_get: MagicMock) -> None:
+        import tempfile
+        from server.motion_models import Mechanism, PartNode, JointEdge, JointType
+
+        client = _mock_client()
+        tmp_dir = tempfile.mkdtemp()
+        client.send_command.return_value = {
+            "output_dir": tmp_dir,
+            "format": "stl",
+            "body_count": 2,
+            "bodies": [
+                {
+                    "name": "Body_Base",
+                    "label": "Base",
+                    "mesh_path": f"{tmp_dir}/Body_Base.stl",
+                    "placement": {"position": [0, 0, 0], "rotation_quat": [1, 0, 0, 0]},
+                },
+                {
+                    "name": "Body_Arm",
+                    "label": "Arm",
+                    "mesh_path": f"{tmp_dir}/Body_Arm.stl",
+                    "placement": {"position": [0, 0, 50], "rotation_quat": [1, 0, 0, 0]},
+                },
+            ],
+        }
+        mock_get.return_value = client
+
+        mechanism = Mechanism(
+            name="test_arm",
+            parts=(
+                PartNode(id="base", body_name="Body_Base", is_ground=True),
+                PartNode(id="arm", body_name="Body_Arm"),
+            ),
+            joints=(
+                JointEdge(
+                    id="shoulder",
+                    joint_type=JointType.REVOLUTE,
+                    parent_part="base",
+                    child_part="arm",
+                    origin=(0.0, 0.0, 50.0),
+                ),
+            ),
+            drives=(),
+        )
+        mock_mech_get.return_value = mechanism
+
+        result = cad_export_sim_package(mechanism_id="mech_test123")
+        self.assertTrue(result["ok"])
+        self.assertIn("urdf_path", result)
+        self.assertIn("sim_model", result)
+        self.assertEqual(result["sim_model"]["link_count"], 2)
+        self.assertEqual(result["sim_model"]["joint_count"], 1)
+
+    @patch("server.motion_store.get")
+    @patch("server.tools_cad.get_client")
+    def test_export_sim_package_invalid_mechanism(self, mock_get: MagicMock, mock_mech_get: MagicMock) -> None:
+        client = _mock_client()
+        client.send_command.return_value = {
+            "output_dir": "/tmp/sim_pkg_abc",
+            "format": "stl",
+            "body_count": 1,
+            "bodies": [],
+        }
+        mock_get.return_value = client
+        mock_mech_get.return_value = None
+
+        result = cad_export_sim_package(mechanism_id="mech_nonexistent")
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["error"]["code"], "INVALID_MECHANISM_ID")
 
 
 class TestConnectionError(unittest.TestCase):

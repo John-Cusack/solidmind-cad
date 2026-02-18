@@ -8,18 +8,18 @@ Make advanced CAD workflows accessible while keeping engineering logic determini
 
 ## Runtime Surface (Current)
 
-The MCP server currently exposes **72 tools** across 8 families:
+The MCP server currently exposes **81 tools** across 8 families:
 
 | Family | Count | Module |
 |---|---:|---|
-| `cad.*` | 28 | `server/tools_cad.py` |
+| `cad.*` | 33 | `server/tools_cad.py` |
 | `mfg.*` | 3 | `server/tools_mfg.py` |
 | `spec.*` | 10 | `server/tools.py` |
 | `me.*` | 5 | `server/tools_me.py` |
 | `knowledge.*` | 5 | `server/tools_knowledge.py` |
 | `geometry.*` | 5 | `server/tools_geometry.py` |
 | `study.*` | 7 | `server/tools_study.py` |
-| `motion.*` | 9 | `server/tools_motion.py` |
+| `motion.*` | 13 | `server/tools_motion.py` |
 
 ## What It Supports
 
@@ -54,7 +54,9 @@ Core modeling remains the two-process bridge (`server/main.py` <-> `freecad_addo
 
 - **Tier 1 (analytical)**: `motion.validate`, `motion.propagate_motion`, `motion.check_gear_train`.
 - **Tier 2 (kinematic in FreeCAD Assembly)**: `motion.create_assembly`, `motion.drive_joint`, `motion.check_interference`.
-- **Tier 3 (dynamic via Project Chrono)**: `motion.simulate` using `localhost:9877` with graceful error when unavailable.
+- **Tier 3 (dynamic backend selection)**:
+  - `motion.simulate` with `backend=isaac|chrono` (default: `isaac`)
+  - Isaac teleop lifecycle: `motion.teleop_start`, `motion.teleop_command`, `motion.teleop_state`, `motion.teleop_stop`
 
 ## LLM Interaction Contract
 

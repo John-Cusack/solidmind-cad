@@ -22,6 +22,25 @@ class TestMainSpecTools(unittest.TestCase):
         }
         self.assertTrue(expected.issubset(names))
 
+    def test_tools_list_includes_motion_teleop_tools(self) -> None:
+        names = {entry.get("name") for entry in mcp_main._tool_list()}
+        expected = {
+            "motion.simulate",
+            "motion.teleop_start",
+            "motion.teleop_command",
+            "motion.teleop_state",
+            "motion.teleop_stop",
+        }
+        self.assertTrue(expected.issubset(names))
+
+    def test_motion_simulate_schema_has_backend_mode(self) -> None:
+        tool = next(t for t in mcp_main._tool_list() if t.get("name") == "motion.simulate")
+        props = tool["inputSchema"]["properties"]
+        self.assertIn("backend", props)
+        self.assertIn("mode", props)
+        self.assertEqual(props["backend"]["default"], "isaac")
+        self.assertEqual(props["mode"]["default"], "batch")
+
     def test_call_tool_spec_select_schema(self) -> None:
         out = mcp_main._call_tool(
             "spec.select_schema",

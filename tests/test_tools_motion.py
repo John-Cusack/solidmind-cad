@@ -13,6 +13,10 @@ from server.tools_motion import (
     motion_list_mechanisms,
     motion_propagate_motion,
     motion_simulate,
+    motion_teleop_command,
+    motion_teleop_start,
+    motion_teleop_state,
+    motion_teleop_stop,
     motion_validate,
 )
 
@@ -20,9 +24,13 @@ from server.tools_motion import (
 class TestMotionToolsBase(unittest.TestCase):
     def setUp(self):
         motion_store.clear()
+        from server.tools_motion import _teleop_sessions
+        _teleop_sessions.clear()
 
     def tearDown(self):
         motion_store.clear()
+        from server.tools_motion import _teleop_sessions
+        _teleop_sessions.clear()
 
 
 class TestDefineMechanism(TestMotionToolsBase):
@@ -680,11 +688,8 @@ class TestSimulate(TestMotionToolsBase):
         self.assertFalse(result["ok"])
         self.assertEqual(result["error"]["code"], "NOT_FOUND")
 
-    def test_simulate_no_daemon(self):
-        """Without a running Chrono daemon, simulate returns a clear error.
-
-        If a daemon IS running, the simulation will succeed — that's fine too.
-        """
+    def test_simulate_default_backend_is_isaac(self):
+        """When backend is omitted, motion_simulate defaults to Isaac."""
         result = motion_define_mechanism({
             "name": "gear_pair",
             "parts": [{"id": "a"}, {"id": "b"}, {"id": "f", "is_ground": True}],
@@ -701,15 +706,34 @@ class TestSimulate(TestMotionToolsBase):
         mid = result["mechanism_id"]
         sim_result = motion_simulate(mid)
         if sim_result["ok"]:
-            # Daemon is running — simulation succeeded, that's valid
-            self.assertIn("summary", sim_result)
+            self.assertEqual(sim_result["backend_used"], "isaac")
         else:
-            # No daemon — expect connection error
+            self.assertEqual(sim_result["error"]["code"], "BACKEND_UNAVAILABLE_CHOOSE")
+            self.assertEqual(sim_result["backend_requested"], "isaac")
+
+    def test_simulate_explicit_chrono_no_daemon(self):
+        """Chrono remains available when requested explicitly."""
+        result = motion_define_mechanism({
+            "name": "gear_pair",
+            "parts": [{"id": "a"}, {"id": "b"}, {"id": "f", "is_ground": True}],
+            "joints": [{
+                "id": "mesh",
+                "joint_type": "gear_mesh",
+                "parent_part": "a",
+                "child_part": "b",
+                "teeth_parent": 20,
+                "teeth_child": 40,
+            }],
+            "drives": [{"joint_id": "mesh", "speed_rpm": 1000}],
+        })
+        mid = result["mechanism_id"]
+        sim_result = motion_simulate(mid, backend="chrono")
+        if sim_result["ok"]:
+            self.assertEqual(sim_result["backend_used"], "chrono")
+        else:
             self.assertIn(
                 sim_result["error"]["code"],
-                ("CHRONO_NOT_CONNECTED", "CHRONO_COMMAND_ERROR",
-                 "CHRONO_CONNECTION_LOST", "CHRONO_ERROR",
-                 "SIMULATION_SPEC_INVALID"),
+                ("BACKEND_UNAVAILABLE_CHOOSE", "SIMULATION_SPEC_INVALID"),
             )
 
     def test_simulate_driven_part_in_define(self):
@@ -747,12 +771,115 @@ class TestSimulateSpecValidation(TestMotionToolsBase):
             "drives": [],
         })
         mid = result["mechanism_id"]
-        sim_result = motion_simulate(mid)
+        sim_result = motion_simulate(mid, backend="chrono")
         if not sim_result["ok"]:
-            # Could be CHRONO_NOT_CONNECTED or SIMULATION_SPEC_INVALID
-            # If daemon isn't running, it fails before spec validation
+            # Could be BACKEND_UNAVAILABLE_CHOOSE or SIMULATION_SPEC_INVALID
             if sim_result["error"]["code"] == "SIMULATION_SPEC_INVALID":
                 self.assertIn("No motor", sim_result["error"]["message"])
+
+
+class TestSimulateBackendBehavior(TestMotionToolsBase):
+    def _make_mechanism(self) -> str:
+        result = motion_define_mechanism({
+            "name": "backend_behavior",
+            "parts": [{"id": "a"}, {"id": "b"}, {"id": "f", "is_ground": True}],
+            "joints": [{
+                "id": "mesh",
+                "joint_type": "gear_mesh",
+                "parent_part": "a",
+                "child_part": "b",
+                "teeth_parent": 20,
+                "teeth_child": 40,
+            }],
+            "drives": [{"joint_id": "mesh", "speed_rpm": 1000}],
+        })
+        return result["mechanism_id"]
+
+    def test_invalid_backend(self):
+        mid = self._make_mechanism()
+        result = motion_simulate(mid, backend="invalid")
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["error"]["code"], "INVALID_INPUT")
+
+    def test_chrono_rejects_teleop_mode(self):
+        mid = self._make_mechanism()
+        result = motion_simulate(mid, backend="chrono", mode="teleop")
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["error"]["code"], "INVALID_INPUT")
+
+    def test_no_silent_fallback_when_isaac_unavailable(self):
+        from unittest.mock import patch
+
+        mid = self._make_mechanism()
+        with patch("server.isaac_adapter.simulate", return_value={
+            "ok": False,
+            "error": {"code": "ISAAC_NOT_CONNECTED", "message": "unavailable"},
+        }), patch("server.tools_motion._simulate_with_chrono") as chrono_fallback:
+            result = motion_simulate(mid, backend="isaac")
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["error"]["code"], "BACKEND_UNAVAILABLE_CHOOSE")
+        chrono_fallback.assert_not_called()
+
+
+class TestTeleopTools(TestMotionToolsBase):
+    def _make_mechanism(self) -> str:
+        result = motion_define_mechanism({
+            "name": "teleop_test",
+            "parts": [{"id": "base"}, {"id": "frame", "is_ground": True}],
+            "joints": [{
+                "id": "base_rev",
+                "joint_type": "revolute",
+                "parent_part": "frame",
+                "child_part": "base",
+            }],
+            "drives": [{"joint_id": "base_rev", "speed_rpm": 100.0}],
+        })
+        return result["mechanism_id"]
+
+    def test_teleop_lifecycle(self):
+        from unittest.mock import patch
+
+        mid = self._make_mechanism()
+        with patch("server.isaac_adapter.teleop_start", return_value={
+            "ok": True,
+            "session_id": "sess_1",
+            "status": "started",
+        }), patch("server.isaac_adapter.teleop_command", return_value={
+            "ok": True,
+            "applied": True,
+        }), patch("server.isaac_adapter.teleop_state", return_value={
+            "ok": True,
+            "state": {"vx_mps": 0.2},
+        }), patch("server.isaac_adapter.teleop_stop", return_value={
+            "ok": True,
+            "stopped": True,
+        }):
+            start = motion_teleop_start(mid)
+            self.assertTrue(start["ok"])
+            self.assertEqual(start["session_id"], "sess_1")
+            self.assertEqual(start["mode_used"], "teleop")
+
+            cmd = motion_teleop_command("sess_1", vx_mps=0.2, yaw_rate_rps=0.1, body_height_m=0.0)
+            self.assertTrue(cmd["ok"])
+
+            state = motion_teleop_state("sess_1")
+            self.assertTrue(state["ok"])
+            self.assertIn("state", state)
+
+            stop = motion_teleop_stop("sess_1")
+            self.assertTrue(stop["ok"])
+
+    def test_simulate_teleop_mode_routes_to_session_start(self):
+        from unittest.mock import patch
+
+        mid = self._make_mechanism()
+        with patch("server.isaac_adapter.teleop_start", return_value={
+            "ok": True,
+            "session_id": "sess_sim_mode",
+        }):
+            result = motion_simulate(mid, backend="isaac", mode="teleop")
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["mode_used"], "teleop")
 
 
 if __name__ == "__main__":

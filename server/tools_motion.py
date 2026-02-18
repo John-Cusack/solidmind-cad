@@ -10,6 +10,7 @@ import logging
 import math
 import os
 import time
+from typing import Literal
 from typing import Any
 
 from server.motion_models import (
@@ -42,9 +43,65 @@ _assembly_joint_maps: dict[str, dict[str, str]] = {}
 # Populated by motion_create_assembly, consumed by motion_drive_joint
 _assembly_link_maps: dict[str, dict[str, str]] = {}
 
+# Active Isaac teleop sessions keyed by session_id.
+_teleop_sessions: dict[str, dict[str, Any]] = {}
+
+_SIM_BACKENDS = {"chrono", "isaac"}
+_SIM_MODES = {"batch", "teleop"}
+_DEFAULT_SIM_BACKEND: Literal["isaac"] = "isaac"
+
 
 def _error_result(code: str, message: str) -> dict[str, Any]:
     return {"ok": False, "error": {"code": code, "message": message}}
+
+
+def _normalize_backend(backend: str | None) -> str:
+    if backend is None:
+        return _DEFAULT_SIM_BACKEND
+    return str(backend).strip().lower()
+
+
+def _normalize_mode(mode: str | None) -> str:
+    if mode is None:
+        return "batch"
+    return str(mode).strip().lower()
+
+
+def _backend_unavailable_result(
+    requested_backend: str,
+    message: str,
+    *,
+    unavailable_code: str,
+) -> dict[str, Any]:
+    alternate = "chrono" if requested_backend == "isaac" else "isaac"
+    return {
+        "ok": False,
+        "error": {
+            "code": "BACKEND_UNAVAILABLE_CHOOSE",
+            "message": (
+                f"Requested simulation backend '{requested_backend}' is unavailable. "
+                f"{message}"
+            ),
+        },
+        "backend_requested": requested_backend,
+        "choices": [
+            {
+                "action": "retry_with_backend",
+                "backend": requested_backend,
+                "description": f"Retry with '{requested_backend}' after setup/fix.",
+            },
+            {
+                "action": "retry_with_backend",
+                "backend": alternate,
+                "description": f"Retry now with '{alternate}'.",
+            },
+        ],
+        "unavailable": {
+            "backend": requested_backend,
+            "code": unavailable_code,
+            "message": message,
+        },
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -660,44 +717,33 @@ def motion_check_interference(
 
 
 # ---------------------------------------------------------------------------
-# Tier 3: Dynamic validation (Project Chrono)
+# Tier 3: Dynamic validation (Chrono or Isaac)
 # ---------------------------------------------------------------------------
 
-def motion_simulate(
-    mechanism_id: str,
-    duration_s: float = 1.0,
-    dt_s: float = 0.001,
-    output_interval: float = 0.01,
+def _simulate_with_chrono(
+    mech: Mechanism,
+    *,
+    duration_s: float,
+    dt_s: float,
+    output_interval: float,
 ) -> dict[str, Any]:
-    """Run dynamic simulation via the Chrono daemon.
-
-    Requires the chrono_daemon binary to be running on localhost:9877.
-    Returns graceful error if the daemon is not available.
-    """
-    if _TOOL_LOG:
-        log.info(
-            "CALL motion_simulate id=%s duration=%.3f dt=%.4f",
-            mechanism_id, duration_s, dt_s,
-        )
-    t0 = time.monotonic()
-
-    mech = store_get(mechanism_id)
-    if mech is None:
-        return _error_result("NOT_FOUND", f"No mechanism with id '{mechanism_id}'")
-
+    """Run dynamic simulation via the Chrono daemon for one mechanism."""
     # Lazy import to avoid import-time dependency on chrono_client
     from server.chrono_client import ChronoCommandError, ChronoConnectionError, get_client
 
     client = get_client()
     if client is None:
-        return _error_result(
-            "CHRONO_NOT_CONNECTED",
-            "Chrono daemon not running on localhost:9877. "
-            "Start it with: chrono_daemon/run.sh (or systemctl --user start chrono-daemon). "
-            "Tier 1 (analytical) and Tier 2 (kinematic) validation are still available.",
+        return _backend_unavailable_result(
+            "chrono",
+            (
+                "Chrono daemon not running on localhost:9877. "
+                "Start it with: chrono_daemon/run.sh "
+                "(or systemctl --user start chrono-daemon)."
+            ),
+            unavailable_code="CHRONO_NOT_CONNECTED",
         )
 
-    # Build simulation spec (Python planner → C++ executor)
+    # Build simulation spec (Python planner -> C++ executor)
     from server.simulation_spec_builder import (
         add_derived_speeds,
         build_simulation_spec,
@@ -706,7 +752,7 @@ def motion_simulate(
 
     spec = build_simulation_spec(mech)
 
-    # Pre-flight: catch referential integrity issues before the C++ round-trip
+    # Pre-flight: catch referential integrity issues before the C++ round-trip.
     spec_issues = validate_simulation_spec(spec)
     if spec_issues:
         return _error_result(
@@ -729,13 +775,13 @@ def motion_simulate(
     except Exception as exc:
         return _error_result("CHRONO_ERROR", str(exc))
 
-    # Post-process: compute derived planet speeds from sun/carrier
+    # Post-process: compute derived planet speeds from sun/carrier.
     add_derived_speeds(result, spec)
 
-    # Surface C++ build warnings
+    # Surface C++ build warnings.
     build_warnings = result.pop("warnings", [])
 
-    # Post-flight: detect zero-motion (all steady-state speeds are zero)
+    # Post-flight: detect zero-motion (all steady-state speeds are zero).
     diagnostics: list[str] = []
     ss_speeds = result.get("summary", {}).get("steady_state_speeds", {})
     if ss_speeds and all(abs(v) < 1e-6 for v in ss_speeds.values()):
@@ -745,16 +791,211 @@ def motion_simulate(
             "Check build_warnings for details."
         )
 
-    if _TOOL_LOG:
-        samples = len(result.get("time_series", []))
-        log.info(
-            "OK   motion_simulate %.3fs samples=%d warnings=%d",
-            time.monotonic() - t0, samples, len(build_warnings),
-        )
-
-    response: dict[str, Any] = {"ok": True, **result}
+    response: dict[str, Any] = {"ok": True, **result, "backend_used": "chrono", "mode_used": "batch"}
     if build_warnings:
         response["build_warnings"] = build_warnings
     if diagnostics:
         response["diagnostics"] = diagnostics
     return response
+
+
+def _simulate_with_isaac(
+    mech: Mechanism,
+    *,
+    duration_s: float,
+    dt_s: float,
+    output_interval: float,
+) -> dict[str, Any]:
+    """Run batch simulation via the optional Isaac sidecar."""
+    from server import isaac_adapter
+
+    result = isaac_adapter.simulate(
+        mechanism=mech,
+        duration_s=duration_s,
+        dt_s=dt_s,
+        output_interval=output_interval,
+    )
+    if not result.get("ok", False):
+        err = result.get("error", {})
+        code = err.get("code", "ISAAC_ERROR")
+        if code == "ISAAC_NOT_CONNECTED":
+            return _backend_unavailable_result(
+                "isaac",
+                err.get(
+                    "message",
+                    "Isaac bridge is not available.",
+                ),
+                unavailable_code=code,
+            )
+        return result
+    result["backend_used"] = "isaac"
+    result["mode_used"] = "batch"
+    return result
+
+
+def motion_simulate(
+    mechanism_id: str,
+    duration_s: float = 1.0,
+    dt_s: float = 0.001,
+    output_interval: float = 0.01,
+    backend: str | None = None,
+    mode: str = "batch",
+) -> dict[str, Any]:
+    """Run dynamic simulation via selected backend (`isaac` or `chrono`)."""
+    if _TOOL_LOG:
+        log.info(
+            "CALL motion_simulate id=%s backend=%s mode=%s duration=%.3f dt=%.4f",
+            mechanism_id, backend, mode, duration_s, dt_s,
+        )
+    t0 = time.monotonic()
+
+    mech = store_get(mechanism_id)
+    if mech is None:
+        return _error_result("NOT_FOUND", f"No mechanism with id '{mechanism_id}'")
+
+    selected_backend = _normalize_backend(backend)
+    selected_mode = _normalize_mode(mode)
+
+    if selected_backend not in _SIM_BACKENDS:
+        return _error_result(
+            "INVALID_INPUT",
+            f"backend must be one of {sorted(_SIM_BACKENDS)}",
+        )
+    if selected_mode not in _SIM_MODES:
+        return _error_result(
+            "INVALID_INPUT",
+            f"mode must be one of {sorted(_SIM_MODES)}",
+        )
+
+    if selected_backend == "chrono" and selected_mode != "batch":
+        return _error_result(
+            "INVALID_INPUT",
+            "mode='teleop' is only supported with backend='isaac'",
+        )
+
+    if selected_backend == "chrono":
+        response = _simulate_with_chrono(
+            mech,
+            duration_s=duration_s,
+            dt_s=dt_s,
+            output_interval=output_interval,
+        )
+    elif selected_mode == "teleop":
+        response = motion_teleop_start(mechanism_id=mechanism_id, backend="isaac")
+    else:
+        response = _simulate_with_isaac(
+            mech,
+            duration_s=duration_s,
+            dt_s=dt_s,
+            output_interval=output_interval,
+        )
+
+    if _TOOL_LOG:
+        log.info(
+            "DONE motion_simulate %.3fs ok=%s backend=%s mode=%s",
+            time.monotonic() - t0,
+            response.get("ok"),
+            response.get("backend_used", selected_backend),
+            response.get("mode_used", selected_mode),
+        )
+    return response
+
+
+def motion_teleop_start(
+    mechanism_id: str,
+    backend: str = "isaac",
+    profile: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Start an Isaac teleop session for a mechanism."""
+    selected_backend = _normalize_backend(backend)
+    if selected_backend != "isaac":
+        return _error_result(
+            "INVALID_INPUT",
+            "motion.teleop_start only supports backend='isaac'",
+        )
+
+    mech = store_get(mechanism_id)
+    if mech is None:
+        return _error_result("NOT_FOUND", f"No mechanism with id '{mechanism_id}'")
+
+    from server import isaac_adapter
+
+    result = isaac_adapter.teleop_start(mechanism=mech, profile=profile or {})
+    if not result.get("ok", False):
+        err = result.get("error", {})
+        if err.get("code") == "ISAAC_NOT_CONNECTED":
+            return _backend_unavailable_result(
+                "isaac",
+                err.get("message", "Isaac bridge is not available."),
+                unavailable_code="ISAAC_NOT_CONNECTED",
+            )
+        return result
+
+    session_id = str(result.get("session_id", "")).strip()
+    if not session_id:
+        return _error_result("ISAAC_ERROR", "Isaac teleop response missing session_id")
+
+    _teleop_sessions[session_id] = {
+        "mechanism_id": mechanism_id,
+        "backend": "isaac",
+        "created_at": time.time(),
+    }
+    return {
+        "ok": True,
+        "backend_used": "isaac",
+        "mode_used": "teleop",
+        **result,
+    }
+
+
+def motion_teleop_command(
+    session_id: str,
+    vx_mps: float = 0.0,
+    yaw_rate_rps: float = 0.0,
+    body_height_m: float = 0.0,
+) -> dict[str, Any]:
+    """Send a teleop command to an active Isaac session."""
+    session = _teleop_sessions.get(session_id)
+    if session is None:
+        return _error_result("NOT_FOUND", f"No active teleop session '{session_id}'")
+
+    from server import isaac_adapter
+
+    result = isaac_adapter.teleop_command(
+        session_id=session_id,
+        vx_mps=vx_mps,
+        yaw_rate_rps=yaw_rate_rps,
+        body_height_m=body_height_m,
+    )
+    if not result.get("ok", False):
+        return result
+    return {"ok": True, "backend_used": "isaac", "mode_used": "teleop", **result}
+
+
+def motion_teleop_state(session_id: str) -> dict[str, Any]:
+    """Read current state from an active Isaac teleop session."""
+    session = _teleop_sessions.get(session_id)
+    if session is None:
+        return _error_result("NOT_FOUND", f"No active teleop session '{session_id}'")
+
+    from server import isaac_adapter
+
+    result = isaac_adapter.teleop_state(session_id=session_id)
+    if not result.get("ok", False):
+        return result
+    return {"ok": True, "backend_used": "isaac", "mode_used": "teleop", **result}
+
+
+def motion_teleop_stop(session_id: str) -> dict[str, Any]:
+    """Stop and remove an active Isaac teleop session."""
+    session = _teleop_sessions.get(session_id)
+    if session is None:
+        return _error_result("NOT_FOUND", f"No active teleop session '{session_id}'")
+
+    from server import isaac_adapter
+
+    result = isaac_adapter.teleop_stop(session_id=session_id)
+    if not result.get("ok", False):
+        return result
+    _teleop_sessions.pop(session_id, None)
+    return {"ok": True, "backend_used": "isaac", "mode_used": "teleop", **result}

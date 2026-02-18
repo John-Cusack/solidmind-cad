@@ -58,8 +58,12 @@ def new_body(doc: str | None = None, name: str = "Body") -> dict[str, Any]:
     return {"name": body.Name, "label": body.Label}
 
 
-def get_model_tree(doc: str | None = None) -> dict[str, Any]:
-    """Return the feature tree of the document."""
+def get_model_tree(doc: str | None = None, summary: bool = False) -> dict[str, Any]:
+    """Return the feature tree of the document.
+
+    When ``summary=True``, returns only name/label/type per object — skips
+    bounding boxes and topology counts for ~7x token reduction.
+    """
     d = _get_doc(doc)
     tree: list[dict[str, Any]] = []
     for obj in d.Objects:
@@ -68,7 +72,7 @@ def get_model_tree(doc: str | None = None) -> dict[str, Any]:
             "label": obj.Label,
             "type": obj.TypeId,
         }
-        if hasattr(obj, "Shape") and obj.Shape is not None:
+        if not summary and hasattr(obj, "Shape") and obj.Shape is not None:
             try:
                 bb = obj.Shape.BoundBox
                 node["bounding_box"] = {
@@ -1655,6 +1659,7 @@ def _capture_image(
     if FreeCADGui is None:
         raise RuntimeError("No GUI available (headless mode) — cannot capture screenshots")
 
+    _ensure_gui_doc(doc)
     view = FreeCADGui.ActiveDocument.ActiveView
 
     # Compute model center and bbox diagonal
@@ -1858,9 +1863,11 @@ def screenshot(
     width: int = 512,
     height: int = 512,
     doc: str | None = None,
+    hide_bodies: list[str] | None = None,
 ) -> dict[str, Any]:
     """Smart screenshot: compute view from target, capture image."""
     d = _get_doc(doc)
+    _ensure_gui_doc(d)
     up_vec = tuple(up) if up else (0.0, 0.0, 1.0)
 
     target_point, resolved_dir = _resolve_target(target, d)
@@ -1872,22 +1879,44 @@ def screenshot(
     else:
         cam_dir = _PRESET_DIRECTIONS["iso"]
 
-    img = _capture_image(
-        d,
-        direction=cam_dir,  # type: ignore[arg-type]
-        up=up_vec,  # type: ignore[arg-type]
-        distance_mult=distance,
-        target_point=target_point,  # type: ignore[arg-type]
-        near_clip=near_clip,
-        width=width,
-        height=height,
-    )
-    return {
+    # Temporarily hide specified bodies for the capture
+    restored: list[tuple[str, bool]] = []
+    if hide_bodies and FreeCADGui is not None:
+        for name in hide_bodies:
+            gui_obj = FreeCADGui.ActiveDocument.getObject(name)
+            if gui_obj is not None and gui_obj.Visibility:
+                gui_obj.Visibility = False
+                restored.append((name, True))
+        _process_qt_events()
+
+    try:
+        img = _capture_image(
+            d,
+            direction=cam_dir,  # type: ignore[arg-type]
+            up=up_vec,  # type: ignore[arg-type]
+            distance_mult=distance,
+            target_point=target_point,  # type: ignore[arg-type]
+            near_clip=near_clip,
+            width=width,
+            height=height,
+        )
+    finally:
+        for name, was_visible in restored:
+            gui_obj = FreeCADGui.ActiveDocument.getObject(name)
+            if gui_obj is not None:
+                gui_obj.Visibility = was_visible
+        if restored:
+            _process_qt_events()
+
+    result = {
         "ok": True,
         "width": width,
         "height": height,
         **img,
     }
+    if restored:
+        result["hidden_for_capture"] = [name for name, _ in restored]
+    return result
 
 
 def set_camera(
@@ -1903,6 +1932,7 @@ def set_camera(
         raise RuntimeError("No GUI available (headless mode)")
 
     d = _get_doc(doc)
+    _ensure_gui_doc(d)
     view = FreeCADGui.ActiveDocument.ActiveView
 
     if fit_all:
@@ -1942,7 +1972,8 @@ def get_camera(doc: str | None = None) -> dict[str, Any]:
     if FreeCADGui is None:
         raise RuntimeError("No GUI available (headless mode)")
 
-    _get_doc(doc)  # validate doc exists
+    d = _get_doc(doc)  # validate doc exists
+    _ensure_gui_doc(d)
     view = FreeCADGui.ActiveDocument.ActiveView
 
     try:
@@ -1999,6 +2030,92 @@ def export(
         raise ValueError(f"Unsupported format: {format}")
 
     return {"path": path, "format": fmt}
+
+
+def export_sim_package(
+    bodies: list[str] | None = None,
+    format: str = "stl",
+    output_dir: str | None = None,
+    doc: str | None = None,
+) -> dict[str, Any]:
+    """Export all (or specified) bodies as individual meshes with placements.
+
+    Returns a manifest with per-body mesh_path + placement (position + quaternion),
+    ready for sim description generation (URDF/SDF/USD).
+    """
+    d = _get_doc(doc)
+    fmt = format.lower()
+    suffix = {"step": ".step", "stl": ".stl", "obj": ".obj"}.get(fmt, ".stl")
+
+    # Resolve output directory
+    if output_dir is None:
+        output_dir = tempfile.mkdtemp(prefix="sim_pkg_")
+    else:
+        Path(output_dir).mkdir(parents=True, exist_ok=True)
+
+    # Find bodies to export
+    if bodies is not None:
+        body_objs = []
+        for name in bodies:
+            obj = d.getObject(name)
+            if obj is None:
+                raise ValueError(f"Body '{name}' not found in document '{d.Name}'")
+            body_objs.append(obj)
+    else:
+        body_objs = [
+            obj for obj in d.Objects
+            if obj.TypeId == "PartDesign::Body"
+        ]
+
+    if not body_objs:
+        raise ValueError("No PartDesign::Body objects found in document")
+
+    manifest: list[dict[str, Any]] = []
+    for body_obj in body_objs:
+        shape = body_obj.Shape
+        if shape is None or shape.isNull():
+            logger.warning("Skipping body '%s' — no valid shape", body_obj.Name)
+            continue
+
+        mesh_path = str(Path(output_dir) / f"{body_obj.Name}{suffix}")
+        if fmt == "step":
+            shape.exportStep(mesh_path)
+        elif fmt == "stl":
+            shape.exportStl(mesh_path)
+        elif fmt == "obj":
+            import Mesh  # type: ignore[import-untyped]
+            Mesh.export([body_obj], mesh_path)
+        else:
+            raise ValueError(f"Unsupported format: {format}")
+
+        # Extract placement as position + quaternion
+        plc = body_obj.Placement
+        pos = plc.Base
+        quat = plc.Rotation.Q  # (x, y, z, w) in FreeCAD
+
+        # Bounding box and volume for auto-inertia computation
+        bb = shape.BoundBox
+        bbox_mm = [bb.XLength, bb.YLength, bb.ZLength]
+        volume_mm3 = shape.Volume
+
+        manifest.append({
+            "name": body_obj.Name,
+            "label": body_obj.Label,
+            "mesh_path": mesh_path,
+            "placement": {
+                "position": [pos.x, pos.y, pos.z],
+                "rotation_quat": [quat[3], quat[0], quat[1], quat[2]],  # w,x,y,z
+            },
+            "bbox_mm": bbox_mm,
+            "volume_mm3": volume_mm3,
+        })
+
+    return {
+        "output_dir": output_dir,
+        "format": fmt,
+        "body_count": len(manifest),
+        "bodies": manifest,
+    }
 
 
 def export_body(
@@ -2362,6 +2479,7 @@ def assembly_drive_joint(
     require_v1_plus("Assembly drive_joint")
 
     d = _get_doc(doc)
+    _ensure_gui_doc(d)
     asm_obj = d.getObject(assembly)
     if asm_obj is None:
         available = [o.Name for o in d.Objects if "Assembly" in o.TypeId]
@@ -2577,6 +2695,7 @@ def assembly_set_placements(
 ) -> dict[str, Any]:
     """Set link placements directly (analytical animation, bypasses solver)."""
     d = _get_doc(doc)
+    _ensure_gui_doc(d)
     asm_obj = d.getObject(assembly)
     if asm_obj is None:
         available = [o.Name for o in d.Objects if "Assembly" in o.TypeId]
@@ -2776,6 +2895,20 @@ def _get_doc(doc: str | None) -> Any:
     if d is None:
         raise ValueError("No active document. Call new_document first.")
     return d
+
+
+def _ensure_gui_doc(doc: Any) -> None:
+    """Ensure FreeCADGui.ActiveDocument matches the given document."""
+    if FreeCADGui is None:
+        return
+    gui_doc = FreeCADGui.ActiveDocument
+    if gui_doc is None or gui_doc.Document.Name != doc.Name:
+        FreeCAD.setActiveDocument(doc.Name)
+        if hasattr(FreeCADGui, "setActiveDocument"):
+            try:
+                FreeCADGui.setActiveDocument(doc.Name)
+            except Exception:
+                pass
 
 
 def _get_sketch(doc: Any, sketch_name: str) -> Any:
@@ -3230,6 +3363,7 @@ def set_visibility(
 ) -> dict[str, Any]:
     """Show or hide objects by name."""
     d = _get_doc(doc)
+    _ensure_gui_doc(d)
     if objects is None:
         objects = []
     if FreeCADGui is None:
@@ -3360,6 +3494,7 @@ COMMAND_HANDLERS: dict[str, Any] = {
     "get_camera": get_camera,
     "export": export,
     "export_body": export_body,
+    "export_sim_package": export_sim_package,
     "set_visibility": set_visibility,
     "assembly_create": assembly_create,
     "assembly_add_part": assembly_add_part,

@@ -84,6 +84,8 @@ from server.tools_cad import (
     cad_delete_objects,
     cad_delete_selection,
     cad_export,
+    cad_export_body,
+    cad_export_sim_package,
     cad_fillet,
     cad_find_edges,
     cad_freecad_info,
@@ -155,6 +157,10 @@ from server.tools_motion import (
     motion_list_mechanisms,
     motion_propagate_motion,
     motion_simulate,
+    motion_teleop_command,
+    motion_teleop_start,
+    motion_teleop_state,
+    motion_teleop_stop,
     motion_validate,
 )
 
@@ -596,6 +602,7 @@ def _cad_tool_list() -> list[dict[str, Any]]:
                 "type": "object",
                 "properties": {
                     "doc": {"type": "string", "description": "Document name (optional)"},
+                    "summary": {"type": "boolean", "default": False, "description": "When true, return only name/label/type per object — skip bounding boxes and topology counts for ~7x token reduction."},
                 },
                 "additionalProperties": False,
             },
@@ -778,6 +785,11 @@ def _cad_tool_list() -> list[dict[str, Any]]:
                     "width": {"type": "integer", "description": "Image width in pixels", "default": 512},
                     "height": {"type": "integer", "description": "Image height in pixels", "default": 512},
                     "doc": {"type": "string", "description": "Document name (optional)"},
+                    "hide_bodies": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Body names to temporarily hide during capture (e.g. ['Body_Ring'] to see occluded gears).",
+                    },
                 },
                 "additionalProperties": False,
             },
@@ -848,6 +860,43 @@ def _cad_tool_list() -> list[dict[str, Any]]:
                 "properties": {
                     "format": {"type": "string", "enum": ["step", "stl", "fcstd"], "default": "step"},
                     "path": {"type": "string", "description": "Output file path (optional, auto-generated if omitted)"},
+                    "doc": {"type": "string", "description": "Document name (optional)"},
+                },
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "cad.export_body",
+            "description": "Export a single PartDesign body to STL, STEP, or OBJ.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "body": {"type": "string", "description": "Body name to export"},
+                    "format": {"type": "string", "enum": ["stl", "step", "obj"], "default": "stl"},
+                    "path": {"type": "string", "description": "Output file path (optional, auto-generated if omitted)"},
+                    "doc": {"type": "string", "description": "Document name (optional)"},
+                },
+                "required": ["body"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "cad.export_sim_package",
+            "description": (
+                "Export all (or specified) bodies as individual meshes + optionally generate URDF from mechanism. "
+                "One MCP call that exports each body as a separate mesh file with its placement, "
+                "and generates a URDF file if a mechanism_id is provided. Ready for Isaac Sim import."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "bodies": {
+                        "type": "array", "items": {"type": "string"},
+                        "description": "Body names to export (default: all PartDesign::Body objects)",
+                    },
+                    "format": {"type": "string", "enum": ["stl", "step"], "default": "stl"},
+                    "output_dir": {"type": "string", "description": "Output directory (auto tempdir if omitted)"},
+                    "mechanism_id": {"type": "string", "description": "Mechanism handle from motion.define_mechanism — triggers URDF generation"},
                     "doc": {"type": "string", "description": "Document name (optional)"},
                 },
                 "additionalProperties": False,
@@ -1750,11 +1799,9 @@ def _motion_tool_list() -> list[dict[str, Any]]:
         {
             "name": "motion.simulate",
             "description": (
-                "Run dynamic simulation via Project Chrono daemon (Tier 3). "
-                "Requires chrono_daemon binary running on localhost:9877. "
-                "Returns time-series of positions/velocities, peak torques, "
-                "steady-state speeds, and overall efficiency. "
-                "Gracefully returns error if daemon is not running."
+                "Run Tier 3 dynamic simulation using selected backend. "
+                "Backends: isaac (default), chrono. "
+                "Set mode=teleop (Isaac only) to start a live drive session."
             ),
             "inputSchema": {
                 "type": "object",
@@ -1763,8 +1810,84 @@ def _motion_tool_list() -> list[dict[str, Any]]:
                     "duration_s": {"type": "number", "default": 1.0, "description": "Simulation duration in seconds"},
                     "dt_s": {"type": "number", "default": 0.001, "description": "Time step in seconds"},
                     "output_interval": {"type": "number", "default": 0.01, "description": "Output sampling interval in seconds"},
+                    "backend": {
+                        "type": "string",
+                        "enum": ["isaac", "chrono"],
+                        "default": "isaac",
+                        "description": "Simulation backend. Defaults to isaac.",
+                    },
+                    "mode": {
+                        "type": "string",
+                        "enum": ["batch", "teleop"],
+                        "default": "batch",
+                        "description": "Isaac supports batch and teleop. Chrono supports batch only.",
+                    },
                 },
                 "required": ["mechanism_id"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "motion.teleop_start",
+            "description": (
+                "Start an Isaac teleop session for a mechanism. "
+                "Keyboard controls are handled inside Isaac UI runtime."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "mechanism_id": {"type": "string", "description": "Mechanism handle"},
+                    "backend": {
+                        "type": "string",
+                        "enum": ["isaac"],
+                        "default": "isaac",
+                        "description": "Teleop backend (currently isaac only).",
+                    },
+                    "profile": {
+                        "type": "object",
+                        "description": "Optional teleop profile/config overrides.",
+                    },
+                },
+                "required": ["mechanism_id"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "motion.teleop_command",
+            "description": "Send one drive command sample to an active Isaac teleop session.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "session_id": {"type": "string", "description": "Teleop session ID"},
+                    "vx_mps": {"type": "number", "default": 0.0, "description": "Forward velocity command (m/s)"},
+                    "yaw_rate_rps": {"type": "number", "default": 0.0, "description": "Yaw-rate command (rad/s)"},
+                    "body_height_m": {"type": "number", "default": 0.0, "description": "Body height command (m)"},
+                },
+                "required": ["session_id"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "motion.teleop_state",
+            "description": "Read current state of an active Isaac teleop session.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "session_id": {"type": "string", "description": "Teleop session ID"},
+                },
+                "required": ["session_id"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "motion.teleop_stop",
+            "description": "Stop and close an active Isaac teleop session.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "session_id": {"type": "string", "description": "Teleop session ID"},
+                },
+                "required": ["session_id"],
                 "additionalProperties": False,
             },
         },
@@ -1817,6 +1940,8 @@ _CAD_DISPATCH: dict[str, Any] = {
     "cad.undo": cad_undo,
     "cad.delete_objects": cad_delete_objects,
     "cad.export": cad_export,
+    "cad.export_body": cad_export_body,
+    "cad.export_sim_package": cad_export_sim_package,
     "cad.set_placement": cad_set_placement,
     "cad.set_visibility": cad_set_visibility,
     "cad.animate": cad_animate,
@@ -1887,6 +2012,10 @@ _MOTION_DISPATCH: dict[str, Any] = {
     "motion.drive_joint": motion_drive_joint,
     "motion.check_interference": motion_check_interference,
     "motion.simulate": motion_simulate,
+    "motion.teleop_start": motion_teleop_start,
+    "motion.teleop_command": motion_teleop_command,
+    "motion.teleop_state": motion_teleop_state,
+    "motion.teleop_stop": motion_teleop_stop,
 }
 
 

@@ -588,12 +588,18 @@ def cad_get_selection() -> dict[str, Any]:
 
 
 @_wrap
-def cad_get_model_tree(doc: str | None = None) -> dict[str, Any]:
-    """Get the feature tree of the current document."""
+def cad_get_model_tree(doc: str | None = None, summary: bool = False) -> dict[str, Any]:
+    """Get the feature tree of the current document.
+
+    When ``summary=True``, returns only name/label/type per object — skips
+    bounding boxes and topology counts for ~7x token reduction.
+    """
     client = get_client()
     kwargs: dict[str, Any] = {}
     if doc is not None:
         kwargs["doc"] = doc
+    if summary:
+        kwargs["summary"] = True
     result = client.send_command("get_model_tree", **kwargs)
     return {"ok": True, **result}
 
@@ -619,6 +625,7 @@ def cad_screenshot(
     width: int = 512,
     height: int = 512,
     doc: str | None = None,
+    hide_bodies: list[str] | None = None,
 ) -> dict[str, Any]:
     """Take a screenshot with smart camera targeting."""
     client = get_client()
@@ -636,6 +643,8 @@ def cad_screenshot(
         kwargs["near_clip"] = near_clip
     if doc is not None:
         kwargs["doc"] = doc
+    if hide_bodies is not None:
+        kwargs["hide_bodies"] = hide_bodies
     result = client.send_command("screenshot", **kwargs)
     return {"ok": True, **result}
 
@@ -691,6 +700,24 @@ def cad_export(
     if doc is not None:
         kwargs["doc"] = doc
     result = client.send_command("export", **kwargs)
+    return {"ok": True, **result}
+
+
+@_wrap
+def cad_export_body(
+    body: str,
+    format: str = "stl",
+    path: str | None = None,
+    doc: str | None = None,
+) -> dict[str, Any]:
+    """Export a single PartDesign body to STL, STEP, or OBJ."""
+    client = get_client()
+    kwargs: dict[str, Any] = {"body": body, "format": format}
+    if path is not None:
+        kwargs["path"] = path
+    if doc is not None:
+        kwargs["doc"] = doc
+    result = client.send_command("export_body", **kwargs)
     return {"ok": True, **result}
 
 
@@ -765,6 +792,61 @@ def cad_animate_stop() -> dict[str, Any]:
     """Stop any running animation."""
     client = get_client()
     result = client.send_command("assembly_animate_stop")
+    return {"ok": True, **result}
+
+
+@_wrap
+def cad_export_sim_package(
+    bodies: list[str] | None = None,
+    format: str = "stl",
+    output_dir: str | None = None,
+    mechanism_id: str | None = None,
+    doc: str | None = None,
+) -> dict[str, Any]:
+    """Export bodies as individual meshes + optionally generate URDF from mechanism.
+
+    One MCP call that:
+    1. Exports all (or specified) bodies as individual STLs — one TCP round trip
+    2. Returns each body's Placement (position + rotation quaternion)
+    3. If ``mechanism_id`` is provided, generates URDF from the mechanism definition
+    """
+    import os
+    from server import motion_store
+    from server.sim_export import build_sim_model, write_urdf
+
+    client = get_client()
+    kwargs: dict[str, Any] = {"format": format}
+    if bodies is not None:
+        kwargs["bodies"] = bodies
+    if output_dir is not None:
+        kwargs["output_dir"] = output_dir
+    if doc is not None:
+        kwargs["doc"] = doc
+
+    result = client.send_command("export_sim_package", **kwargs)
+
+    # Generate URDF if mechanism_id provided
+    if mechanism_id is not None:
+        mechanism = motion_store.get(mechanism_id)
+        if mechanism is None:
+            return _error_result(
+                "INVALID_MECHANISM_ID",
+                f"Mechanism '{mechanism_id}' not found in store.",
+            )
+
+        body_manifest = result.get("bodies", [])
+        sim_model = build_sim_model(mechanism, body_manifest)
+
+        pkg_dir = result.get("output_dir", output_dir or ".")
+        urdf_path = os.path.join(pkg_dir, f"{sim_model.name}.urdf")
+        urdf_path = write_urdf(sim_model, urdf_path)
+        result["urdf_path"] = urdf_path
+        result["sim_model"] = {
+            "name": sim_model.name,
+            "link_count": len(sim_model.links),
+            "joint_count": len(sim_model.joints),
+        }
+
     return {"ok": True, **result}
 
 
