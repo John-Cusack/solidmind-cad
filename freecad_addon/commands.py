@@ -58,36 +58,86 @@ def new_body(doc: str | None = None, name: str = "Body") -> dict[str, Any]:
     return {"name": body.Name, "label": body.Label}
 
 
-def get_model_tree(doc: str | None = None, summary: bool = False) -> dict[str, Any]:
+def get_model_tree(doc: str | None = None, detail: str = "bodies") -> dict[str, Any]:
     """Return the feature tree of the document.
 
-    When ``summary=True``, returns only name/label/type per object — skips
-    bounding boxes and topology counts for ~7x token reduction.
+    ``detail`` controls verbosity:
+    - ``"bodies"`` (default): compact body-level overview with sizes and
+      feature counts.  Non-body top-level objects listed in ``other_objects``.
+    - ``"full"``: flat list of every object with bounding boxes and topology
+      counts (legacy behaviour).
     """
     d = _get_doc(doc)
-    tree: list[dict[str, Any]] = []
+
+    if detail == "full":
+        tree: list[dict[str, Any]] = []
+        for obj in d.Objects:
+            node: dict[str, Any] = {
+                "name": obj.Name,
+                "label": obj.Label,
+                "type": obj.TypeId,
+            }
+            if hasattr(obj, "Shape") and obj.Shape is not None:
+                try:
+                    bb = obj.Shape.BoundBox
+                    node["bounding_box"] = {
+                        "x_min": bb.XMin, "y_min": bb.YMin, "z_min": bb.ZMin,
+                        "x_max": bb.XMax, "y_max": bb.YMax, "z_max": bb.ZMax,
+                        "x_len": bb.XLength, "y_len": bb.YLength, "z_len": bb.ZLength,
+                    }
+                except Exception:
+                    pass
+                node["is_valid"] = getattr(obj, "isValid", lambda: True)()
+                node["num_faces"] = len(obj.Shape.Faces)
+                node["num_edges"] = len(obj.Shape.Edges)
+                node["num_vertices"] = len(obj.Shape.Vertexes)
+            tree.append(node)
+        return {"doc": d.Name, "objects": tree}
+
+    # detail == "bodies" — compact body-centric output
+    bodies: list[dict[str, Any]] = []
+    other_objects: list[str] = []
+    body_names: set[str] = set()
+
     for obj in d.Objects:
-        node: dict[str, Any] = {
-            "name": obj.Name,
-            "label": obj.Label,
-            "type": obj.TypeId,
-        }
-        if not summary and hasattr(obj, "Shape") and obj.Shape is not None:
+        if obj.TypeId == "PartDesign::Body":
+            body_names.add(obj.Name)
+            entry: dict[str, Any] = {
+                "name": obj.Name,
+                "label": obj.Label,
+            }
             try:
-                bb = obj.Shape.BoundBox
-                node["bounding_box"] = {
-                    "x_min": bb.XMin, "y_min": bb.YMin, "z_min": bb.ZMin,
-                    "x_max": bb.XMax, "y_max": bb.YMax, "z_max": bb.ZMax,
-                    "x_len": bb.XLength, "y_len": bb.YLength, "z_len": bb.ZLength,
-                }
+                tip = _get_tip(obj)
+                entry["tip"] = tip.Name
+                if hasattr(tip, "Shape") and tip.Shape is not None:
+                    bb = tip.Shape.BoundBox
+                    entry["size"] = [
+                        round(bb.XLength, 2),
+                        round(bb.YLength, 2),
+                        round(bb.ZLength, 2),
+                    ]
             except Exception:
-                pass
-            node["is_valid"] = getattr(obj, "isValid", lambda: True)()
-            node["num_faces"] = len(obj.Shape.Faces)
-            node["num_edges"] = len(obj.Shape.Edges)
-            node["num_vertices"] = len(obj.Shape.Vertexes)
-        tree.append(node)
-    return {"doc": d.Name, "objects": tree}
+                entry["tip"] = None
+            entry["feature_count"] = len(obj.Group)
+            bodies.append(entry)
+
+    for obj in d.Objects:
+        if obj.TypeId == "App::Origin":
+            continue
+        if obj.TypeId == "PartDesign::Body":
+            continue
+        # Skip objects that belong to a body (features, sketches, etc.)
+        parents = getattr(obj, "InList", [])
+        if any(p.Name in body_names for p in parents):
+            continue
+        other_objects.append(obj.Name)
+
+    return {
+        "doc": d.Name,
+        "body_count": len(bodies),
+        "bodies": bodies,
+        "other_objects": other_objects,
+    }
 
 
 def undo(doc: str | None = None) -> dict[str, Any]:

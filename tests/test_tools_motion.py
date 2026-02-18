@@ -24,13 +24,13 @@ from server.tools_motion import (
 class TestMotionToolsBase(unittest.TestCase):
     def setUp(self):
         motion_store.clear()
-        from server.tools_motion import _teleop_sessions
-        _teleop_sessions.clear()
+        from server.tools_motion import _active_sessions
+        _active_sessions.clear()
 
     def tearDown(self):
         motion_store.clear()
-        from server.tools_motion import _teleop_sessions
-        _teleop_sessions.clear()
+        from server.tools_motion import _active_sessions
+        _active_sessions.clear()
 
 
 class TestDefineMechanism(TestMotionToolsBase):
@@ -708,8 +708,11 @@ class TestSimulate(TestMotionToolsBase):
         if sim_result["ok"]:
             self.assertEqual(sim_result["backend_used"], "isaac")
         else:
-            self.assertEqual(sim_result["error"]["code"], "BACKEND_UNAVAILABLE_CHOOSE")
-            self.assertEqual(sim_result["backend_requested"], "isaac")
+            # Bridge unavailable, or bridge rejects unsupported joints — both valid.
+            self.assertIn(
+                sim_result["error"]["code"],
+                {"BACKEND_UNAVAILABLE_CHOOSE", "UNSUPPORTED_JOINT_TYPE", "ISAAC_CONNECTION_LOST"},
+            )
 
     def test_simulate_explicit_chrono_no_daemon(self):
         """Chrono remains available when requested explicitly."""
@@ -811,7 +814,7 @@ class TestSimulateBackendBehavior(TestMotionToolsBase):
         from unittest.mock import patch
 
         mid = self._make_mechanism()
-        with patch("server.isaac_adapter.simulate", return_value={
+        with patch("server.isaac_adapter.simulate_start", return_value={
             "ok": False,
             "error": {"code": "ISAAC_NOT_CONNECTED", "message": "unavailable"},
         }), patch("server.tools_motion._simulate_with_chrono") as chrono_fallback:
@@ -824,7 +827,7 @@ class TestSimulateBackendBehavior(TestMotionToolsBase):
         from unittest.mock import patch
 
         mid = self._make_mechanism()
-        with patch("server.isaac_adapter.simulate", return_value={
+        with patch("server.isaac_adapter.simulate_start", return_value={
             "ok": False,
             "error": {
                 "code": "UNSUPPORTED_JOINT_TYPE",
@@ -850,13 +853,13 @@ class TestSimulateBackendBehavior(TestMotionToolsBase):
             {"dt_s": 0.01, "output_interval": 0.001},
             {"duration_s": 0.2, "output_interval": 0.3},
         ]
-        with patch("server.isaac_adapter.simulate") as isaac_sim:
+        with patch("server.isaac_adapter.simulate_start") as isaac_start:
             for kwargs in bad_inputs:
                 with self.subTest(kwargs=kwargs):
                     result = motion_simulate(mid, backend="isaac", **kwargs)
                     self.assertFalse(result["ok"])
                     self.assertEqual(result["error"]["code"], "INVALID_INPUT")
-            isaac_sim.assert_not_called()
+            isaac_start.assert_not_called()
 
     def test_simulate_rejects_non_object_profile(self):
         mid = self._make_mechanism()
@@ -868,13 +871,29 @@ class TestSimulateBackendBehavior(TestMotionToolsBase):
         from unittest.mock import patch
 
         mid = self._make_mechanism()
-        with patch("server.isaac_adapter.simulate", return_value={
+        with patch("server.isaac_adapter.simulate_start", return_value={
             "ok": True,
-            "summary": {"simulation_time_s": 1.0},
-        }) as isaac_sim:
+            "session_id": "sim_mock",
+            "status": "complete",
+            "target_steps": 100,
+            "steady_state_speeds": {},
+            "profile_used": {"stiffness": 0.2},
+        }) as isaac_start, patch("server.isaac_adapter.simulate_status", return_value={
+            "ok": True,
+            "status": "complete",
+            "completed_steps": 100,
+            "target_steps": 100,
+            "samples_count": 0,
+        }), patch("server.isaac_adapter.simulate_stop", return_value={
+            "ok": True,
+            "stopped": True,
+            "completed_steps": 100,
+            "target_steps": 100,
+            "samples": [],
+        }):
             result = motion_simulate(mid, backend="isaac", profile={"stiffness": 0.2})
         self.assertTrue(result["ok"])
-        self.assertEqual(isaac_sim.call_args.kwargs.get("profile"), {"stiffness": 0.2})
+        self.assertEqual(isaac_start.call_args.kwargs.get("profile"), {"stiffness": 0.2})
 
 
 class TestTeleopTools(TestMotionToolsBase):

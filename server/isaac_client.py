@@ -222,6 +222,17 @@ class IsaacClient:
 
         return response.get("result")
 
+    def import_urdf(
+        self,
+        urdf_path: str,
+        import_config: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Import a URDF file into the Isaac scene."""
+        kwargs: dict[str, Any] = {"urdf_path": urdf_path}
+        if import_config:
+            kwargs["import_config"] = import_config
+        return self.send_command("import_urdf", **kwargs)
+
     def simulate(
         self,
         mechanism: dict[str, Any],
@@ -229,29 +240,76 @@ class IsaacClient:
         dt_s: float = 0.001,
         output_interval: float = 0.01,
         profile: dict[str, Any] | None = None,
+        urdf_path: str | None = None,
+        import_config: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Run batch simulation and return summary/time-series data."""
+        kwargs: dict[str, Any] = {
+            "mechanism": mechanism,
+            "duration_s": duration_s,
+            "dt_s": dt_s,
+            "output_interval": output_interval,
+            "profile": profile or {},
+        }
+        if urdf_path is not None:
+            kwargs["urdf_path"] = urdf_path
+        if import_config is not None:
+            kwargs["import_config"] = import_config
         return self.send_command(
             "simulate",
             timeout=max(self._read_timeout, duration_s * 100),
-            mechanism=mechanism,
-            duration_s=duration_s,
-            dt_s=dt_s,
-            output_interval=output_interval,
-            profile=profile or {},
+            **kwargs,
         )
+
+    def simulate_start(
+        self,
+        mechanism: dict[str, Any],
+        duration_s: float = 1.0,
+        dt_s: float = 0.001,
+        output_interval: float = 0.01,
+        profile: dict[str, Any] | None = None,
+        urdf_path: str | None = None,
+        import_config: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Start a simulation session (non-blocking)."""
+        kwargs: dict[str, Any] = {
+            "mechanism": mechanism,
+            "duration_s": duration_s,
+            "dt_s": dt_s,
+            "output_interval": output_interval,
+            "profile": profile or {},
+        }
+        if urdf_path is not None:
+            kwargs["urdf_path"] = urdf_path
+        if import_config is not None:
+            kwargs["import_config"] = import_config
+        return self.send_command("simulate_start", **kwargs)
+
+    def simulate_status(self, session_id: str) -> dict[str, Any]:
+        """Poll simulation session progress."""
+        return self.send_command("simulate_status", session_id=session_id)
+
+    def simulate_stop(self, session_id: str) -> dict[str, Any]:
+        """Stop simulation session and return final samples."""
+        return self.send_command("simulate_stop", session_id=session_id)
 
     def teleop_start(
         self,
         mechanism: dict[str, Any],
         profile: dict[str, Any] | None = None,
+        urdf_path: str | None = None,
+        import_config: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Start a teleop session in Isaac."""
-        return self.send_command(
-            "teleop_start",
-            mechanism=mechanism,
-            profile=profile or {},
-        )
+        kwargs: dict[str, Any] = {
+            "mechanism": mechanism,
+            "profile": profile or {},
+        }
+        if urdf_path is not None:
+            kwargs["urdf_path"] = urdf_path
+        if import_config is not None:
+            kwargs["import_config"] = import_config
+        return self.send_command("teleop_start", **kwargs)
 
     def teleop_command(
         self,
@@ -276,6 +334,21 @@ class IsaacClient:
     def teleop_stop(self, session_id: str) -> dict[str, Any]:
         """Stop a teleop session."""
         return self.send_command("teleop_stop", session_id=session_id)
+
+    def screenshot(
+        self,
+        width: int = 1280,
+        height: int = 720,
+        camera_position: list[float] | None = None,
+        camera_target: list[float] | None = None,
+    ) -> dict[str, Any]:
+        """Capture the Isaac Sim viewport as a base64-encoded PNG."""
+        kwargs: dict[str, Any] = {"width": width, "height": height}
+        if camera_position is not None:
+            kwargs["camera_position"] = camera_position
+        if camera_target is not None:
+            kwargs["camera_target"] = camera_target
+        return self.send_command("screenshot", **kwargs)
 
     def _ensure_connected(self) -> None:
         if self._sock is None:

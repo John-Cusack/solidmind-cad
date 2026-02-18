@@ -154,6 +154,7 @@ from server.tools_motion import (
     motion_create_assembly,
     motion_define_mechanism,
     motion_drive_joint,
+    motion_isaac_screenshot,
     motion_list_mechanisms,
     motion_propagate_motion,
     motion_simulate,
@@ -602,7 +603,7 @@ def _cad_tool_list() -> list[dict[str, Any]]:
                 "type": "object",
                 "properties": {
                     "doc": {"type": "string", "description": "Document name (optional)"},
-                    "summary": {"type": "boolean", "default": False, "description": "When true, return only name/label/type per object — skip bounding boxes and topology counts for ~7x token reduction."},
+                    "detail": {"type": "string", "enum": ["bodies", "full"], "default": "bodies", "description": "Detail level. 'bodies' (default): compact body-level overview with sizes and feature counts. 'full': flat list of every object with bounding boxes and topology."},
                 },
                 "additionalProperties": False,
             },
@@ -1841,6 +1842,20 @@ def _motion_tool_list() -> list[dict[str, Any]]:
                         "type": "object",
                         "description": "Optional Isaac runtime profile/config overrides.",
                     },
+                    "urdf_path": {
+                        "type": "string",
+                        "description": (
+                            "Path to URDF file from cad.export_sim_package. "
+                            "Enables physics-based articulation simulation with Isaac."
+                        ),
+                    },
+                    "import_config": {
+                        "type": "object",
+                        "description": (
+                            "URDF import config overrides: merge_fixed_joints, convex_decomp, "
+                            "import_inertia_tensor, fix_base, distance_scale."
+                        ),
+                    },
                 },
                 "required": ["mechanism_id"],
                 "additionalProperties": False,
@@ -1865,6 +1880,20 @@ def _motion_tool_list() -> list[dict[str, Any]]:
                     "profile": {
                         "type": "object",
                         "description": "Optional teleop profile/config overrides.",
+                    },
+                    "urdf_path": {
+                        "type": "string",
+                        "description": (
+                            "Path to URDF file from cad.export_sim_package. "
+                            "Enables physics-based articulation teleop with Isaac."
+                        ),
+                    },
+                    "import_config": {
+                        "type": "object",
+                        "description": (
+                            "URDF import config overrides: merge_fixed_joints, convex_decomp, "
+                            "import_inertia_tensor, fix_base, distance_scale."
+                        ),
                     },
                 },
                 "required": ["mechanism_id"],
@@ -1907,6 +1936,40 @@ def _motion_tool_list() -> list[dict[str, Any]]:
                     "session_id": {"type": "string", "description": "Teleop session ID"},
                 },
                 "required": ["session_id"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "motion.isaac_screenshot",
+            "description": (
+                "Capture the Isaac Sim viewport as a PNG image. "
+                "Use after importing a URDF or running a simulation to visually inspect the scene. "
+                "Optionally reposition the camera before capture."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "width": {
+                        "type": "integer",
+                        "default": 1280,
+                        "description": "Image width in pixels",
+                    },
+                    "height": {
+                        "type": "integer",
+                        "default": 720,
+                        "description": "Image height in pixels",
+                    },
+                    "camera_position": {
+                        "type": "array",
+                        "items": {"type": "number"},
+                        "description": "Camera position [x, y, z] in meters",
+                    },
+                    "camera_target": {
+                        "type": "array",
+                        "items": {"type": "number"},
+                        "description": "Camera look-at target [x, y, z] in meters",
+                    },
+                },
                 "additionalProperties": False,
             },
         },
@@ -2035,6 +2098,7 @@ _MOTION_DISPATCH: dict[str, Any] = {
     "motion.teleop_command": motion_teleop_command,
     "motion.teleop_state": motion_teleop_state,
     "motion.teleop_stop": motion_teleop_stop,
+    "motion.isaac_screenshot": motion_isaac_screenshot,
 }
 
 

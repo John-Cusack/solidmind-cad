@@ -43,8 +43,8 @@ _assembly_joint_maps: dict[str, dict[str, str]] = {}
 # Populated by motion_create_assembly, consumed by motion_drive_joint
 _assembly_link_maps: dict[str, dict[str, str]] = {}
 
-# Active Isaac teleop sessions keyed by session_id.
-_teleop_sessions: dict[str, dict[str, Any]] = {}
+# Active Isaac sessions keyed by session_id (teleop and interactive sim).
+_active_sessions: dict[str, dict[str, Any]] = {}
 
 _SIM_BACKENDS = {"chrono", "isaac"}
 _SIM_MODES = {"batch", "teleop"}
@@ -837,15 +837,17 @@ def _simulate_with_chrono(
     return response
 
 
-def _simulate_with_isaac(
+def _simulate_with_isaac_legacy(
     mech: Mechanism,
     *,
     duration_s: float,
     dt_s: float,
     output_interval: float,
     profile: dict[str, Any],
+    urdf_path: str | None = None,
+    import_config: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Run batch simulation via the optional Isaac sidecar."""
+    """Fallback: use the old monolithic simulate command for old bridges."""
     from server import isaac_adapter
 
     result = isaac_adapter.simulate(
@@ -854,6 +856,8 @@ def _simulate_with_isaac(
         dt_s=dt_s,
         output_interval=output_interval,
         profile=profile,
+        urdf_path=urdf_path,
+        import_config=import_config,
     )
     if not result.get("ok", False):
         err = result.get("error", {})
@@ -861,15 +865,118 @@ def _simulate_with_isaac(
         if code == "ISAAC_NOT_CONNECTED":
             return _backend_unavailable_result(
                 "isaac",
-                err.get(
-                    "message",
-                    "Isaac bridge is not available.",
-                ),
+                err.get("message", "Isaac bridge is not available."),
                 unavailable_code=code,
             )
         return result
     result["backend_used"] = "isaac"
     result["mode_used"] = "batch"
+    return result
+
+
+def _simulate_with_isaac(
+    mech: Mechanism,
+    *,
+    duration_s: float,
+    dt_s: float,
+    output_interval: float,
+    profile: dict[str, Any],
+    urdf_path: str | None = None,
+    import_config: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Run simulation via the optional Isaac sidecar using session lifecycle."""
+    from server import isaac_adapter
+
+    # Start session
+    start_result = isaac_adapter.simulate_start(
+        mechanism=mech,
+        duration_s=duration_s,
+        dt_s=dt_s,
+        output_interval=output_interval,
+        profile=profile,
+        urdf_path=urdf_path,
+        import_config=import_config,
+    )
+    if not start_result.get("ok", False):
+        err = start_result.get("error", {})
+        code = err.get("code", "ISAAC_ERROR")
+        if code == "ISAAC_NOT_CONNECTED":
+            return _backend_unavailable_result(
+                "isaac",
+                err.get("message", "Isaac bridge is not available."),
+                unavailable_code=code,
+            )
+        # Fallback: old bridge without simulate_start support
+        if code == "UNKNOWN_COMMAND":
+            return _simulate_with_isaac_legacy(
+                mech,
+                duration_s=duration_s,
+                dt_s=dt_s,
+                output_interval=output_interval,
+                profile=profile,
+                urdf_path=urdf_path,
+                import_config=import_config,
+            )
+        return start_result
+
+    session_id = str(start_result.get("session_id", "")).strip()
+    if not session_id:
+        return _error_result("ISAAC_PROTOCOL_ERROR", "simulate_start missing session_id")
+
+    # Interactive mode: return immediately, store session for later stop
+    if start_result.get("interactive"):
+        _active_sessions[session_id] = {
+            "mechanism_id": None,
+            "backend": "isaac",
+            "session_type": "simulate",
+            "created_at": time.time(),
+        }
+        return {
+            "ok": True,
+            "backend_used": "isaac",
+            "mode_used": "interactive",
+            **start_result,
+        }
+
+    # Batch mode: poll until complete
+    while True:
+        status_result = isaac_adapter.simulate_status(session_id=session_id)
+        if not status_result.get("ok", False):
+            return status_result
+        if status_result.get("status") == "complete":
+            break
+        time.sleep(0.01)
+
+    # Stop and collect results
+    stop_result = isaac_adapter.simulate_stop(session_id=session_id)
+    if not stop_result.get("ok", False):
+        return stop_result
+
+    # Build backward-compatible response
+    samples = stop_result.get("samples", [])
+    speeds = start_result.get("steady_state_speeds", {})
+
+    result: dict[str, Any] = {
+        "ok": True,
+        "time_series": samples,
+        "summary": {
+            "simulation_time_s": duration_s,
+            "time_steps": stop_result.get("target_steps", 0),
+            "output_samples": len(samples),
+            "steady_state_speeds": speeds,
+            "engine_mode": "isaac_urdf" if start_result.get("prim_path") else "reference",
+        },
+        "profile_used": start_result.get("profile_used", {}),
+        "backend_used": "isaac",
+        "mode_used": "batch",
+    }
+    if start_result.get("prim_path"):
+        result["summary"]["prim_path"] = start_result["prim_path"]
+        result["summary"]["joint_count"] = start_result.get("joint_count", 0)
+        result["summary"]["link_count"] = start_result.get("link_count", 0)
+    warnings = start_result.get("warnings") or stop_result.get("warnings")
+    if warnings:
+        result["warnings"] = warnings
     return result
 
 
@@ -881,6 +988,8 @@ def motion_simulate(
     backend: str | None = None,
     mode: str = "batch",
     profile: dict[str, Any] | None = None,
+    urdf_path: str | None = None,
+    import_config: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Run dynamic simulation via selected backend (`isaac` or `chrono`)."""
     if _TOOL_LOG:
@@ -935,6 +1044,8 @@ def motion_simulate(
             mechanism_id=mechanism_id,
             backend="isaac",
             profile=profile or {},
+            urdf_path=urdf_path,
+            import_config=import_config,
         )
     else:
         response = _simulate_with_isaac(
@@ -943,6 +1054,8 @@ def motion_simulate(
             dt_s=dt_s,
             output_interval=output_interval,
             profile=profile or {},
+            urdf_path=urdf_path,
+            import_config=import_config,
         )
 
     if _TOOL_LOG:
@@ -960,6 +1073,8 @@ def motion_teleop_start(
     mechanism_id: str,
     backend: str = "isaac",
     profile: dict[str, Any] | None = None,
+    urdf_path: str | None = None,
+    import_config: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Start an Isaac teleop session for a mechanism."""
     selected_backend = _normalize_backend(backend)
@@ -975,7 +1090,12 @@ def motion_teleop_start(
 
     from server import isaac_adapter
 
-    result = isaac_adapter.teleop_start(mechanism=mech, profile=profile or {})
+    result = isaac_adapter.teleop_start(
+        mechanism=mech,
+        profile=profile or {},
+        urdf_path=urdf_path,
+        import_config=import_config,
+    )
     if not result.get("ok", False):
         err = result.get("error", {})
         if err.get("code") == "ISAAC_NOT_CONNECTED":
@@ -990,7 +1110,7 @@ def motion_teleop_start(
     if not session_id:
         return _error_result("ISAAC_PROTOCOL_ERROR", "Isaac teleop response missing session_id")
 
-    _teleop_sessions[session_id] = {
+    _active_sessions[session_id] = {
         "mechanism_id": mechanism_id,
         "backend": "isaac",
         "created_at": time.time(),
@@ -1010,7 +1130,7 @@ def motion_teleop_command(
     body_height_m: float = 0.0,
 ) -> dict[str, Any]:
     """Send a teleop command to an active Isaac session."""
-    session = _teleop_sessions.get(session_id)
+    session = _active_sessions.get(session_id)
     if session is None:
         return _error_result("NOT_FOUND", f"No active teleop session '{session_id}'")
 
@@ -1024,14 +1144,14 @@ def motion_teleop_command(
     )
     if not result.get("ok", False):
         if _is_unknown_session_error(result):
-            _teleop_sessions.pop(session_id, None)
+            _active_sessions.pop(session_id, None)
         return result
     return {"ok": True, "backend_used": "isaac", "mode_used": "teleop", **result}
 
 
 def motion_teleop_state(session_id: str) -> dict[str, Any]:
     """Read current state from an active Isaac teleop session."""
-    session = _teleop_sessions.get(session_id)
+    session = _active_sessions.get(session_id)
     if session is None:
         return _error_result("NOT_FOUND", f"No active teleop session '{session_id}'")
 
@@ -1040,14 +1160,14 @@ def motion_teleop_state(session_id: str) -> dict[str, Any]:
     result = isaac_adapter.teleop_state(session_id=session_id)
     if not result.get("ok", False):
         if _is_unknown_session_error(result):
-            _teleop_sessions.pop(session_id, None)
+            _active_sessions.pop(session_id, None)
         return result
     return {"ok": True, "backend_used": "isaac", "mode_used": "teleop", **result}
 
 
 def motion_teleop_stop(session_id: str) -> dict[str, Any]:
     """Stop and remove an active Isaac teleop session."""
-    session = _teleop_sessions.get(session_id)
+    session = _active_sessions.get(session_id)
     if session is None:
         return _error_result("NOT_FOUND", f"No active teleop session '{session_id}'")
 
@@ -1056,7 +1176,33 @@ def motion_teleop_stop(session_id: str) -> dict[str, Any]:
     result = isaac_adapter.teleop_stop(session_id=session_id)
     if not result.get("ok", False):
         if _is_unknown_session_error(result):
-            _teleop_sessions.pop(session_id, None)
+            _active_sessions.pop(session_id, None)
         return result
-    _teleop_sessions.pop(session_id, None)
+    _active_sessions.pop(session_id, None)
     return {"ok": True, "backend_used": "isaac", "mode_used": "teleop", **result}
+
+
+# ---------------------------------------------------------------------------
+# Isaac viewport screenshot
+# ---------------------------------------------------------------------------
+
+def motion_isaac_screenshot(
+    width: int = 1280,
+    height: int = 720,
+    camera_position: list[float] | None = None,
+    camera_target: list[float] | None = None,
+) -> dict[str, Any]:
+    """Capture the Isaac Sim viewport and return as base64 PNG.
+
+    The returned dict includes ``image_base64`` which the MCP response
+    handler in ``server/main.py`` automatically extracts into an MCP
+    image content block.
+    """
+    from server import isaac_adapter
+
+    return isaac_adapter.isaac_screenshot(
+        width=width,
+        height=height,
+        camera_position=camera_position,
+        camera_target=camera_target,
+    )

@@ -647,7 +647,27 @@ class TestCadGetSelection(unittest.TestCase):
 
 class TestCadGetModelTree(unittest.TestCase):
     @patch("server.tools_cad.get_client")
-    def test_get_model_tree(self, mock_get: MagicMock) -> None:
+    def test_get_model_tree_default_bodies(self, mock_get: MagicMock) -> None:
+        client = _mock_client()
+        client.send_command.return_value = {
+            "doc": "MyDoc",
+            "body_count": 1,
+            "bodies": [
+                {"name": "Body", "label": "Body", "size": [10.0, 20.0, 5.0], "feature_count": 2, "tip": "Pad"},
+            ],
+            "other_objects": [],
+        }
+        mock_get.return_value = client
+
+        result = cad_get_model_tree()
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["body_count"], 1)
+        self.assertEqual(len(result["bodies"]), 1)
+        self.assertEqual(result["bodies"][0]["size"], [10.0, 20.0, 5.0])
+        client.send_command.assert_called_once_with("get_model_tree", detail="bodies")
+
+    @patch("server.tools_cad.get_client")
+    def test_get_model_tree_full(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         client.send_command.return_value = {
             "doc": "MyDoc",
@@ -658,9 +678,10 @@ class TestCadGetModelTree(unittest.TestCase):
         }
         mock_get.return_value = client
 
-        result = cad_get_model_tree()
+        result = cad_get_model_tree(detail="full")
         self.assertTrue(result["ok"])
         self.assertEqual(len(result["objects"]), 2)
+        client.send_command.assert_called_once_with("get_model_tree", detail="full")
 
 
 class TestCadUndo(unittest.TestCase):
@@ -2134,9 +2155,9 @@ class TestCadExportBody(unittest.TestCase):
         )
 
 
-class TestCadGetModelTreeSummary(unittest.TestCase):
+class TestCadGetModelTreeDetail(unittest.TestCase):
     @patch("server.tools_cad.get_client")
-    def test_summary_mode_passes_param(self, mock_get: MagicMock) -> None:
+    def test_detail_full_passes_param(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         client.send_command.return_value = {
             "doc": "MyDoc",
@@ -2146,23 +2167,41 @@ class TestCadGetModelTreeSummary(unittest.TestCase):
         }
         mock_get.return_value = client
 
-        result = cad_get_model_tree(summary=True)
+        result = cad_get_model_tree(detail="full")
         self.assertTrue(result["ok"])
-        client.send_command.assert_called_once_with("get_model_tree", summary=True)
+        client.send_command.assert_called_once_with("get_model_tree", detail="full")
 
     @patch("server.tools_cad.get_client")
-    def test_default_no_summary(self, mock_get: MagicMock) -> None:
+    def test_default_sends_bodies(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         client.send_command.return_value = {
             "doc": "MyDoc",
-            "objects": [],
+            "body_count": 0,
+            "bodies": [],
+            "other_objects": [],
         }
         mock_get.return_value = client
 
         result = cad_get_model_tree()
         self.assertTrue(result["ok"])
-        # summary=False should not be sent
-        client.send_command.assert_called_once_with("get_model_tree")
+        client.send_command.assert_called_once_with("get_model_tree", detail="bodies")
+
+    @patch("server.tools_cad.get_client")
+    def test_bodies_response_has_other_objects(self, mock_get: MagicMock) -> None:
+        client = _mock_client()
+        client.send_command.return_value = {
+            "doc": "MyDoc",
+            "body_count": 1,
+            "bodies": [
+                {"name": "Body", "label": "Body", "size": [10.0, 10.0, 10.0], "feature_count": 1, "tip": "Pad"},
+            ],
+            "other_objects": ["Assembly"],
+        }
+        mock_get.return_value = client
+
+        result = cad_get_model_tree()
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["other_objects"], ["Assembly"])
 
 
 class TestCadExportSimPackage(unittest.TestCase):

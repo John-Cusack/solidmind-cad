@@ -588,18 +588,17 @@ def cad_get_selection() -> dict[str, Any]:
 
 
 @_wrap
-def cad_get_model_tree(doc: str | None = None, summary: bool = False) -> dict[str, Any]:
+def cad_get_model_tree(doc: str | None = None, detail: str = "bodies") -> dict[str, Any]:
     """Get the feature tree of the current document.
 
-    When ``summary=True``, returns only name/label/type per object — skips
-    bounding boxes and topology counts for ~7x token reduction.
+    ``detail`` controls verbosity:
+    - ``"bodies"`` (default): compact body-level overview with sizes.
+    - ``"full"``: flat list with bounding boxes and topology counts.
     """
     client = get_client()
-    kwargs: dict[str, Any] = {}
+    kwargs: dict[str, Any] = {"detail": detail}
     if doc is not None:
         kwargs["doc"] = doc
-    if summary:
-        kwargs["summary"] = True
     result = client.send_command("get_model_tree", **kwargs)
     return {"ok": True, **result}
 

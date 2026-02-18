@@ -14,7 +14,7 @@ import unittest
 from server import isaac_client
 from server import main as mcp_main
 from server import motion_store
-from server.tools_motion import _teleop_sessions
+from server.tools_motion import _active_sessions
 
 
 class _FakeIsaacBridge:
@@ -112,6 +112,53 @@ class _FakeIsaacBridge:
                 },
             }
 
+        if name == "simulate_start":
+            duration = float(args.get("duration_s", 1.0))
+            mech = args.get("mechanism", {})
+            self.last_sim_profile = args.get("profile", {})
+            part_ids = [p.get("id") for p in mech.get("parts", []) if p.get("id")]
+            session_id = f"sim_{len(self._sessions) + 1}"
+            self._sessions[session_id] = {"status": "complete", "steps": 100}
+            return {
+                "ok": True,
+                "result": {
+                    "session_id": session_id,
+                    "status": "complete",
+                    "target_steps": 100,
+                    "steady_state_speeds": {pid: 123.4 for pid in part_ids},
+                    "profile_used": args.get("profile", {}),
+                },
+            }
+
+        if name == "simulate_status":
+            session_id = str(args.get("session_id", ""))
+            sess = self._sessions.get(session_id, {})
+            return {
+                "ok": True,
+                "result": {
+                    "status": sess.get("status", "complete"),
+                    "completed_steps": sess.get("steps", 0),
+                    "target_steps": sess.get("steps", 0),
+                    "samples_count": 0,
+                },
+            }
+
+        if name == "simulate_stop":
+            session_id = str(args.get("session_id", ""))
+            self._sessions.pop(session_id, None)
+            return {
+                "ok": True,
+                "result": {
+                    "stopped": True,
+                    "completed_steps": 100,
+                    "target_steps": 100,
+                    "samples": [
+                        {"t": 0.0, "parts": {}},
+                        {"t": 0.25, "parts": {}},
+                    ],
+                },
+            }
+
         if name == "teleop_start":
             self.last_teleop_profile = args.get("profile", {})
             session_id = f"sess_{len(self._sessions) + 1}"
@@ -157,7 +204,7 @@ class _FakeIsaacBridge:
 class TestMotionIsaacIntegration(unittest.TestCase):
     def setUp(self) -> None:
         motion_store.clear()
-        _teleop_sessions.clear()
+        _active_sessions.clear()
         isaac_client.reset_client()
         self.bridge = _FakeIsaacBridge()
         self.bridge.start()
@@ -165,7 +212,7 @@ class TestMotionIsaacIntegration(unittest.TestCase):
 
     def tearDown(self) -> None:
         isaac_client.reset_client()
-        _teleop_sessions.clear()
+        _active_sessions.clear()
         motion_store.clear()
         self.bridge.stop()
 
@@ -281,6 +328,8 @@ class TestMotionIsaacIntegration(unittest.TestCase):
         # Stop bridge and clear client to emulate unavailable backend.
         self.bridge.stop()
         isaac_client.reset_client()
+        # Point at unreachable port so get_client() cannot reconnect.
+        isaac_client._client = isaac_client.IsaacClient(host="127.0.0.1", port=1)  # type: ignore[attr-defined]
 
         defined = mcp_main._call_tool(
             "motion.define_mechanism",

@@ -15,7 +15,7 @@ from isaac_bridge.protocol import (
     ok_response,
     parse_request_line,
 )
-from isaac_bridge.runtime_isaac import IsaacRuntime, IsaacRuntimeError
+from isaac_bridge.runtime_isaac import IsaacRuntime, IsaacRuntimeError, main_thread_dispatcher
 
 logger = logging.getLogger("solidmind.isaac_bridge")
 
@@ -116,50 +116,103 @@ class BridgeServer:
         except ProtocolError as exc:
             return error_response(exc.code, exc.message)
 
+        import time as _time
+        logger.info("=> %s (thread=%s)", cmd, threading.current_thread().name)
+        t0 = _time.monotonic()
         try:
             if cmd == "ping":
-                return ok_response(self._runtime.ping())
-            if cmd == "simulate":
-                mechanism = _require_object(args, "mechanism")
-                profile = _optional_object(args, "profile")
+                result = self._runtime.ping()
+            elif cmd == "import_urdf":
+                result = self._runtime.import_urdf(
+                    urdf_path=_require_str(args, "urdf_path"),
+                    import_config=_optional_object(args, "import_config"),
+                )
+            elif cmd == "diagnose":
+                result = self._runtime.diagnose(
+                    prim_path=_optional_str(args, "prim_path") or "/",
+                )
+            elif cmd == "reload":
+                reload_result = self._runtime.reload()
+                new_runtime = reload_result.pop("new_runtime", None)
+                if new_runtime is not None:
+                    self._runtime = new_runtime
+                result = reload_result
+            elif cmd == "simulate":
                 result = self._runtime.simulate(
-                    mechanism=mechanism,
+                    mechanism=_require_object(args, "mechanism"),
                     duration_s=_optional_float(args, "duration_s", 1.0),
                     dt_s=_optional_float(args, "dt_s", 0.001),
                     output_interval=_optional_float(args, "output_interval", 0.01),
-                    profile=profile,
+                    profile=_optional_object(args, "profile"),
+                    urdf_path=_optional_str(args, "urdf_path"),
+                    import_config=_optional_object(args, "import_config"),
                 )
-                return ok_response(result)
-            if cmd == "teleop_start":
-                mechanism = _require_object(args, "mechanism")
-                profile = _optional_object(args, "profile")
-                result = self._runtime.teleop_start(mechanism=mechanism, profile=profile)
-                return ok_response(result)
-            if cmd == "teleop_command":
+            elif cmd == "simulate_start":
+                result = self._runtime.simulate_start(
+                    mechanism=_require_object(args, "mechanism"),
+                    duration_s=_optional_float(args, "duration_s", 1.0),
+                    dt_s=_optional_float(args, "dt_s", 0.001),
+                    output_interval=_optional_float(args, "output_interval", 0.01),
+                    profile=_optional_object(args, "profile"),
+                    urdf_path=_optional_str(args, "urdf_path"),
+                    import_config=_optional_object(args, "import_config"),
+                )
+            elif cmd == "simulate_status":
+                result = self._runtime.simulate_status(
+                    session_id=_require_str(args, "session_id"),
+                )
+            elif cmd == "simulate_stop":
+                result = self._runtime.simulate_stop(
+                    session_id=_require_str(args, "session_id"),
+                )
+            elif cmd == "teleop_start":
+                result = self._runtime.teleop_start(
+                    mechanism=_require_object(args, "mechanism"),
+                    profile=_optional_object(args, "profile"),
+                    urdf_path=_optional_str(args, "urdf_path"),
+                    import_config=_optional_object(args, "import_config"),
+                )
+            elif cmd == "teleop_command":
                 result = self._runtime.teleop_command(
                     session_id=_require_str(args, "session_id"),
                     vx_mps=_optional_float(args, "vx_mps", 0.0),
                     yaw_rate_rps=_optional_float(args, "yaw_rate_rps", 0.0),
                     body_height_m=_optional_float(args, "body_height_m", 0.0),
                 )
-                return ok_response(result)
-            if cmd == "teleop_state":
+            elif cmd == "teleop_state":
                 result = self._runtime.teleop_state(
                     session_id=_require_str(args, "session_id"),
                 )
-                return ok_response(result)
-            if cmd == "teleop_stop":
+            elif cmd == "teleop_stop":
                 result = self._runtime.teleop_stop(
                     session_id=_require_str(args, "session_id"),
                 )
-                return ok_response(result)
-            return error_response("UNKNOWN_COMMAND", f"Unknown command: {cmd}")
+            elif cmd == "screenshot":
+                result = self._runtime.screenshot(
+                    width=int(_optional_float(args, "width", 1280)),
+                    height=int(_optional_float(args, "height", 720)),
+                    camera_position=args.get("camera_position"),
+                    camera_target=args.get("camera_target"),
+                )
+            else:
+                logger.info("<= %s UNKNOWN_COMMAND (%.3fs)", cmd, _time.monotonic() - t0)
+                return error_response("UNKNOWN_COMMAND", f"Unknown command: {cmd}")
+            logger.info("<= %s OK (%.3fs)", cmd, _time.monotonic() - t0)
+            return ok_response(result)
         except IsaacRuntimeError as exc:
+            logger.info("<= %s ERROR %s (%.3fs)", cmd, exc.code, _time.monotonic() - t0)
             return error_response(exc.code, exc.message, details=exc.details)
         except ValueError as exc:
+            logger.info("<= %s ERROR INVALID_ARGS (%.3fs)", cmd, _time.monotonic() - t0)
             return error_response("INVALID_ARGS", str(exc))
         except Exception as exc:
-            logger.exception("Unhandled error while processing command")
+            # After a hot-reload, IsaacRuntimeError from the reloaded module
+            # won't match the old class reference.  Duck-type check.
+            if hasattr(exc, "code") and hasattr(exc, "message") and hasattr(exc, "details"):
+                logger.info("<= %s ERROR %s (%.3fs, post-reload)", cmd, exc.code, _time.monotonic() - t0)
+                return error_response(exc.code, exc.message, details=exc.details)
+            logger.exception("Unhandled error while processing '%s'", cmd)
+            logger.info("<= %s ERROR INTERNAL (%.3fs)", cmd, _time.monotonic() - t0)
             return error_response("INTERNAL_ERROR", str(exc))
 
 
@@ -195,6 +248,45 @@ def _optional_float(args: dict[str, Any], key: str, default: float) -> float:
     return float(value)
 
 
+def _optional_str(args: dict[str, Any], key: str) -> str | None:
+    if key not in args or args.get(key) is None:
+        return None
+    value = args.get(key)
+    if not isinstance(value, str):
+        raise ValueError(f"'{key}' must be a string when provided")
+    return value.strip() or None
+
+
+def _pump_main_thread(server: BridgeServer) -> None:
+    """Pump the Kit event loop and main-thread dispatcher.
+
+    Isaac Sim requires its Kit event loop to be pumped on the main thread
+    for World creation, URDF import, and physics stepping to complete —
+    even in headless mode.  The TCP bridge always runs in a background
+    thread; this function occupies the main thread.
+    """
+    app = None
+    try:
+        import omni.kit.app  # type: ignore[import-not-found]
+        app = omni.kit.app.get_app()
+    except Exception:
+        logger.info("omni.kit.app not available — dispatcher-only pump mode")
+
+    label = "Kit + dispatcher" if app else "dispatcher-only"
+    logger.info("Main-thread pump started (%s)", label)
+    while not server._stop_event.is_set():
+        if app is not None:
+            try:
+                app.update()
+            except Exception:
+                break
+        main_thread_dispatcher.process_pending()
+        if app is None:
+            # No Kit — avoid busy-spin
+            import time as _t
+            _t.sleep(0.005)
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="SolidMind Isaac bridge TCP server")
     parser.add_argument("--host", default="127.0.0.1", help="Bind host (default: 127.0.0.1)")
@@ -205,10 +297,16 @@ def main(argv: list[str] | None = None) -> None:
         default=True,
         help="Run runtime in headless mode (default: true)",
     )
+    parser.add_argument(
+        "--log-level",
+        default="INFO",
+        choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+        help="Logging level (default: INFO)",
+    )
     args = parser.parse_args(argv)
 
     logging.basicConfig(
-        level=logging.INFO,
+        level=getattr(logging, args.log_level),
         format="%(asctime)s %(levelname)-5s %(name)s: %(message)s",
     )
 
@@ -220,7 +318,23 @@ def main(argv: list[str] | None = None) -> None:
     signal.signal(signal.SIGINT, _signal_handler)
     signal.signal(signal.SIGTERM, _signal_handler)
 
-    server.serve_forever()
+    # Always run the bridge in a background thread and pump Kit / dispatcher
+    # on the main thread.  Isaac Sim requires Kit event loop updates on the
+    # main thread for World creation, URDF import, and physics stepping —
+    # even in headless mode.
+    main_thread_dispatcher.enable()
+    logger.info("Main-thread dispatcher enabled (headless=%s)", args.headless)
+    bridge_thread = threading.Thread(
+        target=server.serve_forever,
+        daemon=True,
+        name="isaac-bridge-server",
+    )
+    bridge_thread.start()
+    try:
+        _pump_main_thread(server)
+    finally:
+        server.shutdown()
+        bridge_thread.join(timeout=5.0)
 
 
 if __name__ == "__main__":

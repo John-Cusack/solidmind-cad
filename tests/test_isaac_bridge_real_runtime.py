@@ -5,12 +5,29 @@ Enabled only when SOLIDMIND_RUN_ISAAC_E2E=1.
 from __future__ import annotations
 
 import os
+import tempfile
 import threading
 import time
 import unittest
 
 from isaac_bridge.bridge_server import BridgeServer
-from server.isaac_client import IsaacClient
+from isaac_bridge.runtime_isaac import IsaacRuntime
+from server.isaac_client import IsaacClient, IsaacCommandError
+
+
+_MECHANISM = {
+    "name": "e2e_mech",
+    "parts": [{"id": "frame", "is_ground": True}, {"id": "link_a"}],
+    "joints": [
+        {
+            "id": "joint_a",
+            "joint_type": "revolute",
+            "parent_part": "frame",
+            "child_part": "link_a",
+        }
+    ],
+    "drives": [{"joint_id": "joint_a", "speed_rpm": 180.0}],
+}
 
 
 @unittest.skipUnless(
@@ -36,21 +53,8 @@ class TestIsaacBridgeRealRuntime(unittest.TestCase):
         client = IsaacClient(host="127.0.0.1", port=self.server.port)
         client.connect(timeout=2.0)
 
-        mechanism = {
-            "name": "e2e_mech",
-            "parts": [{"id": "frame", "is_ground": True}, {"id": "link_a"}],
-            "joints": [
-                {
-                    "id": "joint_a",
-                    "joint_type": "revolute",
-                    "parent_part": "frame",
-                    "child_part": "link_a",
-                }
-            ],
-            "drives": [{"joint_id": "joint_a", "speed_rpm": 180.0}],
-        }
         sim = client.simulate(
-            mechanism=mechanism,
+            mechanism=_MECHANISM,
             duration_s=0.2,
             dt_s=0.01,
             output_interval=0.05,
@@ -59,7 +63,7 @@ class TestIsaacBridgeRealRuntime(unittest.TestCase):
         self.assertIn("summary", sim)
         self.assertGreater(len(sim.get("time_series", [])), 0)
 
-        started = client.teleop_start(mechanism=mechanism, profile={"speed": 0.4})
+        started = client.teleop_start(mechanism=_MECHANISM, profile={"speed": 0.4})
         session_id = started["session_id"]
         self.assertTrue(session_id)
 
@@ -78,6 +82,99 @@ class TestIsaacBridgeRealRuntime(unittest.TestCase):
         self.assertTrue(stopped["stopped"])
 
         client.disconnect()
+
+    def test_import_urdf_file_not_found(self) -> None:
+        client = IsaacClient(host="127.0.0.1", port=self.server.port)
+        client.connect(timeout=2.0)
+        with self.assertRaises(IsaacCommandError) as ctx:
+            client.import_urdf("/nonexistent/robot.urdf")
+        self.assertEqual(ctx.exception.code, "URDF_NOT_FOUND")
+        client.disconnect()
+
+    def test_simulate_with_urdf_not_found(self) -> None:
+        client = IsaacClient(host="127.0.0.1", port=self.server.port)
+        client.connect(timeout=2.0)
+        with self.assertRaises(IsaacCommandError) as ctx:
+            client.simulate(
+                mechanism=_MECHANISM,
+                duration_s=0.1,
+                dt_s=0.01,
+                output_interval=0.05,
+                urdf_path="/nonexistent/robot.urdf",
+            )
+        self.assertEqual(ctx.exception.code, "URDF_NOT_FOUND")
+        client.disconnect()
+
+    def test_simulate_without_urdf_reference_mode(self) -> None:
+        """Without Isaac Sim, simulate falls back to reference mode."""
+        client = IsaacClient(host="127.0.0.1", port=self.server.port)
+        client.connect(timeout=2.0)
+        sim = client.simulate(
+            mechanism=_MECHANISM,
+            duration_s=0.1,
+            dt_s=0.01,
+            output_interval=0.05,
+        )
+        self.assertIn("summary", sim)
+        # Without Isaac Sim available, engine mode should be "reference"
+        mode = sim.get("summary", {}).get("engine_mode", "")
+        self.assertIn(mode, ("reference", "isaac"))
+        client.disconnect()
+
+
+class TestURDFImportRuntime(unittest.TestCase):
+    """Test URDF import at the runtime level (no TCP needed)."""
+
+    def test_import_urdf_file_not_found(self) -> None:
+        runtime = IsaacRuntime(headless=True)
+        from isaac_bridge.runtime_isaac import IsaacRuntimeError
+        with self.assertRaises(IsaacRuntimeError) as ctx:
+            runtime.import_urdf(urdf_path="/nonexistent/robot.urdf")
+        self.assertEqual(ctx.exception.code, "URDF_NOT_FOUND")
+
+    def test_simulate_with_urdf_file_not_found(self) -> None:
+        runtime = IsaacRuntime(headless=True)
+        from isaac_bridge.runtime_isaac import IsaacRuntimeError
+        with self.assertRaises(IsaacRuntimeError):
+            runtime.simulate(
+                mechanism=_MECHANISM,
+                duration_s=0.1,
+                dt_s=0.01,
+                output_interval=0.05,
+                urdf_path="/nonexistent/robot.urdf",
+            )
+
+    def test_simulate_with_real_urdf_graceful_fallback(self) -> None:
+        """When Isaac is unavailable but URDF exists, falls back to reference mode."""
+        runtime = IsaacRuntime(headless=True)
+        # Create a temporary URDF file
+        with tempfile.NamedTemporaryFile(suffix=".urdf", mode="w", delete=False) as f:
+            f.write('<?xml version="1.0"?><robot name="test"><link name="base"/></robot>')
+            urdf_path = f.name
+        try:
+            result = runtime.simulate(
+                mechanism=_MECHANISM,
+                duration_s=0.1,
+                dt_s=0.01,
+                output_interval=0.05,
+                urdf_path=urdf_path,
+            )
+            # Without Isaac Sim, should fall back to reference mode
+            self.assertIn("summary", result)
+            mode = result["summary"]["engine_mode"]
+            self.assertIn(mode, ("reference", "isaac_urdf"))
+        finally:
+            os.unlink(urdf_path)
+
+    def test_teleop_start_with_urdf_not_found(self) -> None:
+        runtime = IsaacRuntime(headless=True)
+        from isaac_bridge.runtime_isaac import IsaacRuntimeError
+        with self.assertRaises(IsaacRuntimeError) as ctx:
+            runtime.teleop_start(
+                mechanism=_MECHANISM,
+                urdf_path="/nonexistent/robot.urdf",
+            )
+        self.assertEqual(ctx.exception.code, "URDF_NOT_FOUND")
 
 
 if __name__ == "__main__":

@@ -50,9 +50,22 @@ def _make_isaac_echo_server(host: str, port: int) -> tuple[socket.socket, thread
                                 "message": "Unsupported joints present",
                             },
                         }
+                    elif cmd["cmd"] == "import_urdf":
+                        args = cmd.get("args", {})
+                        resp = {
+                            "ok": True,
+                            "result": {
+                                "prim_path": "/World/robot",
+                                "joint_count": 6,
+                                "link_count": 7,
+                            },
+                        }
                     elif cmd["cmd"] == "simulate":
                         args = cmd.get("args", {})
                         duration = args.get("duration_s", 1.0)
+                        summary: dict = {"simulation_time_s": duration}
+                        if "urdf_path" in args:
+                            summary["urdf_path"] = args["urdf_path"]
                         resp = {
                             "ok": True,
                             "result": {
@@ -60,7 +73,43 @@ def _make_isaac_echo_server(host: str, port: int) -> tuple[socket.socket, thread
                                     {"t": 0.0, "parts": {}},
                                     {"t": duration, "parts": {}},
                                 ],
-                                "summary": {"simulation_time_s": duration},
+                                "summary": summary,
+                            },
+                        }
+                    elif cmd["cmd"] == "simulate_start":
+                        args = cmd.get("args", {})
+                        duration = args.get("duration_s", 1.0)
+                        resp = {
+                            "ok": True,
+                            "result": {
+                                "session_id": "sim_echo",
+                                "status": "complete",
+                                "target_steps": 100,
+                                "steady_state_speeds": {},
+                                "profile_used": args.get("profile", {}),
+                            },
+                        }
+                    elif cmd["cmd"] == "simulate_status":
+                        resp = {
+                            "ok": True,
+                            "result": {
+                                "status": "complete",
+                                "completed_steps": 100,
+                                "target_steps": 100,
+                                "samples_count": 2,
+                            },
+                        }
+                    elif cmd["cmd"] == "simulate_stop":
+                        resp = {
+                            "ok": True,
+                            "result": {
+                                "stopped": True,
+                                "completed_steps": 100,
+                                "target_steps": 100,
+                                "samples": [
+                                    {"t": 0.0, "parts": {}},
+                                    {"t": 0.5, "parts": {}},
+                                ],
                             },
                         }
                     elif cmd["cmd"] == "teleop_start":
@@ -158,6 +207,32 @@ class TestIsaacClientConnection(unittest.TestCase):
             self.assertAlmostEqual(client._read_timeout, 42.0)
 
 
+class TestIsaacClientImportURDF(unittest.TestCase):
+    def test_import_urdf(self) -> None:
+        srv, _ = _make_isaac_echo_server("127.0.0.1", 29892)
+        try:
+            client = IsaacClient(host="127.0.0.1", port=29892)
+            client.connect(timeout=2.0)
+            result = client.import_urdf("/tmp/robot.urdf", import_config={"fix_base": True})
+            self.assertEqual(result["prim_path"], "/World/robot")
+            self.assertEqual(result["joint_count"], 6)
+            self.assertEqual(result["link_count"], 7)
+            client.disconnect()
+        finally:
+            srv.close()
+
+    def test_import_urdf_no_config(self) -> None:
+        srv, _ = _make_isaac_echo_server("127.0.0.1", 29893)
+        try:
+            client = IsaacClient(host="127.0.0.1", port=29893)
+            client.connect(timeout=2.0)
+            result = client.import_urdf("/tmp/robot.urdf")
+            self.assertEqual(result["prim_path"], "/World/robot")
+            client.disconnect()
+        finally:
+            srv.close()
+
+
 class TestIsaacClientSimulation(unittest.TestCase):
     def test_simulate(self) -> None:
         srv, _ = _make_isaac_echo_server("127.0.0.1", 29888)
@@ -173,6 +248,51 @@ class TestIsaacClientSimulation(unittest.TestCase):
             self.assertIn("summary", result)
             self.assertEqual(len(result["time_series"]), 2)
             self.assertAlmostEqual(result["summary"]["simulation_time_s"], 0.5)
+            client.disconnect()
+        finally:
+            srv.close()
+
+    def test_simulate_with_urdf_path(self) -> None:
+        srv, _ = _make_isaac_echo_server("127.0.0.1", 29894)
+        try:
+            client = IsaacClient(host="127.0.0.1", port=29894)
+            client.connect(timeout=2.0)
+            result = client.simulate(
+                mechanism={"name": "test", "parts": [], "joints": [], "drives": []},
+                duration_s=0.5,
+                dt_s=0.001,
+                urdf_path="/tmp/robot.urdf",
+                import_config={"fix_base": True},
+            )
+            self.assertIn("summary", result)
+            self.assertEqual(result["summary"]["urdf_path"], "/tmp/robot.urdf")
+            client.disconnect()
+        finally:
+            srv.close()
+
+
+class TestIsaacClientSimulateSession(unittest.TestCase):
+    def test_simulate_lifecycle(self) -> None:
+        srv, _ = _make_isaac_echo_server("127.0.0.1", 29895)
+        try:
+            client = IsaacClient(host="127.0.0.1", port=29895)
+            client.connect(timeout=2.0)
+
+            started = client.simulate_start(
+                mechanism={"name": "test", "parts": [], "joints": [], "drives": []},
+                duration_s=0.5,
+            )
+            self.assertEqual(started["session_id"], "sim_echo")
+
+            status = client.simulate_status("sim_echo")
+            self.assertEqual(status["status"], "complete")
+            self.assertEqual(status["completed_steps"], 100)
+
+            stopped = client.simulate_stop("sim_echo")
+            self.assertTrue(stopped["stopped"])
+            self.assertIn("samples", stopped)
+            self.assertEqual(len(stopped["samples"]), 2)
+
             client.disconnect()
         finally:
             srv.close()

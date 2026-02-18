@@ -68,6 +68,7 @@ class TestBridgeDispatch(unittest.TestCase):
         result = self._call('{"cmd":"ping","args":{}}')
         self.assertTrue(result["ok"])
         self.assertTrue(result["result"]["pong"])
+        self.assertIn("import_urdf", result["result"]["capabilities"]["commands"])
 
     def test_unknown_command(self) -> None:
         result = self._call('{"cmd":"nope","args":{}}')
@@ -123,6 +124,291 @@ class TestBridgeDispatch(unittest.TestCase):
         missing = self._call(json.dumps({"cmd": "teleop_state", "args": {"session_id": session_id}}))
         self.assertFalse(missing["ok"])
         self.assertEqual(missing["error"]["code"], "ISAAC_UNKNOWN_SESSION")
+
+
+class TestDiagnoseCommand(unittest.TestCase):
+    def setUp(self) -> None:
+        self.server = BridgeServer(host="127.0.0.1", port=0, headless=True)
+
+    def _call(self, payload: str) -> dict:
+        return self.server._handle_line(payload.encode("utf-8"))  # type: ignore[attr-defined]
+
+    def test_diagnose_without_isaac(self) -> None:
+        """diagnose returns an error when Isaac is not available."""
+        result = self._call(json.dumps({"cmd": "diagnose", "args": {}}))
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["error"]["code"], "ISAAC_NOT_AVAILABLE")
+
+    def test_diagnose_with_prim_path(self) -> None:
+        """diagnose accepts a prim_path argument."""
+        result = self._call(json.dumps({
+            "cmd": "diagnose",
+            "args": {"prim_path": "/some/path"},
+        }))
+        # Should fail (no Isaac) but with ISAAC_NOT_AVAILABLE, not INVALID_ARGS
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["error"]["code"], "ISAAC_NOT_AVAILABLE")
+
+
+class TestReloadCommand(unittest.TestCase):
+    def setUp(self) -> None:
+        self.server = BridgeServer(host="127.0.0.1", port=0, headless=True)
+
+    def _call(self, payload: str) -> dict:
+        return self.server._handle_line(payload.encode("utf-8"))  # type: ignore[attr-defined]
+
+    def test_reload_returns_ok(self) -> None:
+        """reload succeeds even without Isaac (reloads module, recreates runtime)."""
+        result = self._call(json.dumps({"cmd": "reload", "args": {}}))
+        self.assertTrue(result["ok"])
+        self.assertTrue(result["result"]["reloaded"])
+        self.assertIn("isaac_available", result["result"])
+
+    def test_reload_preserves_ping(self) -> None:
+        """After reload, ping still works with the new runtime."""
+        self._call(json.dumps({"cmd": "reload", "args": {}}))
+        result = self._call('{"cmd":"ping","args":{}}')
+        self.assertTrue(result["ok"])
+        self.assertTrue(result["result"]["pong"])
+
+    def test_ping_includes_new_commands_diagnose_reload(self) -> None:
+        """ping capabilities list includes diagnose and reload."""
+        result = self._call('{"cmd":"ping","args":{}}')
+        self.assertTrue(result["ok"])
+        commands = result["result"]["capabilities"]["commands"]
+        self.assertIn("diagnose", commands)
+        self.assertIn("reload", commands)
+
+
+class TestImportURDFCommand(unittest.TestCase):
+    def setUp(self) -> None:
+        self.server = BridgeServer(host="127.0.0.1", port=0, headless=True)
+
+    def _call(self, payload: str) -> dict:
+        return self.server._handle_line(payload.encode("utf-8"))  # type: ignore[attr-defined]
+
+    def test_import_urdf_missing_path(self) -> None:
+        result = self._call(json.dumps({"cmd": "import_urdf", "args": {}}))
+        self.assertFalse(result["ok"])
+
+    def test_import_urdf_file_not_found(self) -> None:
+        result = self._call(json.dumps({
+            "cmd": "import_urdf",
+            "args": {"urdf_path": "/nonexistent/robot.urdf"},
+        }))
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["error"]["code"], "URDF_NOT_FOUND")
+
+    def test_import_urdf_empty_string(self) -> None:
+        result = self._call(json.dumps({
+            "cmd": "import_urdf",
+            "args": {"urdf_path": ""},
+        }))
+        self.assertFalse(result["ok"])
+
+    def test_import_urdf_non_string_type(self) -> None:
+        result = self._call(json.dumps({
+            "cmd": "import_urdf",
+            "args": {"urdf_path": 42},
+        }))
+        self.assertFalse(result["ok"])
+
+    def test_simulate_with_urdf_path_not_found(self) -> None:
+        result = self._call(json.dumps({
+            "cmd": "simulate",
+            "args": {
+                "mechanism": _supported_mechanism(),
+                "duration_s": 0.1,
+                "dt_s": 0.01,
+                "output_interval": 0.05,
+                "urdf_path": "/nonexistent/robot.urdf",
+            },
+        }))
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["error"]["code"], "URDF_NOT_FOUND")
+
+    def test_simulate_without_urdf_still_works(self) -> None:
+        """Backwards compatibility: simulate without urdf_path works as before."""
+        result = self._call(json.dumps({
+            "cmd": "simulate",
+            "args": {
+                "mechanism": _supported_mechanism(),
+                "duration_s": 0.1,
+                "dt_s": 0.01,
+                "output_interval": 0.05,
+            },
+        }))
+        self.assertTrue(result["ok"])
+        self.assertIn("time_series", result["result"])
+
+    def test_teleop_start_with_urdf_path_not_found(self) -> None:
+        result = self._call(json.dumps({
+            "cmd": "teleop_start",
+            "args": {
+                "mechanism": _supported_mechanism(),
+                "urdf_path": "/nonexistent/robot.urdf",
+            },
+        }))
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["error"]["code"], "URDF_NOT_FOUND")
+
+    def test_teleop_start_without_urdf_still_works(self) -> None:
+        """Backwards compatibility: teleop_start without urdf_path works as before."""
+        result = self._call(json.dumps({
+            "cmd": "teleop_start",
+            "args": {"mechanism": _supported_mechanism()},
+        }))
+        self.assertTrue(result["ok"])
+        self.assertIn("session_id", result["result"])
+
+
+class TestSimulateSessionLifecycle(unittest.TestCase):
+    def setUp(self) -> None:
+        self.server = BridgeServer(host="127.0.0.1", port=0, headless=True)
+
+    def _call(self, payload: str) -> dict:
+        return self.server._handle_line(payload.encode("utf-8"))  # type: ignore[attr-defined]
+
+    def test_simulate_start_returns_session_id(self) -> None:
+        result = self._call(json.dumps({
+            "cmd": "simulate_start",
+            "args": {
+                "mechanism": _supported_mechanism(),
+                "duration_s": 0.1,
+                "dt_s": 0.01,
+                "output_interval": 0.05,
+            },
+        }))
+        self.assertTrue(result["ok"])
+        self.assertIn("session_id", result["result"])
+        self.assertIn("status", result["result"])
+        self.assertIn("steady_state_speeds", result["result"])
+
+    def test_simulate_lifecycle(self) -> None:
+        # Start
+        started = self._call(json.dumps({
+            "cmd": "simulate_start",
+            "args": {
+                "mechanism": _supported_mechanism(),
+                "duration_s": 0.1,
+                "dt_s": 0.01,
+                "output_interval": 0.05,
+            },
+        }))
+        self.assertTrue(started["ok"])
+        session_id = started["result"]["session_id"]
+
+        # Status
+        status = self._call(json.dumps({
+            "cmd": "simulate_status",
+            "args": {"session_id": session_id},
+        }))
+        self.assertTrue(status["ok"])
+        self.assertIn("status", status["result"])
+        self.assertIn("completed_steps", status["result"])
+
+        # Stop
+        stopped = self._call(json.dumps({
+            "cmd": "simulate_stop",
+            "args": {"session_id": session_id},
+        }))
+        self.assertTrue(stopped["ok"])
+        self.assertTrue(stopped["result"]["stopped"])
+        self.assertIn("samples", stopped["result"])
+
+    def test_simulate_status_unknown_session(self) -> None:
+        result = self._call(json.dumps({
+            "cmd": "simulate_status",
+            "args": {"session_id": "nonexistent"},
+        }))
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["error"]["code"], "ISAAC_UNKNOWN_SESSION")
+
+    def test_simulate_stop_unknown_session_idempotent(self) -> None:
+        result = self._call(json.dumps({
+            "cmd": "simulate_stop",
+            "args": {"session_id": "nonexistent"},
+        }))
+        self.assertTrue(result["ok"])
+        self.assertTrue(result["result"]["already_stopped"])
+
+    def test_simulate_start_unsupported_joint(self) -> None:
+        result = self._call(json.dumps({
+            "cmd": "simulate_start",
+            "args": {
+                "mechanism": _unsupported_mechanism(),
+                "duration_s": 0.1,
+                "dt_s": 0.01,
+                "output_interval": 0.05,
+            },
+        }))
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["error"]["code"], "UNSUPPORTED_JOINT_TYPE")
+
+    def test_backward_compat_simulate_still_works(self) -> None:
+        """The old simulate command still returns time_series as before."""
+        result = self._call(json.dumps({
+            "cmd": "simulate",
+            "args": {
+                "mechanism": _supported_mechanism(),
+                "duration_s": 0.1,
+                "dt_s": 0.01,
+                "output_interval": 0.05,
+            },
+        }))
+        self.assertTrue(result["ok"])
+        self.assertIn("time_series", result["result"])
+        self.assertIn("summary", result["result"])
+
+    def test_ping_includes_new_commands(self) -> None:
+        result = self._call('{"cmd":"ping","args":{}}')
+        self.assertTrue(result["ok"])
+        commands = result["result"]["capabilities"]["commands"]
+        self.assertIn("simulate_start", commands)
+        self.assertIn("simulate_status", commands)
+        self.assertIn("simulate_stop", commands)
+
+
+class TestScreenshotCommand(unittest.TestCase):
+    def setUp(self) -> None:
+        self.server = BridgeServer(host="127.0.0.1", port=0, headless=True)
+
+    def _call(self, payload: str) -> dict:
+        return self.server._handle_line(payload.encode("utf-8"))  # type: ignore[attr-defined]
+
+    def test_screenshot_without_isaac(self) -> None:
+        """screenshot returns an error when Isaac is not available."""
+        result = self._call(json.dumps({"cmd": "screenshot", "args": {}}))
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["error"]["code"], "ISAAC_NOT_AVAILABLE")
+
+    def test_screenshot_with_custom_size(self) -> None:
+        """screenshot accepts width/height arguments (still fails without Isaac)."""
+        result = self._call(json.dumps({
+            "cmd": "screenshot",
+            "args": {"width": 640, "height": 480},
+        }))
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["error"]["code"], "ISAAC_NOT_AVAILABLE")
+
+    def test_screenshot_with_camera(self) -> None:
+        """screenshot accepts camera_position and camera_target."""
+        result = self._call(json.dumps({
+            "cmd": "screenshot",
+            "args": {
+                "camera_position": [2.0, 2.0, 1.0],
+                "camera_target": [0.0, 0.0, 0.0],
+            },
+        }))
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["error"]["code"], "ISAAC_NOT_AVAILABLE")
+
+    def test_ping_includes_screenshot(self) -> None:
+        """ping capabilities list includes screenshot."""
+        result = self._call('{"cmd":"ping","args":{}}')
+        self.assertTrue(result["ok"])
+        commands = result["result"]["capabilities"]["commands"]
+        self.assertIn("screenshot", commands)
 
 
 if __name__ == "__main__":

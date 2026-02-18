@@ -79,47 +79,65 @@ Core modeling remains the two-process bridge (`server/main.py` <-> `freecad_addo
 ## Requirements
 
 - Python `>= 3.12`
-- FreeCAD `>= 1.0` (required for live `cad.*` and Tier 2 motion; FreeCAD 0.21 is **not** supported)
+- Rust toolchain ([rustup](https://rustup.rs/)) for the `solidmind_geometry` extension
+- FreeCAD `>= 1.0` AppImage (required for live `cad.*` and Tier 2 motion; FreeCAD 0.21 is **not** supported)
 
 Optional/conditional components:
 
 - Chrono daemon binary (required for `motion.simulate` and `study` `chrono` solver runs)
 - Isaac bridge sidecar (required for Tier 3 `backend=isaac` simulation/teleop)
 - OpenFOAM + `FreeCADCmd` (required for OpenFOAM study pipeline)
-- Rust toolchain + maturin build path for `solidmind_geometry` extension (if missing, `geometry.*` tools return availability errors)
 - LanceDB/Docling/embedding runtime for full knowledge store mode (tools degrade to local-note fallback when unavailable)
 
 ## Getting Started
 
-### Required: core setup
+### 1. Install FreeCAD
 
-Install dependencies and run the core test suite:
+Download the AppImage and symlink it onto your PATH:
 
 ```bash
-python3 -m pip install -e .
+mkdir -p ~/Applications
+wget -O ~/Applications/FreeCAD_1.0.2-conda-Linux-x86_64-py311.AppImage \
+  "https://github.com/FreeCAD/FreeCAD/releases/download/1.0.2/FreeCAD_1.0.2-conda-Linux-x86_64-py311.AppImage"
+chmod +x ~/Applications/FreeCAD_1.0.2-conda-Linux-x86_64-py311.AppImage
+sudo ln -s ~/Applications/FreeCAD_1.0.2-conda-Linux-x86_64-py311.AppImage /usr/local/bin/freecad
+```
+
+> **Note:** Use a symlink to the AppImage — do not copy/move the binary directly.
+> Snap and flatpak installs are not supported (sandboxing breaks addon auto-start).
+
+### 2. Install SolidMind CAD
+
+```bash
+sudo apt-get install -y python3-pip python3-venv   # Ubuntu/Debian
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e .
+pip install maturin
+maturin develop --manifest-path geometry/Cargo.toml
+```
+
+### 3. Run tests
+
+```bash
 python3 -m unittest
 ```
 
-Start the MCP server over stdio:
+### 4. Install the FreeCAD addon
+
+```bash
+scripts/install_freecad_addon.sh
+```
+
+Restart FreeCAD — you should see `[SolidMind] Addon started successfully` in the Python console.
+
+### 5. Start the MCP server
 
 ```bash
 python3 -m server.main
 # or
 solidmind-cad
 ```
-
-### Optional: live FreeCAD CAD workflow
-
-Install the FreeCAD addon symlink for auto-start on FreeCAD launch:
-
-```bash
-scripts/install_freecad_addon.sh
-```
-
-### Optional: geometry extension (`geometry.*` tools)
-
-`geometry.*` tools require the `solidmind_geometry` Rust extension.
-If unavailable, those tools return availability errors while the rest of the server still works.
 
 ### Optional: simulation validation (additional)
 
