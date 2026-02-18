@@ -7,16 +7,48 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import socket
 import time
 from typing import Any
 
 logger = logging.getLogger("solidmind.isaac_client")
 
-DEFAULT_HOST = "127.0.0.1"
-DEFAULT_PORT = 9878
-CONNECT_TIMEOUT = 5.0
-READ_TIMEOUT = 120.0
+
+def _env_int(name: str, default: int) -> int:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        logger.warning("Invalid %s=%r, using default %d", name, raw, default)
+        return default
+    if value <= 0:
+        logger.warning("Non-positive %s=%r, using default %d", name, raw, default)
+        return default
+    return value
+
+
+def _env_float(name: str, default: float) -> float:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    try:
+        value = float(raw)
+    except ValueError:
+        logger.warning("Invalid %s=%r, using default %.3f", name, raw, default)
+        return default
+    if value <= 0:
+        logger.warning("Non-positive %s=%r, using default %.3f", name, raw, default)
+        return default
+    return value
+
+
+DEFAULT_HOST = os.environ.get("SOLIDMIND_ISAAC_HOST", "127.0.0.1")
+DEFAULT_PORT = _env_int("SOLIDMIND_ISAAC_PORT", 9878)
+CONNECT_TIMEOUT = _env_float("SOLIDMIND_ISAAC_CONNECT_TIMEOUT_S", 5.0)
+READ_TIMEOUT = _env_float("SOLIDMIND_ISAAC_READ_TIMEOUT_S", 120.0)
 MAX_RETRIES = 3
 RETRY_DELAY = 1.0
 
@@ -28,17 +60,23 @@ class IsaacConnectionError(Exception):
 class IsaacCommandError(Exception):
     """Raised when a command fails on the Isaac bridge."""
 
+    def __init__(self, message: str, *, code: str | None = None) -> None:
+        super().__init__(message)
+        self.code = code
+
 
 class IsaacClient:
     """TCP client that sends commands to the Isaac bridge socket server."""
 
     def __init__(
         self,
-        host: str = DEFAULT_HOST,
-        port: int = DEFAULT_PORT,
+        host: str | None = None,
+        port: int | None = None,
     ) -> None:
-        self._host = host
-        self._port = port
+        self._host = host or os.environ.get("SOLIDMIND_ISAAC_HOST", DEFAULT_HOST)
+        self._port = port if port is not None else _env_int("SOLIDMIND_ISAAC_PORT", DEFAULT_PORT)
+        self._connect_timeout = _env_float("SOLIDMIND_ISAAC_CONNECT_TIMEOUT_S", CONNECT_TIMEOUT)
+        self._read_timeout = _env_float("SOLIDMIND_ISAAC_READ_TIMEOUT_S", READ_TIMEOUT)
         self._sock: socket.socket | None = None
         self._buffer = b""
 
@@ -46,23 +84,28 @@ class IsaacClient:
     def is_connected(self) -> bool:
         return self._sock is not None
 
-    def connect(self, timeout: float = CONNECT_TIMEOUT) -> None:
+    def connect(self, timeout: float | None = None) -> None:
         """Connect to the Isaac bridge socket server."""
         if self._sock is not None:
             return
+        effective_timeout = self._connect_timeout if timeout is None else timeout
 
         logger.debug(
             "Connecting to Isaac bridge at %s:%d (timeout=%.1fs)",
             self._host,
             self._port,
-            timeout,
+            effective_timeout,
         )
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.settimeout(timeout)
         try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(effective_timeout)
             sock.connect((self._host, self._port))
         except (ConnectionRefusedError, OSError) as exc:
-            sock.close()
+            if "sock" in locals():
+                try:
+                    sock.close()
+                except OSError:
+                    pass
             logger.warning(
                 "Connection to Isaac bridge at %s:%d failed: %s",
                 self._host,
@@ -128,12 +171,13 @@ class IsaacClient:
     def send_command(
         self,
         cmd: str,
-        timeout: float = READ_TIMEOUT,
+        timeout: float | None = None,
         **args: Any,
     ) -> Any:
         """Send a command and return result data."""
         self._ensure_connected()
         assert self._sock is not None
+        effective_timeout = self._read_timeout if timeout is None else timeout
 
         message = json.dumps({"cmd": cmd, "args": args}, separators=(",", ":")) + "\n"
         logger.debug("Sending command: %s (payload %d bytes)", cmd, len(message))
@@ -144,7 +188,12 @@ class IsaacClient:
             self._sock = None
             raise IsaacConnectionError(f"Connection lost while sending: {exc}") from exc
 
-        response = self._read_response(timeout)
+        response = self._read_response(effective_timeout)
+        if not isinstance(response, dict):
+            raise IsaacCommandError(
+                f"Malformed response type {type(response).__name__} for command '{cmd}'",
+                code="ISAAC_PROTOCOL_ERROR",
+            )
         logger.debug(
             "Response for '%s': ok=%s keys=%s",
             cmd,
@@ -153,9 +202,23 @@ class IsaacClient:
         )
 
         if not response.get("ok", False):
-            error_msg = response.get("error", "Unknown error")
-            logger.error("Command '%s' failed: %s", cmd, error_msg)
-            raise IsaacCommandError(error_msg)
+            err = response.get("error", "Unknown error")
+            code: str | None = None
+            if isinstance(err, dict):
+                code_val = err.get("code")
+                if isinstance(code_val, str) and code_val:
+                    code = code_val
+                msg_val = err.get("message")
+                if isinstance(msg_val, str) and msg_val.strip():
+                    error_msg = msg_val.strip()
+                else:
+                    error_msg = json.dumps(err, sort_keys=True)
+            elif isinstance(err, str):
+                error_msg = err
+            else:
+                error_msg = str(err)
+            logger.error("Command '%s' failed: %s (code=%s)", cmd, error_msg, code)
+            raise IsaacCommandError(error_msg, code=code)
 
         return response.get("result")
 
@@ -165,15 +228,17 @@ class IsaacClient:
         duration_s: float = 1.0,
         dt_s: float = 0.001,
         output_interval: float = 0.01,
+        profile: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Run batch simulation and return summary/time-series data."""
         return self.send_command(
             "simulate",
-            timeout=max(READ_TIMEOUT, duration_s * 100),
+            timeout=max(self._read_timeout, duration_s * 100),
             mechanism=mechanism,
             duration_s=duration_s,
             dt_s=dt_s,
             output_interval=output_interval,
+            profile=profile or {},
         )
 
     def teleop_start(
@@ -258,7 +323,7 @@ def get_client() -> IsaacClient | None:
     try:
         if not _client.is_connected:
             _client.connect(timeout=2.0)
-    except IsaacConnectionError as exc:
+    except (IsaacConnectionError, OSError) as exc:
         logger.warning("Isaac bridge not available: %s", exc)
         return None
     return _client

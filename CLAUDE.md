@@ -45,6 +45,8 @@ Claude Code CLI ──stdio──▶ MCP Bridge Server ──TCP socket──▶
 
 **Chrono daemon** (`chrono_daemon/`): Optional standalone C++ binary for Tier 3 dynamic simulation via Project Chrono. TCP socket server on localhost:9877 (same JSON protocol as FreeCAD addon). Builds Chrono multibody systems from mechanism definitions, runs time-domain simulations, returns time-series results. Only needed for `motion.simulate` — Tier 1 analytical validation works without it. See `chrono_daemon/README.md` for build instructions.
 
+**Isaac bridge** (`isaac_bridge/`): Optional Python TCP sidecar on localhost:9878 for Tier 3 `backend=isaac` simulation and teleop lifecycle. Exposes newline-delimited JSON commands (`ping`, `simulate`, `teleop_*`). Start with `scripts/run_isaac_bridge.sh`. v1 supported joints: `revolute`, `prismatic`, `fixed`; unsupported joints return `UNSUPPORTED_JOINT_TYPE`.
+
 ### Key modules
 
 **`freecad_addon/`:**
@@ -66,6 +68,7 @@ Claude Code CLI ──stdio──▶ MCP Bridge Server ──TCP socket──▶
 - `motion_store.py` — Session-scoped mechanism storage (UUID handles)
 - `motion_validators.py` — Analytical validators (gear ratio, speed/torque propagation, DOF, Grashof, power conservation)
 - `chrono_client.py` — TCP client to Chrono daemon on localhost:9877 (Tier 3 dynamic simulation)
+- `isaac_client.py` — TCP client to Isaac bridge on localhost:9878 (Tier 3 dynamic simulation + teleop)
 - `study_models.py` — Study data models (Study, DesignVariable, Variant, SolverConfig, ObjectiveConfig)
 - `study_store.py` — JSON-file persistence for studies in `studies/<study_id>/`
 - `study_runner.py` — Background subprocess runner (coarse sweep → refine → rank)
@@ -84,7 +87,7 @@ Claude Code CLI ──stdio──▶ MCP Bridge Server ──TCP socket──▶
 | `me.*` | validate_constraints, build_traceability, apply_risk_gates, design_loop, list_validators | Deterministic ME preflight (validators + risk gates) |
 | `knowledge.*` | extract, ingest, ingest_status, search, status | Knowledge base — hybrid search, PDF extraction, document ingestion (LanceDB + Docling) |
 | `study.*` | create, run, status, results, cancel, list, get_variant | Parametric design optimization (sweep variables, run solvers, rank results) |
-| `motion.*` | define_mechanism, list_mechanisms, validate, propagate_motion, check_gear_train, create_assembly, drive_joint, check_interference, simulate | Motion validation pipeline — analytical (Tier 1), kinematic via FreeCAD Assembly (Tier 2), dynamic via Chrono (Tier 3) |
+| `motion.*` | define_mechanism, list_mechanisms, validate, propagate_motion, check_gear_train, create_assembly, drive_joint, check_interference, simulate, teleop_start, teleop_command, teleop_state, teleop_stop | Motion validation pipeline — analytical (Tier 1), kinematic via FreeCAD Assembly (Tier 2), dynamic via Isaac/Chrono (Tier 3) |
 
 ### Sketch element types
 
@@ -151,7 +154,9 @@ with moving parts (gears, linkages, cams, belt drives). Skip for static parts
 3. Run Tier 1 (analytical): motion.validate + motion.propagate_motion
 4. Report results to user. Wait for user approval before escalating.
 5. If user requests Tier 2: motion.create_assembly + motion.drive_joint + motion.check_interference (requires FreeCAD Assembly workbench)
-6. If user requests Tier 3: motion.simulate (requires Chrono daemon)
+6. If user requests Tier 3: motion.simulate with backend selection:
+   - `backend=isaac` requires Isaac bridge sidecar (`scripts/run_isaac_bridge.sh`)
+   - `backend=chrono` requires Chrono daemon
 
 **When to suggest validation (but always let user decide):**
 - After building a gear train, linkage, or cam mechanism

@@ -104,6 +104,44 @@ def _backend_unavailable_result(
     }
 
 
+def _validate_simulation_params(
+    *,
+    duration_s: float,
+    dt_s: float,
+    output_interval: float,
+) -> str | None:
+    numeric_fields = {
+        "duration_s": duration_s,
+        "dt_s": dt_s,
+        "output_interval": output_interval,
+    }
+    for name, value in numeric_fields.items():
+        if not isinstance(value, (int, float)) or not math.isfinite(float(value)):
+            return f"{name} must be a finite number"
+        if float(value) <= 0.0:
+            return f"{name} must be > 0"
+    if output_interval < dt_s:
+        return "output_interval must be >= dt_s"
+    if output_interval > duration_s:
+        return "output_interval must be <= duration_s"
+    return None
+
+
+def _is_unknown_session_error(result: dict[str, Any]) -> bool:
+    err = result.get("error")
+    if not isinstance(err, dict):
+        return False
+    code = str(err.get("code", "")).strip().upper()
+    if code in {"ISAAC_UNKNOWN_SESSION", "ISAAC_SESSION_NOT_FOUND"}:
+        return True
+    msg = str(err.get("message", "")).strip().lower()
+    return (
+        "unknown session" in msg
+        or "session not found" in msg
+        or "no such session" in msg
+    )
+
+
 # ---------------------------------------------------------------------------
 # Tier 0: Mechanism definition
 # ---------------------------------------------------------------------------
@@ -805,6 +843,7 @@ def _simulate_with_isaac(
     duration_s: float,
     dt_s: float,
     output_interval: float,
+    profile: dict[str, Any],
 ) -> dict[str, Any]:
     """Run batch simulation via the optional Isaac sidecar."""
     from server import isaac_adapter
@@ -814,6 +853,7 @@ def _simulate_with_isaac(
         duration_s=duration_s,
         dt_s=dt_s,
         output_interval=output_interval,
+        profile=profile,
     )
     if not result.get("ok", False):
         err = result.get("error", {})
@@ -840,6 +880,7 @@ def motion_simulate(
     output_interval: float = 0.01,
     backend: str | None = None,
     mode: str = "batch",
+    profile: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Run dynamic simulation via selected backend (`isaac` or `chrono`)."""
     if _TOOL_LOG:
@@ -852,9 +893,18 @@ def motion_simulate(
     mech = store_get(mechanism_id)
     if mech is None:
         return _error_result("NOT_FOUND", f"No mechanism with id '{mechanism_id}'")
+    if profile is not None and not isinstance(profile, dict):
+        return _error_result("INVALID_INPUT", "profile must be an object")
 
     selected_backend = _normalize_backend(backend)
     selected_mode = _normalize_mode(mode)
+    param_error = _validate_simulation_params(
+        duration_s=duration_s,
+        dt_s=dt_s,
+        output_interval=output_interval,
+    )
+    if param_error is not None:
+        return _error_result("INVALID_INPUT", param_error)
 
     if selected_backend not in _SIM_BACKENDS:
         return _error_result(
@@ -881,13 +931,18 @@ def motion_simulate(
             output_interval=output_interval,
         )
     elif selected_mode == "teleop":
-        response = motion_teleop_start(mechanism_id=mechanism_id, backend="isaac")
+        response = motion_teleop_start(
+            mechanism_id=mechanism_id,
+            backend="isaac",
+            profile=profile or {},
+        )
     else:
         response = _simulate_with_isaac(
             mech,
             duration_s=duration_s,
             dt_s=dt_s,
             output_interval=output_interval,
+            profile=profile or {},
         )
 
     if _TOOL_LOG:
@@ -933,7 +988,7 @@ def motion_teleop_start(
 
     session_id = str(result.get("session_id", "")).strip()
     if not session_id:
-        return _error_result("ISAAC_ERROR", "Isaac teleop response missing session_id")
+        return _error_result("ISAAC_PROTOCOL_ERROR", "Isaac teleop response missing session_id")
 
     _teleop_sessions[session_id] = {
         "mechanism_id": mechanism_id,
@@ -968,6 +1023,8 @@ def motion_teleop_command(
         body_height_m=body_height_m,
     )
     if not result.get("ok", False):
+        if _is_unknown_session_error(result):
+            _teleop_sessions.pop(session_id, None)
         return result
     return {"ok": True, "backend_used": "isaac", "mode_used": "teleop", **result}
 
@@ -982,6 +1039,8 @@ def motion_teleop_state(session_id: str) -> dict[str, Any]:
 
     result = isaac_adapter.teleop_state(session_id=session_id)
     if not result.get("ok", False):
+        if _is_unknown_session_error(result):
+            _teleop_sessions.pop(session_id, None)
         return result
     return {"ok": True, "backend_used": "isaac", "mode_used": "teleop", **result}
 
@@ -996,6 +1055,8 @@ def motion_teleop_stop(session_id: str) -> dict[str, Any]:
 
     result = isaac_adapter.teleop_stop(session_id=session_id)
     if not result.get("ok", False):
+        if _is_unknown_session_error(result):
+            _teleop_sessions.pop(session_id, None)
         return result
     _teleop_sessions.pop(session_id, None)
     return {"ok": True, "backend_used": "isaac", "mode_used": "teleop", **result}

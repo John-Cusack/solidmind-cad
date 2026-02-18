@@ -28,6 +28,8 @@ class _FakeIsaacBridge:
         self._ready = threading.Event()
         self._stop = threading.Event()
         self._sessions: dict[str, dict[str, float]] = {}
+        self.last_sim_profile: dict | None = None
+        self.last_teleop_profile: dict | None = None
 
     def start(self) -> None:
         srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -94,6 +96,7 @@ class _FakeIsaacBridge:
         if name == "simulate":
             duration = float(args.get("duration_s", 1.0))
             mech = args.get("mechanism", {})
+            self.last_sim_profile = args.get("profile", {})
             part_ids = [p.get("id") for p in mech.get("parts", []) if p.get("id")]
             return {
                 "ok": True,
@@ -110,6 +113,7 @@ class _FakeIsaacBridge:
             }
 
         if name == "teleop_start":
+            self.last_teleop_profile = args.get("profile", {})
             session_id = f"sess_{len(self._sessions) + 1}"
             self._sessions[session_id] = {
                 "vx_mps": 0.0,
@@ -208,6 +212,28 @@ class TestMotionIsaacIntegration(unittest.TestCase):
         self.assertEqual(result["mode_used"], "batch")
         self.assertIn("summary", result)
         self.assertAlmostEqual(result["summary"]["simulation_time_s"], 0.25)
+        self.assertEqual(self.bridge.last_sim_profile, {})
+
+    def test_simulate_teleop_mode_forwards_profile(self) -> None:
+        defined = mcp_main._call_tool(
+            "motion.define_mechanism",
+            {"mechanism": self._mechanism_dict()},
+        )
+        self.assertTrue(defined["ok"])
+
+        result = mcp_main._call_tool(
+            "motion.simulate",
+            {
+                "mechanism_id": defined["mechanism_id"],
+                "backend": "isaac",
+                "mode": "teleop",
+                "profile": {"linear_speed_mps": 0.4},
+            },
+        )
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["mode_used"], "teleop")
+        self.assertEqual(self.bridge.last_teleop_profile, {"linear_speed_mps": 0.4})
 
     def test_full_teleop_lifecycle_via_main_dispatch(self) -> None:
         defined = mcp_main._call_tool(

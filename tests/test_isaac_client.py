@@ -5,9 +5,11 @@ Uses an echo server (no Isaac runtime needed).
 from __future__ import annotations
 
 import json
+import os
 import socket
 import threading
 import unittest
+from unittest.mock import patch
 
 from server.isaac_client import IsaacClient, IsaacCommandError, IsaacConnectionError
 
@@ -40,6 +42,14 @@ def _make_isaac_echo_server(host: str, port: int) -> tuple[socket.socket, thread
                         resp = {"ok": True, "result": {"pong": True}}
                     elif cmd["cmd"] == "fail":
                         resp = {"ok": False, "error": "intentional failure"}
+                    elif cmd["cmd"] == "fail_structured":
+                        resp = {
+                            "ok": False,
+                            "error": {
+                                "code": "UNSUPPORTED_JOINT_TYPE",
+                                "message": "Unsupported joints present",
+                            },
+                        }
                     elif cmd["cmd"] == "simulate":
                         args = cmd.get("args", {})
                         duration = args.get("duration_s", 1.0)
@@ -110,6 +120,42 @@ class TestIsaacClientConnection(unittest.TestCase):
             client.disconnect()
         finally:
             srv.close()
+
+    def test_socket_creation_permission_error_wrapped(self) -> None:
+        client = IsaacClient(host="127.0.0.1", port=29890)
+        with patch("server.isaac_client.socket.socket", side_effect=PermissionError("denied")):
+            with self.assertRaises(IsaacConnectionError):
+                client.connect(timeout=0.5)
+
+    def test_structured_error_preserves_code(self) -> None:
+        srv, _ = _make_isaac_echo_server("127.0.0.1", 29891)
+        try:
+            client = IsaacClient(host="127.0.0.1", port=29891)
+            client.connect(timeout=2.0)
+            with self.assertRaises(IsaacCommandError) as ctx:
+                client.send_command("fail_structured")
+            self.assertEqual(ctx.exception.code, "UNSUPPORTED_JOINT_TYPE")
+            self.assertIn("Unsupported joints", str(ctx.exception))
+            client.disconnect()
+        finally:
+            srv.close()
+
+    def test_env_overrides_default_host_port_and_timeouts(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "SOLIDMIND_ISAAC_HOST": "10.1.2.3",
+                "SOLIDMIND_ISAAC_PORT": "29900",
+                "SOLIDMIND_ISAAC_CONNECT_TIMEOUT_S": "7.5",
+                "SOLIDMIND_ISAAC_READ_TIMEOUT_S": "42.0",
+            },
+            clear=False,
+        ):
+            client = IsaacClient()
+            self.assertEqual(client._host, "10.1.2.3")
+            self.assertEqual(client._port, 29900)
+            self.assertAlmostEqual(client._connect_timeout, 7.5)
+            self.assertAlmostEqual(client._read_timeout, 42.0)
 
 
 class TestIsaacClientSimulation(unittest.TestCase):

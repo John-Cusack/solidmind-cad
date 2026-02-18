@@ -1807,9 +1807,24 @@ def _motion_tool_list() -> list[dict[str, Any]]:
                 "type": "object",
                 "properties": {
                     "mechanism_id": {"type": "string", "description": "Mechanism handle from motion.define_mechanism"},
-                    "duration_s": {"type": "number", "default": 1.0, "description": "Simulation duration in seconds"},
-                    "dt_s": {"type": "number", "default": 0.001, "description": "Time step in seconds"},
-                    "output_interval": {"type": "number", "default": 0.01, "description": "Output sampling interval in seconds"},
+                    "duration_s": {
+                        "type": "number",
+                        "default": 1.0,
+                        "exclusiveMinimum": 0,
+                        "description": "Simulation duration in seconds (> 0).",
+                    },
+                    "dt_s": {
+                        "type": "number",
+                        "default": 0.001,
+                        "exclusiveMinimum": 0,
+                        "description": "Time step in seconds (> 0).",
+                    },
+                    "output_interval": {
+                        "type": "number",
+                        "default": 0.01,
+                        "exclusiveMinimum": 0,
+                        "description": "Output sampling interval in seconds (> 0, >= dt_s, <= duration_s).",
+                    },
                     "backend": {
                         "type": "string",
                         "enum": ["isaac", "chrono"],
@@ -1821,6 +1836,10 @@ def _motion_tool_list() -> list[dict[str, Any]]:
                         "enum": ["batch", "teleop"],
                         "default": "batch",
                         "description": "Isaac supports batch and teleop. Chrono supports batch only.",
+                    },
+                    "profile": {
+                        "type": "object",
+                        "description": "Optional Isaac runtime profile/config overrides.",
                     },
                 },
                 "required": ["mechanism_id"],

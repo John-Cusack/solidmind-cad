@@ -820,6 +820,62 @@ class TestSimulateBackendBehavior(TestMotionToolsBase):
         self.assertEqual(result["error"]["code"], "BACKEND_UNAVAILABLE_CHOOSE")
         chrono_fallback.assert_not_called()
 
+    def test_unsupported_joint_type_error_is_propagated(self):
+        from unittest.mock import patch
+
+        mid = self._make_mechanism()
+        with patch("server.isaac_adapter.simulate", return_value={
+            "ok": False,
+            "error": {
+                "code": "UNSUPPORTED_JOINT_TYPE",
+                "message": "Unsupported joints present",
+            },
+        }):
+            result = motion_simulate(mid, backend="isaac")
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["error"]["code"], "UNSUPPORTED_JOINT_TYPE")
+
+    def test_simulate_rejects_invalid_numeric_params(self):
+        from unittest.mock import patch
+
+        mid = self._make_mechanism()
+        bad_inputs = [
+            {"duration_s": -1.0},
+            {"duration_s": 0.0},
+            {"duration_s": float("inf")},
+            {"dt_s": 0.0},
+            {"dt_s": -0.001},
+            {"output_interval": 0.0},
+            {"output_interval": -0.01},
+            {"dt_s": 0.01, "output_interval": 0.001},
+            {"duration_s": 0.2, "output_interval": 0.3},
+        ]
+        with patch("server.isaac_adapter.simulate") as isaac_sim:
+            for kwargs in bad_inputs:
+                with self.subTest(kwargs=kwargs):
+                    result = motion_simulate(mid, backend="isaac", **kwargs)
+                    self.assertFalse(result["ok"])
+                    self.assertEqual(result["error"]["code"], "INVALID_INPUT")
+            isaac_sim.assert_not_called()
+
+    def test_simulate_rejects_non_object_profile(self):
+        mid = self._make_mechanism()
+        result = motion_simulate(mid, backend="isaac", profile="fast")  # type: ignore[arg-type]
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["error"]["code"], "INVALID_INPUT")
+
+    def test_batch_simulate_forwards_profile(self):
+        from unittest.mock import patch
+
+        mid = self._make_mechanism()
+        with patch("server.isaac_adapter.simulate", return_value={
+            "ok": True,
+            "summary": {"simulation_time_s": 1.0},
+        }) as isaac_sim:
+            result = motion_simulate(mid, backend="isaac", profile={"stiffness": 0.2})
+        self.assertTrue(result["ok"])
+        self.assertEqual(isaac_sim.call_args.kwargs.get("profile"), {"stiffness": 0.2})
+
 
 class TestTeleopTools(TestMotionToolsBase):
     def _make_mechanism(self) -> str:
@@ -869,6 +925,64 @@ class TestTeleopTools(TestMotionToolsBase):
             stop = motion_teleop_stop("sess_1")
             self.assertTrue(stop["ok"])
 
+    def test_teleop_start_missing_session_id_is_protocol_error(self):
+        from unittest.mock import patch
+
+        mid = self._make_mechanism()
+        with patch("server.isaac_adapter.teleop_start", return_value={
+            "ok": True,
+            "status": "started",
+        }):
+            start = motion_teleop_start(mid)
+        self.assertFalse(start["ok"])
+        self.assertEqual(start["error"]["code"], "ISAAC_PROTOCOL_ERROR")
+
+    def test_unknown_remote_session_evicts_local_session_on_command(self):
+        from unittest.mock import patch
+
+        mid = self._make_mechanism()
+        with patch("server.isaac_adapter.teleop_start", return_value={
+            "ok": True,
+            "session_id": "sess_evict",
+            "status": "started",
+        }):
+            started = motion_teleop_start(mid)
+        self.assertTrue(started["ok"])
+
+        with patch("server.isaac_adapter.teleop_command", return_value={
+            "ok": False,
+            "error": {"code": "ISAAC_UNKNOWN_SESSION", "message": "unknown session sess_evict"},
+        }):
+            cmd = motion_teleop_command("sess_evict", vx_mps=0.1)
+        self.assertFalse(cmd["ok"])
+        self.assertEqual(cmd["error"]["code"], "ISAAC_UNKNOWN_SESSION")
+
+        state = motion_teleop_state("sess_evict")
+        self.assertFalse(state["ok"])
+        self.assertEqual(state["error"]["code"], "NOT_FOUND")
+
+    def test_unknown_remote_session_evicts_local_session_on_stop(self):
+        from unittest.mock import patch
+
+        mid = self._make_mechanism()
+        with patch("server.isaac_adapter.teleop_start", return_value={
+            "ok": True,
+            "session_id": "sess_stop",
+        }):
+            started = motion_teleop_start(mid)
+        self.assertTrue(started["ok"])
+
+        with patch("server.isaac_adapter.teleop_stop", return_value={
+            "ok": False,
+            "error": {"code": "ISAAC_COMMAND_ERROR", "message": "unknown session sess_stop"},
+        }):
+            stopped = motion_teleop_stop("sess_stop")
+        self.assertFalse(stopped["ok"])
+
+        retry = motion_teleop_stop("sess_stop")
+        self.assertFalse(retry["ok"])
+        self.assertEqual(retry["error"]["code"], "NOT_FOUND")
+
     def test_simulate_teleop_mode_routes_to_session_start(self):
         from unittest.mock import patch
 
@@ -876,10 +990,20 @@ class TestTeleopTools(TestMotionToolsBase):
         with patch("server.isaac_adapter.teleop_start", return_value={
             "ok": True,
             "session_id": "sess_sim_mode",
-        }):
-            result = motion_simulate(mid, backend="isaac", mode="teleop")
+        }) as teleop_start:
+            result = motion_simulate(
+                mid,
+                backend="isaac",
+                mode="teleop",
+                profile={"linear_speed_mps": 0.5},
+            )
         self.assertTrue(result["ok"])
         self.assertEqual(result["mode_used"], "teleop")
+        teleop_start.assert_called_once()
+        self.assertEqual(
+            teleop_start.call_args.kwargs.get("profile"),
+            {"linear_speed_mps": 0.5},
+        )
 
 
 if __name__ == "__main__":

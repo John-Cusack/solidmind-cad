@@ -38,8 +38,12 @@ class TestMainSpecTools(unittest.TestCase):
         props = tool["inputSchema"]["properties"]
         self.assertIn("backend", props)
         self.assertIn("mode", props)
+        self.assertIn("profile", props)
         self.assertEqual(props["backend"]["default"], "isaac")
         self.assertEqual(props["mode"]["default"], "batch")
+        self.assertEqual(props["duration_s"]["exclusiveMinimum"], 0)
+        self.assertEqual(props["dt_s"]["exclusiveMinimum"], 0)
+        self.assertEqual(props["output_interval"]["exclusiveMinimum"], 0)
 
     def test_call_tool_spec_select_schema(self) -> None:
         out = mcp_main._call_tool(

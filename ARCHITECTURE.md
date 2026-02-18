@@ -140,7 +140,8 @@ Implementation modules:
 - Store: `server/motion_store.py`
 - Validators: `server/motion_validators.py`
 - MCP wrapper tools: `server/tools_motion.py`
-- Optional dynamic client: `server/chrono_client.py`
+- Optional dynamic clients: `server/chrono_client.py`, `server/isaac_client.py`
+- Isaac sidecar runtime: `isaac_bridge/bridge_server.py`, `isaac_bridge/runtime_isaac.py`, `isaac_bridge/protocol.py`
 
 Tiered behavior:
 
@@ -156,8 +157,11 @@ Tiered behavior:
 4. Tier 3 dynamic simulation via selected backend
 - `motion.simulate` supports `backend=chrono|isaac` (default `isaac`).
 - `motion.simulate` supports `mode=batch|teleop` (teleop for Isaac only).
+- `motion.simulate` accepts optional `profile` for Isaac runtime overrides.
 - If requested backend is absent, returns deterministic `BACKEND_UNAVAILABLE_CHOOSE` with explicit retry choices (no implicit fallback).
 - Isaac teleop lifecycle is exposed via `motion.teleop_start`, `motion.teleop_command`, `motion.teleop_state`, `motion.teleop_stop`.
+- Isaac bridge v1 supported joints: `revolute`, `prismatic`, `fixed`.
+- Isaac bridge v1 returns deterministic `UNSUPPORTED_JOINT_TYPE` for `gear_mesh`, `belt_chain`, `cam`, `planar`.
 
 ## 7. Study Pipeline
 
