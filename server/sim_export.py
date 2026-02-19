@@ -139,6 +139,8 @@ def _box_inertia(
 def build_sim_model(
     mechanism: Mechanism,
     body_manifest: list[dict[str, Any]],
+    *,
+    ground_clearance_m: float | None = None,
 ) -> SimModel:
     """Transform a Mechanism + mesh manifest into a format-agnostic SimModel.
 
@@ -147,9 +149,15 @@ def build_sim_model(
     - ``mesh_path``: path to the exported mesh file
     - ``placement``: ``{"position": [x,y,z], "rotation_quat": [w,x,y,z]}``
     - ``bbox_mm``: ``[dx, dy, dz]`` bounding box in mm (optional)
+    - ``bbox_min_mm``: ``[xmin, ymin, zmin]`` bounding box min in mm (optional)
     - ``volume_mm3``: volume in mm^3 (optional)
 
     Parts without a matching manifest entry get a link with no mesh.
+
+    If ``ground_clearance_m`` is set, a ``base_link`` with a fixed joint is
+    prepended to raise the root link above the ground plane by that many meters.
+    Use this for ground-standing robots (hexapods, wheeled bots, etc.) where the
+    mesh geometry extends below the kinematic origin.
     """
     # Index manifest by body name for O(1) lookup
     manifest_by_name: dict[str, dict[str, Any]] = {}
@@ -303,6 +311,40 @@ def build_sim_model(
             velocity=velocity,
         ))
         joint_edge_to_name[jedge.id] = joint_name
+
+    # -----------------------------------------------------------------------
+    # Ground clearance: if requested, add a base_link with a fixed joint
+    # that raises the root link above the ground plane.
+    # -----------------------------------------------------------------------
+    if ground_clearance_m is not None and ground_clearance_m > 0:
+        root_link = next((link for link in links if link.is_root), None)
+        if root_link is not None:
+            # Insert base_link as the new root (empty link, no mesh)
+            base_link = SimLink(name="base_link", is_root=True)
+
+            # Demote the original root link
+            links = [
+                SimLink(
+                    name=lk.name,
+                    mesh_path=lk.mesh_path,
+                    position=lk.position,
+                    rotation_quat=lk.rotation_quat,
+                    mass_kg=lk.mass_kg,
+                    inertia=lk.inertia,
+                    is_root=False,
+                ) if lk.is_root else lk
+                for lk in links
+            ]
+            links.insert(0, base_link)
+
+            # Add fixed joint from base_link to original root
+            joints.insert(0, SimJoint(
+                name=f"base_to_{root_link.name}",
+                joint_type="fixed",
+                parent="base_link",
+                child=root_link.name,
+                origin_xyz=(0.0, 0.0, ground_clearance_m),
+            ))
 
     return SimModel(
         name=mechanism.name,

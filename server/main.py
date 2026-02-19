@@ -898,6 +898,15 @@ def _cad_tool_list() -> list[dict[str, Any]]:
                     "format": {"type": "string", "enum": ["stl", "step"], "default": "stl"},
                     "output_dir": {"type": "string", "description": "Output directory (auto tempdir if omitted)"},
                     "mechanism_id": {"type": "string", "description": "Mechanism handle from motion.define_mechanism — triggers URDF generation"},
+                    "ground_clearance_m": {
+                        "type": "number",
+                        "description": (
+                            "Height in meters to raise the robot above the ground plane. "
+                            "Adds a base_link with a fixed joint at this Z offset. "
+                            "Use for ground-standing robots (hexapods, wheeled bots) "
+                            "where mesh geometry extends below the kinematic origin."
+                        ),
+                    },
                     "doc": {"type": "string", "description": "Document name (optional)"},
                 },
                 "additionalProperties": False,

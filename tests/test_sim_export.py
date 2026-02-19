@@ -857,6 +857,125 @@ class TestWriteUrdf(unittest.TestCase):
         self.assertEqual(inertia.attrib["izz"], "0.03")
 
 
+class TestGroundClearance(unittest.TestCase):
+    """Ground clearance: base_link insertion when ground_clearance_m is set."""
+
+    def _make_mechanism(self) -> Mechanism:
+        return Mechanism(
+            name="hexapod",
+            parts=(
+                PartNode(id="chassis", body_name="Body_Chassis", is_ground=True, mass_kg=1.0),
+                PartNode(id="leg", body_name="Body_Leg", mass_kg=0.1),
+            ),
+            joints=(
+                JointEdge(
+                    id="hip",
+                    joint_type=JointType.REVOLUTE,
+                    parent_part="chassis",
+                    child_part="leg",
+                    origin=(60.0, 65.0, 0.0),
+                ),
+            ),
+            drives=(),
+        )
+
+    def _make_manifest(self) -> list[dict]:
+        return [
+            {
+                "name": "Body_Chassis",
+                "mesh_path": "/m/chassis.stl",
+                "placement": {"position": [0, 0, 0], "rotation_quat": [1, 0, 0, 0]},
+                "bbox_mm": [150, 100, 3],
+                "bbox_min_mm": [0, 0, 0],
+            },
+            {
+                "name": "Body_Leg",
+                "mesh_path": "/m/leg.stl",
+                "placement": {"position": [60, 65, 0], "rotation_quat": [1, 0, 0, 0]},
+                "bbox_mm": [30, 30, 120],
+                "bbox_min_mm": [-15, -15, -120],
+            },
+        ]
+
+    def test_no_base_link_without_param(self) -> None:
+        """Without ground_clearance_m, no base_link is added."""
+        model = build_sim_model(self._make_mechanism(), self._make_manifest())
+        self.assertEqual(len(model.links), 2)
+        self.assertEqual(model.links[0].name, "chassis")
+        self.assertTrue(model.links[0].is_root)
+
+    def test_base_link_added_with_clearance(self) -> None:
+        """With ground_clearance_m, base_link + fixed joint are prepended."""
+        model = build_sim_model(
+            self._make_mechanism(),
+            self._make_manifest(),
+            ground_clearance_m=0.125,
+        )
+        self.assertEqual(len(model.links), 3)
+        self.assertEqual(model.links[0].name, "base_link")
+        self.assertTrue(model.links[0].is_root)
+        self.assertIsNone(model.links[0].mesh_path)
+
+        # Original root demoted
+        chassis = next(lk for lk in model.links if lk.name == "chassis")
+        self.assertFalse(chassis.is_root)
+
+        # Fixed joint inserted
+        self.assertEqual(len(model.joints), 2)
+        base_joint = model.joints[0]
+        self.assertEqual(base_joint.name, "base_to_chassis")
+        self.assertEqual(base_joint.joint_type, "fixed")
+        self.assertEqual(base_joint.parent, "base_link")
+        self.assertEqual(base_joint.child, "chassis")
+        self.assertAlmostEqual(base_joint.origin_xyz[2], 0.125, places=6)
+
+    def test_urdf_with_ground_clearance(self) -> None:
+        """URDF output includes base_link and fixed joint."""
+        model = build_sim_model(
+            self._make_mechanism(),
+            self._make_manifest(),
+            ground_clearance_m=0.125,
+        )
+
+        with tempfile.NamedTemporaryFile(suffix=".urdf", delete=False) as f:
+            path = f.name
+        write_urdf(model, path)
+
+        tree = ET.parse(path)
+        root = tree.getroot()
+        links = root.findall("link")
+        joints = root.findall("joint")
+
+        self.assertEqual(len(links), 3)
+        self.assertEqual(links[0].attrib["name"], "base_link")
+        # base_link has no visual
+        self.assertIsNone(links[0].find("visual"))
+
+        self.assertEqual(len(joints), 2)
+        self.assertEqual(joints[0].attrib["name"], "base_to_chassis")
+        self.assertEqual(joints[0].attrib["type"], "fixed")
+        origin = joints[0].find("origin")
+        self.assertIn("0.125", origin.attrib["xyz"])
+
+    def test_zero_clearance_no_base_link(self) -> None:
+        """ground_clearance_m=0 doesn't add base_link."""
+        model = build_sim_model(
+            self._make_mechanism(),
+            self._make_manifest(),
+            ground_clearance_m=0.0,
+        )
+        self.assertEqual(len(model.links), 2)
+
+    def test_negative_clearance_no_base_link(self) -> None:
+        """Negative clearance is ignored."""
+        model = build_sim_model(
+            self._make_mechanism(),
+            self._make_manifest(),
+            ground_clearance_m=-0.1,
+        )
+        self.assertEqual(len(model.links), 2)
+
+
 class TestEndToEnd(unittest.TestCase):
     """Integration test: mechanism -> build_sim_model -> write_urdf -> parse."""
 

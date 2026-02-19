@@ -800,6 +800,7 @@ def cad_export_sim_package(
     format: str = "stl",
     output_dir: str | None = None,
     mechanism_id: str | None = None,
+    ground_clearance_m: float | None = None,
     doc: str | None = None,
 ) -> dict[str, Any]:
     """Export bodies as individual meshes + optionally generate URDF from mechanism.
@@ -834,7 +835,11 @@ def cad_export_sim_package(
             )
 
         body_manifest = result.get("bodies", [])
-        sim_model = build_sim_model(mechanism, body_manifest)
+        sim_model = build_sim_model(
+            mechanism,
+            body_manifest,
+            ground_clearance_m=ground_clearance_m,
+        )
 
         pkg_dir = result.get("output_dir", output_dir or ".")
         urdf_path = os.path.join(pkg_dir, f"{sim_model.name}.urdf")

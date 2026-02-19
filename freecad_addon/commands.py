@@ -2146,6 +2146,7 @@ def export_sim_package(
         # Bounding box and volume for auto-inertia computation
         bb = shape.BoundBox
         bbox_mm = [bb.XLength, bb.YLength, bb.ZLength]
+        bbox_min_mm = [bb.XMin, bb.YMin, bb.ZMin]
         volume_mm3 = shape.Volume
 
         manifest.append({
@@ -2157,6 +2158,7 @@ def export_sim_package(
                 "rotation_quat": [quat[3], quat[0], quat[1], quat[2]],  # w,x,y,z
             },
             "bbox_mm": bbox_mm,
+            "bbox_min_mm": bbox_min_mm,
             "volume_mm3": volume_mm3,
         })
 

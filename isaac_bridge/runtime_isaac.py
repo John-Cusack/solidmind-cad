@@ -612,6 +612,104 @@ class _IsaacWorldEngine:
             )
 
 
+def _reposition_camera(
+    viewport: Any,
+    eye: list[float],
+    target: list[float],
+    sim_app: Any,
+) -> None:
+    """Reposition the viewport camera to look from *eye* at *target*.
+
+    Strategy (layered fallback):
+    1. ``set_camera_view`` from isaacsim utilities — simplest, handles
+       ViewportCameraState internally.
+    2. ``Gf.Matrix4d.SetLookAt`` on the existing viewport camera prim —
+       uses USD's built-in look-at math (avoids hand-rolled matrix bugs).
+    3. Log warning and continue (screenshot still taken from default pose).
+    """
+    eye_tuple = tuple(eye)
+    target_tuple = tuple(target)
+
+    # ------------------------------------------------------------------
+    # Strategy 1: isaacsim.core.utils.viewports.set_camera_view
+    # ------------------------------------------------------------------
+    try:
+        from isaacsim.core.utils.viewports import set_camera_view  # type: ignore[import-not-found]
+        import numpy as np  # type: ignore[import-not-found]
+
+        cam_path = str(viewport.get_active_camera())
+        set_camera_view(
+            eye=np.array(eye_tuple),
+            target=np.array(target_tuple),
+            camera_prim_path=cam_path,
+            viewport_api=viewport,
+        )
+        # Pump frames so the change propagates to the renderer
+        if sim_app is not None:
+            for _ in range(16):
+                sim_app.update()
+        logger.debug(
+            "[runtime] camera repositioned via set_camera_view "
+            "eye=%s target=%s cam=%s",
+            eye_tuple, target_tuple, cam_path,
+        )
+        return
+    except Exception as exc:
+        logger.debug(
+            "[runtime] set_camera_view unavailable, trying fallback: %s", exc,
+        )
+
+    # ------------------------------------------------------------------
+    # Strategy 2: USD SetLookAt on existing viewport camera prim
+    # ------------------------------------------------------------------
+    try:
+        from pxr import Gf, Sdf, UsdGeom  # type: ignore[import-not-found]
+        import omni.usd  # type: ignore[import-not-found]
+
+        stage = omni.usd.get_context().get_stage()
+        cam_path = str(viewport.get_active_camera())
+        cam_prim = stage.GetPrimAtPath(cam_path)
+        if not cam_prim.IsValid():
+            logger.warning("[runtime] camera prim %s not valid", cam_path)
+            return
+
+        eye_v = Gf.Vec3d(*eye_tuple)
+        target_v = Gf.Vec3d(*target_tuple)
+        up = Gf.Vec3d(0, 0, 1)
+        # SetLookAt returns the *view* matrix; we need the inverse for
+        # the world-space xform of the camera prim.
+        view_mat = Gf.Matrix4d(1)
+        view_mat.SetLookAt(eye_v, target_v, up)
+        xform_mat = view_mat.GetInverse()
+
+        xformable = UsdGeom.Xformable(cam_prim)
+        xformable.ClearXformOpOrder()
+        xformable.AddTransformOp().Set(xform_mat)
+
+        # Set center-of-interest for viewport controller interop
+        dist = (target_v - eye_v).GetLength()
+        cam_prim.CreateAttribute(
+            "omni:kit:centerOfInterest",
+            Sdf.ValueTypeNames.Vector3d,
+            custom=True,
+        ).Set(Gf.Vec3d(0, 0, -dist))
+
+        # Pump frames
+        if sim_app is not None:
+            for _ in range(16):
+                sim_app.update()
+        logger.debug(
+            "[runtime] camera repositioned via SetLookAt "
+            "eye=%s target=%s cam=%s",
+            eye_tuple, target_tuple, cam_path,
+        )
+        return
+    except Exception as exc:
+        logger.warning(
+            "[runtime] camera reposition failed (non-fatal): %s", exc,
+        )
+
+
 class IsaacRuntime:
     """Command runtime used by the bridge server."""
 
@@ -1253,32 +1351,14 @@ class IsaacRuntime:
                     "No active viewport — is the renderer enabled?",
                 )
 
-            # Optionally reposition camera
+            # Optionally reposition camera before capture.
             if camera_position is not None or camera_target is not None:
-                try:
-                    from pxr import Gf  # type: ignore[import-not-found]
-                    import omni.usd  # type: ignore[import-not-found]
-
-                    stage = omni.usd.get_context().get_stage()
-                    cam_path = viewport.get_active_camera()
-                    cam_prim = stage.GetPrimAtPath(cam_path)
-                    if cam_prim.IsValid():
-                        from pxr import UsdGeom  # type: ignore[import-not-found]
-                        xformable = UsdGeom.Xformable(cam_prim)
-                        if camera_position is not None:
-                            pos = Gf.Vec3d(*camera_position)
-                            xformable.ClearXformOpOrder()
-                            xformable.AddTranslateOp().Set(pos)
-                        if camera_target is not None:
-                            # Point camera at target using look-at
-                            cam_pos = camera_position or [0.0, 0.0, 0.0]
-                            _set_camera_look_at(
-                                cam_prim,
-                                Gf.Vec3d(*cam_pos),
-                                Gf.Vec3d(*camera_target),
-                            )
-                except Exception as exc:
-                    logger.warning("[runtime] screenshot: camera reposition failed (non-fatal): %s", exc)
+                _reposition_camera(
+                    viewport,
+                    camera_position or [5.0, 5.0, 5.0],
+                    camera_target or [0.0, 0.0, 0.0],
+                    self._engine.sim_app,
+                )
 
             # Resize viewport
             try:
@@ -1286,11 +1366,11 @@ class IsaacRuntime:
             except Exception as exc:
                 logger.warning("[runtime] screenshot: set_texture_resolution failed: %s", exc)
 
-            # Pump a few frames so the viewport renders the current state
+            # Pump frames so camera change + viewport render take effect
             try:
                 app = self._engine.sim_app
                 if app is not None:
-                    for _ in range(4):
+                    for _ in range(16):
                         app.update()
             except Exception:
                 pass
@@ -1300,11 +1380,14 @@ class IsaacRuntime:
             try:
                 capture_viewport_to_file(viewport, tmp_path)
 
-                # The capture may be async — pump a few more frames and wait
-                if self._engine.sim_app is not None:
-                    for _ in range(8):
-                        self._engine.sim_app.update()
+                # The capture is async — pump frames until the file appears.
+                # Each app.update() advances the render pipeline; no sleep needed.
+                app = self._engine.sim_app
+                if app is not None:
+                    for i in range(120):
+                        app.update()
                         if os.path.isfile(tmp_path) and os.path.getsize(tmp_path) > 0:
+                            logger.debug("[runtime] screenshot: file ready after %d frames", i + 1)
                             break
 
                 if not os.path.isfile(tmp_path) or os.path.getsize(tmp_path) == 0:
@@ -1330,29 +1413,6 @@ class IsaacRuntime:
             }
 
         return main_thread_dispatcher.submit(_do_screenshot)
-
-
-def _set_camera_look_at(cam_prim: Any, eye: Any, target: Any) -> None:
-    """Point a USD camera prim from *eye* toward *target*."""
-    from pxr import Gf, UsdGeom  # type: ignore[import-not-found]
-
-    forward = (target - eye).GetNormalized()
-    up = Gf.Vec3d(0, 0, 1)
-    # If forward is nearly parallel to up, pick a different up
-    if abs(Gf.Dot(forward, up)) > 0.99:
-        up = Gf.Vec3d(0, 1, 0)
-    right = Gf.Cross(forward, up).GetNormalized()
-    new_up = Gf.Cross(right, forward).GetNormalized()
-
-    mat = Gf.Matrix4d()
-    mat.SetRow(0, Gf.Vec4d(right[0], right[1], right[2], 0))
-    mat.SetRow(1, Gf.Vec4d(new_up[0], new_up[1], new_up[2], 0))
-    mat.SetRow(2, Gf.Vec4d(-forward[0], -forward[1], -forward[2], 0))
-    mat.SetRow(3, Gf.Vec4d(eye[0], eye[1], eye[2], 1))
-
-    xformable = UsdGeom.Xformable(cam_prim)
-    xformable.ClearXformOpOrder()
-    xformable.AddTransformOp().Set(mat)
 
 
 def _validate_mechanism(mechanism: dict[str, Any] | Any) -> dict[str, Any]:
