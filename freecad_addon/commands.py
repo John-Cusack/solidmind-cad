@@ -2127,14 +2127,31 @@ def export_sim_package(
             logger.warning("Skipping body '%s' — no valid shape", body_obj.Name)
             continue
 
+        # Export mesh in body-local coordinates by stripping the Body's
+        # Placement.  FreeCAD's PartDesign::Body.Shape returns geometry
+        # in world coordinates (Placement applied).  URDF expects mesh
+        # vertices relative to the link frame — the joint chain handles
+        # world positioning.
+        plc = body_obj.Placement
+        if plc.Base.Length > 1e-6 or plc.Rotation.Angle > 1e-6:
+            local_shape = shape.copy()
+            local_shape.transformShape(plc.inverse().toMatrix())
+        else:
+            local_shape = shape
+
         mesh_path = str(Path(output_dir) / f"{body_obj.Name}{suffix}")
         if fmt == "step":
-            shape.exportStep(mesh_path)
+            local_shape.exportStep(mesh_path)
         elif fmt == "stl":
-            shape.exportStl(mesh_path)
+            local_shape.exportStl(mesh_path)
         elif fmt == "obj":
             import Mesh  # type: ignore[import-untyped]
+            # OBJ export via Mesh module uses the object directly — apply
+            # inverse placement temporarily.
+            saved_plc = body_obj.Placement
+            body_obj.Placement = FreeCAD.Placement()  # type: ignore[name-defined]
             Mesh.export([body_obj], mesh_path)
+            body_obj.Placement = saved_plc
         else:
             raise ValueError(f"Unsupported format: {format}")
 

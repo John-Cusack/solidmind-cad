@@ -164,6 +164,14 @@ from server.tools_motion import (
     motion_teleop_stop,
     motion_validate,
 )
+from server.tools_rl import (
+    rl_configure_environment,
+    rl_deploy_policy,
+    rl_evaluate_policy,
+    rl_monitor_training,
+    rl_start_training,
+    rl_stop_training,
+)
 
 
 def _json_dumps(obj: Any) -> bytes:
@@ -1862,7 +1870,9 @@ def _motion_tool_list() -> list[dict[str, Any]]:
                         "type": "object",
                         "description": (
                             "URDF import config overrides: merge_fixed_joints, convex_decomp, "
-                            "import_inertia_tensor, fix_base, distance_scale."
+                            "import_inertia_tensor, fix_base, distance_scale. "
+                            "Set robot_type='mobile' for mobile robots (auto-applies "
+                            "fix_base=False, merge_fixed_joints=True, lower stiffness/damping)."
                         ),
                     },
                 },
@@ -1888,7 +1898,21 @@ def _motion_tool_list() -> list[dict[str, Any]]:
                     },
                     "profile": {
                         "type": "object",
-                        "description": "Optional teleop profile/config overrides.",
+                        "description": (
+                            "Optional teleop profile/config overrides. "
+                            "All fields have sensible defaults for a 1-DOF hexapod tripod gait. "
+                            "Keys: controller_type (str, default 'hexapod_1dof_tripod'), "
+                            "joint_names (list[str]), tripod_a/tripod_b (list[str], must partition joint_names), "
+                            "left_legs/right_legs (list[str]), neutral_deg (float), "
+                            "amplitude_deg (float, >0, oscillation amplitude), "
+                            "stride_hz (float, >0, gait frequency), "
+                            "yaw_mix_deg (float, >=0, yaw differential), "
+                            "height_mix_deg (float, >=0, height offset gain), "
+                            "vx_max_mps (float, >0, max forward velocity), "
+                            "yaw_max_rps (float, >0, max yaw rate), "
+                            "height_max_m (float, >0, max body height), "
+                            "slew_vx_mps2/slew_yaw_rps2/slew_height_mps2 (float, >0, rate limiters)."
+                        ),
                     },
                     "urdf_path": {
                         "type": "string",
@@ -1901,7 +1925,9 @@ def _motion_tool_list() -> list[dict[str, Any]]:
                         "type": "object",
                         "description": (
                             "URDF import config overrides: merge_fixed_joints, convex_decomp, "
-                            "import_inertia_tensor, fix_base, distance_scale."
+                            "import_inertia_tensor, fix_base, distance_scale. "
+                            "Set robot_type='mobile' for mobile robots (auto-applies "
+                            "fix_base=False, merge_fixed_joints=True, lower stiffness/damping)."
                         ),
                     },
                 },
@@ -1926,7 +1952,12 @@ def _motion_tool_list() -> list[dict[str, Any]]:
         },
         {
             "name": "motion.teleop_state",
-            "description": "Read current state of an active Isaac teleop session.",
+            "description": (
+                "Read current state of an active Isaac teleop session. "
+                "Returns state (vx_mps, yaw_rate_rps, body_height_m), uptime_s, "
+                "and teleop telemetry: controller_type, joint_names, tick_count, "
+                "limit_clamp_count, last_joint_targets_rad, last_apply_ok."
+            ),
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -1938,7 +1969,12 @@ def _motion_tool_list() -> list[dict[str, Any]]:
         },
         {
             "name": "motion.teleop_stop",
-            "description": "Stop and close an active Isaac teleop session.",
+            "description": (
+                "Stop and close an active Isaac teleop session. "
+                "Returns final telemetry: stopped, controller_type, tick_count, "
+                "limit_clamp_count, last_joint_targets_rad. "
+                "Cleans up engine resources so a new session can start fresh."
+            ),
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -1985,6 +2021,100 @@ def _motion_tool_list() -> list[dict[str, Any]]:
     ]
 
 
+def _rl_tool_list() -> list[dict[str, Any]]:
+    """RL training pipeline tools."""
+    return [
+        {
+            "name": "rl.configure_environment",
+            "description": (
+                "Parse URDF → URDFAnalysis → generate Isaac Lab env config. "
+                "Classifies morphology, extracts joint topology, and writes "
+                "a Python config file for training."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "urdf_path": {"type": "string", "description": "Path to the URDF file"},
+                    "output_path": {"type": "string", "description": "Output path for env config .py file (auto-generated if omitted)"},
+                    "num_envs": {"type": "integer", "default": 4096, "description": "Number of parallel environments"},
+                },
+                "required": ["urdf_path"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "rl.start_training",
+            "description": "Spawn rl_training/train.py subprocess, return training_id. Uses ISAAC_PYTHON env var if set.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "env_config": {"type": "string", "description": "Path to generated env config .py file"},
+                    "output_dir": {"type": "string", "description": "Output directory for checkpoints (auto-generated if omitted)"},
+                    "max_iterations": {"type": "integer", "description": "Override max training iterations"},
+                    "num_envs": {"type": "integer", "description": "Override number of parallel environments"},
+                },
+                "required": ["env_config"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "rl.monitor_training",
+            "description": "Read training progress → iteration, mean_reward, status, elapsed time.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "training_id": {"type": "string", "description": "Training ID from rl.start_training"},
+                },
+                "required": ["training_id"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "rl.stop_training",
+            "description": "SIGTERM the training subprocess.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "training_id": {"type": "string", "description": "Training ID to stop"},
+                },
+                "required": ["training_id"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "rl.deploy_policy",
+            "description": (
+                "JIT export best checkpoint → return policy_path. "
+                "Produces policy.pt + normalization_params.json + deployment_config.json."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "training_id": {"type": "string", "description": "Training ID to export from"},
+                    "checkpoint_dir": {"type": "string", "description": "Direct path to checkpoint directory"},
+                    "output_dir": {"type": "string", "description": "Output directory for deployed policy"},
+                    "alpha": {"type": "number", "default": 0.3, "description": "Residual blending factor for deployment"},
+                },
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "rl.evaluate_policy",
+            "description": "Validate a deployed policy: load check, output shape, basic inference test.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "policy_path": {"type": "string", "description": "Path to policy.pt file"},
+                    "urdf_path": {"type": "string", "description": "Path to URDF for full evaluation (optional)"},
+                    "num_episodes": {"type": "integer", "default": 10, "description": "Number of evaluation episodes"},
+                },
+                "required": ["policy_path"],
+                "additionalProperties": False,
+            },
+        },
+    ]
+
+
 def _tool_list() -> list[dict[str, Any]]:
     return (
         _cad_tool_list()
@@ -1995,6 +2125,7 @@ def _tool_list() -> list[dict[str, Any]]:
         + _geometry_tool_list()
         + _study_tool_list()
         + _motion_tool_list()
+        + _rl_tool_list()
     )
 
 
@@ -2110,6 +2241,15 @@ _MOTION_DISPATCH: dict[str, Any] = {
     "motion.isaac_screenshot": motion_isaac_screenshot,
 }
 
+_RL_DISPATCH: dict[str, Any] = {
+    "rl.configure_environment": rl_configure_environment,
+    "rl.start_training": rl_start_training,
+    "rl.monitor_training": rl_monitor_training,
+    "rl.stop_training": rl_stop_training,
+    "rl.deploy_policy": rl_deploy_policy,
+    "rl.evaluate_policy": rl_evaluate_policy,
+}
+
 
 def _call_tool(name: str, arguments: dict[str, Any]) -> Any:
     handler = (
@@ -2121,6 +2261,7 @@ def _call_tool(name: str, arguments: dict[str, Any]) -> Any:
         or _GEOMETRY_DISPATCH.get(name)
         or _STUDY_DISPATCH.get(name)
         or _MOTION_DISPATCH.get(name)
+        or _RL_DISPATCH.get(name)
     )
     if handler is None:
         raise KeyError(f"Unknown tool: {name}")

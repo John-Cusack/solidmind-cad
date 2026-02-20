@@ -25,6 +25,7 @@ from server.sim_export import (
     _quat_multiply,
     _quat_to_rpy,
     build_sim_model,
+    validate_urdf,
     write_urdf,
 )
 
@@ -604,6 +605,7 @@ class TestWriteUrdf(unittest.TestCase):
                     joint_type="revolute",
                     parent="frame",
                     child="gear_a",
+                    limits=(-3.14, 3.14),
                 ),
                 SimJoint(
                     name="mesh_ab",
@@ -611,6 +613,7 @@ class TestWriteUrdf(unittest.TestCase):
                     parent="gear_a",
                     child="gear_b",
                     mimic=("shaft_a", 0.5),
+                    limits=(-3.14, 3.14),
                 ),
             ),
         )
@@ -676,39 +679,16 @@ class TestWriteUrdf(unittest.TestCase):
         joint = root.findall("joint")[0]
         self.assertIsNone(joint.find("limit"))
 
-    def test_urdf_revolute_without_explicit_limits_still_has_limit_element(self) -> None:
-        """URDF spec requires <limit> on revolute joints even without user limits."""
-        model = SimModel(
-            name="rev_no_limits",
-            links=(
-                SimLink(name="a", is_root=True),
-                SimLink(name="b"),
-            ),
-            joints=(
-                SimJoint(
-                    name="j1",
-                    joint_type="revolute",
-                    parent="a",
-                    child="b",
-                    limits=None,  # no explicit limits
-                ),
-            ),
-        )
-
-        with tempfile.NamedTemporaryFile(suffix=".urdf", delete=False) as f:
-            path = f.name
-
-        write_urdf(model, path)
-        tree = ET.parse(path)
-        root = tree.getroot()
-
-        joint = root.findall("joint")[0]
-        limit_el = joint.find("limit")
-        self.assertIsNotNone(limit_el, "revolute joints must have <limit> per URDF spec")
-        self.assertIn("effort", limit_el.attrib)
-        self.assertIn("velocity", limit_el.attrib)
-        # No lower/upper since no explicit limits
-        self.assertNotIn("lower", limit_el.attrib)
+    def test_revolute_without_limits_raises(self) -> None:
+        """SimJoint schema enforces that revolute joints require limits."""
+        with self.assertRaises(ValueError, msg="revolute joints require limits"):
+            SimJoint(
+                name="j1",
+                joint_type="revolute",
+                parent="a",
+                child="b",
+                limits=None,
+            )
 
     def test_mesh_scale_attribute(self) -> None:
         """Both visual and collision meshes have scale='0.001 0.001 0.001'."""
@@ -747,6 +727,7 @@ class TestWriteUrdf(unittest.TestCase):
                     joint_type="revolute",
                     parent="a",
                     child="b",
+                    limits=(-3.14, 3.14),
                     damping=0.5,
                     friction=0.1,
                 ),
@@ -1054,6 +1035,312 @@ class TestBoxInertia(unittest.TestCase):
         self.assertAlmostEqual(inertia[0], ixx, places=10)
         self.assertAlmostEqual(inertia[3], iyy, places=10)
         self.assertAlmostEqual(inertia[5], izz, places=10)
+
+
+class TestSchemaValidation(unittest.TestCase):
+    """Tests for SimLink/SimJoint __post_init__ validation."""
+
+    def test_revolute_requires_limits(self) -> None:
+        with self.assertRaises(ValueError):
+            SimJoint(name="j", joint_type="revolute", parent="a", child="b", limits=None)
+
+    def test_prismatic_requires_limits(self) -> None:
+        with self.assertRaises(ValueError):
+            SimJoint(name="j", joint_type="prismatic", parent="a", child="b", limits=None)
+
+    def test_fixed_allows_no_limits(self) -> None:
+        j = SimJoint(name="j", joint_type="fixed", parent="a", child="b", limits=None)
+        self.assertIsNone(j.limits)
+
+    def test_limits_lower_gt_upper_raises(self) -> None:
+        with self.assertRaises(ValueError):
+            SimJoint(
+                name="j", joint_type="revolute", parent="a", child="b",
+                limits=(1.0, -1.0),
+            )
+
+    def test_non_unit_axis_raises(self) -> None:
+        with self.assertRaises(ValueError):
+            SimJoint(
+                name="j", joint_type="revolute", parent="a", child="b",
+                axis=(1.0, 1.0, 0.0),  # magnitude sqrt(2), not 1.0
+                limits=(-1.0, 1.0),
+            )
+
+    def test_negative_mass_raises(self) -> None:
+        with self.assertRaises(ValueError):
+            SimLink(name="lk", mass_kg=-1.0)
+
+    def test_negative_inertia_diagonal_raises(self) -> None:
+        with self.assertRaises(ValueError):
+            SimLink(name="lk", inertia=(-0.01, 0.0, 0.0, 0.01, 0.0, 0.01))
+
+    def test_empty_name_raises(self) -> None:
+        with self.assertRaises(ValueError):
+            SimLink(name="")
+        with self.assertRaises(ValueError):
+            SimJoint(name="", joint_type="fixed", parent="a", child="b")
+
+    def test_valid_revolute_joint(self) -> None:
+        j = SimJoint(
+            name="j1", joint_type="revolute", parent="a", child="b",
+            limits=(-1.57, 1.57),
+        )
+        self.assertEqual(j.limits, (-1.57, 1.57))
+
+    def test_build_sim_model_provides_default_limits(self) -> None:
+        """build_sim_model adds default limits for revolute joints without explicit limits."""
+        mech = Mechanism(
+            name="test",
+            parts=(
+                PartNode(id="base", is_ground=True),
+                PartNode(id="arm"),
+            ),
+            joints=(
+                JointEdge(
+                    id="j1",
+                    joint_type=JointType.REVOLUTE,
+                    parent_part="base",
+                    child_part="arm",
+                    # No min_angle_deg / max_angle_deg
+                ),
+            ),
+            drives=(),
+        )
+        model = build_sim_model(mech, [])
+        joint = model.joints[0]
+        self.assertIsNotNone(joint.limits)
+        self.assertAlmostEqual(joint.limits[0], -math.pi, places=6)
+        self.assertAlmostEqual(joint.limits[1], math.pi, places=6)
+
+    def test_build_sim_model_prismatic_default_limits(self) -> None:
+        """build_sim_model adds default limits for prismatic joints without explicit limits."""
+        mech = Mechanism(
+            name="test",
+            parts=(
+                PartNode(id="rail", is_ground=True),
+                PartNode(id="cart"),
+            ),
+            joints=(
+                JointEdge(
+                    id="slide",
+                    joint_type=JointType.PRISMATIC,
+                    parent_part="rail",
+                    child_part="cart",
+                    axis=(1.0, 0.0, 0.0),
+                ),
+            ),
+            drives=(),
+        )
+        model = build_sim_model(mech, [])
+        joint = model.joints[0]
+        self.assertIsNotNone(joint.limits)
+        self.assertAlmostEqual(joint.limits[0], 0.0)
+        self.assertAlmostEqual(joint.limits[1], 1.0)
+
+
+class TestValidateUrdf(unittest.TestCase):
+    """Tests for the post-generation URDF validator."""
+
+    def _write_valid_urdf(self) -> str:
+        """Write a valid URDF and return its path."""
+        model = SimModel(
+            name="valid_robot",
+            links=(
+                SimLink(
+                    name="base_link",
+                    mesh_path="/m/base.stl",
+                    mass_kg=5.0,
+                    inertia=(0.01, 0.0, 0.0, 0.01, 0.0, 0.01),
+                    is_root=True,
+                ),
+                SimLink(
+                    name="arm",
+                    mesh_path="/m/arm.stl",
+                    mass_kg=1.0,
+                    inertia=(0.001, 0.0, 0.0, 0.001, 0.0, 0.001),
+                ),
+            ),
+            joints=(
+                SimJoint(
+                    name="j1",
+                    joint_type="revolute",
+                    parent="base_link",
+                    child="arm",
+                    limits=(-1.57, 1.57),
+                ),
+            ),
+        )
+        with tempfile.NamedTemporaryFile(suffix=".urdf", delete=False) as f:
+            path = f.name
+        write_urdf(model, path)
+        return path
+
+    def test_valid_urdf_no_findings(self) -> None:
+        path = self._write_valid_urdf()
+        findings = validate_urdf(path)
+        blockers = [f for f in findings if f.severity.value == "block"]
+        self.assertEqual(blockers, [])
+
+    def test_detects_missing_limit(self) -> None:
+        """Manually write a revolute joint without <limit> and validate."""
+        import xml.etree.ElementTree as ET2
+        robot = ET2.Element("robot", name="bad")
+        ET2.SubElement(robot, "link", name="a")
+        ET2.SubElement(robot, "link", name="b")
+        joint = ET2.SubElement(robot, "joint", name="j1", type="revolute")
+        ET2.SubElement(joint, "parent", link="a")
+        ET2.SubElement(joint, "child", link="b")
+        ET2.SubElement(joint, "origin", xyz="0 0 0.1", rpy="0 0 0")
+        ET2.SubElement(joint, "axis", xyz="0 0 1")
+
+        with tempfile.NamedTemporaryFile(suffix=".urdf", delete=False) as f:
+            path = f.name
+        tree = ET2.ElementTree(robot)
+        tree.write(path, encoding="unicode")
+
+        findings = validate_urdf(path)
+        rule_ids = {f.rule_id for f in findings}
+        self.assertIn("urdf.missing_limit", rule_ids)
+
+    def test_detects_large_origin(self) -> None:
+        """Joint origin with huge magnitude triggers warning."""
+        robot = ET.Element("robot", name="big_origin")
+        ET.SubElement(robot, "link", name="a")
+        ET.SubElement(robot, "link", name="b")
+        joint = ET.SubElement(robot, "joint", name="j1", type="fixed")
+        ET.SubElement(joint, "parent", link="a")
+        ET.SubElement(joint, "child", link="b")
+        ET.SubElement(joint, "origin", xyz="100 200 300", rpy="0 0 0")
+        ET.SubElement(joint, "axis", xyz="0 0 1")
+
+        with tempfile.NamedTemporaryFile(suffix=".urdf", delete=False) as f:
+            path = f.name
+        ET.ElementTree(robot).write(path, encoding="unicode")
+
+        findings = validate_urdf(path)
+        rule_ids = {f.rule_id for f in findings}
+        self.assertIn("urdf.origin_magnitude", rule_ids)
+
+    def test_detects_non_unit_axis(self) -> None:
+        robot = ET.Element("robot", name="bad_axis")
+        ET.SubElement(robot, "link", name="a")
+        ET.SubElement(robot, "link", name="b")
+        joint = ET.SubElement(robot, "joint", name="j1", type="fixed")
+        ET.SubElement(joint, "parent", link="a")
+        ET.SubElement(joint, "child", link="b")
+        ET.SubElement(joint, "origin", xyz="0 0 0", rpy="0 0 0")
+        ET.SubElement(joint, "axis", xyz="1 1 0")  # magnitude sqrt(2)
+
+        with tempfile.NamedTemporaryFile(suffix=".urdf", delete=False) as f:
+            path = f.name
+        ET.ElementTree(robot).write(path, encoding="unicode")
+
+        findings = validate_urdf(path)
+        rule_ids = {f.rule_id for f in findings}
+        self.assertIn("urdf.axis_not_unit", rule_ids)
+
+    def test_detects_disconnected_link(self) -> None:
+        robot = ET.Element("robot", name="disconnected")
+        ET.SubElement(robot, "link", name="a")
+        ET.SubElement(robot, "link", name="b")
+        ET.SubElement(robot, "link", name="orphan")
+        joint = ET.SubElement(robot, "joint", name="j1", type="fixed")
+        ET.SubElement(joint, "parent", link="a")
+        ET.SubElement(joint, "child", link="b")
+        ET.SubElement(joint, "origin", xyz="0 0 0", rpy="0 0 0")
+        ET.SubElement(joint, "axis", xyz="0 0 1")
+
+        with tempfile.NamedTemporaryFile(suffix=".urdf", delete=False) as f:
+            path = f.name
+        ET.ElementTree(robot).write(path, encoding="unicode")
+
+        findings = validate_urdf(path)
+        rule_ids = {f.rule_id for f in findings}
+        self.assertIn("urdf.disconnected_link", rule_ids)
+
+    def test_detects_negative_inertia(self) -> None:
+        robot = ET.Element("robot", name="neg_inertia")
+        link = ET.SubElement(robot, "link", name="a")
+        inertial = ET.SubElement(link, "inertial")
+        ET.SubElement(inertial, "mass", value="1.0")
+        inertia = ET.SubElement(inertial, "inertia")
+        inertia.set("ixx", "-0.01")
+        inertia.set("ixy", "0")
+        inertia.set("ixz", "0")
+        inertia.set("iyy", "0.01")
+        inertia.set("iyz", "0")
+        inertia.set("izz", "0.01")
+
+        with tempfile.NamedTemporaryFile(suffix=".urdf", delete=False) as f:
+            path = f.name
+        ET.ElementTree(robot).write(path, encoding="unicode")
+
+        findings = validate_urdf(path)
+        rule_ids = {f.rule_id for f in findings}
+        self.assertIn("urdf.negative_inertia", rule_ids)
+
+    def test_detects_dangling_parent(self) -> None:
+        robot = ET.Element("robot", name="dangling")
+        ET.SubElement(robot, "link", name="a")
+        joint = ET.SubElement(robot, "joint", name="j1", type="fixed")
+        ET.SubElement(joint, "parent", link="nonexistent")
+        ET.SubElement(joint, "child", link="a")
+        ET.SubElement(joint, "origin", xyz="0 0 0", rpy="0 0 0")
+
+        with tempfile.NamedTemporaryFile(suffix=".urdf", delete=False) as f:
+            path = f.name
+        ET.ElementTree(robot).write(path, encoding="unicode")
+
+        findings = validate_urdf(path)
+        rule_ids = {f.rule_id for f in findings}
+        self.assertIn("urdf.dangling_parent", rule_ids)
+
+    def test_detects_duplicate_mesh(self) -> None:
+        robot = ET.Element("robot", name="dup_mesh")
+        for lname in ("a", "b"):
+            link = ET.SubElement(robot, "link", name=lname)
+            vis = ET.SubElement(link, "visual")
+            geom = ET.SubElement(vis, "geometry")
+            ET.SubElement(geom, "mesh", filename="/m/shared.stl", scale="0.001 0.001 0.001")
+        joint = ET.SubElement(robot, "joint", name="j1", type="fixed")
+        ET.SubElement(joint, "parent", link="a")
+        ET.SubElement(joint, "child", link="b")
+        ET.SubElement(joint, "origin", xyz="0 0 0", rpy="0 0 0")
+        ET.SubElement(joint, "axis", xyz="0 0 1")
+
+        with tempfile.NamedTemporaryFile(suffix=".urdf", delete=False) as f:
+            path = f.name
+        ET.ElementTree(robot).write(path, encoding="unicode")
+
+        findings = validate_urdf(path)
+        rule_ids = {f.rule_id for f in findings}
+        self.assertIn("urdf.duplicate_mesh", rule_ids)
+
+    def test_detects_inconsistent_scale(self) -> None:
+        robot = ET.Element("robot", name="bad_scale")
+        link1 = ET.SubElement(robot, "link", name="a")
+        vis1 = ET.SubElement(link1, "visual")
+        geom1 = ET.SubElement(vis1, "geometry")
+        ET.SubElement(geom1, "mesh", filename="/m/a.stl", scale="0.001 0.001 0.001")
+
+        link2 = ET.SubElement(robot, "link", name="b")
+        vis2 = ET.SubElement(link2, "visual")
+        geom2 = ET.SubElement(vis2, "geometry")
+        ET.SubElement(geom2, "mesh", filename="/m/b.stl", scale="1 1 1")
+
+        joint = ET.SubElement(robot, "joint", name="j1", type="fixed")
+        ET.SubElement(joint, "parent", link="a")
+        ET.SubElement(joint, "child", link="b")
+        ET.SubElement(joint, "origin", xyz="0 0 0", rpy="0 0 0")
+
+        with tempfile.NamedTemporaryFile(suffix=".urdf", delete=False) as f:
+            path = f.name
+        ET.ElementTree(robot).write(path, encoding="unicode")
+
+        findings = validate_urdf(path)
+        rule_ids = {f.rule_id for f in findings}
+        self.assertIn("urdf.inconsistent_scale", rule_ids)
 
 
 if __name__ == "__main__":

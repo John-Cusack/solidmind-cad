@@ -20,7 +20,15 @@ from typing import Any
 
 import importlib
 
-from isaac_bridge.models import SUPPORTED_JOINT_TYPES, SimulationSession, URDFImportConfig
+from isaac_bridge.controllers import clamp_targets, create_controller
+from isaac_bridge.models import (
+    SUPPORTED_JOINT_TYPES,
+    SimulationSession,
+    TeleopConfig,
+    TeleopConfigError,
+    TeleopState,
+    URDFImportConfig,
+)
 
 logger = logging.getLogger("solidmind.isaac_runtime")
 
@@ -210,12 +218,62 @@ class _IsaacWorldEngine:
                 scene_prim = stage.DefinePrim(scene_path, "PhysicsScene")
                 UsdPhysics.Scene(scene_prim).CreateGravityDirectionAttr(Gf.Vec3f(0, 0, -1))
                 UsdPhysics.Scene(scene_prim).CreateGravityMagnitudeAttr(9.81)
+            else:
+                scene_prim = stage.GetPrimAtPath(scene_path)
+
+            # Configure PhysX solver: TGS with higher iteration counts and
+            # clamped depenetration velocity.  Non-fatal if PhysxSchema is
+            # unavailable (e.g. in CI without full Omniverse stack).
+            try:
+                from pxr import PhysxSchema  # type: ignore[import-not-found]
+                physx_api = PhysxSchema.PhysxSceneAPI.Apply(scene_prim)
+                physx_api.CreateSolverTypeAttr("TGS")
+                physx_api.CreateMaxDepenetrationVelocityAttr(5.0)
+                # Position/velocity iterations for TGS convergence
+                _attrs = dir(physx_api)
+                if "CreateMinPositionIterationCountAttr" in _attrs:
+                    physx_api.CreateMinPositionIterationCountAttr(8)
+                if "CreateMinVelocityIterationCountAttr" in _attrs:
+                    physx_api.CreateMinVelocityIterationCountAttr(4)
+                logger.info("[engine] setup_scene: TGS solver configured (max_depen_vel=5.0)")
+            except Exception as exc:
+                logger.warning("[engine] setup_scene: PhysX solver config failed (non-fatal): %s", exc)
 
             # Ground plane
             ground_path = "/World/GroundPlane"
             if not stage.GetPrimAtPath(ground_path).IsValid():
                 from omni.isaac.core.objects import GroundPlane  # type: ignore[import-not-found]
                 GroundPlane(prim_path=ground_path)
+
+            # Ground plane physics material with friction.  Non-fatal if
+            # UsdShade or PhysxSchema are unavailable.
+            try:
+                from pxr import UsdShade, PhysxSchema  # type: ignore[import-not-found]
+
+                mat_path = "/World/GroundMaterial"
+                if not stage.GetPrimAtPath(mat_path).IsValid():
+                    mat_prim = stage.DefinePrim(mat_path, "Material")
+                    UsdPhysics.MaterialAPI.Apply(mat_prim)
+                    phys_mat = UsdPhysics.MaterialAPI(mat_prim)
+                    phys_mat.CreateStaticFrictionAttr(1.0)
+                    phys_mat.CreateDynamicFrictionAttr(0.8)
+                    phys_mat.CreateRestitutionAttr(0.0)
+
+                # Bind material to ground plane collision geometry
+                ground_prim = stage.GetPrimAtPath(ground_path)
+                if ground_prim.IsValid():
+                    # The GroundPlane helper may nest collision geometry;
+                    # bind to the root and let USD inherit downward.
+                    binding_api = UsdShade.MaterialBindingAPI.Apply(ground_prim)
+                    mat_prim = stage.GetPrimAtPath(mat_path)
+                    binding_api.Bind(
+                        UsdShade.Material(mat_prim),
+                        UsdShade.Tokens.weakerThanDescendants,
+                        "physics",
+                    )
+                logger.info("[engine] setup_scene: ground friction material applied (static=1.0, dynamic=0.8)")
+            except Exception as exc:
+                logger.warning("[engine] setup_scene: ground material config failed (non-fatal): %s", exc)
 
             # Distant light
             light_path = "/World/DistantLight"
@@ -326,6 +384,15 @@ class _IsaacWorldEngine:
                 if type_name in ("Xform", "Mesh"):
                     link_count += 1
 
+        # Override drive stiffness/damping on all joint prims to match config.
+        # The URDF importer may apply its own internal defaults that differ
+        # from the config values (especially for stiffness/damping), so we
+        # walk all joints and force-set the values post-import.
+        self._configure_drives_post_import(prim_path, config)
+
+        # Auto-frame the viewport camera on the imported model
+        self._frame_camera_on_prim(prim_path)
+
         logger.info(
             "[engine] import_urdf: prim type census: %s",
             dict(sorted(type_name_counts.items())),
@@ -335,6 +402,109 @@ class _IsaacWorldEngine:
             time.monotonic() - t0, prim_path, joint_count, link_count,
         )
         return prim_path, joint_count, link_count
+
+    def _frame_camera_on_prim(self, prim_path: str) -> None:
+        """Position the viewport camera to frame an imported prim.
+
+        Computes the world bounding box of the prim, then places the
+        camera at a 45° isometric angle at 2.5× the bounding sphere
+        radius, looking at the center.
+        """
+        try:
+            import omni.usd  # type: ignore[import-not-found]
+            from pxr import UsdGeom, Gf  # type: ignore[import-not-found]
+
+            stage = omni.usd.get_context().get_stage()
+            prim = stage.GetPrimAtPath(prim_path)
+            if not prim.IsValid():
+                return
+
+            # Compute world-space bounding box
+            bbox_cache = UsdGeom.BBoxCache(0.0, [UsdGeom.Tokens.default_])
+            bbox = bbox_cache.ComputeWorldBound(prim)
+            box_range = bbox.ComputeAlignedRange()
+            if box_range.IsEmpty():
+                logger.debug("[engine] _frame_camera: bbox empty for %s", prim_path)
+                return
+
+            center = (Gf.Vec3d(box_range.GetMin()) + Gf.Vec3d(box_range.GetMax())) / 2.0
+            size = Gf.Vec3d(box_range.GetMax()) - Gf.Vec3d(box_range.GetMin())
+            radius = size.GetLength() / 2.0
+            if radius < 1e-6:
+                return
+
+            # Place camera at isometric angle, 2.5× bounding sphere radius
+            dist = radius * 2.5
+            eye = center + Gf.Vec3d(dist * 0.577, dist * 0.577, dist * 0.577)
+            target = center
+
+            from omni.kit.viewport.utility import get_active_viewport  # type: ignore[import-not-found]
+            viewport = get_active_viewport()
+            if viewport is not None:
+                _reposition_camera(
+                    viewport,
+                    [eye[0], eye[1], eye[2]],
+                    [target[0], target[1], target[2]],
+                    self.sim_app,
+                )
+                logger.info(
+                    "[engine] _frame_camera: framed on %s — center=%s radius=%.3f",
+                    prim_path, center, radius,
+                )
+            else:
+                logger.debug("[engine] _frame_camera: no active viewport")
+        except Exception as exc:
+            logger.warning("[engine] _frame_camera failed (non-fatal): %s", exc)
+
+    def _configure_drives_post_import(
+        self,
+        prim_path: str,
+        config: URDFImportConfig,
+    ) -> None:
+        """Override drive stiffness/damping on all joints after URDF import.
+
+        The URDF importer's internal defaults may not match the values
+        requested in *config*.  This walks every joint prim under the
+        imported root and sets ``stiffness`` and ``damping`` on the
+        ``UsdPhysics.DriveAPI`` (angular for revolute, linear for prismatic).
+        """
+        try:
+            import omni.usd  # type: ignore[import-not-found]
+            from pxr import Usd, UsdPhysics  # type: ignore[import-not-found]
+
+            stage = omni.usd.get_context().get_stage()
+            root_prim = stage.GetPrimAtPath(prim_path)
+            if not root_prim.IsValid():
+                return
+
+            configured = 0
+            for prim in Usd.PrimRange(root_prim):
+                type_name = prim.GetTypeName()
+                if type_name not in _JOINT_TYPE_NAMES:
+                    continue
+
+                # Determine drive axis: angular for revolute/spherical, linear for prismatic.
+                if "Prismatic" in type_name:
+                    drive_token = "linear"
+                else:
+                    drive_token = "angular"
+
+                drive_api = UsdPhysics.DriveAPI.Get(prim, drive_token)
+                if not drive_api:
+                    continue
+
+                drive_api.GetStiffnessAttr().Set(config.default_drive_stiffness)
+                drive_api.GetDampingAttr().Set(config.default_drive_damping)
+                configured += 1
+
+            logger.info(
+                "[engine] _configure_drives_post_import: set stiffness=%.1f damping=%.1f on %d joints",
+                config.default_drive_stiffness,
+                config.default_drive_damping,
+                configured,
+            )
+        except Exception as exc:
+            logger.warning("[engine] _configure_drives_post_import failed (non-fatal): %s", exc)
 
     def create_articulation(self, prim_path: str) -> Any:
         """Add an Articulation to the World scene and initialize physics.
@@ -863,11 +1033,23 @@ class IsaacRuntime:
             return self._engine.import_urdf(urdf_path, config)
 
         prim_path, joint_count, link_count = main_thread_dispatcher.submit(_do_import)
-        return {
+        result: dict[str, Any] = {
             "prim_path": prim_path,
             "joint_count": joint_count,
             "link_count": link_count,
         }
+
+        # Auto-capture verification screenshots (like FreeCAD's verify pattern)
+        try:
+            logger.info("[runtime] import_urdf: capturing verification views...")
+            views = self._capture_verification_views()
+            logger.info("[runtime] import_urdf: captured %d verification views", len(views))
+            if views:
+                result["verification_images"] = views
+        except Exception as exc:
+            logger.warning("[runtime] import_urdf: verification capture failed: %s", exc, exc_info=True)
+
+        return result
 
     # ------------------------------------------------------------------
     # Simulation session lifecycle
@@ -876,7 +1058,7 @@ class IsaacRuntime:
     def simulate_start(
         self,
         *,
-        mechanism: dict[str, Any],
+        mechanism: dict[str, Any] | None = None,
         duration_s: float,
         dt_s: float,
         output_interval: float,
@@ -884,12 +1066,32 @@ class IsaacRuntime:
         urdf_path: str | None = None,
         import_config: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Non-blocking. Setup scene + begin physics. Returns session_id."""
+        """Non-blocking. Setup scene + begin physics. Returns session_id.
+
+        If *mechanism* is ``None`` and *urdf_path* is provided, a minimal
+        mechanism is synthesized so the URDF can be imported and physics
+        stepped without requiring the caller to construct a full mechanism.
+        """
         logger.info(
             "[runtime] simulate_start: duration=%.3f dt=%.4f urdf=%s headless=%s",
             duration_s, dt_s, urdf_path, self._headless,
         )
         t0 = time.monotonic()
+
+        # Synthesize a minimal mechanism when only a URDF is provided.
+        if mechanism is None:
+            if urdf_path is None:
+                raise IsaacRuntimeError(
+                    "INVALID_INPUT",
+                    "Either mechanism or urdf_path must be provided",
+                )
+            mechanism = {
+                "name": "urdf_physics_test",
+                "parts": [{"id": "robot", "is_ground": False}],
+                "joints": [],
+                "drives": [],
+            }
+
         mech = _validate_mechanism(mechanism)
         _validate_sim_args(
             duration_s=duration_s,
@@ -1132,7 +1334,7 @@ class IsaacRuntime:
     def simulate(
         self,
         *,
-        mechanism: dict[str, Any],
+        mechanism: dict[str, Any] | None = None,
         duration_s: float,
         dt_s: float,
         output_interval: float,
@@ -1221,6 +1423,15 @@ class IsaacRuntime:
                 },
             )
 
+        # Parse and validate teleop config from profile
+        try:
+            teleop_config = TeleopConfig.from_profile(profile)
+        except TeleopConfigError as exc:
+            raise IsaacRuntimeError(
+                "INVALID_INPUT",
+                f"Invalid teleop profile: {exc.message}",
+            )
+
         # Validate URDF path if provided
         if urdf_path is not None and not os.path.isfile(urdf_path):
             raise IsaacRuntimeError(
@@ -1244,6 +1455,45 @@ class IsaacRuntime:
             except Exception as exc:
                 warnings.append(f"URDF import for teleop failed: {exc}")
 
+        # Instantiate the controller via the registry.
+        try:
+            controller = create_controller(teleop_config)
+        except ValueError as exc:
+            raise IsaacRuntimeError(
+                "INVALID_INPUT",
+                str(exc),
+            ) from exc
+
+        # Resolve DOF name→index map and joint limits from articulation.
+        # Fail fast if articulation is available but none of the required
+        # joints could be mapped — this means the URDF doesn't match the
+        # teleop config and the session would be useless.
+        dof_index_map: dict[str, int] = {}
+        joint_limits: dict[str, tuple[float, float]] = {}
+        if articulation is not None:
+            dof_index_map, joint_limits = _resolve_dof_map(
+                articulation, teleop_config.joint_names,
+            )
+            if not dof_index_map:
+                raise IsaacRuntimeError(
+                    "TELEOP_JOINT_MAP_FAILED",
+                    "None of the required joint names could be mapped to "
+                    "articulation DOFs",
+                    details={
+                        "required_joints": list(teleop_config.joint_names),
+                        "available_dofs": _get_dof_names_safe(articulation),
+                    },
+                )
+            missing = [
+                j for j in teleop_config.joint_names
+                if j not in dof_index_map
+            ]
+            if missing:
+                warnings.append(
+                    f"Partial joint map: {len(dof_index_map)}/{len(teleop_config.joint_names)} "
+                    f"mapped, missing: {missing}"
+                )
+
         session_id = f"sess_{uuid.uuid4().hex[:12]}"
         now = time.time()
         session = SimulationSession(
@@ -1254,6 +1504,10 @@ class IsaacRuntime:
             started_at_s=now,
             prim_path=prim_path,
             articulation=articulation,
+            teleop_config=teleop_config,
+            controller=controller,
+            dof_index_map=dof_index_map,
+            joint_limits=joint_limits,
         )
         with self._lock:
             self._sessions[session_id] = session
@@ -1267,7 +1521,8 @@ class IsaacRuntime:
                 "body_height": "Q/E",
             },
             "state": session.state.to_dict(),
-            "profile_used": dict(profile or {}),
+            "profile_used": teleop_config.to_dict(),
+            "controller_type": teleop_config.controller_type,
         }
         if prim_path:
             result["prim_path"] = prim_path
@@ -1309,14 +1564,262 @@ class IsaacRuntime:
                 )
             state = session.state.to_dict()
             uptime_s = max(0.0, time.time() - session.started_at_s)
-        return {"state": state, "uptime_s": uptime_s}
+        result: dict[str, Any] = {"state": state, "uptime_s": uptime_s}
+        # Append teleop telemetry (new keys — backward compatible)
+        if session.teleop_config is not None:
+            result["controller_type"] = session.teleop_config.controller_type
+            result["joint_names"] = list(session.teleop_config.joint_names)
+            result["last_joint_targets_rad"] = dict(session.last_joint_targets_rad)
+            result["limit_clamp_count"] = session.limit_clamp_count
+            result["tick_count"] = session.tick_count
+            result["last_apply_ok"] = session.last_apply_ok
+        return result
 
     def teleop_stop(self, *, session_id: str) -> dict[str, Any]:
         with self._lock:
             session = self._sessions.pop(session_id, None)
         if session is None:
             return {"stopped": True, "already_stopped": True}
-        return {"stopped": True}
+
+        # Cleanup engine resources (World, imported prims) so a
+        # subsequent teleop_start can start fresh.
+        if session.prim_path:
+            try:
+                self._engine.cleanup()
+            except Exception:
+                pass
+
+        result: dict[str, Any] = {"stopped": True}
+        # Append final telemetry
+        if session.teleop_config is not None:
+            result["controller_type"] = session.teleop_config.controller_type
+            result["tick_count"] = session.tick_count
+            result["limit_clamp_count"] = session.limit_clamp_count
+            result["last_joint_targets_rad"] = dict(session.last_joint_targets_rad)
+        return result
+
+    # ------------------------------------------------------------------
+    # Main-thread teleop tick (called from pump loop — never from
+    # background threads)
+    # ------------------------------------------------------------------
+
+    def tick_teleop(self, dt_s: float) -> None:
+        """Advance all active teleop sessions by one tick.
+
+        Called from ``_pump_main_thread`` on the main thread after
+        ``app.update()`` and ``dispatcher.process_pending()``.
+
+        For each active teleop session:
+        1. Compute joint targets via the session's controller.
+        2. Clamp targets to joint limits.
+        3. Apply targets to the articulation (if available).
+        4. Step physics via ``world.step(render=False)``.
+        5. Update session diagnostics.
+
+        Thread-safety: reads ``session.state`` (written by background
+        ``teleop_command`` threads under ``_lock``) but only writes to
+        teleop-specific fields that the pump loop exclusively owns.
+        """
+        if dt_s <= 0:
+            return
+
+        # Snapshot active teleop sessions under lock.
+        with self._lock:
+            teleop_sessions = [
+                s for s in self._sessions.values()
+                if s.session_type == "teleop"
+                and s.teleop_config is not None
+                and s.controller is not None
+            ]
+
+        for session in teleop_sessions:
+            try:
+                self._tick_one_session(session, dt_s)
+            except Exception as exc:
+                logger.warning(
+                    "[runtime] tick_teleop: error on session %s: %s",
+                    session.session_id, exc,
+                )
+                session.last_apply_ok = False
+
+    def _tick_one_session(self, session: SimulationSession, dt_s: float) -> None:
+        """Tick a single teleop session. Runs on the main thread."""
+        config = session.teleop_config
+        controller = session.controller
+        assert config is not None and controller is not None
+
+        # Read commanded state (written by teleop_command under lock).
+        with self._lock:
+            state_snapshot = TeleopState(
+                vx_mps=session.state.vx_mps,
+                yaw_rate_rps=session.state.yaw_rate_rps,
+                body_height_m=session.state.body_height_m,
+            )
+
+        # 1. Compute targets
+        targets, new_phase = controller.compute_targets(
+            state_snapshot, dt_s, config, session.gait_phase,
+        )
+        session.gait_phase = new_phase
+
+        # 2. Clamp to joint limits
+        clamped_targets, clamp_count = clamp_targets(targets, session.joint_limits)
+        session.limit_clamp_count += clamp_count
+
+        # 3. Record targets on session (for telemetry)
+        session.last_joint_targets_rad = dict(clamped_targets)
+        session.tick_count += 1
+
+        # 4. Apply to articulation and step physics
+        if session.articulation is not None and session.dof_index_map:
+            try:
+                self._apply_and_step(session, clamped_targets)
+                session.last_apply_ok = True
+            except Exception as exc:
+                logger.warning(
+                    "[runtime] _apply_and_step failed for %s: %s",
+                    session.session_id, exc,
+                )
+                session.last_apply_ok = False
+        else:
+            # No articulation — still record targets for analytical mode
+            session.last_apply_ok = True
+
+        # 5. Sync filtered state back to session (for telemetry)
+        session.filtered_vx = controller.filtered_vx
+        session.filtered_yaw = controller.filtered_yaw
+        session.filtered_height = controller.filtered_height
+
+    def _apply_and_step(
+        self,
+        session: SimulationSession,
+        targets: dict[str, float],
+    ) -> None:
+        """Apply joint targets to the articulation and step physics.
+
+        Builds a position-target array from the DOF index map, applies
+        it via ``ArticulationAction``, then calls ``world.step()``.
+
+        Must run on the main thread.
+        """
+        import numpy as np  # type: ignore[import-not-found]
+        from omni.isaac.core.utils.types import ArticulationAction  # type: ignore[import-not-found]
+
+        art = session.articulation
+        num_dof = art.num_dof
+        position_targets = np.full(num_dof, float("nan"), dtype=np.float32)
+
+        for joint_name, target_rad in targets.items():
+            idx = session.dof_index_map.get(joint_name)
+            if idx is not None and 0 <= idx < num_dof:
+                position_targets[idx] = float(target_rad)
+
+        art.apply_action(ArticulationAction(joint_positions=position_targets))
+        self._engine.world.step(render=False)
+
+    def _capture_verification_views(
+        self,
+        width: int = 512,
+        height: int = 512,
+    ) -> list[dict[str, Any]]:
+        """Capture 2 verification views of the scene (iso + front).
+
+        Mirrors the FreeCAD pattern: low-res screenshots from 2 angles
+        returned as part of the tool result for the LLM to inspect.
+        """
+        views: list[dict[str, Any]] = []
+
+        def _do_capture() -> list[dict[str, Any]]:
+            from omni.kit.viewport.utility import (  # type: ignore[import-not-found]
+                capture_viewport_to_file,
+                get_active_viewport,
+            )
+            from pxr import UsdGeom, Gf  # type: ignore[import-not-found]
+            import omni.usd  # type: ignore[import-not-found]
+
+            viewport = get_active_viewport()
+            if viewport is None:
+                return []
+
+            # Compute scene bounding box from imported prims
+            stage = omni.usd.get_context().get_stage()
+            bbox_cache = UsdGeom.BBoxCache(0.0, [UsdGeom.Tokens.default_])
+            center = Gf.Vec3d(0, 0, 0)
+            radius = 0.5
+            for prim_path in self._engine._imported_prims:
+                prim = stage.GetPrimAtPath(prim_path)
+                if prim.IsValid():
+                    bbox = bbox_cache.ComputeWorldBound(prim)
+                    box_range = bbox.ComputeAlignedRange()
+                    if not box_range.IsEmpty():
+                        mn = Gf.Vec3d(box_range.GetMin())
+                        mx = Gf.Vec3d(box_range.GetMax())
+                        center = (mn + mx) / 2.0
+                        size = mx - mn
+                        radius = max(size.GetLength() / 2.0, 0.01)
+
+            dist = radius * 2.5
+            # View definitions: (label, eye_offset_direction)
+            view_defs = [
+                ("iso", Gf.Vec3d(0.577, 0.577, 0.577)),
+                ("front", Gf.Vec3d(0.0, -1.0, 0.3)),
+            ]
+
+            captured: list[dict[str, Any]] = []
+            for label, direction in view_defs:
+                eye = center + direction.GetNormalized() * dist
+                _reposition_camera(
+                    viewport,
+                    [eye[0], eye[1], eye[2]],
+                    [center[0], center[1], center[2]],
+                    self._engine.sim_app,
+                )
+                try:
+                    viewport.set_texture_resolution((width, height))
+                except Exception:
+                    pass
+
+                # Pump frames for render
+                app = self._engine.sim_app
+                if app is not None:
+                    for _ in range(8):
+                        app.update()
+
+                # Capture to file
+                tmp_path = os.path.join(
+                    tempfile.gettempdir(),
+                    f"isaac_verify_{label}_{uuid.uuid4().hex[:8]}.png",
+                )
+                cap = capture_viewport_to_file(viewport, tmp_path)
+                # Wait for async capture
+                for _ in range(120):
+                    if app is not None:
+                        app.update()
+                    if os.path.isfile(tmp_path) and os.path.getsize(tmp_path) > 0:
+                        break
+
+                if os.path.isfile(tmp_path) and os.path.getsize(tmp_path) > 0:
+                    with open(tmp_path, "rb") as f:
+                        image_data = base64.b64encode(f.read()).decode("ascii")
+                    captured.append({
+                        "view": label,
+                        "image_base64": image_data,
+                        "mime_type": "image/png",
+                        "width": width,
+                        "height": height,
+                    })
+                    try:
+                        os.unlink(tmp_path)
+                    except OSError:
+                        pass
+
+            return captured
+
+        try:
+            return main_thread_dispatcher.submit(_do_capture)
+        except Exception as exc:
+            logger.warning("[runtime] verification capture failed: %s", exc)
+            return []
 
     def screenshot(
         self,
@@ -1413,6 +1916,72 @@ class IsaacRuntime:
             }
 
         return main_thread_dispatcher.submit(_do_screenshot)
+
+
+def _resolve_dof_map(
+    articulation: Any,
+    joint_names: tuple[str, ...],
+) -> tuple[dict[str, int], dict[str, tuple[float, float]]]:
+    """Resolve joint names to DOF indices and extract limits from an articulation.
+
+    Uses the articulation's ``dof_names`` property to build the index map.
+    Joint limits come from ``dof_properties`` if available.
+
+    Returns (dof_index_map, joint_limits).  Missing joints are silently
+    skipped — the caller decides whether incomplete mapping is fatal.
+    """
+    dof_index_map: dict[str, int] = {}
+    joint_limits: dict[str, tuple[float, float]] = {}
+
+    try:
+        dof_names = articulation.dof_names
+        if dof_names is None:
+            return dof_index_map, joint_limits
+
+        # Build name→index lookup.  DOF names may be full paths or short
+        # names; try exact match first, then suffix match.
+        name_to_idx: dict[str, int] = {}
+        for idx, full_name in enumerate(dof_names):
+            name_str = str(full_name)
+            name_to_idx[name_str] = idx
+            # Also index by the last path component (e.g. "hip_lf" from
+            # "/World/robot/hip_lf").
+            short = name_str.rsplit("/", 1)[-1]
+            if short not in name_to_idx:
+                name_to_idx[short] = idx
+
+        for jname in joint_names:
+            idx = name_to_idx.get(jname)
+            if idx is not None:
+                dof_index_map[jname] = idx
+
+        # Extract joint limits from dof_properties (numpy structured array).
+        try:
+            props = articulation.dof_properties
+            if props is not None:
+                for jname, idx in dof_index_map.items():
+                    lo = float(props["lower"][idx])
+                    hi = float(props["upper"][idx])
+                    if lo < hi:  # Only store if limits are meaningful
+                        joint_limits[jname] = (lo, hi)
+        except Exception:
+            pass  # dof_properties not available or wrong shape
+
+    except Exception as exc:
+        logger.warning("[runtime] _resolve_dof_map failed (non-fatal): %s", exc)
+
+    return dof_index_map, joint_limits
+
+
+def _get_dof_names_safe(articulation: Any) -> list[str]:
+    """Extract DOF names from an articulation, returning [] on failure."""
+    try:
+        names = articulation.dof_names
+        if names is not None:
+            return [str(n) for n in names]
+    except Exception:
+        pass
+    return []
 
 
 def _validate_mechanism(mechanism: dict[str, Any] | Any) -> dict[str, Any]:

@@ -411,5 +411,118 @@ class TestScreenshotCommand(unittest.TestCase):
         self.assertIn("screenshot", commands)
 
 
+class TestMobileRobotDefaults(unittest.TestCase):
+    """Milestone 1: robot_type='mobile' applies research-validated defaults."""
+
+    def test_mobile_defaults_applied(self) -> None:
+        from isaac_bridge.models import URDFImportConfig
+        cfg = URDFImportConfig.from_dict({"robot_type": "mobile"})
+        self.assertFalse(cfg.fix_base)
+        self.assertTrue(cfg.merge_fixed_joints)
+        self.assertAlmostEqual(cfg.default_drive_stiffness, 10.0)
+        self.assertAlmostEqual(cfg.default_drive_damping, 1.0)
+        self.assertEqual(cfg.robot_type, "mobile")
+
+    def test_mobile_explicit_override_wins(self) -> None:
+        from isaac_bridge.models import URDFImportConfig
+        cfg = URDFImportConfig.from_dict({
+            "robot_type": "mobile",
+            "fix_base": True,
+            "default_drive_stiffness": 50.0,
+        })
+        # Explicit overrides must win over mobile defaults
+        self.assertTrue(cfg.fix_base)
+        self.assertAlmostEqual(cfg.default_drive_stiffness, 50.0)
+        # Non-overridden mobile defaults still apply
+        self.assertTrue(cfg.merge_fixed_joints)
+        self.assertAlmostEqual(cfg.default_drive_damping, 1.0)
+
+    def test_manipulator_defaults_unchanged(self) -> None:
+        from isaac_bridge.models import URDFImportConfig
+        cfg = URDFImportConfig.from_dict({"robot_type": "manipulator"})
+        self.assertTrue(cfg.fix_base)
+        self.assertFalse(cfg.merge_fixed_joints)
+        self.assertAlmostEqual(cfg.default_drive_stiffness, 1000.0)
+        self.assertAlmostEqual(cfg.default_drive_damping, 100.0)
+
+    def test_default_is_manipulator(self) -> None:
+        from isaac_bridge.models import URDFImportConfig
+        cfg = URDFImportConfig.from_dict({})
+        self.assertEqual(cfg.robot_type, "manipulator")
+        self.assertTrue(cfg.fix_base)
+
+    def test_none_dict_returns_manipulator(self) -> None:
+        from isaac_bridge.models import URDFImportConfig
+        cfg = URDFImportConfig.from_dict(None)
+        self.assertEqual(cfg.robot_type, "manipulator")
+        self.assertTrue(cfg.fix_base)
+
+
+class TestURDFOnlySimulation(unittest.TestCase):
+    """Milestone 3: simulate without mechanism (URDF-only)."""
+
+    def setUp(self) -> None:
+        self.server = BridgeServer(host="127.0.0.1", port=0, headless=True)
+
+    def _call(self, payload: str) -> dict:
+        return self.server._handle_line(payload.encode("utf-8"))  # type: ignore[attr-defined]
+
+    def test_simulate_with_urdf_only_no_mechanism(self) -> None:
+        """simulate with urdf_path but no mechanism synthesizes a minimal mech."""
+        result = self._call(json.dumps({
+            "cmd": "simulate",
+            "args": {
+                "urdf_path": "/nonexistent/robot.urdf",
+                "duration_s": 0.1,
+                "dt_s": 0.01,
+                "output_interval": 0.05,
+            },
+        }))
+        # Should fail with URDF_NOT_FOUND (not INVALID_ARGS about mechanism)
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["error"]["code"], "URDF_NOT_FOUND")
+
+    def test_simulate_start_with_urdf_only_no_mechanism(self) -> None:
+        """simulate_start with urdf_path but no mechanism synthesizes a minimal mech."""
+        result = self._call(json.dumps({
+            "cmd": "simulate_start",
+            "args": {
+                "urdf_path": "/nonexistent/robot.urdf",
+                "duration_s": 0.1,
+                "dt_s": 0.01,
+                "output_interval": 0.05,
+            },
+        }))
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["error"]["code"], "URDF_NOT_FOUND")
+
+    def test_simulate_no_mechanism_no_urdf_errors(self) -> None:
+        """simulate with neither mechanism nor urdf_path gives INVALID_INPUT."""
+        result = self._call(json.dumps({
+            "cmd": "simulate",
+            "args": {
+                "duration_s": 0.1,
+                "dt_s": 0.01,
+                "output_interval": 0.05,
+            },
+        }))
+        self.assertFalse(result["ok"])
+        self.assertIn("INVALID_INPUT", result["error"]["code"])
+
+    def test_backward_compat_mechanism_still_works(self) -> None:
+        """simulate with mechanism but no urdf_path still works (reference mode)."""
+        result = self._call(json.dumps({
+            "cmd": "simulate",
+            "args": {
+                "mechanism": _supported_mechanism(),
+                "duration_s": 0.1,
+                "dt_s": 0.01,
+                "output_interval": 0.05,
+            },
+        }))
+        self.assertTrue(result["ok"])
+        self.assertIn("time_series", result["result"])
+
+
 if __name__ == "__main__":
     unittest.main()

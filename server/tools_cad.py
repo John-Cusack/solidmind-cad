@@ -812,7 +812,7 @@ def cad_export_sim_package(
     """
     import os
     from server import motion_store
-    from server.sim_export import build_sim_model, write_urdf
+    from server.sim_export import build_sim_model, validate_urdf, write_urdf
 
     client = get_client()
     kwargs: dict[str, Any] = {"format": format}
@@ -844,12 +844,22 @@ def cad_export_sim_package(
         pkg_dir = result.get("output_dir", output_dir or ".")
         urdf_path = os.path.join(pkg_dir, f"{sim_model.name}.urdf")
         urdf_path = write_urdf(sim_model, urdf_path)
+
+        # Post-generation validation
+        urdf_findings = validate_urdf(urdf_path)
+        blockers = [f for f in urdf_findings if f.severity.value == "block"]
+        warnings = [f for f in urdf_findings if f.severity.value == "warn"]
+
         result["urdf_path"] = urdf_path
         result["sim_model"] = {
             "name": sim_model.name,
             "link_count": len(sim_model.links),
             "joint_count": len(sim_model.joints),
         }
+        if urdf_findings:
+            result["urdf_validation"] = [f.to_dict() for f in urdf_findings]
+        if blockers:
+            result["urdf_validation_blocked"] = True
 
     return {"ok": True, **result}
 

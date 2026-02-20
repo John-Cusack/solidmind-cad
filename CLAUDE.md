@@ -45,7 +45,7 @@ Claude Code CLI ──stdio──▶ MCP Bridge Server ──TCP socket──▶
 
 **Chrono daemon** (`chrono_daemon/`): Optional standalone C++ binary for Tier 3 dynamic simulation via Project Chrono. TCP socket server on localhost:9877 (same JSON protocol as FreeCAD addon). Builds Chrono multibody systems from mechanism definitions, runs time-domain simulations, returns time-series results. Only needed for `motion.simulate` — Tier 1 analytical validation works without it. See `chrono_daemon/README.md` for build instructions.
 
-**Isaac bridge** (`isaac_bridge/`): Optional Python TCP sidecar on localhost:9878 for Tier 3 `backend=isaac` simulation and teleop lifecycle. Exposes newline-delimited JSON commands (`ping`, `simulate`, `teleop_*`). Start with `scripts/run_isaac_bridge.sh`. v1 supported joints: `revolute`, `prismatic`, `fixed`; unsupported joints return `UNSUPPORTED_JOINT_TYPE`.
+**Isaac bridge** (`isaac_bridge/`): Optional Python TCP sidecar on localhost:9878 for Tier 3 `backend=isaac` simulation and teleop lifecycle. Exposes newline-delimited JSON commands (`ping`, `simulate`, `teleop_*`). Start with `scripts/run_isaac_bridge.sh`. v1 supported joints: `revolute`, `prismatic`, `fixed`; unsupported joints return `UNSUPPORTED_JOINT_TYPE`. Teleop uses a `Controller` protocol for pluggable actuation — currently `HexapodTripodController` (1-DOF tripod gait with slew filtering, yaw differential, height offset). Profile keys configure the controller (amplitude, stride frequency, slew rates, etc.).
 
 ### Key modules
 
@@ -63,7 +63,7 @@ Claude Code CLI ──stdio──▶ MCP Bridge Server ──TCP socket──▶
 - `tools_mfg.py` — Manufacturing readiness tools (mfg.set_property, mfg.readiness_check, mfg.export_rfq)
 - `tools_me.py` — ME design-loop tools (deterministic validation, traceability, risk gates)
 - `tools_study.py` — Parametric study tools (create, run, status, results, cancel, list, get_variant)
-- `tools_motion.py` — Motion validation tools (Tier 1: define_mechanism, validate, propagate_motion, check_gear_train; Tier 2: create_assembly, drive_joint, check_interference; Tier 3: simulate)
+- `tools_motion.py` — Motion validation tools (Tier 1: define_mechanism, validate, propagate_motion, check_gear_train; Tier 2: create_assembly, drive_joint, check_interference; Tier 3: simulate, teleop_start/command/state/stop)
 - `motion_models.py` — Mechanism data models (PartNode, JointEdge, DriveCondition, Mechanism)
 - `motion_store.py` — Session-scoped mechanism storage (UUID handles)
 - `motion_validators.py` — Analytical validators (gear ratio, speed/torque propagation, DOF, Grashof, power conservation)
@@ -77,6 +77,18 @@ Claude Code CLI ──stdio──▶ MCP Bridge Server ──TCP socket──▶
 - `knowledge_store.py` — In-process knowledge store (LanceDB + Docling, module-level singleton)
 - `prompts.py` — System prompts including `cad_copilot_system` for live co-pilot mode
 - `models.py` — Finding, Severity, ToolError, ConversationSignals
+
+**`isaac_bridge/`:**
+- `bridge_server.py` — TCP server + main-thread pump loop (Kit event loop, teleop ticking)
+- `runtime_isaac.py` — Isaac runtime: URDF import, simulation, teleop lifecycle, tick_teleop, DOF mapping
+- `models.py` — `TeleopConfig` (validated profile), `TeleopState`, `Controller` protocol, `SimulationSession`, `URDFImportConfig`
+- `controllers.py` — `HexapodTripodController` (1-DOF tripod gait), `PolicyController` (RL residual blending), `create_controller()` registry, `clamp_targets()` utility
+- `keyboard_teleop.py` — `KeyboardTeleopMapper` (key→command mapping, no Isaac dependency)
+
+**`scripts/`** (teleop-related):
+- `run_isaac_bridge.sh` — Launch the Isaac bridge sidecar
+- `isaac_keyboard_teleop.py` — Standalone keyboard teleop client (W/A/S/D/Q/E, 20 Hz, raw terminal)
+- `smoke_test_isaac.py` — TCP smoke test client for the Isaac bridge
 
 ### Tool groups
 

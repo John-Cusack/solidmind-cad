@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from server.models import Finding, Severity
 from server.motion_models import JointType, Mechanism
 
 # Default density for mass estimation when only volume is available (kg/m^3).
@@ -35,10 +36,34 @@ class SimLink:
     inertia: tuple[float, float, float, float, float, float] | None = None  # ixx,ixy,ixz,iyy,iyz,izz
     is_root: bool = False
 
+    def __post_init__(self) -> None:
+        if not self.name:
+            raise ValueError("SimLink: name must be non-empty")
+        if self.mass_kg is not None and self.mass_kg < 0:
+            raise ValueError(f"SimLink '{self.name}': mass_kg must be >= 0, got {self.mass_kg}")
+        if self.inertia is not None:
+            if len(self.inertia) != 6:
+                raise ValueError(f"SimLink '{self.name}': inertia must be a 6-tuple (ixx,ixy,ixz,iyy,iyz,izz)")
+            ixx, _ixy, _ixz, iyy, _iyz, izz = self.inertia
+            if ixx < 0 or iyy < 0 or izz < 0:
+                raise ValueError(
+                    f"SimLink '{self.name}': diagonal inertia values must be >= 0, "
+                    f"got ixx={ixx}, iyy={iyy}, izz={izz}"
+                )
+
+
+# Joint types that require <limit lower= upper=> in URDF.
+_LIMIT_REQUIRED_TYPES = frozenset({"revolute", "prismatic"})
+
 
 @dataclass(frozen=True, slots=True)
 class SimJoint:
-    """A kinematic constraint between two links."""
+    """A kinematic constraint between two links.
+
+    Enforces URDF invariants at construction time:
+    - ``limits`` is required for revolute and prismatic joints.
+    - ``axis`` must be a unit vector.
+    """
     name: str
     joint_type: str  # "revolute", "prismatic", "fixed", "planar", "continuous"
     parent: str
@@ -52,6 +77,30 @@ class SimJoint:
     velocity: float = 10.0  # max velocity (rad/s or m/s)
     damping: float = 0.1    # joint damping coefficient
     friction: float = 0.0   # joint friction
+
+    def __post_init__(self) -> None:
+        if not self.name:
+            raise ValueError("SimJoint: name must be non-empty")
+        if not self.parent:
+            raise ValueError(f"SimJoint '{self.name}': parent must be non-empty")
+        if not self.child:
+            raise ValueError(f"SimJoint '{self.name}': child must be non-empty")
+        if self.joint_type in _LIMIT_REQUIRED_TYPES and self.limits is None:
+            raise ValueError(
+                f"SimJoint '{self.name}': {self.joint_type} joints require limits "
+                f"(lower, upper) — got None"
+            )
+        if self.limits is not None and self.limits[0] > self.limits[1]:
+            raise ValueError(
+                f"SimJoint '{self.name}': limits lower ({self.limits[0]}) > "
+                f"upper ({self.limits[1]})"
+            )
+        mag_sq = sum(a * a for a in self.axis)
+        if not math.isclose(mag_sq, 1.0, rel_tol=1e-6):
+            raise ValueError(
+                f"SimJoint '{self.name}': axis must be unit vector, "
+                f"got magnitude {math.sqrt(mag_sq):.6f}"
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -229,6 +278,61 @@ def build_sim_model(
     for drive in mechanism.drives:
         drives_by_joint[drive.joint_id] = drive
 
+    # -----------------------------------------------------------------------
+    # Compute each part's world-frame position AND yaw (frame orientation)
+    # from the kinematic tree.  The root/ground part sits at (0,0,0) with
+    # yaw=0.  For every joint, the child part's world position equals the
+    # joint's world-frame origin (mm).
+    #
+    # For joints whose parent is the ground/root part, we auto-compute an
+    # outward yaw so the child frame's local +Y points from the body center
+    # toward the joint position.  This orients legs radially outward on
+    # walking robots (hexapods, quadrupeds, etc.).  Subsequent joints in
+    # the chain inherit the parent's yaw — their world-frame offsets are
+    # rotated into the parent's local frame.
+    # -----------------------------------------------------------------------
+    part_world_pos: dict[str, tuple[float, float, float]] = {}
+    part_world_yaw: dict[str, float] = {}  # cumulative Z rotation (rad)
+    ground_parts: set[str] = set()
+    for part in mechanism.parts:
+        if part.is_ground:
+            part_world_pos[part.id] = (0.0, 0.0, 0.0)
+            part_world_yaw[part.id] = 0.0
+            ground_parts.add(part.id)
+
+    # BFS / iterative pass — compute world pos + yaw for every reachable part.
+    # For root-attached joints: yaw = atan2(-dx, dy) to orient child outward.
+    # For deeper joints: yaw inherited from parent (no extra rotation).
+    joint_added_yaw: dict[str, float] = {}  # joint_id -> yaw added by this joint
+    remaining = list(mechanism.joints)
+    max_iters = len(remaining) + 1
+    for _ in range(max_iters):
+        still_remaining: list[Any] = []
+        for jedge in remaining:
+            if jedge.parent_part in part_world_pos:
+                # Place child at the joint's world origin
+                part_world_pos[jedge.child_part] = tuple(jedge.origin)  # type: ignore[arg-type]
+
+                parent_yaw = part_world_yaw.get(jedge.parent_part, 0.0)
+
+                # Auto-compute outward yaw for root-attached joints.
+                # Formula: atan2(-dx, dy) orients child +Y toward (dx, dy).
+                added_yaw = 0.0
+                if jedge.parent_part in ground_parts:
+                    ppos = part_world_pos[jedge.parent_part]
+                    dx = jedge.origin[0] - ppos[0]
+                    dy = jedge.origin[1] - ppos[1]
+                    if abs(dx) > 1e-6 or abs(dy) > 1e-6:
+                        added_yaw = math.atan2(-dx, dy)
+
+                joint_added_yaw[jedge.id] = added_yaw
+                part_world_yaw[jedge.child_part] = parent_yaw + added_yaw
+            else:
+                still_remaining.append(jedge)
+        if len(still_remaining) == len(remaining):
+            break  # No progress — remaining joints have unreachable parents
+        remaining = still_remaining
+
     # Build joints from mechanism joints
     joints: list[SimJoint] = []
     # Track joint names for mimic references
@@ -240,39 +344,70 @@ def build_sim_model(
         parent_link = part_to_link.get(jedge.parent_part, jedge.parent_part)
         child_link = part_to_link.get(jedge.child_part, jedge.child_part)
 
-        # Origin from joint's origin field (mm -> m for URDF)
-        origin_xyz = (
-            jedge.origin[0] / 1000.0,
-            jedge.origin[1] / 1000.0,
-            jedge.origin[2] / 1000.0,
-        )
+        # Compute parent-relative joint origin (mm -> m for URDF).
+        # jedge.origin is in world frame; subtract parent's world pos to get
+        # the world-frame offset, then rotate into the parent's local frame.
+        parent_pos = part_world_pos.get(jedge.parent_part, (0.0, 0.0, 0.0))
+        world_dx = jedge.origin[0] - parent_pos[0]
+        world_dy = jedge.origin[1] - parent_pos[1]
+        world_dz = jedge.origin[2] - parent_pos[2]
 
-        # Compute relative orientation from manifest placements (Bug 2)
-        parent_plc = link_placement.get(parent_link)
-        child_plc = link_placement.get(child_link)
-        if parent_plc is not None and child_plc is not None:
-            q_parent = parent_plc[1]
-            q_child = child_plc[1]
-            q_parent_inv = _quat_inverse(*q_parent)
-            q_relative = _quat_multiply(*q_parent_inv, *q_child)
-            origin_rpy = _quat_to_rpy(*q_relative)
+        parent_yaw = part_world_yaw.get(jedge.parent_part, 0.0)
+        if abs(parent_yaw) > 1e-9:
+            # Rotate world offset into parent's local frame: R_z(-parent_yaw)
+            c = math.cos(-parent_yaw)
+            s = math.sin(-parent_yaw)
+            local_dx = world_dx * c - world_dy * s
+            local_dy = world_dx * s + world_dy * c
+            local_dz = world_dz
         else:
-            origin_rpy = (0.0, 0.0, 0.0)
+            local_dx, local_dy, local_dz = world_dx, world_dy, world_dz
 
-        # Limits
+        origin_xyz = (local_dx / 1000.0, local_dy / 1000.0, local_dz / 1000.0)
+
+        # Joint rpy: prefer auto-computed outward yaw (Bug 2); fall back to
+        # manifest-based relative orientation when no outward yaw applies.
+        added_yaw = joint_added_yaw.get(jedge.id, 0.0)
+        if abs(added_yaw) > 1e-9:
+            origin_rpy = (0.0, 0.0, added_yaw)
+        else:
+            # Fall back to manifest placements (relative quaternion → rpy).
+            parent_plc = link_placement.get(parent_link)
+            child_plc = link_placement.get(child_link)
+            if parent_plc is not None and child_plc is not None:
+                q_parent = parent_plc[1]
+                q_child = child_plc[1]
+                q_parent_inv = _quat_inverse(*q_parent)
+                q_relative = _quat_multiply(*q_parent_inv, *q_child)
+                origin_rpy = _quat_to_rpy(*q_relative)
+            else:
+                origin_rpy = (0.0, 0.0, 0.0)
+
+        # Limits — required for revolute and prismatic URDF joint types.
+        # Use mechanism data when available, otherwise provide sensible defaults
+        # so the SimJoint invariant (limits required) is always satisfied.
         limits: tuple[float, float] | None = None
-        if jedge.joint_type == JointType.REVOLUTE:
+        if jedge.joint_type in (
+            JointType.REVOLUTE, JointType.GEAR_MESH,
+            JointType.BELT_CHAIN, JointType.CAM,
+        ):
             if jedge.min_angle_deg is not None and jedge.max_angle_deg is not None:
                 limits = (
                     math.radians(jedge.min_angle_deg),
                     math.radians(jedge.max_angle_deg),
                 )
+            else:
+                # Default: ±π (full rotation range)
+                limits = (-math.pi, math.pi)
         elif jedge.joint_type == JointType.PRISMATIC:
             if jedge.min_travel_mm is not None and jedge.max_travel_mm is not None:
                 limits = (
                     jedge.min_travel_mm / 1000.0,
                     jedge.max_travel_mm / 1000.0,
                 )
+            else:
+                # Default: 0 to 1m range
+                limits = (0.0, 1.0)
 
         # Effort/velocity from DriveCondition (Bug 3)
         drive = drives_by_joint.get(jedge.id)
@@ -381,9 +516,9 @@ def write_urdf(model: SimModel, output_path: str) -> str:
         link_el = ET.SubElement(robot, "link", name=link.name)
 
         if link.mesh_path is not None:
-            # Visual — no <origin> needed: FreeCAD's Shape.exportStl() exports
-            # vertices in body-local coordinates (pre-Placement). The joint
-            # <origin> element handles parent->child frame positioning.
+            # Visual — no <origin> needed: export_sim_package strips the Body
+            # Placement so mesh vertices are in body-local coordinates.
+            # The joint <origin> element handles parent->child positioning.
             visual = ET.SubElement(link_el, "visual")
             geometry = ET.SubElement(visual, "geometry")
             mesh = ET.SubElement(geometry, "mesh")
@@ -425,17 +560,11 @@ def write_urdf(model: SimModel, output_path: str) -> str:
         axis_el.set("xyz", _xyz_str(joint.axis))
 
         # URDF spec requires <limit> on revolute and prismatic joints.
-        # effort and velocity are always required when limit is present.
-        _LIMIT_REQUIRED = {"revolute", "prismatic"}
+        # SimJoint.__post_init__ enforces limits are always present for these types.
         if joint.limits is not None:
             limit_el = ET.SubElement(joint_el, "limit")
             limit_el.set("lower", _fmt(joint.limits[0]))
             limit_el.set("upper", _fmt(joint.limits[1]))
-            limit_el.set("effort", _fmt(joint.effort))
-            limit_el.set("velocity", _fmt(joint.velocity))
-        elif joint.joint_type in _LIMIT_REQUIRED:
-            # No explicit limits — emit defaults so URDF is valid
-            limit_el = ET.SubElement(joint_el, "limit")
             limit_el.set("effort", _fmt(joint.effort))
             limit_el.set("velocity", _fmt(joint.velocity))
 
@@ -457,3 +586,282 @@ def write_urdf(model: SimModel, output_path: str) -> str:
     tree.write(out_path, encoding="unicode", xml_declaration=True)
 
     return out_path
+
+
+# ---------------------------------------------------------------------------
+# URDF post-generation validator
+# ---------------------------------------------------------------------------
+
+# Maximum plausible joint origin magnitude (in meters).  Origins beyond this
+# distance from the parent likely indicate absolute-instead-of-relative coords.
+_MAX_ORIGIN_MAGNITUDE_M = 10.0
+
+# Joint types that require <limit> per URDF spec.
+_URDF_LIMIT_REQUIRED = frozenset({"revolute", "prismatic"})
+
+
+def validate_urdf(path: str) -> list[Finding]:
+    """Parse a generated URDF and check structural invariants.
+
+    Returns a list of ``Finding`` objects.  Findings with ``severity=BLOCK``
+    indicate the URDF is likely unusable in simulation; ``WARN`` signals issues
+    that may cause subtle problems; ``NOTE`` is informational.
+
+    Checks performed:
+    1. Joint origin magnitude is plausible (catches absolute coords).
+    2. Revolute/prismatic joints have ``<limit lower= upper=>``.
+    3. Non-root links with mesh have ``<visual>``, ``<collision>``, ``<inertial>``.
+    4. Inertia diagonal values are non-negative (positive semi-definite proxy).
+    5. Joint axis is unit-length.
+    6. Link tree is connected (no orphan links).
+    7. Mesh scale factors are consistent (all 0.001 for mm→m).
+    8. No duplicate mesh paths across links.
+    """
+    findings: list[Finding] = []
+    tree = ET.parse(path)
+    root = tree.getroot()
+
+    if root.tag != "robot":
+        findings.append(Finding(
+            rule_id="urdf.root_tag",
+            severity=Severity.BLOCK,
+            message=f"Root element is <{root.tag}>, expected <robot>",
+        ))
+        return findings
+
+    links = root.findall("link")
+    joints = root.findall("joint")
+    link_names = {lk.attrib.get("name", "") for lk in links}
+
+    # --- Check 1 & 2 & 5: Joint-level checks ---
+    for jel in joints:
+        jname = jel.attrib.get("name", "?")
+        jtype = jel.attrib.get("type", "")
+
+        # Origin magnitude
+        origin_el = jel.find("origin")
+        if origin_el is not None:
+            xyz_str = origin_el.attrib.get("xyz", "0 0 0")
+            try:
+                xyz = [float(v) for v in xyz_str.split()]
+                mag = math.sqrt(sum(v * v for v in xyz))
+                if mag > _MAX_ORIGIN_MAGNITUDE_M:
+                    findings.append(Finding(
+                        rule_id="urdf.origin_magnitude",
+                        severity=Severity.WARN,
+                        message=(
+                            f"Joint '{jname}' origin magnitude {mag:.3f}m exceeds "
+                            f"{_MAX_ORIGIN_MAGNITUDE_M}m — possible absolute "
+                            f"(world-frame) coordinates instead of parent-relative"
+                        ),
+                        field=f"joint/{jname}/origin",
+                    ))
+            except (ValueError, IndexError):
+                findings.append(Finding(
+                    rule_id="urdf.origin_parse",
+                    severity=Severity.BLOCK,
+                    message=f"Joint '{jname}' origin xyz is malformed: '{xyz_str}'",
+                    field=f"joint/{jname}/origin",
+                ))
+
+        # Limit required for revolute/prismatic
+        if jtype in _URDF_LIMIT_REQUIRED:
+            limit_el = jel.find("limit")
+            if limit_el is None:
+                findings.append(Finding(
+                    rule_id="urdf.missing_limit",
+                    severity=Severity.BLOCK,
+                    message=f"Joint '{jname}' ({jtype}) is missing <limit> element",
+                    field=f"joint/{jname}/limit",
+                ))
+            elif "lower" not in limit_el.attrib or "upper" not in limit_el.attrib:
+                findings.append(Finding(
+                    rule_id="urdf.missing_limit_bounds",
+                    severity=Severity.WARN,
+                    message=(
+                        f"Joint '{jname}' ({jtype}) has <limit> but missing "
+                        f"lower/upper bounds"
+                    ),
+                    field=f"joint/{jname}/limit",
+                ))
+
+        # Axis unit length
+        axis_el = jel.find("axis")
+        if axis_el is not None:
+            axis_str = axis_el.attrib.get("xyz", "0 0 1")
+            try:
+                axis_vals = [float(v) for v in axis_str.split()]
+                axis_mag = math.sqrt(sum(v * v for v in axis_vals))
+                if not math.isclose(axis_mag, 1.0, rel_tol=1e-3):
+                    findings.append(Finding(
+                        rule_id="urdf.axis_not_unit",
+                        severity=Severity.WARN,
+                        message=(
+                            f"Joint '{jname}' axis magnitude is {axis_mag:.6f}, "
+                            f"expected 1.0"
+                        ),
+                        field=f"joint/{jname}/axis",
+                    ))
+            except (ValueError, IndexError):
+                pass
+
+        # Joint references valid links
+        parent_el = jel.find("parent")
+        child_el = jel.find("child")
+        if parent_el is not None:
+            plink = parent_el.attrib.get("link", "")
+            if plink not in link_names:
+                findings.append(Finding(
+                    rule_id="urdf.dangling_parent",
+                    severity=Severity.BLOCK,
+                    message=f"Joint '{jname}' references unknown parent link '{plink}'",
+                    field=f"joint/{jname}/parent",
+                ))
+        if child_el is not None:
+            clink = child_el.attrib.get("link", "")
+            if clink not in link_names:
+                findings.append(Finding(
+                    rule_id="urdf.dangling_child",
+                    severity=Severity.BLOCK,
+                    message=f"Joint '{jname}' references unknown child link '{clink}'",
+                    field=f"joint/{jname}/child",
+                ))
+
+    # --- Check 3: Link completeness (visual, collision, inertial) ---
+    # Identify child links (links that appear as a joint child).
+    child_links = set()
+    for jel in joints:
+        child_el = jel.find("child")
+        if child_el is not None:
+            child_links.add(child_el.attrib.get("link", ""))
+
+    for lel in links:
+        lname = lel.attrib.get("name", "?")
+        has_visual = lel.find("visual") is not None
+        has_collision = lel.find("collision") is not None
+        has_inertial = lel.find("inertial") is not None
+
+        # Skip root/base links that are intentionally empty (e.g. base_link)
+        # A link is considered "content-bearing" if it has any geometry or is a
+        # child in a joint (i.e. not the root).
+        is_content_bearing = has_visual or has_collision or lname in child_links
+
+        if is_content_bearing:
+            if not has_visual:
+                findings.append(Finding(
+                    rule_id="urdf.missing_visual",
+                    severity=Severity.WARN,
+                    message=f"Link '{lname}' has no <visual> element",
+                    field=f"link/{lname}/visual",
+                ))
+            if not has_collision:
+                findings.append(Finding(
+                    rule_id="urdf.missing_collision",
+                    severity=Severity.WARN,
+                    message=f"Link '{lname}' has no <collision> element",
+                    field=f"link/{lname}/collision",
+                ))
+            if not has_inertial:
+                findings.append(Finding(
+                    rule_id="urdf.missing_inertial",
+                    severity=Severity.WARN,
+                    message=f"Link '{lname}' has no <inertial> element",
+                    field=f"link/{lname}/inertial",
+                ))
+
+    # --- Check 4: Inertia diagonal non-negative ---
+    for lel in links:
+        lname = lel.attrib.get("name", "?")
+        inertia_el = lel.find("inertial/inertia")
+        if inertia_el is not None:
+            for diag in ("ixx", "iyy", "izz"):
+                val_str = inertia_el.attrib.get(diag)
+                if val_str is not None:
+                    try:
+                        val = float(val_str)
+                        if val < 0:
+                            findings.append(Finding(
+                                rule_id="urdf.negative_inertia",
+                                severity=Severity.BLOCK,
+                                message=(
+                                    f"Link '{lname}' has negative {diag}={val}"
+                                ),
+                                field=f"link/{lname}/inertial/inertia/{diag}",
+                            ))
+                    except ValueError:
+                        pass
+
+    # --- Check 6: Connected tree ---
+    # Build adjacency from joints and check all links are reachable from root.
+    if links and joints:
+        adjacency: dict[str, set[str]] = {lk.attrib.get("name", ""): set() for lk in links}
+        for jel in joints:
+            parent_el = jel.find("parent")
+            child_el = jel.find("child")
+            if parent_el is not None and child_el is not None:
+                pname = parent_el.attrib.get("link", "")
+                cname = child_el.attrib.get("link", "")
+                if pname in adjacency:
+                    adjacency[pname].add(cname)
+                if cname in adjacency:
+                    adjacency[cname].add(pname)
+
+        # BFS from first link
+        visited: set[str] = set()
+        queue = [links[0].attrib.get("name", "")]
+        while queue:
+            node = queue.pop()
+            if node in visited:
+                continue
+            visited.add(node)
+            queue.extend(adjacency.get(node, set()) - visited)
+
+        orphans = link_names - visited
+        for orphan in sorted(orphans):
+            findings.append(Finding(
+                rule_id="urdf.disconnected_link",
+                severity=Severity.BLOCK,
+                message=f"Link '{orphan}' is not connected to the kinematic tree",
+                field=f"link/{orphan}",
+            ))
+
+    # --- Check 7: Consistent mesh scale ---
+    seen_scales: set[str] = set()
+    for lel in links:
+        for tag in ("visual", "collision"):
+            mesh_el = lel.find(f"{tag}/geometry/mesh")
+            if mesh_el is not None:
+                scale = mesh_el.attrib.get("scale")
+                if scale is not None:
+                    seen_scales.add(scale)
+    if len(seen_scales) > 1:
+        findings.append(Finding(
+            rule_id="urdf.inconsistent_scale",
+            severity=Severity.WARN,
+            message=f"Inconsistent mesh scales found: {sorted(seen_scales)}",
+        ))
+
+    # --- Check 8: Duplicate mesh paths ---
+    mesh_paths: dict[str, list[str]] = {}  # path -> list of link names
+    for lel in links:
+        lname = lel.attrib.get("name", "?")
+        for tag in ("visual", "collision"):
+            mesh_el = lel.find(f"{tag}/geometry/mesh")
+            if mesh_el is not None:
+                fpath = mesh_el.attrib.get("filename", "")
+                if fpath:
+                    mesh_paths.setdefault(fpath, []).append(lname)
+    for fpath, lnames in mesh_paths.items():
+        # Deduplicate: same link appears twice (visual + collision) — that's fine
+        unique_links = sorted(set(lnames))
+        if len(unique_links) > 1:
+            findings.append(Finding(
+                rule_id="urdf.duplicate_mesh",
+                severity=Severity.WARN,
+                message=(
+                    f"Mesh '{fpath}' is used by multiple links: "
+                    f"{', '.join(unique_links)}"
+                ),
+            ))
+
+    return findings

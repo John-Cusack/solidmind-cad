@@ -139,7 +139,7 @@ class BridgeServer:
                 result = reload_result
             elif cmd == "simulate":
                 result = self._runtime.simulate(
-                    mechanism=_require_object(args, "mechanism"),
+                    mechanism=_optional_object(args, "mechanism"),
                     duration_s=_optional_float(args, "duration_s", 1.0),
                     dt_s=_optional_float(args, "dt_s", 0.001),
                     output_interval=_optional_float(args, "output_interval", 0.01),
@@ -149,7 +149,7 @@ class BridgeServer:
                 )
             elif cmd == "simulate_start":
                 result = self._runtime.simulate_start(
-                    mechanism=_require_object(args, "mechanism"),
+                    mechanism=_optional_object(args, "mechanism"),
                     duration_s=_optional_float(args, "duration_s", 1.0),
                     dt_s=_optional_float(args, "dt_s", 0.001),
                     output_interval=_optional_float(args, "output_interval", 0.01),
@@ -258,13 +258,22 @@ def _optional_str(args: dict[str, Any], key: str) -> str | None:
 
 
 def _pump_main_thread(server: BridgeServer) -> None:
-    """Pump the Kit event loop and main-thread dispatcher.
+    """Pump the Kit event loop, main-thread dispatcher, and teleop tick.
 
     Isaac Sim requires its Kit event loop to be pumped on the main thread
     for World creation, URDF import, and physics stepping to complete —
     even in headless mode.  The TCP bridge always runs in a background
     thread; this function occupies the main thread.
+
+    Teleop tick runs after dispatcher processing so that any
+    ``teleop_command`` mutations are visible before the next controller
+    computation.  ``dt_s`` is computed from ``time.monotonic()`` deltas
+    and bounded to [0.0001, 0.1] to guard against clock jitter and
+    long stalls.  Gait timing is approximate — coupled to Kit's frame
+    rate (typically ~60 Hz) when Kit is available.
     """
+    import time as _t
+
     app = None
     try:
         import omni.kit.app  # type: ignore[import-not-found]
@@ -274,6 +283,11 @@ def _pump_main_thread(server: BridgeServer) -> None:
 
     label = "Kit + dispatcher" if app else "dispatcher-only"
     logger.info("Main-thread pump started (%s)", label)
+
+    _DT_MIN = 0.0001  # 0.1 ms — guard against zero/negative dt
+    _DT_MAX = 0.1     # 100 ms — guard against long stalls
+    last_t = _t.monotonic()
+
     while not server._stop_event.is_set():
         if app is not None:
             try:
@@ -281,9 +295,21 @@ def _pump_main_thread(server: BridgeServer) -> None:
             except Exception:
                 break
         main_thread_dispatcher.process_pending()
+
+        # Compute bounded dt_s from wall clock.
+        now = _t.monotonic()
+        raw_dt = now - last_t
+        last_t = now
+        dt_s = max(_DT_MIN, min(_DT_MAX, raw_dt))
+
+        # Tick active teleop sessions (controller + physics step).
+        try:
+            server._runtime.tick_teleop(dt_s)
+        except Exception as exc:
+            logger.warning("tick_teleop error (non-fatal): %s", exc)
+
         if app is None:
             # No Kit — avoid busy-spin
-            import time as _t
             _t.sleep(0.005)
 
 

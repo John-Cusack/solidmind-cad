@@ -1076,7 +1076,30 @@ def motion_teleop_start(
     urdf_path: str | None = None,
     import_config: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Start an Isaac teleop session for a mechanism."""
+    """Start an Isaac teleop session for a mechanism.
+
+    The ``profile`` dict configures the teleop controller.  All keys are
+    optional and default to a 1-DOF hexapod tripod gait.  Profile keys:
+
+    - ``controller_type`` (str): Controller selection (default ``"hexapod_1dof_tripod"``).
+    - ``joint_names`` (list[str]): Ordered joint names for the controller.
+    - ``tripod_a`` / ``tripod_b`` (list[str]): Tripod leg groups (must partition ``joint_names``).
+    - ``left_legs`` / ``right_legs`` (list[str]): Left/right leg groups for yaw differential.
+    - ``neutral_deg`` (float): Neutral joint angle in degrees.
+    - ``amplitude_deg`` (float, >0): Oscillation amplitude in degrees.
+    - ``stride_hz`` (float, >0): Gait cycle frequency in Hz.
+    - ``yaw_mix_deg`` (float, >=0): Yaw differential gain in degrees.
+    - ``height_mix_deg`` (float, >=0): Height offset gain in degrees.
+    - ``vx_max_mps`` (float, >0): Maximum forward velocity in m/s.
+    - ``yaw_max_rps`` (float, >0): Maximum yaw rate in rad/s.
+    - ``height_max_m`` (float, >0): Maximum body height in m.
+    - ``slew_vx_mps2`` (float, >0): Forward velocity slew rate in m/s².
+    - ``slew_yaw_rps2`` (float, >0): Yaw slew rate in rad/s².
+    - ``slew_height_mps2`` (float, >0): Height slew rate in m/s².
+
+    Response includes ``session_id``, ``controller_type``, ``profile_used``
+    (resolved config with defaults), and ``keyboard_bindings``.
+    """
     selected_backend = _normalize_backend(backend)
     if selected_backend != "isaac":
         return _error_result(
@@ -1129,7 +1152,12 @@ def motion_teleop_command(
     yaw_rate_rps: float = 0.0,
     body_height_m: float = 0.0,
 ) -> dict[str, Any]:
-    """Send a teleop command to an active Isaac session."""
+    """Send a teleop command to an active Isaac session.
+
+    Commands are rate-limited by the controller's slew filters and
+    clamped to the profile's maxima (``vx_max_mps``, ``yaw_max_rps``,
+    ``height_max_m``).  The controller applies them on the next tick.
+    """
     session = _active_sessions.get(session_id)
     if session is None:
         return _error_result("NOT_FOUND", f"No active teleop session '{session_id}'")
@@ -1150,7 +1178,13 @@ def motion_teleop_command(
 
 
 def motion_teleop_state(session_id: str) -> dict[str, Any]:
-    """Read current state from an active Isaac teleop session."""
+    """Read current state from an active Isaac teleop session.
+
+    Returns commanded state (``vx_mps``, ``yaw_rate_rps``, ``body_height_m``),
+    ``uptime_s``, and teleop telemetry: ``controller_type``, ``joint_names``,
+    ``tick_count``, ``limit_clamp_count``, ``last_joint_targets_rad`` (dict
+    of joint name → target in radians), and ``last_apply_ok`` (bool).
+    """
     session = _active_sessions.get(session_id)
     if session is None:
         return _error_result("NOT_FOUND", f"No active teleop session '{session_id}'")
@@ -1166,7 +1200,13 @@ def motion_teleop_state(session_id: str) -> dict[str, Any]:
 
 
 def motion_teleop_stop(session_id: str) -> dict[str, Any]:
-    """Stop and remove an active Isaac teleop session."""
+    """Stop and remove an active Isaac teleop session.
+
+    Returns final telemetry: ``stopped``, ``controller_type``,
+    ``tick_count``, ``limit_clamp_count``, ``last_joint_targets_rad``.
+    Cleans up engine resources (World, imported prims) so a subsequent
+    ``teleop_start`` can create a fresh session.
+    """
     session = _active_sessions.get(session_id)
     if session is None:
         return _error_result("NOT_FOUND", f"No active teleop session '{session_id}'")
