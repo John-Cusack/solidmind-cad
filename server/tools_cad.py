@@ -708,6 +708,7 @@ def cad_export_body(
     format: str = "stl",
     path: str | None = None,
     doc: str | None = None,
+    strip_placement: bool = False,
 ) -> dict[str, Any]:
     """Export a single PartDesign body to STL, STEP, or OBJ."""
     client = get_client()
@@ -716,6 +717,8 @@ def cad_export_body(
         kwargs["path"] = path
     if doc is not None:
         kwargs["doc"] = doc
+    if strip_placement:
+        kwargs["strip_placement"] = True
     result = client.send_command("export_body", **kwargs)
     return {"ok": True, **result}
 
@@ -812,7 +815,7 @@ def cad_export_sim_package(
     """
     import os
     from server import motion_store
-    from server.sim_export import build_sim_model, validate_urdf, write_urdf
+    from server.sim_export import MeshBBox, build_sim_model, validate_urdf, validate_urdf_fk, write_urdf
 
     client = get_client()
     kwargs: dict[str, Any] = {"format": format}
@@ -845,10 +848,40 @@ def cad_export_sim_package(
         urdf_path = os.path.join(pkg_dir, f"{sim_model.name}.urdf")
         urdf_path = write_urdf(sim_model, urdf_path)
 
-        # Post-generation validation
+        # Post-generation validation: structural
         urdf_findings = validate_urdf(urdf_path)
+
+        # Post-generation validation: forward-kinematics geometric checks
+        fk_mesh_bboxes: dict[str, MeshBBox] | None = None
+        for entry in body_manifest:
+            bbox_mm = entry.get("bbox_mm")
+            bbox_min_mm = entry.get("bbox_min_mm")
+            if bbox_mm and bbox_min_mm and len(bbox_mm) == 3 and len(bbox_min_mm) == 3:
+                # Map manifest body name to link name (part id)
+                # Find the matching part by body_name
+                for part in mechanism.parts:
+                    bname = part.body_name or part.id
+                    if bname == entry["name"]:
+                        if fk_mesh_bboxes is None:
+                            fk_mesh_bboxes = {}
+                        fk_mesh_bboxes[part.id] = MeshBBox(
+                            min_pt=(bbox_min_mm[0], bbox_min_mm[1], bbox_min_mm[2]),
+                            max_pt=(
+                                bbox_min_mm[0] + bbox_mm[0],
+                                bbox_min_mm[1] + bbox_mm[1],
+                                bbox_min_mm[2] + bbox_mm[2],
+                            ),
+                        )
+                        break
+
+        fk_findings = validate_urdf_fk(
+            urdf_path,
+            mesh_bboxes=fk_mesh_bboxes,
+            ground_clearance_m=ground_clearance_m,
+        )
+        urdf_findings.extend(fk_findings)
+
         blockers = [f for f in urdf_findings if f.severity.value == "block"]
-        warnings = [f for f in urdf_findings if f.severity.value == "warn"]
 
         result["urdf_path"] = urdf_path
         result["sim_model"] = {
@@ -869,4 +902,51 @@ def cad_freecad_info() -> dict[str, Any]:
     """Get FreeCAD runtime environment information (version, modules, workbenches)."""
     client = get_client()
     result = client.send_command("freecad_info")
+    return {"ok": True, **result}
+
+
+@_wrap
+def cad_create_primitive(
+    name: str,
+    shape: str,
+    dimensions: dict[str, Any],
+    position: list[float] | None = None,
+    rotation_axis: list[float] | None = None,
+    rotation_angle_deg: float = 0.0,
+    verify: bool = False,
+    doc: str | None = None,
+) -> dict[str, Any]:
+    """Create a simple positioned solid body in one call."""
+    client = get_client()
+    kwargs: dict[str, Any] = {
+        "name": name,
+        "shape": shape,
+        "dimensions": dimensions,
+        "verify": verify,
+    }
+    if position is not None:
+        kwargs["position"] = position
+    if rotation_axis is not None:
+        kwargs["rotation_axis"] = rotation_axis
+    kwargs["rotation_angle_deg"] = rotation_angle_deg
+    if doc is not None:
+        kwargs["doc"] = doc
+    result = client.send_command("create_primitive", **kwargs)
+    return {"ok": True, **result}
+
+
+@_wrap
+def cad_create_primitives(
+    items: list[dict[str, Any]],
+    verify: bool = True,
+    doc: str | None = None,
+) -> dict[str, Any]:
+    """Create multiple simple positioned solid bodies in one call."""
+    client = get_client()
+    kwargs: dict[str, Any] = {"items": items, "verify": verify}
+    if doc is not None:
+        kwargs["doc"] = doc
+    # Generous timeout: 5s per item + 30s base
+    timeout = max(30.0, 30.0 + len(items) * 5.0)
+    result = client.send_command("create_primitives", timeout=timeout, **kwargs)
     return {"ok": True, **result}

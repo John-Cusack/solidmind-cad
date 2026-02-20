@@ -18,6 +18,7 @@ _URDF_IMPORT_FIELDS: frozenset[str] = frozenset({
     "default_drive_stiffness",
     "default_drive_damping",
     "robot_type",
+    "initial_joint_positions",
 })
 
 # Defaults applied when robot_type == "mobile" and the field is not
@@ -49,19 +50,25 @@ class URDFImportConfig:
     default_drive_stiffness: float = 1000.0
     default_drive_damping: float = 100.0
     robot_type: str = "manipulator"
+    initial_joint_positions: dict[str, float] = field(default_factory=dict)
 
     @classmethod
     def from_dict(cls, d: dict[str, Any] | None) -> URDFImportConfig:
         if not d:
             return cls()
         filtered = {k: v for k, v in d.items() if k in _URDF_IMPORT_FIELDS}
+        # initial_joint_positions needs special handling (not a simple scalar)
+        ijp = filtered.pop("initial_joint_positions", None)
         # Apply mobile-robot defaults for fields not explicitly provided.
         robot_type = filtered.get("robot_type", "manipulator")
         if robot_type == "mobile":
             for key, default_val in _MOBILE_DEFAULTS.items():
                 if key not in d:
                     filtered[key] = default_val
-        return cls(**filtered)
+        config = cls(**filtered)
+        if ijp and isinstance(ijp, dict):
+            object.__setattr__(config, "initial_joint_positions", ijp)
+        return config
 
 
 # ──────────────────────────────────────────────────────────────────────

@@ -506,6 +506,135 @@ class _IsaacWorldEngine:
         except Exception as exc:
             logger.warning("[engine] _configure_drives_post_import failed (non-fatal): %s", exc)
 
+    def _set_initial_positions_usd(
+        self,
+        prim_path: str,
+        positions_deg: dict[str, float],
+    ) -> int:
+        """Set drive target positions AND JointStateAPI on USD prims pre-reset.
+
+        This runs BEFORE world.reset() / create_articulation() so the physics
+        engine sees the correct initial configuration from the very first step.
+        Uses PhysxSchema.JointStateAPI which persists through world.reset().
+        """
+        if not positions_deg:
+            return 0
+
+        import omni.usd  # type: ignore[import-not-found]
+        from pxr import Usd, UsdPhysics, PhysxSchema  # type: ignore[import-not-found]
+
+        stage = omni.usd.get_context().get_stage()
+        root_prim = stage.GetPrimAtPath(prim_path)
+        if not root_prim.IsValid():
+            return 0
+
+        configured = 0
+        for prim in Usd.PrimRange(root_prim):
+            type_name = prim.GetTypeName()
+            if type_name not in _JOINT_TYPE_NAMES:
+                continue
+            prim_name = prim.GetName()
+            for joint_name, angle_deg in positions_deg.items():
+                if joint_name == prim_name or prim_name.endswith(joint_name):
+                    # 1. Set drive target (PD controller goal)
+                    drive_api = UsdPhysics.DriveAPI.Get(prim, "angular")
+                    if drive_api:
+                        drive_api.GetTargetPositionAttr().Set(angle_deg)
+
+                    # 2. Set JointStateAPI (actual initial physics position)
+                    try:
+                        joint_state = PhysxSchema.JointStateAPI.Apply(
+                            prim, UsdPhysics.Tokens.angular
+                        )
+                        joint_state.CreatePositionAttr(angle_deg)
+                        joint_state.CreateVelocityAttr(0.0)
+                    except Exception as exc:
+                        logger.warning(
+                            "[engine] JointStateAPI.Apply failed for %s (non-fatal): %s",
+                            prim_name, exc,
+                        )
+
+                    configured += 1
+                    break
+
+        logger.info(
+            "[engine] _set_initial_positions_usd: set %d drive targets + JointStateAPI attrs",
+            configured,
+        )
+        return configured
+
+    def set_initial_joint_positions(
+        self,
+        prim_path: str,
+        articulation: Any,
+        positions_deg: dict[str, float],
+    ) -> int:
+        """Set initial joint positions on USD drive targets and articulation default state.
+
+        Uses set_joints_default_state() instead of set_joint_positions() so that
+        positions survive world.reset() calls.
+
+        Must be called after create_articulation() and before the final world.reset().
+        Returns the number of USD drive targets configured.
+        """
+        if not positions_deg:
+            return 0
+
+        import omni.usd  # type: ignore[import-not-found]
+        from pxr import Usd, UsdPhysics  # type: ignore[import-not-found]
+
+        stage = omni.usd.get_context().get_stage()
+        root_prim = stage.GetPrimAtPath(prim_path)
+
+        configured = 0
+        if root_prim.IsValid():
+            # Set drive target positions on USD prims
+            for prim in Usd.PrimRange(root_prim):
+                type_name = prim.GetTypeName()
+                if type_name not in _JOINT_TYPE_NAMES:
+                    continue
+                prim_name = prim.GetName()
+                for joint_name, angle_deg in positions_deg.items():
+                    if joint_name == prim_name or prim_name.endswith(joint_name):
+                        drive_api = UsdPhysics.DriveAPI.Get(prim, "angular")
+                        if drive_api:
+                            drive_api.GetTargetPositionAttr().Set(angle_deg)
+                            configured += 1
+                        break
+
+        # Set articulation default state (survives world.reset())
+        name_to_rad = {k: math.radians(v) for k, v in positions_deg.items()}
+        try:
+            import numpy as np  # type: ignore[import-not-found]
+            joint_names = articulation.dof_names
+            if joint_names:
+                current_pos = articulation.get_joint_positions()
+                if current_pos is not None:
+                    new_pos = np.array(current_pos, dtype=np.float32)
+                    for i, jn in enumerate(joint_names):
+                        if jn in name_to_rad:
+                            new_pos[i] = name_to_rad[jn]
+                    num_dof = len(new_pos)
+                    articulation.set_joints_default_state(
+                        positions=new_pos,
+                        velocities=np.zeros(num_dof, dtype=np.float32),
+                        efforts=np.zeros(num_dof, dtype=np.float32),
+                    )
+                    logger.info(
+                        "[engine] set_initial_joint_positions: set default state for %d DOFs",
+                        num_dof,
+                    )
+        except Exception as exc:
+            logger.warning(
+                "[engine] set_joints_default_state failed (non-fatal): %s", exc
+            )
+
+        logger.info(
+            "[engine] set_initial_joint_positions: configured %d drive targets",
+            configured,
+        )
+        return configured
+
     def create_articulation(self, prim_path: str) -> Any:
         """Add an Articulation to the World scene and initialize physics.
 
@@ -617,7 +746,38 @@ class _IsaacWorldEngine:
             """Runs on the main thread (via dispatcher)."""
             self.setup_scene()
             pp, jc, lc = self.import_urdf(urdf_path, config)
+
+            # Phase 1: Set JointStateAPI + drive targets on USD (before world.reset)
+            if config.initial_joint_positions:
+                n = self._set_initial_positions_usd(pp, config.initial_joint_positions)
+                logger.info("[engine] start_simulation: set %d USD initial positions pre-reset", n)
+
+            # Phase 2: create_articulation() calls world.reset() internally
             art = self.create_articulation(pp)
+
+            # Phase 3: Set default state on articulation (survives future resets)
+            if config.initial_joint_positions:
+                self.set_initial_joint_positions(pp, art, config.initial_joint_positions)
+
+                # Reset again — world.reset() re-initializes physics handles,
+                # reads JointStateAPI attrs from USD, and restores default state
+                # set by set_joints_default_state(). Unlike timeline.stop()/play(),
+                # this keeps the articulation handle valid for subsequent stepping.
+                self.world.reset()
+                logger.info("[engine] start_simulation: second world.reset() with default state")
+
+                # Log what the articulation sees after reset
+                try:
+                    dof_names = art.dof_names
+                    cur_pos = art.get_joint_positions()
+                    logger.info("[engine] start_simulation: DOF names: %s", dof_names)
+                    if cur_pos is not None:
+                        logger.info("[engine] start_simulation: joint positions after reset: %s",
+                                    [f"{p:.1f}" for p in cur_pos])
+                except Exception as exc:
+                    logger.warning("[engine] start_simulation: position readback failed: %s", exc)
+
+            # Phase 4: Apply mechanism drives
             warns: list[str] = []
             if mechanism:
                 logger.info("[engine] start_simulation: applying drives...")
@@ -1821,6 +1981,76 @@ class IsaacRuntime:
             logger.warning("[runtime] verification capture failed: %s", exc)
             return []
 
+    def _compute_auto_frame(
+        self,
+        distance_multiplier: float = 2.5,
+    ) -> tuple[list[float], list[float]]:
+        """Compute camera eye/target to frame imported prims.
+
+        Returns (eye, target) as [x,y,z] lists.  Falls back to a
+        sensible close-up default if bbox computation fails.
+        """
+        fallback_eye = [0.5, -0.5, 0.4]
+        fallback_target = [0.0, 0.0, 0.15]
+        try:
+            import omni.usd  # type: ignore[import-not-found]
+            from pxr import Gf, UsdGeom  # type: ignore[import-not-found]
+
+            stage = omni.usd.get_context().get_stage()
+            bbox_cache = UsdGeom.BBoxCache(0.0, [UsdGeom.Tokens.default_])
+
+            combined_min = None
+            combined_max = None
+            for prim_path in self._engine._imported_prims:
+                prim = stage.GetPrimAtPath(prim_path)
+                if not prim.IsValid():
+                    continue
+                bbox = bbox_cache.ComputeWorldBound(prim)
+                box_range = bbox.ComputeAlignedRange()
+                if box_range.IsEmpty():
+                    continue
+                mn = Gf.Vec3d(box_range.GetMin())
+                mx = Gf.Vec3d(box_range.GetMax())
+                if combined_min is None:
+                    combined_min = mn
+                    combined_max = mx
+                else:
+                    combined_min = Gf.Vec3d(
+                        min(combined_min[0], mn[0]),
+                        min(combined_min[1], mn[1]),
+                        min(combined_min[2], mn[2]),
+                    )
+                    combined_max = Gf.Vec3d(
+                        max(combined_max[0], mx[0]),
+                        max(combined_max[1], mx[1]),
+                        max(combined_max[2], mx[2]),
+                    )
+
+            if combined_min is None or combined_max is None:
+                return fallback_eye, fallback_target
+
+            center = (combined_min + combined_max) / 2.0
+            size = combined_max - combined_min
+            radius = max(size.GetLength() / 2.0, 0.01)
+            dist = radius * distance_multiplier
+
+            # Isometric angle: front-right, slightly above
+            direction = Gf.Vec3d(0.577, -0.577, 0.577).GetNormalized()
+            eye = center + direction * dist
+            target = center
+
+            logger.debug(
+                "[runtime] auto-frame: center=%s radius=%.3f dist=%.3f",
+                center, radius, dist,
+            )
+            return (
+                [eye[0], eye[1], eye[2]],
+                [target[0], target[1], target[2]],
+            )
+        except Exception as exc:
+            logger.debug("[runtime] auto-frame failed, using fallback: %s", exc)
+            return fallback_eye, fallback_target
+
     def screenshot(
         self,
         *,
@@ -1854,12 +2084,22 @@ class IsaacRuntime:
                     "No active viewport — is the renderer enabled?",
                 )
 
-            # Optionally reposition camera before capture.
+            # Reposition camera: use explicit params, or auto-frame to scene.
             if camera_position is not None or camera_target is not None:
                 _reposition_camera(
                     viewport,
-                    camera_position or [5.0, 5.0, 5.0],
+                    camera_position or [0.5, -0.5, 0.4],
                     camera_target or [0.0, 0.0, 0.0],
+                    self._engine.sim_app,
+                )
+            else:
+                # Auto-frame: compute scene bbox from imported prims and
+                # place the camera at 2.5x bounding-sphere radius.
+                auto_eye, auto_target = self._compute_auto_frame()
+                _reposition_camera(
+                    viewport,
+                    auto_eye,
+                    auto_target,
                     self._engine.sim_app,
                 )
 

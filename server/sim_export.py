@@ -285,11 +285,12 @@ def build_sim_model(
     # joint's world-frame origin (mm).
     #
     # For joints whose parent is the ground/root part, we auto-compute an
-    # outward yaw so the child frame's local +Y points from the body center
-    # toward the joint position.  This orients legs radially outward on
-    # walking robots (hexapods, quadrupeds, etc.).  Subsequent joints in
-    # the chain inherit the parent's yaw — their world-frame offsets are
-    # rotated into the parent's local frame.
+    # outward yaw so the child frame's local +X points from the body center
+    # toward the joint position.  Body-local meshes extend along +X, so
+    # this orients legs radially outward on walking robots (hexapods,
+    # quadrupeds, etc.).  Subsequent joints in the chain inherit the
+    # parent's yaw — their world-frame offsets are rotated into the
+    # parent's local frame.
     # -----------------------------------------------------------------------
     part_world_pos: dict[str, tuple[float, float, float]] = {}
     part_world_yaw: dict[str, float] = {}  # cumulative Z rotation (rad)
@@ -301,7 +302,7 @@ def build_sim_model(
             ground_parts.add(part.id)
 
     # BFS / iterative pass — compute world pos + yaw for every reachable part.
-    # For root-attached joints: yaw = atan2(-dx, dy) to orient child outward.
+    # For root-attached joints: yaw = atan2(dy, dx) to orient child +X outward.
     # For deeper joints: yaw inherited from parent (no extra rotation).
     joint_added_yaw: dict[str, float] = {}  # joint_id -> yaw added by this joint
     remaining = list(mechanism.joints)
@@ -316,14 +317,16 @@ def build_sim_model(
                 parent_yaw = part_world_yaw.get(jedge.parent_part, 0.0)
 
                 # Auto-compute outward yaw for root-attached joints.
-                # Formula: atan2(-dx, dy) orients child +Y toward (dx, dy).
+                # Formula: atan2(dy, dx) orients child +X toward (dx, dy).
+                # Body-local meshes extend along +X, so this aligns them
+                # radially outward from the body center.
                 added_yaw = 0.0
                 if jedge.parent_part in ground_parts:
                     ppos = part_world_pos[jedge.parent_part]
                     dx = jedge.origin[0] - ppos[0]
                     dy = jedge.origin[1] - ppos[1]
                     if abs(dx) > 1e-6 or abs(dy) > 1e-6:
-                        added_yaw = math.atan2(-dx, dy)
+                        added_yaw = math.atan2(dy, dx)
 
                 joint_added_yaw[jedge.id] = added_yaw
                 part_world_yaw[jedge.child_part] = parent_yaw + added_yaw
@@ -371,17 +374,9 @@ def build_sim_model(
         if abs(added_yaw) > 1e-9:
             origin_rpy = (0.0, 0.0, added_yaw)
         else:
-            # Fall back to manifest placements (relative quaternion → rpy).
-            parent_plc = link_placement.get(parent_link)
-            child_plc = link_placement.get(child_link)
-            if parent_plc is not None and child_plc is not None:
-                q_parent = parent_plc[1]
-                q_child = child_plc[1]
-                q_parent_inv = _quat_inverse(*q_parent)
-                q_relative = _quat_multiply(*q_parent_inv, *q_child)
-                origin_rpy = _quat_to_rpy(*q_relative)
-            else:
-                origin_rpy = (0.0, 0.0, 0.0)
+            # Bug 2 fix: with body-local meshes, pitch/roll come from joint
+            # angle targets at runtime — never bake manifest quaternions here.
+            origin_rpy = (0.0, 0.0, 0.0)
 
         # Limits — required for revolute and prismatic URDF joint types.
         # Use mechanism data when available, otherwise provide sensible defaults
@@ -432,12 +427,27 @@ def build_sim_model(
                 if parent_joints:
                     mimic = (parent_joints[0].id, ratio)
 
+        # Bug 3 fix: rotate world-frame axis into child link's local frame.
+        # The child frame is rotated by (parent_yaw + added_yaw) from world,
+        # which is stored as part_world_yaw[child].  Use that so root-attached
+        # joints with non-Z axes are also handled correctly.
+        child_yaw = part_world_yaw.get(jedge.child_part, 0.0)
+        if abs(child_yaw) > 1e-9:
+            ax, ay, az = jedge.axis
+            c = math.cos(-child_yaw)
+            s = math.sin(-child_yaw)
+            local_axis = (ax * c - ay * s, ax * s + ay * c, az)
+            mag = math.sqrt(sum(a * a for a in local_axis))
+            local_axis = tuple(a / mag for a in local_axis)
+        else:
+            local_axis = jedge.axis
+
         joints.append(SimJoint(
             name=joint_name,
             joint_type=joint_type,
             parent=parent_link,
             child=child_link,
-            axis=jedge.axis,
+            axis=local_axis,
             origin_xyz=origin_xyz,
             origin_rpy=origin_rpy,
             limits=limits,
@@ -863,5 +873,500 @@ def validate_urdf(path: str) -> list[Finding]:
                     f"{', '.join(unique_links)}"
                 ),
             ))
+
+    return findings
+
+
+# ---------------------------------------------------------------------------
+# Forward-kinematics URDF validator
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True, slots=True)
+class MeshBBox:
+    """Axis-aligned bounding box in body-local mm coordinates."""
+    min_pt: tuple[float, float, float]
+    max_pt: tuple[float, float, float]
+
+
+def _rpy_to_matrix(r: float, p: float, y: float) -> list[list[float]]:
+    """Convert URDF fixed-axis XYZ roll-pitch-yaw to a 3x3 rotation matrix.
+
+    URDF convention: R = Rz(yaw) * Ry(pitch) * Rx(roll).
+    """
+    cr, sr = math.cos(r), math.sin(r)
+    cp, sp = math.cos(p), math.sin(p)
+    cy, sy = math.cos(y), math.sin(y)
+    return [
+        [cy * cp, cy * sp * sr - sy * cr, cy * sp * cr + sy * sr],
+        [sy * cp, sy * sp * sr + cy * cr, sy * sp * cr - cy * sr],
+        [-sp,     cp * sr,                cp * cr],
+    ]
+
+
+def _make_transform_4x4(
+    xyz: tuple[float, float, float],
+    rpy: tuple[float, float, float],
+) -> list[list[float]]:
+    """Build a 4x4 homogeneous transform from URDF origin (xyz, rpy)."""
+    rot = _rpy_to_matrix(rpy[0], rpy[1], rpy[2])
+    return [
+        [rot[0][0], rot[0][1], rot[0][2], xyz[0]],
+        [rot[1][0], rot[1][1], rot[1][2], xyz[1]],
+        [rot[2][0], rot[2][1], rot[2][2], xyz[2]],
+        [0.0,       0.0,       0.0,       1.0],
+    ]
+
+
+def _multiply_4x4(
+    a: list[list[float]], b: list[list[float]],
+) -> list[list[float]]:
+    """Multiply two 4x4 matrices."""
+    result = [[0.0] * 4 for _ in range(4)]
+    for i in range(4):
+        for j in range(4):
+            s = 0.0
+            for k in range(4):
+                s += a[i][k] * b[k][j]
+            result[i][j] = s
+    return result
+
+
+def _transform_point(
+    t: list[list[float]], pt: tuple[float, float, float],
+) -> tuple[float, float, float]:
+    """Apply a 4x4 transform to a 3D point."""
+    x = t[0][0] * pt[0] + t[0][1] * pt[1] + t[0][2] * pt[2] + t[0][3]
+    y = t[1][0] * pt[0] + t[1][1] * pt[1] + t[1][2] * pt[2] + t[1][3]
+    z = t[2][0] * pt[0] + t[2][1] * pt[1] + t[2][2] * pt[2] + t[2][3]
+    return (x, y, z)
+
+
+def _bbox_corners(bbox: MeshBBox) -> list[tuple[float, float, float]]:
+    """Return the 8 corners of an axis-aligned bounding box."""
+    lo, hi = bbox.min_pt, bbox.max_pt
+    return [
+        (lo[0], lo[1], lo[2]),
+        (lo[0], lo[1], hi[2]),
+        (lo[0], hi[1], lo[2]),
+        (lo[0], hi[1], hi[2]),
+        (hi[0], lo[1], lo[2]),
+        (hi[0], lo[1], hi[2]),
+        (hi[0], hi[1], lo[2]),
+        (hi[0], hi[1], hi[2]),
+    ]
+
+
+def _transform_bbox(
+    t: list[list[float]],
+    bbox: MeshBBox,
+    scale: float = 1.0,
+) -> tuple[tuple[float, float, float], tuple[float, float, float]]:
+    """Transform bbox corners through T (with uniform scale), return world AABB (min, max)."""
+    corners = _bbox_corners(bbox)
+    xs: list[float] = []
+    ys: list[float] = []
+    zs: list[float] = []
+    for corner in corners:
+        scaled = (corner[0] * scale, corner[1] * scale, corner[2] * scale)
+        wp = _transform_point(t, scaled)
+        xs.append(wp[0])
+        ys.append(wp[1])
+        zs.append(wp[2])
+    return (
+        (min(xs), min(ys), min(zs)),
+        (max(xs), max(ys), max(zs)),
+    )
+
+
+def _dot3(a: tuple[float, float, float], b: tuple[float, float, float]) -> float:
+    return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+
+
+def _aabb_volume(
+    lo: tuple[float, float, float], hi: tuple[float, float, float],
+) -> float:
+    dx = max(0.0, hi[0] - lo[0])
+    dy = max(0.0, hi[1] - lo[1])
+    dz = max(0.0, hi[2] - lo[2])
+    return dx * dy * dz
+
+
+def _aabb_overlap_volume(
+    lo1: tuple[float, float, float], hi1: tuple[float, float, float],
+    lo2: tuple[float, float, float], hi2: tuple[float, float, float],
+) -> float:
+    """Compute overlap volume of two AABBs. Returns 0 if no overlap."""
+    ox = max(0.0, min(hi1[0], hi2[0]) - max(lo1[0], lo2[0]))
+    oy = max(0.0, min(hi1[1], hi2[1]) - max(lo1[1], lo2[1]))
+    oz = max(0.0, min(hi1[2], hi2[2]) - max(lo1[2], lo2[2]))
+    return ox * oy * oz
+
+
+def validate_urdf_fk(
+    path: str,
+    mesh_bboxes: dict[str, MeshBBox] | None = None,
+    ground_clearance_m: float | None = None,
+) -> list[Finding]:
+    """Parse a URDF and run forward-kinematics geometric checks.
+
+    Catches assembly bugs that structural validation (``validate_urdf``) misses:
+    world-frame meshes, baked pitch in RPY, world-frame axes, yaw conventions.
+
+    Args:
+        path: Path to the URDF file.
+        mesh_bboxes: Per-link body-local bounding boxes in mm.
+        ground_clearance_m: Expected chassis height above ground (meters).
+
+    Returns:
+        List of Finding objects.
+    """
+    findings: list[Finding] = []
+    tree = ET.parse(path)
+    root = tree.getroot()
+
+    if root.tag != "robot":
+        return findings
+
+    # Parse links and joints from URDF
+    links_el = root.findall("link")
+    joints_el = root.findall("joint")
+
+    link_names = {lk.attrib.get("name", "") for lk in links_el}
+
+    # Build parent->child adjacency and joint data
+    joint_data: dict[str, dict[str, Any]] = {}  # joint_name -> {parent, child, xyz, rpy, axis, type}
+    parent_to_joints: dict[str, list[str]] = {}  # parent_link -> [joint_names]
+    child_to_joint: dict[str, str] = {}  # child_link -> joint_name
+
+    for jel in joints_el:
+        jname = jel.attrib.get("name", "")
+        jtype = jel.attrib.get("type", "")
+        parent_el = jel.find("parent")
+        child_el = jel.find("child")
+        if parent_el is None or child_el is None:
+            continue
+        plink = parent_el.attrib.get("link", "")
+        clink = child_el.attrib.get("link", "")
+
+        origin_el = jel.find("origin")
+        xyz = (0.0, 0.0, 0.0)
+        rpy = (0.0, 0.0, 0.0)
+        if origin_el is not None:
+            xyz_str = origin_el.attrib.get("xyz", "0 0 0")
+            rpy_str = origin_el.attrib.get("rpy", "0 0 0")
+            try:
+                xyz_vals = [float(v) for v in xyz_str.split()]
+                xyz = (xyz_vals[0], xyz_vals[1], xyz_vals[2])
+            except (ValueError, IndexError):
+                pass
+            try:
+                rpy_vals = [float(v) for v in rpy_str.split()]
+                rpy = (rpy_vals[0], rpy_vals[1], rpy_vals[2])
+            except (ValueError, IndexError):
+                pass
+
+        axis_el = jel.find("axis")
+        axis = (0.0, 0.0, 1.0)
+        if axis_el is not None:
+            try:
+                axis_vals = [float(v) for v in axis_el.attrib.get("xyz", "0 0 1").split()]
+                axis = (axis_vals[0], axis_vals[1], axis_vals[2])
+            except (ValueError, IndexError):
+                pass
+
+        joint_data[jname] = {
+            "parent": plink,
+            "child": clink,
+            "xyz": xyz,
+            "rpy": rpy,
+            "axis": axis,
+            "type": jtype,
+        }
+        parent_to_joints.setdefault(plink, []).append(jname)
+        child_to_joint[clink] = jname
+
+    # Find root link (not a child of any joint)
+    child_links = set(child_to_joint.keys())
+    root_links = link_names - child_links
+    if not root_links:
+        return findings
+    root_link = sorted(root_links)[0]
+
+    # Compute world transforms for each link via BFS
+    identity_4x4 = _make_transform_4x4((0.0, 0.0, 0.0), (0.0, 0.0, 0.0))
+    link_world_tf: dict[str, list[list[float]]] = {root_link: identity_4x4}
+
+    queue = [root_link]
+    visited: set[str] = {root_link}
+    while queue:
+        current = queue.pop(0)
+        for jname in parent_to_joints.get(current, []):
+            jd = joint_data[jname]
+            child = jd["child"]
+            if child in visited:
+                continue
+            joint_tf = _make_transform_4x4(jd["xyz"], jd["rpy"])
+            parent_tf = link_world_tf[current]
+            link_world_tf[child] = _multiply_4x4(parent_tf, joint_tf)
+            visited.add(child)
+            queue.append(child)
+
+    # --- Check 1: urdf.fk.chassis_height ---
+    # Find the chassis link (first link with a mesh that's a direct child of
+    # root_link via fixed joint, or the root_link itself if it has a mesh).
+    if ground_clearance_m is not None:
+        chassis_link = None
+        # Check if root_link has a direct fixed-joint child (base_link pattern)
+        for jname in parent_to_joints.get(root_link, []):
+            jd = joint_data[jname]
+            if jd["type"] == "fixed":
+                chassis_link = jd["child"]
+                break
+        if chassis_link is None:
+            chassis_link = root_link
+
+        if chassis_link in link_world_tf:
+            chassis_tf = link_world_tf[chassis_link]
+            chassis_z = chassis_tf[2][3]  # Z translation in world
+            diff = abs(chassis_z - ground_clearance_m)
+            if diff > 0.010:  # 10mm tolerance
+                findings.append(Finding(
+                    rule_id="urdf.fk.chassis_height",
+                    severity=Severity.WARN,
+                    message=(
+                        f"Chassis '{chassis_link}' at Z={chassis_z:.4f}m, "
+                        f"expected {ground_clearance_m:.4f}m (diff {diff:.4f}m)"
+                    ),
+                    field=f"link/{chassis_link}",
+                ))
+
+    # --- Check 2: urdf.fk.link_chain_gap ---
+    # Parent mesh tip (max local +X, transformed to world) should be within
+    # 5mm of child joint origin.  Skip multi-child parents (e.g. chassis)
+    # where the "+X tip" concept doesn't apply.
+    if mesh_bboxes:
+        _SCALE_MM_TO_M = 0.001
+        _GAP_TOLERANCE_M = 0.005  # 5mm
+
+        # Count children per parent to skip multi-child bodies
+        parent_child_count: dict[str, int] = {}
+        for jd in joint_data.values():
+            parent_child_count[jd["parent"]] = parent_child_count.get(jd["parent"], 0) + 1
+
+        for jname, jd in joint_data.items():
+            parent = jd["parent"]
+            if parent not in mesh_bboxes or parent not in link_world_tf:
+                continue
+            # Skip multi-child parents (chassis, hubs) — tip check only
+            # makes sense for serial chain links with one child.
+            if parent_child_count.get(parent, 0) > 1:
+                continue
+            parent_bbox = mesh_bboxes[parent]
+            parent_tf = link_world_tf[parent]
+
+            # Parent mesh tip: point at max local +X, centered Y/Z
+            mid_y = (parent_bbox.min_pt[1] + parent_bbox.max_pt[1]) / 2.0
+            mid_z = (parent_bbox.min_pt[2] + parent_bbox.max_pt[2]) / 2.0
+            tip_local_mm = (parent_bbox.max_pt[0], mid_y, mid_z)
+            tip_local_m = (
+                tip_local_mm[0] * _SCALE_MM_TO_M,
+                tip_local_mm[1] * _SCALE_MM_TO_M,
+                tip_local_mm[2] * _SCALE_MM_TO_M,
+            )
+            tip_world = _transform_point(parent_tf, tip_local_m)
+
+            # Child joint origin in world
+            child = jd["child"]
+            if child in link_world_tf:
+                child_origin = (
+                    link_world_tf[child][0][3],
+                    link_world_tf[child][1][3],
+                    link_world_tf[child][2][3],
+                )
+                gap = math.sqrt(sum(
+                    (tip_world[i] - child_origin[i]) ** 2 for i in range(3)
+                ))
+                if gap > _GAP_TOLERANCE_M:
+                    findings.append(Finding(
+                        rule_id="urdf.fk.link_chain_gap",
+                        severity=Severity.BLOCK,
+                        message=(
+                            f"Gap {gap * 1000:.1f}mm between '{parent}' mesh tip "
+                            f"and '{child}' joint origin (max 5mm)"
+                        ),
+                        field=f"joint/{jname}",
+                    ))
+
+    # --- Check 3: urdf.fk.tibia_tip_height ---
+    # Tibia tips should be between ground (z=0) and chassis height at zero angles.
+    if mesh_bboxes:
+        for lname in link_names:
+            if "tibia" not in lname.lower():
+                continue
+            if lname not in mesh_bboxes or lname not in link_world_tf:
+                continue
+            tibia_bbox = mesh_bboxes[lname]
+            tibia_tf = link_world_tf[lname]
+
+            # Tibia tip: max local +X
+            mid_y = (tibia_bbox.min_pt[1] + tibia_bbox.max_pt[1]) / 2.0
+            mid_z = (tibia_bbox.min_pt[2] + tibia_bbox.max_pt[2]) / 2.0
+            tip_local_m = (
+                tibia_bbox.max_pt[0] * 0.001,
+                mid_y * 0.001,
+                mid_z * 0.001,
+            )
+            tip_world = _transform_point(tibia_tf, tip_local_m)
+            tip_z = tip_world[2]
+
+            chassis_max_z = ground_clearance_m if ground_clearance_m else 0.5
+            if tip_z < -0.010 or tip_z > chassis_max_z + 0.050:
+                findings.append(Finding(
+                    rule_id="urdf.fk.tibia_tip_height",
+                    severity=Severity.WARN,
+                    message=(
+                        f"Tibia '{lname}' tip at Z={tip_z:.4f}m "
+                        f"(expected between 0 and {chassis_max_z:.3f}m)"
+                    ),
+                    field=f"link/{lname}",
+                ))
+
+    # --- Check 4: urdf.fk.coxa_yaw_matches_radial ---
+    # Coxa joints attached to chassis should have RPY yaw ≈ atan2(origin_y, origin_x).
+    for jname, jd in joint_data.items():
+        if "coxa" not in jname.lower():
+            continue
+        origin = jd["xyz"]
+        # Only check if this is a root-attached joint (parent is root or chassis)
+        parent = jd["parent"]
+        if parent not in root_links:
+            # Check if parent is attached to root via fixed joint
+            parent_joint_name = child_to_joint.get(parent)
+            if parent_joint_name is None:
+                continue
+            pjd = joint_data.get(parent_joint_name, {})
+            if pjd.get("type") != "fixed" or pjd.get("parent") not in root_links:
+                continue
+
+        # Compute the world-frame position of this joint
+        if parent in link_world_tf:
+            parent_tf = link_world_tf[parent]
+            joint_world = _transform_point(parent_tf, origin)
+            expected_yaw = math.atan2(joint_world[1], joint_world[0])
+
+            # The joint rpy yaw is in the URDF
+            actual_yaw = jd["rpy"][2]
+            yaw_diff = abs(actual_yaw - expected_yaw)
+            # Handle wraparound
+            if yaw_diff > math.pi:
+                yaw_diff = 2 * math.pi - yaw_diff
+            if yaw_diff > 0.02:  # ~1.1 degrees
+                findings.append(Finding(
+                    rule_id="urdf.fk.coxa_yaw_matches_radial",
+                    severity=Severity.WARN,
+                    message=(
+                        f"Coxa joint '{jname}' yaw={actual_yaw:.4f} rad, "
+                        f"expected atan2(y,x)={expected_yaw:.4f} rad "
+                        f"(diff {yaw_diff:.4f} rad)"
+                    ),
+                    field=f"joint/{jname}",
+                ))
+
+    # --- Check 5: urdf.fk.pitch_axis_local ---
+    # Femur/tibia joint axes should be ≈ (0, ±1, 0) in local frame.
+    for jname, jd in joint_data.items():
+        name_lower = jname.lower()
+        if "femur" not in name_lower and "tibia" not in name_lower:
+            continue
+        if jd["type"] != "revolute":
+            continue
+        axis = jd["axis"]
+        # Check if axis is approximately (0, ±1, 0)
+        dot_y = abs(axis[1])
+        if dot_y < 0.99:
+            findings.append(Finding(
+                rule_id="urdf.fk.pitch_axis_local",
+                severity=Severity.WARN,
+                message=(
+                    f"Joint '{jname}' axis ({axis[0]:.3f}, {axis[1]:.3f}, "
+                    f"{axis[2]:.3f}) not aligned with local Y (dot={dot_y:.4f}, "
+                    f"expected >0.99)"
+                ),
+                field=f"joint/{jname}/axis",
+            ))
+
+    # --- Check 6: urdf.fk.bilateral_symmetry ---
+    # Collect leg joint world positions; left legs (y>0) should mirror right (y<0).
+    leg_positions: dict[str, tuple[float, float, float]] = {}
+    for jname, jd in joint_data.items():
+        if "coxa" not in jname.lower():
+            continue
+        child = jd["child"]
+        if child in link_world_tf:
+            tf = link_world_tf[child]
+            leg_positions[jname] = (tf[0][3], tf[1][3], tf[2][3])
+
+    if len(leg_positions) >= 4:
+        left_legs = {n: p for n, p in leg_positions.items() if p[1] > 0.001}
+        right_legs = {n: p for n, p in leg_positions.items() if p[1] < -0.001}
+
+        if left_legs and right_legs and len(left_legs) == len(right_legs):
+            left_sorted = sorted(left_legs.values(), key=lambda p: (p[0], p[1]))
+            right_sorted = sorted(right_legs.values(), key=lambda p: (p[0], -p[1]))
+
+            for lp, rp in zip(left_sorted, right_sorted):
+                dx = abs(lp[0] - rp[0])
+                dy = abs(lp[1] - (-rp[1]))  # mirror about XZ
+                dz = abs(lp[2] - rp[2])
+                max_diff_mm = max(dx, dy, dz) * 1000
+                if max_diff_mm > 1.0:
+                    findings.append(Finding(
+                        rule_id="urdf.fk.bilateral_symmetry",
+                        severity=Severity.WARN,
+                        message=(
+                            f"Bilateral asymmetry: left ({lp[0]:.4f}, {lp[1]:.4f}, "
+                            f"{lp[2]:.4f}) vs mirrored right ({rp[0]:.4f}, "
+                            f"{-rp[1]:.4f}, {rp[2]:.4f}), max diff {max_diff_mm:.1f}mm"
+                        ),
+                    ))
+
+    # --- Check 7: urdf.fk.no_mesh_overlap ---
+    # Non-parent-child link world AABBs shouldn't overlap > 10% of smaller volume.
+    if mesh_bboxes:
+        _SCALE = 0.001
+        link_world_aabb: dict[str, tuple[tuple[float, float, float], tuple[float, float, float]]] = {}
+        for lname in link_names:
+            if lname in mesh_bboxes and lname in link_world_tf:
+                lo, hi = _transform_bbox(link_world_tf[lname], mesh_bboxes[lname], _SCALE)
+                link_world_aabb[lname] = (lo, hi)
+
+        # Build parent-child set for exclusion
+        parent_child_pairs: set[frozenset[str]] = set()
+        for jd in joint_data.values():
+            parent_child_pairs.add(frozenset({jd["parent"], jd["child"]}))
+
+        aabb_names = sorted(link_world_aabb.keys())
+        for i in range(len(aabb_names)):
+            for j in range(i + 1, len(aabb_names)):
+                n1, n2 = aabb_names[i], aabb_names[j]
+                if frozenset({n1, n2}) in parent_child_pairs:
+                    continue
+                lo1, hi1 = link_world_aabb[n1]
+                lo2, hi2 = link_world_aabb[n2]
+                overlap = _aabb_overlap_volume(lo1, hi1, lo2, hi2)
+                if overlap <= 0:
+                    continue
+                v1 = _aabb_volume(lo1, hi1)
+                v2 = _aabb_volume(lo2, hi2)
+                smaller = min(v1, v2)
+                if smaller > 0 and overlap / smaller > 0.10:
+                    findings.append(Finding(
+                        rule_id="urdf.fk.no_mesh_overlap",
+                        severity=Severity.WARN,
+                        message=(
+                            f"Links '{n1}' and '{n2}' AABBs overlap "
+                            f"{overlap / smaller * 100:.0f}% of smaller volume"
+                        ),
+                    ))
 
     return findings

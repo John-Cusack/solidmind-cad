@@ -80,6 +80,8 @@ from server.tools_cad import (
     cad_animate,
     cad_animate_stop,
     cad_chamfer,
+    cad_create_primitive,
+    cad_create_primitives,
     cad_define_selection,
     cad_delete_objects,
     cad_delete_selection,
@@ -884,6 +886,15 @@ def _cad_tool_list() -> list[dict[str, Any]]:
                     "format": {"type": "string", "enum": ["stl", "step", "obj"], "default": "stl"},
                     "path": {"type": "string", "description": "Output file path (optional, auto-generated if omitted)"},
                     "doc": {"type": "string", "description": "Document name (optional)"},
+                    "strip_placement": {
+                        "type": "boolean",
+                        "default": False,
+                        "description": (
+                            "Zero the Body Placement before export so mesh vertices are in "
+                            "body-local coordinates. Use for sim-package-style exports. "
+                            "Default false preserves world coordinates."
+                        ),
+                    },
                 },
                 "required": ["body"],
                 "additionalProperties": False,
@@ -1027,6 +1038,91 @@ def _cad_tool_list() -> list[dict[str, Any]]:
             "description": "Stop any running animation in FreeCAD viewport.",
             "inputSchema": {
                 "type": "object",
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "cad.create_primitive",
+            "description": (
+                "Create a simple solid body (box or cylinder) with position and orientation in one call. "
+                "Combines body creation, sketch, pad, and placement. Use for fasteners, motor housings, "
+                "standoffs, and any case where you need a positioned primitive without complex features."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "Body name (e.g. 'Servo_hip_yaw_L1')"},
+                    "shape": {"type": "string", "enum": ["box", "cylinder"], "description": "Primitive shape type"},
+                    "dimensions": {
+                        "type": "object",
+                        "description": "Shape dimensions in mm. Box: {length, width, height}. Cylinder: {radius, height}.",
+                        "properties": {
+                            "length": {"type": "number", "description": "Box length along local X (mm)"},
+                            "width": {"type": "number", "description": "Box width along local Y (mm)"},
+                            "height": {"type": "number", "description": "Extrusion height along local Z (mm)"},
+                            "radius": {"type": "number", "description": "Cylinder radius (mm)"},
+                        },
+                    },
+                    "position": {
+                        "type": "array",
+                        "items": {"type": "number"},
+                        "description": "World position [x, y, z] in mm. The primitive is centered at this point.",
+                    },
+                    "rotation_axis": {
+                        "type": "array",
+                        "items": {"type": "number"},
+                        "description": "Rotation axis [ax, ay, az] (default: [0, 0, 1])",
+                    },
+                    "rotation_angle_deg": {
+                        "type": "number",
+                        "description": "Rotation angle in degrees (default: 0)",
+                        "default": 0,
+                    },
+                    "verify": {
+                        "type": "boolean",
+                        "description": "Capture verification screenshots (default: false for primitives)",
+                        "default": False,
+                    },
+                    "doc": {"type": "string", "description": "Document name (optional)"},
+                },
+                "required": ["name", "shape", "dimensions"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "cad.create_primitives",
+            "description": (
+                "Create multiple simple solid bodies in one call. Each item has the same schema as "
+                "cad.create_primitive. Use when placing many identical or similar bodies (servos, "
+                "fasteners, standoffs)."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "items": {
+                        "type": "array",
+                        "description": "List of primitive specs",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "name": {"type": "string"},
+                                "shape": {"type": "string", "enum": ["box", "cylinder"]},
+                                "dimensions": {"type": "object"},
+                                "position": {"type": "array", "items": {"type": "number"}},
+                                "rotation_axis": {"type": "array", "items": {"type": "number"}},
+                                "rotation_angle_deg": {"type": "number", "default": 0},
+                            },
+                            "required": ["name", "shape", "dimensions"],
+                        },
+                    },
+                    "verify": {
+                        "type": "boolean",
+                        "description": "Capture one verification screenshot after all primitives are created (default: true)",
+                        "default": True,
+                    },
+                    "doc": {"type": "string", "description": "Document name (optional)"},
+                },
+                "required": ["items"],
                 "additionalProperties": False,
             },
         },
@@ -2169,6 +2265,8 @@ _CAD_DISPATCH: dict[str, Any] = {
     "cad.animate": cad_animate,
     "cad.animate_stop": cad_animate_stop,
     "cad.freecad_info": cad_freecad_info,
+    "cad.create_primitive": cad_create_primitive,
+    "cad.create_primitives": cad_create_primitives,
 }
 
 _MFG_DISPATCH: dict[str, Any] = {

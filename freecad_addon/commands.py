@@ -2127,33 +2127,26 @@ def export_sim_package(
             logger.warning("Skipping body '%s' — no valid shape", body_obj.Name)
             continue
 
-        # Export mesh in body-local coordinates by stripping the Body's
-        # Placement.  FreeCAD's PartDesign::Body.Shape returns geometry
-        # in world coordinates (Placement applied).  URDF expects mesh
-        # vertices relative to the link frame — the joint chain handles
-        # world positioning.
-        plc = body_obj.Placement
-        if plc.Base.Length > 1e-6 or plc.Rotation.Angle > 1e-6:
-            local_shape = shape.copy()
-            local_shape.transformShape(plc.inverse().toMatrix())
-        else:
-            local_shape = shape
-
+        # Export mesh in body-local coordinates.
+        # FreeCAD's PartDesign::Body.Shape includes the Placement in
+        # its vertex data.  URDF expects mesh vertices relative to the
+        # link frame — the joint chain handles world positioning.
+        # Temporarily zero the Body Placement so Shape is re-evaluated
+        # in local coordinates, export, then restore.
         mesh_path = str(Path(output_dir) / f"{body_obj.Name}{suffix}")
+        saved_plc = body_obj.Placement
+        body_obj.Placement = FreeCAD.Placement()  # type: ignore[name-defined]
+        local_shape = body_obj.Shape
         if fmt == "step":
             local_shape.exportStep(mesh_path)
         elif fmt == "stl":
             local_shape.exportStl(mesh_path)
         elif fmt == "obj":
             import Mesh  # type: ignore[import-untyped]
-            # OBJ export via Mesh module uses the object directly — apply
-            # inverse placement temporarily.
-            saved_plc = body_obj.Placement
-            body_obj.Placement = FreeCAD.Placement()  # type: ignore[name-defined]
             Mesh.export([body_obj], mesh_path)
-            body_obj.Placement = saved_plc
         else:
             raise ValueError(f"Unsupported format: {format}")
+        body_obj.Placement = saved_plc
 
         # Extract placement as position + quaternion
         plc = body_obj.Placement
@@ -2192,11 +2185,17 @@ def export_body(
     format: str = "stl",
     path: str | None = None,
     doc: str | None = None,
+    strip_placement: bool = False,
 ) -> dict[str, Any]:
     """Export a single PartDesign body to STL, STEP, or OBJ.
 
     Required for per-body mesh export (Tier 2 assembly + Tier 3 Chrono).
     Each rigid body in a mechanism needs its own mesh file.
+
+    When ``strip_placement`` is True the Body's Placement is temporarily
+    zeroed before export so the mesh vertices are in body-local coordinates
+    (matching ``export_sim_package`` behavior).  Default False preserves
+    backward compat — standalone exports keep world coordinates.
     """
     d = _get_doc(doc)
     body_obj = d.getObject(body)
@@ -2212,15 +2211,25 @@ def export_body(
         suffix = {"step": ".step", "stl": ".stl", "obj": ".obj"}.get(fmt, ".stl")
         path = str(Path(tempfile.gettempdir()) / f"{body}{suffix}")
 
-    if fmt == "step":
-        shape.exportStep(path)
-    elif fmt == "stl":
-        shape.exportStl(path)
-    elif fmt == "obj":
-        import Mesh  # type: ignore[import-untyped]
-        Mesh.export([body_obj], path)
-    else:
-        raise ValueError(f"Unsupported format: {format}")
+    saved_plc = None
+    if strip_placement:
+        saved_plc = body_obj.Placement
+        body_obj.Placement = FreeCAD.Placement()  # type: ignore[name-defined]
+        shape = body_obj.Shape  # re-evaluate with zeroed placement
+
+    try:
+        if fmt == "step":
+            shape.exportStep(path)
+        elif fmt == "stl":
+            shape.exportStl(path)
+        elif fmt == "obj":
+            import Mesh  # type: ignore[import-untyped]
+            Mesh.export([body_obj], path)
+        else:
+            raise ValueError(f"Unsupported format: {format}")
+    finally:
+        if saved_plc is not None:
+            body_obj.Placement = saved_plc
 
     return {"path": path, "format": fmt, "body": body}
 
@@ -3524,6 +3533,185 @@ def set_placement(
     }
 
 
+# ---------------------------------------------------------------------------
+# Compound Primitives
+# ---------------------------------------------------------------------------
+
+_BOX_KEYS = {"length", "width", "height"}
+_CYLINDER_KEYS = {"radius", "height"}
+
+
+def _build_primitive(
+    d: Any,
+    name: str,
+    shape: str,
+    dimensions: dict[str, float],
+) -> tuple[Any, Any, Any]:
+    """Create a body + sketch + pad for a primitive shape.
+
+    Returns ``(body, sketch, pad_obj)`` so the caller can apply placement
+    and verification independently.
+    """
+    # --- Validate shape ---
+    if shape not in ("box", "cylinder"):
+        raise ValueError(f"Unsupported shape '{shape}'. Must be 'box' or 'cylinder'.")
+
+    # --- Validate dimensions ---
+    if shape == "box":
+        missing = _BOX_KEYS - dimensions.keys()
+        if missing:
+            raise ValueError(f"Box requires dimensions: {sorted(_BOX_KEYS)}. Missing: {sorted(missing)}")
+    else:
+        missing = _CYLINDER_KEYS - dimensions.keys()
+        if missing:
+            raise ValueError(f"Cylinder requires dimensions: {sorted(_CYLINDER_KEYS)}. Missing: {sorted(missing)}")
+
+    for key, val in dimensions.items():
+        if not isinstance(val, (int, float)) or val <= 0:
+            raise ValueError(f"Dimension '{key}' must be a positive number, got {val!r}")
+
+    # --- Create body ---
+    body = d.addObject("PartDesign::Body", name)
+
+    # --- Create sketch on XY ---
+    sketch = d.addObject("Sketcher::SketchObject", "Sketch")
+    body.addObject(sketch)
+    sketch.Placement = FreeCAD.Placement(
+        FreeCAD.Vector(0, 0, 0),
+        FreeCAD.Rotation(FreeCAD.Vector(0, 0, 1), 0),
+    )
+    d.recompute()
+
+    # --- Populate sketch using existing sketch_populate ---
+    if shape == "box":
+        length = dimensions["length"]
+        width = dimensions["width"]
+        elements = [{"type": "rect", "x": -length / 2, "y": -width / 2, "w": length, "h": width}]
+    else:
+        elements = [{"type": "circle", "cx": 0, "cy": 0, "r": dimensions["radius"]}]
+
+    sketch_populate(sketch=sketch.Name, elements=elements, doc=d.Name)
+
+    # --- Pad with Midplane (symmetric) ---
+    height = dimensions["height"]
+    pad_obj = d.addObject("PartDesign::Pad", "Pad")
+    body.addObject(pad_obj)
+    pad_obj.Profile = sketch
+    pad_obj.Length = height
+    pad_obj.Midplane = True
+
+    op_context = {"op": "create_primitive", "shape": shape, "name": name}
+    _recompute_and_check(d, pad_obj, body=body, op_context=op_context)
+
+    return body, sketch, pad_obj
+
+
+def create_primitive(
+    name: str,
+    shape: str,
+    dimensions: dict[str, float],
+    position: list[float] | None = None,
+    rotation_axis: list[float] | None = None,
+    rotation_angle_deg: float = 0.0,
+    verify: bool = False,
+    doc: str | None = None,
+) -> dict[str, Any]:
+    """Create a simple positioned solid body (box or cylinder) in one call."""
+    logger.info("create_primitive: name=%s shape=%s dims=%s", name, shape, dimensions)
+    d = _get_doc(doc)
+
+    body, sketch, pad_obj = _build_primitive(d, name, shape, dimensions)
+
+    # --- Apply placement ---
+    if position is not None or rotation_angle_deg != 0.0:
+        if rotation_axis is None:
+            rotation_axis = [0.0, 0.0, 1.0]
+        rot = FreeCAD.Rotation(FreeCAD.Vector(*rotation_axis), rotation_angle_deg)
+        base = FreeCAD.Vector(*(position or [0.0, 0.0, 0.0]))
+        body.Placement = FreeCAD.Placement(base, rot)
+        d.recompute()
+
+    # --- Build result ---
+    p = body.Placement
+    bb = body.Shape.BoundBox
+    result: dict[str, Any] = {
+        "body": body.Name,
+        "pad": pad_obj.Name,
+        "sketch": sketch.Name,
+        "position": [p.Base.x, p.Base.y, p.Base.z],
+        "rotation_angle_deg": round(math.degrees(p.Rotation.Angle), 6),
+        "rotation_axis": list(p.Rotation.Axis),
+        "bbox_mm": [round(bb.XLength, 3), round(bb.YLength, 3), round(bb.ZLength, 3)],
+    }
+
+    if verify:
+        op_context = {"op": "create_primitive", "shape": shape, "name": name}
+        result["verification_images"] = _capture_verification_views(d, op_context=op_context, body=body)
+
+    logger.info("create_primitive: created %s", body.Name)
+    return result
+
+
+def create_primitives(
+    items: list[dict[str, Any]],
+    verify: bool = True,
+    doc: str | None = None,
+) -> dict[str, Any]:
+    """Create multiple simple positioned solid bodies in one call."""
+    logger.info("create_primitives: %d items", len(items))
+    d = _get_doc(doc)
+
+    created: list[dict[str, Any]] = []
+    failed: list[dict[str, Any]] = []
+
+    for idx, item in enumerate(items):
+        item_name = item.get("name", f"Primitive_{idx}")
+        try:
+            body, sketch, pad_obj = _build_primitive(
+                d,
+                name=item_name,
+                shape=item["shape"],
+                dimensions=item["dimensions"],
+            )
+
+            # Apply placement
+            position = item.get("position")
+            rotation_axis = item.get("rotation_axis")
+            rotation_angle_deg = item.get("rotation_angle_deg", 0.0)
+
+            if position is not None or rotation_angle_deg != 0.0:
+                if rotation_axis is None:
+                    rotation_axis = [0.0, 0.0, 1.0]
+                rot = FreeCAD.Rotation(FreeCAD.Vector(*rotation_axis), rotation_angle_deg)
+                base = FreeCAD.Vector(*(position or [0.0, 0.0, 0.0]))
+                body.Placement = FreeCAD.Placement(base, rot)
+                d.recompute()
+
+            p = body.Placement
+            bb = body.Shape.BoundBox
+            created.append({
+                "body": body.Name,
+                "pad": pad_obj.Name,
+                "sketch": sketch.Name,
+                "position": [p.Base.x, p.Base.y, p.Base.z],
+                "rotation_angle_deg": round(math.degrees(p.Rotation.Angle), 6),
+                "rotation_axis": list(p.Rotation.Axis),
+                "bbox_mm": [round(bb.XLength, 3), round(bb.YLength, 3), round(bb.ZLength, 3)],
+            })
+        except Exception as exc:
+            logger.warning("create_primitives: item %d (%s) failed: %s", idx, item_name, exc)
+            failed.append({"index": idx, "name": item_name, "error": str(exc)})
+
+    result: dict[str, Any] = {"created": created, "failed": failed}
+
+    if verify and created:
+        op_context = {"op": "create_primitives", "count": len(created)}
+        result["verification_images"] = _capture_verification_views(d, op_context=op_context)
+
+    logger.info("create_primitives: %d created, %d failed", len(created), len(failed))
+    return result
+
+
 COMMAND_HANDLERS: dict[str, Any] = {
     "new_document": new_document,
     "new_body": new_body,
@@ -3579,4 +3767,6 @@ COMMAND_HANDLERS: dict[str, Any] = {
     "set_placement": set_placement,
     "delete_objects": delete_objects,
     "freecad_info": freecad_info,
+    "create_primitive": create_primitive,
+    "create_primitives": create_primitives,
 }

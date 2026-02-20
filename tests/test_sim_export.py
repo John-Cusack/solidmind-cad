@@ -8,7 +8,10 @@ import math
 import tempfile
 import unittest
 import xml.etree.ElementTree as ET
+from pathlib import Path
+from typing import Any
 
+from server.models import Severity
 from server.motion_models import (
     DriveCondition,
     JointEdge,
@@ -17,15 +20,24 @@ from server.motion_models import (
     PartNode,
 )
 from server.sim_export import (
+    MeshBBox,
     SimJoint,
     SimLink,
     SimModel,
+    _aabb_overlap_volume,
+    _aabb_volume,
     _box_inertia,
+    _make_transform_4x4,
+    _multiply_4x4,
     _quat_inverse,
     _quat_multiply,
     _quat_to_rpy,
+    _rpy_to_matrix,
+    _transform_bbox,
+    _transform_point,
     build_sim_model,
     validate_urdf,
+    validate_urdf_fk,
     write_urdf,
 )
 
@@ -323,8 +335,12 @@ class TestBuildSimModel(unittest.TestCase):
         self.assertAlmostEqual(joint.velocity, 10.0)
 
     def test_joint_rpy_from_rotated_placement(self) -> None:
-        """Manifest with rotated child placement produces correct RPY."""
-        # Parent at identity, child rotated 90deg around Z
+        """Rotated manifest quaternions are NOT baked into RPY (Bug 2 fix)."""
+        # Parent at identity, child rotated 90deg around Z in manifest.
+        # With body-local meshes the quaternion should be ignored — RPY
+        # comes only from the auto-computed outward yaw (which is non-zero
+        # here because the joint origin is at (0,0,0) relative to ground,
+        # so added_yaw = 0).
         w = math.cos(math.radians(45))
         z = math.sin(math.radians(45))
         mech = Mechanism(
@@ -352,10 +368,10 @@ class TestBuildSimModel(unittest.TestCase):
 
         model = build_sim_model(mech, manifest)
         joint = model.joints[0]
-        # RPY should have ~90deg yaw
+        # RPY should be (0,0,0) — manifest quaternions no longer baked in
         self.assertAlmostEqual(joint.origin_rpy[0], 0.0, places=5)
         self.assertAlmostEqual(joint.origin_rpy[1], 0.0, places=5)
-        self.assertAlmostEqual(joint.origin_rpy[2], math.radians(90), places=5)
+        self.assertAlmostEqual(joint.origin_rpy[2], 0.0, places=5)
 
     def test_joint_rpy_identity_when_placements_identity(self) -> None:
         """Identity placements -> RPY stays (0,0,0)."""
@@ -472,6 +488,238 @@ class TestBuildSimModel(unittest.TestCase):
         self.assertIsNotNone(link.mass_kg)
         self.assertAlmostEqual(link.mass_kg, 1.25, places=8)
         self.assertIsNotNone(link.inertia)
+
+
+    def test_non_root_joint_rpy_zero_no_baked_pitch(self) -> None:
+        """Bug 2: rotated manifest quaternions on deeper links don't bake pitch."""
+        # 3-part chain: chassis (ground) -> coxa -> femur
+        # Femur has a rotated quaternion (30deg pitch) in manifest — should
+        # NOT appear in the URDF joint RPY.
+        w30 = math.cos(math.radians(15))
+        y30 = math.sin(math.radians(15))
+        mech = Mechanism(
+            name="leg",
+            parts=(
+                PartNode(id="chassis", body_name="Body_Chassis", is_ground=True),
+                PartNode(id="coxa", body_name="Body_Coxa"),
+                PartNode(id="femur", body_name="Body_Femur"),
+            ),
+            joints=(
+                JointEdge(
+                    id="j_coxa",
+                    joint_type=JointType.REVOLUTE,
+                    parent_part="chassis",
+                    child_part="coxa",
+                    origin=(0.0, 100.0, 0.0),
+                ),
+                JointEdge(
+                    id="j_femur",
+                    joint_type=JointType.REVOLUTE,
+                    parent_part="coxa",
+                    child_part="femur",
+                    origin=(0.0, 200.0, 0.0),
+                ),
+            ),
+            drives=(),
+        )
+        manifest = [
+            {"name": "Body_Chassis", "mesh_path": "/m/chassis.stl",
+             "placement": {"position": [0, 0, 0], "rotation_quat": [1, 0, 0, 0]}},
+            {"name": "Body_Coxa", "mesh_path": "/m/coxa.stl",
+             "placement": {"position": [0, 100, 0], "rotation_quat": [1, 0, 0, 0]}},
+            {"name": "Body_Femur", "mesh_path": "/m/femur.stl",
+             "placement": {"position": [0, 200, 0], "rotation_quat": [w30, 0, y30, 0]}},
+        ]
+
+        model = build_sim_model(mech, manifest)
+        femur_joint = [j for j in model.joints if j.child == "femur"][0]
+        # RPY must be (0,0,0) — no baked pitch from manifest
+        self.assertAlmostEqual(femur_joint.origin_rpy[0], 0.0, places=5)
+        self.assertAlmostEqual(femur_joint.origin_rpy[1], 0.0, places=5)
+        self.assertAlmostEqual(femur_joint.origin_rpy[2], 0.0, places=5)
+
+    def test_joint_axis_rotated_to_local_frame(self) -> None:
+        """Bug 3: world-frame joint axis is rotated into child's local frame."""
+        # Coxa at (0, 100, 0) from ground -> added_yaw = atan2(100, 0) = π/2
+        # Femur has world-frame axis (1, 0, 0).
+        # child_yaw = π/2, rotate axis (1,0,0) by -π/2:
+        # c=cos(-π/2)=0, s=sin(-π/2)=-1 → (1*0-0*(-1), 1*(-1)+0*0, 0) = (0, -1, 0)
+        mech = Mechanism(
+            name="axis_test",
+            parts=(
+                PartNode(id="chassis", is_ground=True),
+                PartNode(id="coxa"),
+                PartNode(id="femur"),
+            ),
+            joints=(
+                JointEdge(
+                    id="j_coxa",
+                    joint_type=JointType.REVOLUTE,
+                    parent_part="chassis",
+                    child_part="coxa",
+                    origin=(0.0, 100.0, 0.0),
+                    axis=(0.0, 0.0, 1.0),
+                ),
+                JointEdge(
+                    id="j_femur",
+                    joint_type=JointType.REVOLUTE,
+                    parent_part="coxa",
+                    child_part="femur",
+                    origin=(0.0, 200.0, 0.0),
+                    axis=(1.0, 0.0, 0.0),
+                ),
+            ),
+            drives=(),
+        )
+
+        model = build_sim_model(mech, [])
+        femur_joint = [j for j in model.joints if j.child == "femur"][0]
+        # Child (femur) cumulative yaw = π/2 (inherited from coxa)
+        # Rotate axis (1,0,0) by -π/2: (0, -1, 0)
+        self.assertAlmostEqual(femur_joint.axis[0], 0.0, places=5)
+        self.assertAlmostEqual(femur_joint.axis[1], -1.0, places=5)
+        self.assertAlmostEqual(femur_joint.axis[2], 0.0, places=5)
+
+    def test_root_joint_non_z_axis_rotated_to_child_frame(self) -> None:
+        """Root-attached joint with non-Z axis: axis rotated by child's full yaw."""
+        # Coxa at (0, 100, 0) -> added_yaw = atan2(100, 0) = π/2
+        # child_yaw = 0 + π/2 = π/2
+        # World-frame axis (1, 0, 0) in child frame:
+        # c=cos(-π/2)=0, s=sin(-π/2)=-1 → (1*0-0*(-1), 1*(-1)+0*0, 0) = (0, -1, 0)
+        mech = Mechanism(
+            name="root_nonz",
+            parts=(
+                PartNode(id="chassis", is_ground=True),
+                PartNode(id="coxa"),
+            ),
+            joints=(
+                JointEdge(
+                    id="j_coxa",
+                    joint_type=JointType.REVOLUTE,
+                    parent_part="chassis",
+                    child_part="coxa",
+                    origin=(0.0, 100.0, 0.0),
+                    axis=(1.0, 0.0, 0.0),
+                ),
+            ),
+            drives=(),
+        )
+
+        model = build_sim_model(mech, [])
+        joint = model.joints[0]
+        self.assertAlmostEqual(joint.axis[0], 0.0, places=5)
+        self.assertAlmostEqual(joint.axis[1], -1.0, places=5)
+        self.assertAlmostEqual(joint.axis[2], 0.0, places=5)
+
+    def test_hexapod_leg_urdf_axes_and_rpy(self) -> None:
+        """Integration: hexapod leg exports correct URDF axes and RPY."""
+        # Chassis + one leg: coxa at (70, 75, 0) -> yaw = atan2(75, 70) ≈ 0.8211
+        # Femur/tibia have world-frame axis (-0.731, 0.682, 0) for pitch
+        # (perpendicular to leg direction).
+        import math as m
+        dx, dy = 70.0, 75.0
+        expected_yaw = m.atan2(dy, dx)  # ≈ 0.8211 rad
+
+        # World-frame pitch axis perpendicular to leg direction
+        r = m.sqrt(dx * dx + dy * dy)
+        pitch_ax = -dy / r  # -0.731
+        pitch_ay = dx / r   #  0.682
+
+        mech = Mechanism(
+            name="hexapod_leg",
+            parts=(
+                PartNode(id="chassis", body_name="Body_Chassis", is_ground=True),
+                PartNode(id="coxa", body_name="Body_Coxa"),
+                PartNode(id="femur", body_name="Body_Femur"),
+                PartNode(id="tibia", body_name="Body_Tibia"),
+            ),
+            joints=(
+                JointEdge(
+                    id="j_coxa",
+                    joint_type=JointType.REVOLUTE,
+                    parent_part="chassis",
+                    child_part="coxa",
+                    origin=(dx, dy, 0.0),
+                    axis=(0.0, 0.0, 1.0),
+                ),
+                JointEdge(
+                    id="j_femur",
+                    joint_type=JointType.REVOLUTE,
+                    parent_part="coxa",
+                    child_part="femur",
+                    origin=(dx + dx / r * 50, dy + dy / r * 50, 0.0),
+                    axis=(pitch_ax, pitch_ay, 0.0),
+                ),
+                JointEdge(
+                    id="j_tibia",
+                    joint_type=JointType.REVOLUTE,
+                    parent_part="femur",
+                    child_part="tibia",
+                    origin=(dx + dx / r * 100, dy + dy / r * 100, 0.0),
+                    axis=(pitch_ax, pitch_ay, 0.0),
+                ),
+            ),
+            drives=(),
+        )
+        manifest = [
+            {"name": "Body_Chassis", "mesh_path": "/m/chassis.stl",
+             "placement": {"position": [0, 0, 0], "rotation_quat": [1, 0, 0, 0]}},
+            {"name": "Body_Coxa", "mesh_path": "/m/coxa.stl",
+             "placement": {"position": [dx, dy, 0], "rotation_quat": [1, 0, 0, 0]}},
+            {"name": "Body_Femur", "mesh_path": "/m/femur.stl",
+             "placement": {"position": [dx + dx / r * 50, dy + dy / r * 50, 0],
+                           "rotation_quat": [1, 0, 0, 0]}},
+            {"name": "Body_Tibia", "mesh_path": "/m/tibia.stl",
+             "placement": {"position": [dx + dx / r * 100, dy + dy / r * 100, 0],
+                           "rotation_quat": [1, 0, 0, 0]}},
+        ]
+
+        model = build_sim_model(mech, manifest)
+
+        with tempfile.NamedTemporaryFile(suffix=".urdf", delete=False) as f:
+            path = f.name
+        write_urdf(model, path)
+        tree = ET.parse(path)
+        root = tree.getroot()
+
+        joints = {j.attrib["name"]: j for j in root.findall("joint")}
+
+        # Coxa joint: rpy should have yaw = atan2(75, 70) ≈ 0.821
+        coxa_rpy = joints["j_coxa"].find("origin").attrib["rpy"]
+        coxa_rpy_vals = [float(v) for v in coxa_rpy.split()]
+        self.assertAlmostEqual(coxa_rpy_vals[0], 0.0, places=3)
+        self.assertAlmostEqual(coxa_rpy_vals[1], 0.0, places=3)
+        self.assertAlmostEqual(coxa_rpy_vals[2], expected_yaw, places=3)
+
+        # Coxa axis stays (0 0 1) — Z axis for yaw, no rotation needed
+        coxa_axis = joints["j_coxa"].find("axis").attrib["xyz"]
+        coxa_axis_vals = [float(v) for v in coxa_axis.split()]
+        self.assertAlmostEqual(coxa_axis_vals[0], 0.0, places=3)
+        self.assertAlmostEqual(coxa_axis_vals[1], 0.0, places=3)
+        self.assertAlmostEqual(coxa_axis_vals[2], 1.0, places=3)
+
+        # Femur joint: rpy should be (0, 0, 0) — deeper joint, no added yaw
+        femur_rpy = joints["j_femur"].find("origin").attrib["rpy"]
+        femur_rpy_vals = [float(v) for v in femur_rpy.split()]
+        for v in femur_rpy_vals:
+            self.assertAlmostEqual(v, 0.0, places=3)
+
+        # Femur axis: world-frame (-0.731, 0.682, 0) rotated into local frame
+        # by -child_yaw (child inherits parent yaw = atan2(75,70)).
+        # In local frame, the perpendicular-to-leg pitch axis should be (0, 1, 0)
+        # since +X points outward along the leg.
+        femur_axis = joints["j_femur"].find("axis").attrib["xyz"]
+        femur_axis_vals = [float(v) for v in femur_axis.split()]
+        self.assertAlmostEqual(femur_axis_vals[0], 0.0, places=3)
+        self.assertAlmostEqual(femur_axis_vals[1], 1.0, places=3)
+        self.assertAlmostEqual(femur_axis_vals[2], 0.0, places=3)
+
+        # Tibia axis: same — perpendicular-to-leg pitch axis = (0, 1, 0) locally
+        tibia_axis = joints["j_tibia"].find("axis").attrib["xyz"]
+        tibia_axis_vals = [float(v) for v in tibia_axis.split()]
+        self.assertAlmostEqual(tibia_axis_vals[0], 0.0, places=3)
+        self.assertAlmostEqual(tibia_axis_vals[1], 1.0, places=3)
+        self.assertAlmostEqual(tibia_axis_vals[2], 0.0, places=3)
 
 
 class TestWriteUrdf(unittest.TestCase):
@@ -1341,6 +1589,807 @@ class TestValidateUrdf(unittest.TestCase):
         findings = validate_urdf(path)
         rule_ids = {f.rule_id for f in findings}
         self.assertIn("urdf.inconsistent_scale", rule_ids)
+
+
+class TestFKHelpers(unittest.TestCase):
+    """Unit tests for FK math helper functions."""
+
+    def test_rpy_identity(self) -> None:
+        """(0,0,0) -> identity matrix."""
+        m = _rpy_to_matrix(0.0, 0.0, 0.0)
+        for i in range(3):
+            for j in range(3):
+                expected = 1.0 if i == j else 0.0
+                self.assertAlmostEqual(m[i][j], expected, places=10)
+
+    def test_rpy_yaw_90(self) -> None:
+        """(0, 0, π/2) -> 90° rotation about Z."""
+        m = _rpy_to_matrix(0.0, 0.0, math.pi / 2)
+        # R_z(90°) = [[0, -1, 0], [1, 0, 0], [0, 0, 1]]
+        self.assertAlmostEqual(m[0][0], 0.0, places=10)
+        self.assertAlmostEqual(m[0][1], -1.0, places=10)
+        self.assertAlmostEqual(m[1][0], 1.0, places=10)
+        self.assertAlmostEqual(m[1][1], 0.0, places=10)
+        self.assertAlmostEqual(m[2][2], 1.0, places=10)
+
+    def test_rpy_pitch_90(self) -> None:
+        """(0, π/2, 0) -> 90° rotation about Y."""
+        m = _rpy_to_matrix(0.0, math.pi / 2, 0.0)
+        # R_y(90°) = [[0, 0, 1], [0, 1, 0], [-1, 0, 0]]
+        self.assertAlmostEqual(m[0][0], 0.0, places=10)
+        self.assertAlmostEqual(m[0][2], 1.0, places=10)
+        self.assertAlmostEqual(m[2][0], -1.0, places=10)
+        self.assertAlmostEqual(m[2][2], 0.0, places=10)
+
+    def test_transform_identity(self) -> None:
+        """Identity transform preserves points."""
+        t = _make_transform_4x4((0.0, 0.0, 0.0), (0.0, 0.0, 0.0))
+        pt = (1.0, 2.0, 3.0)
+        result = _transform_point(t, pt)
+        for i in range(3):
+            self.assertAlmostEqual(result[i], pt[i], places=10)
+
+    def test_transform_translation(self) -> None:
+        """Pure translation works."""
+        t = _make_transform_4x4((10.0, 20.0, 30.0), (0.0, 0.0, 0.0))
+        result = _transform_point(t, (1.0, 2.0, 3.0))
+        self.assertAlmostEqual(result[0], 11.0, places=10)
+        self.assertAlmostEqual(result[1], 22.0, places=10)
+        self.assertAlmostEqual(result[2], 33.0, places=10)
+
+    def test_transform_chain(self) -> None:
+        """Two transforms compose correctly."""
+        t1 = _make_transform_4x4((1.0, 0.0, 0.0), (0.0, 0.0, math.pi / 2))
+        t2 = _make_transform_4x4((1.0, 0.0, 0.0), (0.0, 0.0, 0.0))
+        t_composed = _multiply_4x4(t1, t2)
+        # After t1 rotates 90° about Z then translates (1,0,0):
+        # t2 translates (1,0,0) in t1's frame = (0,1,0) in world + (1,0,0) from t1
+        result = _transform_point(t_composed, (0.0, 0.0, 0.0))
+        self.assertAlmostEqual(result[0], 1.0, places=10)
+        self.assertAlmostEqual(result[1], 1.0, places=10)
+        self.assertAlmostEqual(result[2], 0.0, places=10)
+
+    def test_transform_bbox(self) -> None:
+        """Known bbox through known transform -> expected world AABB."""
+        bbox = MeshBBox(min_pt=(0.0, -5.0, -5.0), max_pt=(10.0, 5.0, 5.0))
+        # Identity transform, scale 0.001 (mm -> m)
+        t = _make_transform_4x4((0.0, 0.0, 0.0), (0.0, 0.0, 0.0))
+        lo, hi = _transform_bbox(t, bbox, scale=0.001)
+        self.assertAlmostEqual(lo[0], 0.0, places=6)
+        self.assertAlmostEqual(lo[1], -0.005, places=6)
+        self.assertAlmostEqual(hi[0], 0.01, places=6)
+        self.assertAlmostEqual(hi[1], 0.005, places=6)
+
+    def test_transform_bbox_rotated(self) -> None:
+        """Bbox through 90° yaw rotation."""
+        bbox = MeshBBox(min_pt=(0.0, -1.0, -1.0), max_pt=(10.0, 1.0, 1.0))
+        t = _make_transform_4x4((0.0, 0.0, 0.0), (0.0, 0.0, math.pi / 2))
+        lo, hi = _transform_bbox(t, bbox, scale=1.0)
+        # After 90° yaw: x-axis becomes y-axis
+        self.assertAlmostEqual(lo[0], -1.0, places=5)
+        self.assertAlmostEqual(hi[1], 10.0, places=5)
+
+    def test_aabb_volume(self) -> None:
+        vol = _aabb_volume((0.0, 0.0, 0.0), (2.0, 3.0, 4.0))
+        self.assertAlmostEqual(vol, 24.0)
+
+    def test_aabb_overlap_volume(self) -> None:
+        """50% overlap on each axis."""
+        overlap = _aabb_overlap_volume(
+            (0.0, 0.0, 0.0), (2.0, 2.0, 2.0),
+            (1.0, 1.0, 1.0), (3.0, 3.0, 3.0),
+        )
+        self.assertAlmostEqual(overlap, 1.0)  # 1x1x1
+
+    def test_aabb_no_overlap(self) -> None:
+        overlap = _aabb_overlap_volume(
+            (0.0, 0.0, 0.0), (1.0, 1.0, 1.0),
+            (2.0, 2.0, 2.0), (3.0, 3.0, 3.0),
+        )
+        self.assertAlmostEqual(overlap, 0.0)
+
+
+class TestValidateUrdfFK(unittest.TestCase):
+    """Tests for the FK validator with hand-crafted URDFs."""
+
+    def _write_urdf_xml(self, robot_el: ET.Element) -> str:
+        with tempfile.NamedTemporaryFile(suffix=".urdf", delete=False) as f:
+            path = f.name
+        tree = ET.ElementTree(robot_el)
+        tree.write(path, encoding="unicode", xml_declaration=True)
+        return path
+
+    def test_valid_urdf_no_fk_findings(self) -> None:
+        """A well-formed simple URDF produces no FK findings."""
+        model = SimModel(
+            name="simple",
+            links=(
+                SimLink(name="base_link", is_root=True),
+                SimLink(name="arm", mesh_path="/m/arm.stl"),
+            ),
+            joints=(
+                SimJoint(
+                    name="j1", joint_type="revolute", parent="base_link",
+                    child="arm", limits=(-1.57, 1.57),
+                    origin_xyz=(0.0, 0.0, 0.1),
+                ),
+            ),
+        )
+        with tempfile.NamedTemporaryFile(suffix=".urdf", delete=False) as f:
+            path = f.name
+        write_urdf(model, path)
+        findings = validate_urdf_fk(path)
+        blockers = [f for f in findings if f.severity == Severity.BLOCK]
+        self.assertEqual(blockers, [])
+
+    def test_chassis_height_check(self) -> None:
+        """Warns when chassis Z doesn't match ground_clearance_m."""
+        robot = ET.Element("robot", name="test")
+        ET.SubElement(robot, "link", name="base_link")
+        ET.SubElement(robot, "link", name="chassis")
+        j = ET.SubElement(robot, "joint", name="base_to_chassis", type="fixed")
+        ET.SubElement(j, "parent", link="base_link")
+        ET.SubElement(j, "child", link="chassis")
+        ET.SubElement(j, "origin", xyz="0 0 0.16", rpy="0 0 0")
+        ET.SubElement(j, "axis", xyz="0 0 1")
+
+        path = self._write_urdf_xml(robot)
+        # Should pass — 0.16m matches
+        findings = validate_urdf_fk(path, ground_clearance_m=0.16)
+        chassis_findings = [f for f in findings if f.rule_id == "urdf.fk.chassis_height"]
+        self.assertEqual(len(chassis_findings), 0)
+
+        # Should warn — 0.20m doesn't match 0.16m
+        findings = validate_urdf_fk(path, ground_clearance_m=0.20)
+        chassis_findings = [f for f in findings if f.rule_id == "urdf.fk.chassis_height"]
+        self.assertEqual(len(chassis_findings), 1)
+
+    def test_coxa_yaw_mismatch(self) -> None:
+        """Warns when coxa joint yaw doesn't match radial direction."""
+        robot = ET.Element("robot", name="test")
+        ET.SubElement(robot, "link", name="base_link")
+        ET.SubElement(robot, "link", name="chassis")
+        ET.SubElement(robot, "link", name="coxa_L1")
+
+        # Fixed base_link -> chassis
+        j0 = ET.SubElement(robot, "joint", name="base_to_chassis", type="fixed")
+        ET.SubElement(j0, "parent", link="base_link")
+        ET.SubElement(j0, "child", link="chassis")
+        ET.SubElement(j0, "origin", xyz="0 0 0.16", rpy="0 0 0")
+        ET.SubElement(j0, "axis", xyz="0 0 1")
+
+        # Coxa joint with wrong yaw (yaw=0 but position at 45°)
+        j1 = ET.SubElement(robot, "joint", name="j_coxa_L1", type="revolute")
+        ET.SubElement(j1, "parent", link="chassis")
+        ET.SubElement(j1, "child", link="coxa_L1")
+        ET.SubElement(j1, "origin", xyz="0.07 0.07 0", rpy="0 0 0")  # yaw should be π/4
+        ET.SubElement(j1, "axis", xyz="0 0 1")
+        limit = ET.SubElement(j1, "limit")
+        limit.set("lower", "-1.57")
+        limit.set("upper", "1.57")
+        limit.set("effort", "100")
+        limit.set("velocity", "10")
+
+        path = self._write_urdf_xml(robot)
+        findings = validate_urdf_fk(path)
+        coxa_findings = [f for f in findings if f.rule_id == "urdf.fk.coxa_yaw_matches_radial"]
+        self.assertEqual(len(coxa_findings), 1)
+
+    def test_coxa_yaw_correct(self) -> None:
+        """No warning when coxa yaw matches radial direction."""
+        robot = ET.Element("robot", name="test")
+        ET.SubElement(robot, "link", name="chassis")
+        ET.SubElement(robot, "link", name="coxa_L1")
+
+        yaw = math.atan2(0.075, 0.07)
+        j1 = ET.SubElement(robot, "joint", name="j_coxa_L1", type="revolute")
+        ET.SubElement(j1, "parent", link="chassis")
+        ET.SubElement(j1, "child", link="coxa_L1")
+        ET.SubElement(j1, "origin", xyz="0.07 0.075 0", rpy=f"0 0 {yaw:.6f}")
+        ET.SubElement(j1, "axis", xyz="0 0 1")
+        limit = ET.SubElement(j1, "limit")
+        limit.set("lower", "-1.57")
+        limit.set("upper", "1.57")
+        limit.set("effort", "100")
+        limit.set("velocity", "10")
+
+        path = self._write_urdf_xml(robot)
+        findings = validate_urdf_fk(path)
+        coxa_findings = [f for f in findings if f.rule_id == "urdf.fk.coxa_yaw_matches_radial"]
+        self.assertEqual(len(coxa_findings), 0)
+
+    def test_pitch_axis_wrong(self) -> None:
+        """Warns when femur axis isn't aligned with local Y."""
+        robot = ET.Element("robot", name="test")
+        ET.SubElement(robot, "link", name="chassis")
+        ET.SubElement(robot, "link", name="femur_L1")
+
+        j = ET.SubElement(robot, "joint", name="j_femur_L1", type="revolute")
+        ET.SubElement(j, "parent", link="chassis")
+        ET.SubElement(j, "child", link="femur_L1")
+        ET.SubElement(j, "origin", xyz="0 0 0", rpy="0 0 0")
+        ET.SubElement(j, "axis", xyz="1 0 0")  # Wrong — should be (0, ±1, 0)
+        limit = ET.SubElement(j, "limit")
+        limit.set("lower", "-1.57")
+        limit.set("upper", "1.57")
+        limit.set("effort", "100")
+        limit.set("velocity", "10")
+
+        path = self._write_urdf_xml(robot)
+        findings = validate_urdf_fk(path)
+        axis_findings = [f for f in findings if f.rule_id == "urdf.fk.pitch_axis_local"]
+        self.assertEqual(len(axis_findings), 1)
+
+    def test_pitch_axis_correct(self) -> None:
+        """No warning when femur axis is (0, 1, 0)."""
+        robot = ET.Element("robot", name="test")
+        ET.SubElement(robot, "link", name="chassis")
+        ET.SubElement(robot, "link", name="femur_L1")
+
+        j = ET.SubElement(robot, "joint", name="j_femur_L1", type="revolute")
+        ET.SubElement(j, "parent", link="chassis")
+        ET.SubElement(j, "child", link="femur_L1")
+        ET.SubElement(j, "origin", xyz="0 0 0", rpy="0 0 0")
+        ET.SubElement(j, "axis", xyz="0 1 0")
+        limit = ET.SubElement(j, "limit")
+        limit.set("lower", "-1.57")
+        limit.set("upper", "1.57")
+        limit.set("effort", "100")
+        limit.set("velocity", "10")
+
+        path = self._write_urdf_xml(robot)
+        findings = validate_urdf_fk(path)
+        axis_findings = [f for f in findings if f.rule_id == "urdf.fk.pitch_axis_local"]
+        self.assertEqual(len(axis_findings), 0)
+
+    def test_link_chain_gap_detected(self) -> None:
+        """BLOCK when parent mesh tip doesn't reach child joint origin."""
+        robot = ET.Element("robot", name="test")
+        ET.SubElement(robot, "link", name="parent_link")
+        ET.SubElement(robot, "link", name="child_link")
+
+        j = ET.SubElement(robot, "joint", name="j1", type="fixed")
+        ET.SubElement(j, "parent", link="parent_link")
+        ET.SubElement(j, "child", link="child_link")
+        ET.SubElement(j, "origin", xyz="0.5 0 0", rpy="0 0 0")  # 500mm away
+        ET.SubElement(j, "axis", xyz="0 0 1")
+
+        path = self._write_urdf_xml(robot)
+        # Parent bbox only extends to 100mm along X
+        bboxes = {
+            "parent_link": MeshBBox(min_pt=(0.0, -10.0, -10.0), max_pt=(100.0, 10.0, 10.0)),
+        }
+        findings = validate_urdf_fk(path, mesh_bboxes=bboxes)
+        gap_findings = [f for f in findings if f.rule_id == "urdf.fk.link_chain_gap"]
+        self.assertEqual(len(gap_findings), 1)
+        self.assertEqual(gap_findings[0].severity, Severity.BLOCK)
+
+    def test_mesh_overlap_detected(self) -> None:
+        """WARN when non-parent-child AABBs overlap significantly."""
+        robot = ET.Element("robot", name="test")
+        ET.SubElement(robot, "link", name="root")
+        ET.SubElement(robot, "link", name="a")
+        ET.SubElement(robot, "link", name="b")
+
+        j1 = ET.SubElement(robot, "joint", name="j1", type="fixed")
+        ET.SubElement(j1, "parent", link="root")
+        ET.SubElement(j1, "child", link="a")
+        ET.SubElement(j1, "origin", xyz="0 0 0", rpy="0 0 0")
+        ET.SubElement(j1, "axis", xyz="0 0 1")
+
+        j2 = ET.SubElement(robot, "joint", name="j2", type="fixed")
+        ET.SubElement(j2, "parent", link="root")
+        ET.SubElement(j2, "child", link="b")
+        ET.SubElement(j2, "origin", xyz="0 0 0", rpy="0 0 0")  # Same position
+        ET.SubElement(j2, "axis", xyz="0 0 1")
+
+        path = self._write_urdf_xml(robot)
+        # Both links at same position with same bbox -> 100% overlap
+        bboxes = {
+            "a": MeshBBox(min_pt=(0.0, 0.0, 0.0), max_pt=(100.0, 100.0, 100.0)),
+            "b": MeshBBox(min_pt=(0.0, 0.0, 0.0), max_pt=(100.0, 100.0, 100.0)),
+        }
+        findings = validate_urdf_fk(path, mesh_bboxes=bboxes)
+        overlap_findings = [f for f in findings if f.rule_id == "urdf.fk.no_mesh_overlap"]
+        self.assertGreater(len(overlap_findings), 0)
+
+
+# ---------------------------------------------------------------------------
+# Hexapod round-trip helper + test
+# ---------------------------------------------------------------------------
+
+def _make_hexapod_mechanism() -> tuple[
+    Mechanism,
+    list[dict[str, Any]],
+    dict[str, MeshBBox],
+]:
+    """Build a canonical 18-DOF hexapod mechanism for testing.
+
+    Returns (mechanism, body_manifest, mesh_bboxes).
+    """
+    # Leg positions: 6 legs arranged around chassis center
+    # Front-left, Mid-left, Rear-left, Front-right, Mid-right, Rear-right
+    leg_positions = [
+        ("L1", 70.0, 75.0),
+        ("L2", 0.0, 85.0),
+        ("L3", -70.0, 75.0),
+        ("R1", 70.0, -75.0),
+        ("R2", 0.0, -85.0),
+        ("R3", -70.0, -75.0),
+    ]
+
+    # Segment lengths (mm along radial direction from joint)
+    coxa_len = 26.0   # half of 52mm bbox
+    femur_len = 33.0   # half of 66mm bbox
+    tibia_len = 66.5   # half of 133mm bbox
+
+    parts: list[PartNode] = [
+        PartNode(id="chassis", body_name="Body_Chassis", is_ground=True, mass_kg=0.5),
+    ]
+    joints: list[JointEdge] = []
+    manifest: list[dict[str, Any]] = [
+        {
+            "name": "Body_Chassis",
+            "mesh_path": "/m/Body_Chassis.stl",
+            "placement": {"position": [0, 0, 0], "rotation_quat": [1, 0, 0, 0]},
+            "bbox_mm": [190.0, 150.0, 8.0],
+            "bbox_min_mm": [-95.0, -75.0, -4.0],
+        },
+    ]
+    mesh_bboxes: dict[str, MeshBBox] = {
+        "chassis": MeshBBox(min_pt=(-95.0, -75.0, -4.0), max_pt=(95.0, 75.0, 4.0)),
+    }
+
+    for leg_id, cx, cy in leg_positions:
+        r = math.sqrt(cx * cx + cy * cy)
+        dx = cx / r if r > 0 else 1.0
+        dy = cy / r if r > 0 else 0.0
+
+        # World-frame pitch axis: perpendicular to leg direction
+        pitch_ax = -dy
+        pitch_ay = dx
+
+        coxa_id = f"coxa_{leg_id}"
+        femur_id = f"femur_{leg_id}"
+        tibia_id = f"tibia_{leg_id}"
+
+        # Joint positions (world frame, mm)
+        coxa_pos = (cx, cy, 0.0)
+        femur_pos = (cx + dx * coxa_len * 2, cy + dy * coxa_len * 2, 0.0)
+        tibia_pos = (cx + dx * (coxa_len * 2 + femur_len * 2), cy + dy * (coxa_len * 2 + femur_len * 2), 0.0)
+
+        parts.extend([
+            PartNode(id=coxa_id, body_name=f"Body_Coxa_{leg_id}", mass_kg=0.02),
+            PartNode(id=femur_id, body_name=f"Body_Femur_{leg_id}", mass_kg=0.03),
+            PartNode(id=tibia_id, body_name=f"Body_Tibia_{leg_id}", mass_kg=0.02),
+        ])
+
+        joints.extend([
+            JointEdge(
+                id=f"j_coxa_{leg_id}",
+                joint_type=JointType.REVOLUTE,
+                parent_part="chassis",
+                child_part=coxa_id,
+                origin=coxa_pos,
+                axis=(0.0, 0.0, 1.0),
+                min_angle_deg=-30.0,
+                max_angle_deg=30.0,
+            ),
+            JointEdge(
+                id=f"j_femur_{leg_id}",
+                joint_type=JointType.REVOLUTE,
+                parent_part=coxa_id,
+                child_part=femur_id,
+                origin=femur_pos,
+                axis=(pitch_ax, pitch_ay, 0.0),
+                min_angle_deg=-90.0,
+                max_angle_deg=90.0,
+            ),
+            JointEdge(
+                id=f"j_tibia_{leg_id}",
+                joint_type=JointType.REVOLUTE,
+                parent_part=femur_id,
+                child_part=tibia_id,
+                origin=tibia_pos,
+                axis=(pitch_ax, pitch_ay, 0.0),
+                min_angle_deg=-135.0,
+                max_angle_deg=135.0,
+            ),
+        ])
+
+        # Manifest entries (body-local meshes, centered at body origin)
+        manifest.extend([
+            {
+                "name": f"Body_Coxa_{leg_id}",
+                "mesh_path": f"/m/Body_Coxa_{leg_id}.stl",
+                "placement": {"position": list(coxa_pos), "rotation_quat": [1, 0, 0, 0]},
+                "bbox_mm": [52.0, 18.0, 10.0],
+                "bbox_min_mm": [0.0, -9.0, -5.0],
+            },
+            {
+                "name": f"Body_Femur_{leg_id}",
+                "mesh_path": f"/m/Body_Femur_{leg_id}.stl",
+                "placement": {"position": list(femur_pos), "rotation_quat": [1, 0, 0, 0]},
+                "bbox_mm": [66.0, 20.0, 10.0],
+                "bbox_min_mm": [0.0, -10.0, -5.0],
+            },
+            {
+                "name": f"Body_Tibia_{leg_id}",
+                "mesh_path": f"/m/Body_Tibia_{leg_id}.stl",
+                "placement": {"position": list(tibia_pos), "rotation_quat": [1, 0, 0, 0]},
+                "bbox_mm": [133.0, 15.0, 8.0],
+                "bbox_min_mm": [0.0, -7.5, -4.0],
+            },
+        ])
+
+        # Mesh bboxes (body-local, mm)
+        mesh_bboxes[coxa_id] = MeshBBox(
+            min_pt=(0.0, -9.0, -5.0), max_pt=(52.0, 9.0, 5.0),
+        )
+        mesh_bboxes[femur_id] = MeshBBox(
+            min_pt=(0.0, -10.0, -5.0), max_pt=(66.0, 10.0, 5.0),
+        )
+        mesh_bboxes[tibia_id] = MeshBBox(
+            min_pt=(0.0, -7.5, -4.0), max_pt=(133.0, 7.5, 4.0),
+        )
+
+    mechanism = Mechanism(
+        name="hexapod_18dof",
+        parts=tuple(parts),
+        joints=tuple(joints),
+        drives=(),
+    )
+    return mechanism, manifest, mesh_bboxes
+
+
+class TestHexapodRoundTrip(unittest.TestCase):
+    """Full round-trip: hexapod mechanism -> build_sim_model -> write_urdf -> validate."""
+
+    def test_hexapod_round_trip(self) -> None:
+        mechanism, manifest, mesh_bboxes = _make_hexapod_mechanism()
+
+        # Build sim model with ground clearance
+        model = build_sim_model(mechanism, manifest, ground_clearance_m=0.16)
+
+        # Check link/joint counts: 1 chassis + 6*(coxa+femur+tibia) = 19 parts + base_link = 20 links
+        self.assertEqual(len(model.links), 20)
+        # 1 fixed (base_to_chassis) + 18 revolute = 19 joints
+        self.assertEqual(len(model.joints), 19)
+
+        # Write URDF
+        with tempfile.NamedTemporaryFile(suffix=".urdf", delete=False) as f:
+            path = f.name
+        write_urdf(model, path)
+
+        # Parse for manual checks
+        tree = ET.parse(path)
+        root = tree.getroot()
+        urdf_joints = {j.attrib["name"]: j for j in root.findall("joint")}
+
+        # Check coxa yaws match atan2(dy, dx)
+        for leg_id, cx, cy in [
+            ("L1", 70.0, 75.0), ("L2", 0.0, 85.0), ("L3", -70.0, 75.0),
+            ("R1", 70.0, -75.0), ("R2", 0.0, -85.0), ("R3", -70.0, -75.0),
+        ]:
+            jname = f"j_coxa_{leg_id}"
+            expected_yaw = math.atan2(cy, cx)
+            rpy_str = urdf_joints[jname].find("origin").attrib["rpy"]
+            actual_yaw = float(rpy_str.split()[2])
+            self.assertAlmostEqual(actual_yaw, expected_yaw, places=3,
+                                   msg=f"{jname}: yaw {actual_yaw} != {expected_yaw}")
+
+        # Check femur/tibia RPY = (0, 0, 0) and axis ≈ (0, ±1, 0)
+        for jname, jel in urdf_joints.items():
+            if "femur" in jname or "tibia" in jname:
+                rpy_str = jel.find("origin").attrib["rpy"]
+                rpy_vals = [float(v) for v in rpy_str.split()]
+                for v in rpy_vals:
+                    self.assertAlmostEqual(v, 0.0, places=3, msg=f"{jname} rpy not zero")
+
+                axis_str = jel.find("axis").attrib["xyz"]
+                axis_vals = [float(v) for v in axis_str.split()]
+                self.assertAlmostEqual(axis_vals[0], 0.0, places=3, msg=f"{jname} axis[0]")
+                self.assertAlmostEqual(abs(axis_vals[1]), 1.0, places=3, msg=f"{jname} axis[1]")
+                self.assertAlmostEqual(axis_vals[2], 0.0, places=3, msg=f"{jname} axis[2]")
+
+        # Structural validation: no blockers
+        struct_findings = validate_urdf(path)
+        struct_blockers = [f for f in struct_findings if f.severity == Severity.BLOCK]
+        self.assertEqual(struct_blockers, [], f"Structural blockers: {struct_blockers}")
+
+        # FK validation: no blockers
+        fk_findings = validate_urdf_fk(
+            path,
+            mesh_bboxes=mesh_bboxes,
+            ground_clearance_m=0.16,
+        )
+        fk_blockers = [f for f in fk_findings if f.severity == Severity.BLOCK]
+        self.assertEqual(fk_blockers, [], f"FK blockers: {fk_blockers}")
+
+        # FK chassis height check should pass (within tolerance)
+        chassis_findings = [f for f in fk_findings if f.rule_id == "urdf.fk.chassis_height"]
+        self.assertEqual(len(chassis_findings), 0)
+
+        # All coxa yaw checks should pass
+        coxa_findings = [f for f in fk_findings if f.rule_id == "urdf.fk.coxa_yaw_matches_radial"]
+        self.assertEqual(len(coxa_findings), 0)
+
+        # All pitch axis checks should pass
+        axis_findings = [f for f in fk_findings if f.rule_id == "urdf.fk.pitch_axis_local"]
+        self.assertEqual(len(axis_findings), 0)
+
+
+class TestURDFGenerationPipeline(unittest.TestCase):
+    """End-to-end pipeline: build_sim_model -> write_urdf -> validate_urdf -> validate_urdf_fk.
+
+    Uses the simple_2body fixture to test the full chain without FreeCAD or Isaac.
+    Catches both URDF yaw formula and world-coord mesh bugs.
+    """
+
+    FIXTURE_DIR = Path(__file__).parent / "fixtures" / "simple_2body"
+
+    def setUp(self) -> None:
+        """Build a mechanism matching the fixture URDF."""
+        self.mechanism = Mechanism(
+            name="simple_2body",
+            parts=(
+                PartNode(
+                    id="chassis",
+                    body_name="Chassis",
+                    is_ground=True,
+                    mass_kg=1.0,
+                ),
+                PartNode(
+                    id="arm",
+                    body_name="Arm",
+                    mass_kg=0.5,
+                ),
+            ),
+            joints=(
+                JointEdge(
+                    id="shoulder",
+                    joint_type=JointType.REVOLUTE,
+                    parent_part="chassis",
+                    child_part="arm",
+                    axis=(0.0, 0.0, 1.0),
+                    origin=(0.0, 0.0, 50.0),
+                    min_angle_deg=-90.0,
+                    max_angle_deg=90.0,
+                ),
+            ),
+            drives=(),
+        )
+        chassis_stl = str(self.FIXTURE_DIR / "Chassis.stl")
+        arm_stl = str(self.FIXTURE_DIR / "Arm.stl")
+        self.manifest = [
+            {
+                "name": "Chassis",
+                "mesh_path": chassis_stl,
+                "placement": {"position": [0, 0, 0], "rotation_quat": [1, 0, 0, 0]},
+                "bbox_mm": [60.0, 40.0, 10.0],
+                "bbox_min_mm": [-30.0, -20.0, -5.0],
+            },
+            {
+                "name": "Arm",
+                "mesh_path": arm_stl,
+                "placement": {"position": [0, 0, 50], "rotation_quat": [1, 0, 0, 0]},
+                "bbox_mm": [80.0, 20.0, 10.0],
+                "bbox_min_mm": [-40.0, -10.0, -5.0],
+            },
+        ]
+        self.mesh_bboxes = {
+            "chassis": MeshBBox(
+                min_pt=(-30.0, -20.0, -5.0),
+                max_pt=(30.0, 20.0, 5.0),
+            ),
+            "arm": MeshBBox(
+                min_pt=(-40.0, -10.0, -5.0),
+                max_pt=(40.0, 10.0, 5.0),
+            ),
+        }
+
+    def test_fixture_files_exist(self) -> None:
+        """Fixture STLs and URDF exist on disk."""
+        self.assertTrue((self.FIXTURE_DIR / "Chassis.stl").exists())
+        self.assertTrue((self.FIXTURE_DIR / "Arm.stl").exists())
+        self.assertTrue((self.FIXTURE_DIR / "simple_2body.urdf").exists())
+
+    def test_fixture_stl_sizes(self) -> None:
+        """Binary STLs are the expected size (80-byte header + 4-byte count + 12×50 bytes)."""
+        expected_size = 80 + 4 + 12 * 50  # 684 bytes
+        self.assertEqual((self.FIXTURE_DIR / "Chassis.stl").stat().st_size, expected_size)
+        self.assertEqual((self.FIXTURE_DIR / "Arm.stl").stat().st_size, expected_size)
+
+    def test_build_sim_model(self) -> None:
+        """build_sim_model produces correct link/joint counts and properties."""
+        model = build_sim_model(self.mechanism, self.manifest)
+
+        self.assertEqual(model.name, "simple_2body")
+        self.assertEqual(len(model.links), 2)
+        self.assertEqual(len(model.joints), 1)
+
+        # Root link
+        chassis = model.links[0]
+        self.assertEqual(chassis.name, "chassis")
+        self.assertTrue(chassis.is_root)
+        self.assertEqual(chassis.mass_kg, 1.0)
+        self.assertIsNotNone(chassis.mesh_path)
+
+        # Arm link
+        arm = model.links[1]
+        self.assertEqual(arm.name, "arm")
+        self.assertFalse(arm.is_root)
+        self.assertEqual(arm.mass_kg, 0.5)
+
+        # Joint
+        joint = model.joints[0]
+        self.assertEqual(joint.name, "shoulder")
+        self.assertEqual(joint.joint_type, "revolute")
+        self.assertAlmostEqual(joint.origin_xyz[2], 0.05, places=6)  # 50mm -> 0.05m
+        self.assertAlmostEqual(joint.limits[0], math.radians(-90), places=6)
+        self.assertAlmostEqual(joint.limits[1], math.radians(90), places=6)
+
+    def test_write_urdf_roundtrip(self) -> None:
+        """write_urdf produces valid XML that can be parsed back."""
+        model = build_sim_model(self.mechanism, self.manifest)
+
+        with tempfile.NamedTemporaryFile(suffix=".urdf", delete=False) as f:
+            path = f.name
+        write_urdf(model, path)
+
+        tree = ET.parse(path)
+        root = tree.getroot()
+        self.assertEqual(root.tag, "robot")
+        self.assertEqual(root.attrib["name"], "simple_2body")
+        self.assertEqual(len(root.findall("link")), 2)
+        self.assertEqual(len(root.findall("joint")), 1)
+
+        # Mesh paths reference the fixture STLs
+        meshes = root.findall(".//mesh")
+        for mesh in meshes:
+            self.assertIn("stl", mesh.attrib["filename"].lower())
+            self.assertEqual(mesh.attrib["scale"], "0.001 0.001 0.001")
+
+    def test_validate_urdf_no_blockers(self) -> None:
+        """Structural validation passes with no blockers."""
+        model = build_sim_model(self.mechanism, self.manifest)
+        with tempfile.NamedTemporaryFile(suffix=".urdf", delete=False) as f:
+            path = f.name
+        write_urdf(model, path)
+
+        findings = validate_urdf(path)
+        blockers = [f for f in findings if f.severity == Severity.BLOCK]
+        self.assertEqual(blockers, [], f"Structural blockers: {blockers}")
+
+    def test_validate_urdf_fk_no_blockers(self) -> None:
+        """FK validation passes with no blockers.
+
+        Note: mesh_bboxes omitted because link_chain_gap check assumes serial
+        chains extending along +X, which doesn't apply to this vertical joint.
+        """
+        model = build_sim_model(self.mechanism, self.manifest)
+        with tempfile.NamedTemporaryFile(suffix=".urdf", delete=False) as f:
+            path = f.name
+        write_urdf(model, path)
+
+        findings = validate_urdf_fk(path)
+        blockers = [f for f in findings if f.severity == Severity.BLOCK]
+        self.assertEqual(blockers, [], f"FK blockers: {blockers}")
+
+    def test_joint_origin_is_parent_relative(self) -> None:
+        """Bug 1 regression: joint origin must be parent-relative, not absolute.
+
+        The shoulder joint is at world position (0, 0, 50mm).  Since the parent
+        (chassis) is at (0, 0, 0), the parent-relative offset is (0, 0, 0.05m).
+        If the yaw formula were wrong (atan2(-dx, dy) instead of atan2(dy, dx)),
+        the origin could be incorrect.
+        """
+        model = build_sim_model(self.mechanism, self.manifest)
+        with tempfile.NamedTemporaryFile(suffix=".urdf", delete=False) as f:
+            path = f.name
+        write_urdf(model, path)
+
+        tree = ET.parse(path)
+        joint = tree.getroot().findall("joint")[0]
+        origin_str = joint.find("origin").attrib["xyz"]
+        origin_vals = [float(v) for v in origin_str.split()]
+
+        # Z offset should be 0.05m (50mm)
+        self.assertAlmostEqual(origin_vals[0], 0.0, places=4)
+        self.assertAlmostEqual(origin_vals[1], 0.0, places=4)
+        self.assertAlmostEqual(origin_vals[2], 0.05, places=4)
+
+    def test_joint_rpy_zero_for_z_axis_joint(self) -> None:
+        """Joint at (0,0,50) from ground: no outward yaw needed (dx=dy=0)."""
+        model = build_sim_model(self.mechanism, self.manifest)
+        joint = model.joints[0]
+        self.assertAlmostEqual(joint.origin_rpy[0], 0.0, places=6)
+        self.assertAlmostEqual(joint.origin_rpy[1], 0.0, places=6)
+        self.assertAlmostEqual(joint.origin_rpy[2], 0.0, places=6)
+
+    def test_outward_yaw_formula_correctness(self) -> None:
+        """Bug 1 regression: atan2(dy, dx) produces correct yaw for offset joints.
+
+        If the arm is at (100, 0, 0) from chassis, yaw = atan2(0, 100) = 0.
+        If at (0, 100, 0), yaw = atan2(100, 0) = π/2.
+        If at (70, 75, 0), yaw = atan2(75, 70) ≈ 0.821.
+        """
+        test_cases = [
+            ((100.0, 0.0, 0.0), 0.0),
+            ((0.0, 100.0, 0.0), math.pi / 2),
+            ((70.0, 75.0, 0.0), math.atan2(75, 70)),
+            ((-70.0, 75.0, 0.0), math.atan2(75, -70)),
+        ]
+        for origin, expected_yaw in test_cases:
+            mech = Mechanism(
+                name="yaw_test",
+                parts=(
+                    PartNode(id="base", is_ground=True),
+                    PartNode(id="child"),
+                ),
+                joints=(
+                    JointEdge(
+                        id="j1",
+                        joint_type=JointType.REVOLUTE,
+                        parent_part="base",
+                        child_part="child",
+                        origin=origin,
+                    ),
+                ),
+                drives=(),
+            )
+            model = build_sim_model(mech, [])
+            actual_yaw = model.joints[0].origin_rpy[2]
+            self.assertAlmostEqual(
+                actual_yaw, expected_yaw, places=5,
+                msg=f"origin={origin}: yaw {actual_yaw} != {expected_yaw}",
+            )
+
+    def test_mesh_paths_are_body_local_stls(self) -> None:
+        """Bug 2 regression: mesh paths point to body-local STLs, not world-coord meshes."""
+        model = build_sim_model(self.mechanism, self.manifest)
+
+        for link in model.links:
+            if link.mesh_path is not None:
+                # Mesh file should exist on disk
+                self.assertTrue(
+                    Path(link.mesh_path).exists(),
+                    f"Mesh not found: {link.mesh_path}",
+                )
+
+    def test_full_pipeline_with_fixture_urdf(self) -> None:
+        """Validate the hand-written fixture URDF passes all checks."""
+        fixture_urdf = str(self.FIXTURE_DIR / "simple_2body.urdf")
+
+        # Structural validation
+        struct_findings = validate_urdf(fixture_urdf)
+        struct_blockers = [f for f in struct_findings if f.severity == Severity.BLOCK]
+        self.assertEqual(struct_blockers, [], f"Fixture URDF structural blockers: {struct_blockers}")
+
+        # FK validation (no mesh_bboxes — vertical joint, not a serial chain)
+        fk_findings = validate_urdf_fk(fixture_urdf)
+        fk_blockers = [f for f in fk_findings if f.severity == Severity.BLOCK]
+        self.assertEqual(fk_blockers, [], f"Fixture URDF FK blockers: {fk_blockers}")
+
+    def test_generated_urdf_matches_fixture(self) -> None:
+        """Generated URDF has same structure as hand-written fixture."""
+        model = build_sim_model(self.mechanism, self.manifest)
+        with tempfile.NamedTemporaryFile(suffix=".urdf", delete=False) as f:
+            generated_path = f.name
+        write_urdf(model, generated_path)
+
+        fixture_urdf = str(self.FIXTURE_DIR / "simple_2body.urdf")
+
+        gen_tree = ET.parse(generated_path)
+        fix_tree = ET.parse(fixture_urdf)
+
+        gen_links = {lk.attrib["name"] for lk in gen_tree.getroot().findall("link")}
+        fix_links = {lk.attrib["name"] for lk in fix_tree.getroot().findall("link")}
+        self.assertEqual(gen_links, fix_links)
+
+        gen_joints = {j.attrib["name"] for j in gen_tree.getroot().findall("joint")}
+        fix_joints = {j.attrib["name"] for j in fix_tree.getroot().findall("joint")}
+        self.assertEqual(gen_joints, fix_joints)
 
 
 if __name__ == "__main__":

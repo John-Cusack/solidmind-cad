@@ -94,7 +94,7 @@ Claude Code CLI ──stdio──▶ MCP Bridge Server ──TCP socket──▶
 
 | Group | Tools | Purpose |
 |-------|-------|---------|
-| `cad.*` | new_document, new_body, sketch, pad, pocket, hole, fillet, chamfer, get_selection, get_model_tree, undo, export | Drive FreeCAD PartDesign |
+| `cad.*` | new_document, new_body, sketch, pad, pocket, hole, fillet, chamfer, create_primitive, create_primitives, get_selection, get_model_tree, undo, export | Drive FreeCAD PartDesign |
 | `mfg.*` | set_property, readiness_check, export_rfq | Manufacturing readiness (on-demand) |
 | `me.*` | validate_constraints, build_traceability, apply_risk_gates, design_loop, list_validators | Deterministic ME preflight (validators + risk gates) |
 | `knowledge.*` | extract, ingest, ingest_status, search, status | Knowledge base — hybrid search, PDF extraction, document ingestion (LanceDB + Docling) |
