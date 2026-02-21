@@ -156,6 +156,7 @@ class BridgeServer:
                     profile=_optional_object(args, "profile"),
                     urdf_path=_optional_str(args, "urdf_path"),
                     import_config=_optional_object(args, "import_config"),
+                    verify=_optional_bool(args, "verify", True),
                 )
             elif cmd == "simulate_status":
                 result = self._runtime.simulate_status(
@@ -171,6 +172,7 @@ class BridgeServer:
                     profile=_optional_object(args, "profile"),
                     urdf_path=_optional_str(args, "urdf_path"),
                     import_config=_optional_object(args, "import_config"),
+                    verify=_optional_bool(args, "verify", True),
                 )
             elif cmd == "teleop_command":
                 result = self._runtime.teleop_command(
@@ -193,6 +195,7 @@ class BridgeServer:
                     height=int(_optional_float(args, "height", 720)),
                     camera_position=args.get("camera_position"),
                     camera_target=args.get("camera_target"),
+                    preset=_optional_str(args, "preset"),
                 )
             else:
                 logger.info("<= %s UNKNOWN_COMMAND (%.3fs)", cmd, _time.monotonic() - t0)
@@ -246,6 +249,15 @@ def _optional_float(args: dict[str, Any], key: str, default: float) -> float:
     if not isinstance(value, (int, float)):
         raise ValueError(f"'{key}' must be numeric")
     return float(value)
+
+
+def _optional_bool(args: dict[str, Any], key: str, default: bool) -> bool:
+    if key not in args:
+        return default
+    value = args.get(key)
+    if isinstance(value, bool):
+        return value
+    return default
 
 
 def _optional_str(args: dict[str, Any], key: str) -> str | None:

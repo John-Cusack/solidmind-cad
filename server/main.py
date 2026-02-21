@@ -1971,6 +1971,14 @@ def _motion_tool_list() -> list[dict[str, Any]]:
                             "fix_base=False, merge_fixed_joints=True, lower stiffness/damping)."
                         ),
                     },
+                    "verify": {
+                        "type": "boolean",
+                        "default": True,
+                        "description": (
+                            "Capture verification screenshots from 4 angles after URDF import. "
+                            "Set false to skip for speed."
+                        ),
+                    },
                 },
                 "required": ["mechanism_id"],
                 "additionalProperties": False,
@@ -2024,6 +2032,14 @@ def _motion_tool_list() -> list[dict[str, Any]]:
                             "import_inertia_tensor, fix_base, distance_scale. "
                             "Set robot_type='mobile' for mobile robots (auto-applies "
                             "fix_base=False, merge_fixed_joints=True, lower stiffness/damping)."
+                        ),
+                    },
+                    "verify": {
+                        "type": "boolean",
+                        "default": True,
+                        "description": (
+                            "Capture verification screenshots from 4 angles after URDF import. "
+                            "Set false to skip for speed."
                         ),
                     },
                 },
@@ -2109,6 +2125,14 @@ def _motion_tool_list() -> list[dict[str, Any]]:
                         "type": "array",
                         "items": {"type": "number"},
                         "description": "Camera look-at target [x, y, z] in meters",
+                    },
+                    "target": {
+                        "type": "string",
+                        "description": (
+                            "Preset camera direction. One of: iso, front, back, top, "
+                            "bottom, right, left. Auto-frames the scene from this angle. "
+                            "Ignored when camera_position is provided."
+                        ),
                     },
                 },
                 "additionalProperties": False,

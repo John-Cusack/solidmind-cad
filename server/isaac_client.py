@@ -270,6 +270,7 @@ class IsaacClient:
         profile: dict[str, Any] | None = None,
         urdf_path: str | None = None,
         import_config: dict[str, Any] | None = None,
+        verify: bool = True,
     ) -> dict[str, Any]:
         """Start a simulation session (non-blocking)."""
         kwargs: dict[str, Any] = {
@@ -278,6 +279,7 @@ class IsaacClient:
             "dt_s": dt_s,
             "output_interval": output_interval,
             "profile": profile or {},
+            "verify": verify,
         }
         if urdf_path is not None:
             kwargs["urdf_path"] = urdf_path
@@ -299,11 +301,13 @@ class IsaacClient:
         profile: dict[str, Any] | None = None,
         urdf_path: str | None = None,
         import_config: dict[str, Any] | None = None,
+        verify: bool = True,
     ) -> dict[str, Any]:
         """Start a teleop session in Isaac."""
         kwargs: dict[str, Any] = {
             "mechanism": mechanism,
             "profile": profile or {},
+            "verify": verify,
         }
         if urdf_path is not None:
             kwargs["urdf_path"] = urdf_path
@@ -341,6 +345,7 @@ class IsaacClient:
         height: int = 720,
         camera_position: list[float] | None = None,
         camera_target: list[float] | None = None,
+        preset: str | None = None,
     ) -> dict[str, Any]:
         """Capture the Isaac Sim viewport as a base64-encoded PNG."""
         kwargs: dict[str, Any] = {"width": width, "height": height}
@@ -348,6 +353,8 @@ class IsaacClient:
             kwargs["camera_position"] = camera_position
         if camera_target is not None:
             kwargs["camera_target"] = camera_target
+        if preset is not None:
+            kwargs["preset"] = preset
         return self.send_command("screenshot", **kwargs)
 
     def _ensure_connected(self) -> None:

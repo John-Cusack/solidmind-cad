@@ -2127,26 +2127,22 @@ def export_sim_package(
             logger.warning("Skipping body '%s' — no valid shape", body_obj.Name)
             continue
 
-        # Export mesh in body-local coordinates.
-        # FreeCAD's PartDesign::Body.Shape includes the Placement in
-        # its vertex data.  URDF expects mesh vertices relative to the
-        # link frame — the joint chain handles world positioning.
-        # Temporarily zero the Body Placement so Shape is re-evaluated
-        # in local coordinates, export, then restore.
+        # Export mesh in world coordinates (including Body Placement).
+        # The URDF generator (build_sim_model) will transform meshes
+        # to link-local coordinates after computing each link's world
+        # position from the kinematic chain.  This approach is robust
+        # regardless of whether the body uses Placement-based positioning
+        # or has geometry at world coords in its internal features.
         mesh_path = str(Path(output_dir) / f"{body_obj.Name}{suffix}")
-        saved_plc = body_obj.Placement
-        body_obj.Placement = FreeCAD.Placement()  # type: ignore[name-defined]
-        local_shape = body_obj.Shape
         if fmt == "step":
-            local_shape.exportStep(mesh_path)
+            shape.exportStep(mesh_path)
         elif fmt == "stl":
-            local_shape.exportStl(mesh_path)
+            shape.exportStl(mesh_path)
         elif fmt == "obj":
             import Mesh  # type: ignore[import-untyped]
             Mesh.export([body_obj], mesh_path)
         else:
             raise ValueError(f"Unsupported format: {format}")
-        body_obj.Placement = saved_plc
 
         # Extract placement as position + quaternion
         plc = body_obj.Placement

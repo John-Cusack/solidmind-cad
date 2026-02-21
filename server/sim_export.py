@@ -11,7 +11,9 @@ The key design is separation of concerns:
 """
 from __future__ import annotations
 
+import logging
 import math
+import re
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
@@ -185,6 +187,83 @@ def _box_inertia(
     return (ixx, 0.0, 0.0, iyy, 0.0, izz)
 
 
+logger = logging.getLogger("solidmind.sim_export")
+
+
+def _transform_stl_to_link_local(
+    stl_path: str,
+    world_pos_mm: tuple[float, float, float],
+    world_yaw_rad: float,
+) -> None:
+    """Transform ASCII STL vertices from world coordinates to link-local.
+
+    Applies inverse of the link's world transform: rotate by -yaw about Z,
+    then translate by -world_pos.  Normals are rotated but not translated.
+
+    This is idempotent if called with (0, 0, 0) and yaw=0 (no-op).
+    """
+    if (abs(world_pos_mm[0]) < 1e-6
+            and abs(world_pos_mm[1]) < 1e-6
+            and abs(world_pos_mm[2]) < 1e-6
+            and abs(world_yaw_rad) < 1e-9):
+        return  # Already at origin with no rotation — nothing to do
+
+    c = math.cos(-world_yaw_rad)
+    s = math.sin(-world_yaw_rad)
+    px, py, pz = world_pos_mm
+
+    _VERTEX_RE = re.compile(
+        r"^(\s*vertex\s+)"
+        r"([-+]?\d*\.?\d+(?:[eE][-+]?\d+)?)\s+"
+        r"([-+]?\d*\.?\d+(?:[eE][-+]?\d+)?)\s+"
+        r"([-+]?\d*\.?\d+(?:[eE][-+]?\d+)?)"
+        r"(\s*)$"
+    )
+    _NORMAL_RE = re.compile(
+        r"^(\s*facet\s+normal\s+)"
+        r"([-+]?\d*\.?\d+(?:[eE][-+]?\d+)?)\s+"
+        r"([-+]?\d*\.?\d+(?:[eE][-+]?\d+)?)\s+"
+        r"([-+]?\d*\.?\d+(?:[eE][-+]?\d+)?)"
+        r"(\s*)$"
+    )
+
+    with open(stl_path, "r") as f:
+        lines = f.readlines()
+
+    out_lines: list[str] = []
+    for line in lines:
+        vm = _VERTEX_RE.match(line)
+        if vm:
+            x, y, z = float(vm.group(2)), float(vm.group(3)), float(vm.group(4))
+            # Translate then rotate
+            tx, ty, tz = x - px, y - py, z - pz
+            lx = tx * c - ty * s
+            ly = tx * s + ty * c
+            lz = tz
+            out_lines.append(f"{vm.group(1)}{lx:.6f} {ly:.6f} {lz:.6f}{vm.group(5)}")
+            continue
+
+        nm = _NORMAL_RE.match(line)
+        if nm:
+            nx, ny, nz = float(nm.group(2)), float(nm.group(3)), float(nm.group(4))
+            # Rotate only (normals are direction vectors)
+            lnx = nx * c - ny * s
+            lny = nx * s + ny * c
+            lnz = nz
+            out_lines.append(f"{nm.group(1)}{lnx:.6f} {lny:.6f} {lnz:.6f}{nm.group(5)}")
+            continue
+
+        out_lines.append(line)
+
+    with open(stl_path, "w") as f:
+        f.writelines(out_lines)
+
+    logger.debug(
+        "Transformed %s to link-local: translate=(%.1f, %.1f, %.1f) yaw=%.3f",
+        stl_path, -px, -py, -pz, -world_yaw_rad,
+    )
+
+
 def build_sim_model(
     mechanism: Mechanism,
     body_manifest: list[dict[str, Any]],
@@ -292,12 +371,29 @@ def build_sim_model(
     # parent's yaw — their world-frame offsets are rotated into the
     # parent's local frame.
     # -----------------------------------------------------------------------
+    # Build manifest placement lookup for fallback joint origins.
+    # When the mechanism doesn't specify joint origins (all zeros), we use
+    # the child body's FreeCAD Placement position as the joint's world-frame
+    # origin.  build_sim_model transforms meshes to link-local coordinates
+    # after computing world positions, so the joint origin correctly
+    # re-positions the child frame in world space.
+    manifest_pos_by_part: dict[str, tuple[float, float, float]] = {}
+    for part in mechanism.parts:
+        m_entry = manifest_by_name.get(part.body_name or "") or manifest_by_name.get(part.id)
+        if m_entry is not None:
+            plc = m_entry.get("placement", {})
+            pos = plc.get("position", [0.0, 0.0, 0.0])
+            manifest_pos_by_part[part.id] = (pos[0], pos[1], pos[2])
+
     part_world_pos: dict[str, tuple[float, float, float]] = {}
     part_world_yaw: dict[str, float] = {}  # cumulative Z rotation (rad)
     ground_parts: set[str] = set()
     for part in mechanism.parts:
         if part.is_ground:
-            part_world_pos[part.id] = (0.0, 0.0, 0.0)
+            # Use manifest position when available so child offsets are
+            # relative to the actual body position (not world origin).
+            ground_pos = manifest_pos_by_part.get(part.id, (0.0, 0.0, 0.0))
+            part_world_pos[part.id] = ground_pos
             part_world_yaw[part.id] = 0.0
             ground_parts.add(part.id)
 
@@ -311,8 +407,16 @@ def build_sim_model(
         still_remaining: list[Any] = []
         for jedge in remaining:
             if jedge.parent_part in part_world_pos:
+                # Use mechanism-specified origin, falling back to the child
+                # body's manifest placement when origin is unset (all zeros).
+                origin = tuple(jedge.origin)
+                if abs(origin[0]) < 1e-3 and abs(origin[1]) < 1e-3 and abs(origin[2]) < 1e-3:
+                    fallback = manifest_pos_by_part.get(jedge.child_part)
+                    if fallback is not None:
+                        origin = fallback
+
                 # Place child at the joint's world origin
-                part_world_pos[jedge.child_part] = tuple(jedge.origin)  # type: ignore[arg-type]
+                part_world_pos[jedge.child_part] = origin  # type: ignore[assignment]
 
                 parent_yaw = part_world_yaw.get(jedge.parent_part, 0.0)
 
@@ -323,8 +427,8 @@ def build_sim_model(
                 added_yaw = 0.0
                 if jedge.parent_part in ground_parts:
                     ppos = part_world_pos[jedge.parent_part]
-                    dx = jedge.origin[0] - ppos[0]
-                    dy = jedge.origin[1] - ppos[1]
+                    dx = origin[0] - ppos[0]
+                    dy = origin[1] - ppos[1]
                     if abs(dx) > 1e-6 or abs(dy) > 1e-6:
                         added_yaw = math.atan2(dy, dx)
 
@@ -348,12 +452,14 @@ def build_sim_model(
         child_link = part_to_link.get(jedge.child_part, jedge.child_part)
 
         # Compute parent-relative joint origin (mm -> m for URDF).
-        # jedge.origin is in world frame; subtract parent's world pos to get
-        # the world-frame offset, then rotate into the parent's local frame.
+        # The child's world position (from BFS, with manifest fallback) is the
+        # joint's world-frame origin.  Subtract parent's world pos to get the
+        # world-frame offset, then rotate into the parent's local frame.
+        child_world = part_world_pos.get(jedge.child_part, (0.0, 0.0, 0.0))
         parent_pos = part_world_pos.get(jedge.parent_part, (0.0, 0.0, 0.0))
-        world_dx = jedge.origin[0] - parent_pos[0]
-        world_dy = jedge.origin[1] - parent_pos[1]
-        world_dz = jedge.origin[2] - parent_pos[2]
+        world_dx = child_world[0] - parent_pos[0]
+        world_dy = child_world[1] - parent_pos[1]
+        world_dz = child_world[2] - parent_pos[2]
 
         parent_yaw = part_world_yaw.get(jedge.parent_part, 0.0)
         if abs(parent_yaw) > 1e-9:
@@ -427,20 +533,10 @@ def build_sim_model(
                 if parent_joints:
                     mimic = (parent_joints[0].id, ratio)
 
-        # Bug 3 fix: rotate world-frame axis into child link's local frame.
-        # The child frame is rotated by (parent_yaw + added_yaw) from world,
-        # which is stored as part_world_yaw[child].  Use that so root-attached
-        # joints with non-Z axes are also handled correctly.
-        child_yaw = part_world_yaw.get(jedge.child_part, 0.0)
-        if abs(child_yaw) > 1e-9:
-            ax, ay, az = jedge.axis
-            c = math.cos(-child_yaw)
-            s = math.sin(-child_yaw)
-            local_axis = (ax * c - ay * s, ax * s + ay * c, az)
-            mag = math.sqrt(sum(a * a for a in local_axis))
-            local_axis = tuple(a / mag for a in local_axis)
-        else:
-            local_axis = jedge.axis
+        # Joint axis is specified in the child link's local frame directly.
+        # No world-to-local rotation needed — Z-axis joints are invariant
+        # under Z-rotation, and pitch joints (0,1,0) are already local.
+        local_axis = jedge.axis
 
         joints.append(SimJoint(
             name=joint_name,
@@ -456,6 +552,26 @@ def build_sim_model(
             velocity=velocity,
         ))
         joint_edge_to_name[jedge.id] = joint_name
+
+    # -----------------------------------------------------------------------
+    # Transform meshes from world coordinates to link-local coordinates.
+    # export_sim_package now exports meshes in world coords (including Body
+    # Placement).  Each link's world position and yaw are known from the BFS
+    # above.  We transform each STL so vertices are relative to the link
+    # frame — the joint <origin> elements handle world positioning.
+    # -----------------------------------------------------------------------
+    for link in links:
+        if link.mesh_path is None:
+            continue
+        world_pos = part_world_pos.get(link.name, (0.0, 0.0, 0.0))
+        world_yaw = part_world_yaw.get(link.name, 0.0)
+        try:
+            _transform_stl_to_link_local(link.mesh_path, world_pos, world_yaw)
+        except Exception as exc:
+            logger.warning(
+                "Failed to transform mesh %s to link-local: %s",
+                link.mesh_path, exc,
+            )
 
     # -----------------------------------------------------------------------
     # Ground clearance: if requested, add a base_link with a fixed joint
@@ -526,9 +642,9 @@ def write_urdf(model: SimModel, output_path: str) -> str:
         link_el = ET.SubElement(robot, "link", name=link.name)
 
         if link.mesh_path is not None:
-            # Visual — no <origin> needed: export_sim_package strips the Body
-            # Placement so mesh vertices are in body-local coordinates.
-            # The joint <origin> element handles parent->child positioning.
+            # Visual — no <origin> needed: build_sim_model transforms STL
+            # meshes to link-local coordinates.  The joint <origin> element
+            # handles parent->child positioning.
             visual = ET.SubElement(link_el, "visual")
             geometry = ET.SubElement(visual, "geometry")
             mesh = ET.SubElement(geometry, "mesh")

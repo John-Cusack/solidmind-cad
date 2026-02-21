@@ -539,11 +539,8 @@ class TestBuildSimModel(unittest.TestCase):
         self.assertAlmostEqual(femur_joint.origin_rpy[2], 0.0, places=5)
 
     def test_joint_axis_rotated_to_local_frame(self) -> None:
-        """Bug 3: world-frame joint axis is rotated into child's local frame."""
-        # Coxa at (0, 100, 0) from ground -> added_yaw = atan2(100, 0) = π/2
-        # Femur has world-frame axis (1, 0, 0).
-        # child_yaw = π/2, rotate axis (1,0,0) by -π/2:
-        # c=cos(-π/2)=0, s=sin(-π/2)=-1 → (1*0-0*(-1), 1*(-1)+0*0, 0) = (0, -1, 0)
+        """Joint axis is specified in child's local frame and passes through unchanged."""
+        # Axis (1, 0, 0) in local frame stays (1, 0, 0) in URDF.
         mech = Mechanism(
             name="axis_test",
             parts=(
@@ -574,18 +571,13 @@ class TestBuildSimModel(unittest.TestCase):
 
         model = build_sim_model(mech, [])
         femur_joint = [j for j in model.joints if j.child == "femur"][0]
-        # Child (femur) cumulative yaw = π/2 (inherited from coxa)
-        # Rotate axis (1,0,0) by -π/2: (0, -1, 0)
-        self.assertAlmostEqual(femur_joint.axis[0], 0.0, places=5)
-        self.assertAlmostEqual(femur_joint.axis[1], -1.0, places=5)
+        # Local-frame axis passes through unchanged
+        self.assertAlmostEqual(femur_joint.axis[0], 1.0, places=5)
+        self.assertAlmostEqual(femur_joint.axis[1], 0.0, places=5)
         self.assertAlmostEqual(femur_joint.axis[2], 0.0, places=5)
 
-    def test_root_joint_non_z_axis_rotated_to_child_frame(self) -> None:
-        """Root-attached joint with non-Z axis: axis rotated by child's full yaw."""
-        # Coxa at (0, 100, 0) -> added_yaw = atan2(100, 0) = π/2
-        # child_yaw = 0 + π/2 = π/2
-        # World-frame axis (1, 0, 0) in child frame:
-        # c=cos(-π/2)=0, s=sin(-π/2)=-1 → (1*0-0*(-1), 1*(-1)+0*0, 0) = (0, -1, 0)
+    def test_root_joint_non_z_axis_passes_through(self) -> None:
+        """Root-attached joint with non-Z axis: local-frame axis passes through."""
         mech = Mechanism(
             name="root_nonz",
             parts=(
@@ -607,23 +599,18 @@ class TestBuildSimModel(unittest.TestCase):
 
         model = build_sim_model(mech, [])
         joint = model.joints[0]
-        self.assertAlmostEqual(joint.axis[0], 0.0, places=5)
-        self.assertAlmostEqual(joint.axis[1], -1.0, places=5)
+        self.assertAlmostEqual(joint.axis[0], 1.0, places=5)
+        self.assertAlmostEqual(joint.axis[1], 0.0, places=5)
         self.assertAlmostEqual(joint.axis[2], 0.0, places=5)
 
     def test_hexapod_leg_urdf_axes_and_rpy(self) -> None:
         """Integration: hexapod leg exports correct URDF axes and RPY."""
         # Chassis + one leg: coxa at (70, 75, 0) -> yaw = atan2(75, 70) ≈ 0.8211
-        # Femur/tibia have world-frame axis (-0.731, 0.682, 0) for pitch
-        # (perpendicular to leg direction).
+        # Femur/tibia have local-frame axis (0, 1, 0) for pitch.
         import math as m
         dx, dy = 70.0, 75.0
         expected_yaw = m.atan2(dy, dx)  # ≈ 0.8211 rad
-
-        # World-frame pitch axis perpendicular to leg direction
         r = m.sqrt(dx * dx + dy * dy)
-        pitch_ax = -dy / r  # -0.731
-        pitch_ay = dx / r   #  0.682
 
         mech = Mechanism(
             name="hexapod_leg",
@@ -648,7 +635,7 @@ class TestBuildSimModel(unittest.TestCase):
                     parent_part="coxa",
                     child_part="femur",
                     origin=(dx + dx / r * 50, dy + dy / r * 50, 0.0),
-                    axis=(pitch_ax, pitch_ay, 0.0),
+                    axis=(0.0, 1.0, 0.0),  # local Y pitch
                 ),
                 JointEdge(
                     id="j_tibia",
@@ -656,7 +643,7 @@ class TestBuildSimModel(unittest.TestCase):
                     parent_part="femur",
                     child_part="tibia",
                     origin=(dx + dx / r * 100, dy + dy / r * 100, 0.0),
-                    axis=(pitch_ax, pitch_ay, 0.0),
+                    axis=(0.0, 1.0, 0.0),  # local Y pitch
                 ),
             ),
             drives=(),
@@ -704,17 +691,14 @@ class TestBuildSimModel(unittest.TestCase):
         for v in femur_rpy_vals:
             self.assertAlmostEqual(v, 0.0, places=3)
 
-        # Femur axis: world-frame (-0.731, 0.682, 0) rotated into local frame
-        # by -child_yaw (child inherits parent yaw = atan2(75,70)).
-        # In local frame, the perpendicular-to-leg pitch axis should be (0, 1, 0)
-        # since +X points outward along the leg.
+        # Femur axis: local-frame (0, 1, 0) passes through unchanged.
         femur_axis = joints["j_femur"].find("axis").attrib["xyz"]
         femur_axis_vals = [float(v) for v in femur_axis.split()]
         self.assertAlmostEqual(femur_axis_vals[0], 0.0, places=3)
         self.assertAlmostEqual(femur_axis_vals[1], 1.0, places=3)
         self.assertAlmostEqual(femur_axis_vals[2], 0.0, places=3)
 
-        # Tibia axis: same — perpendicular-to-leg pitch axis = (0, 1, 0) locally
+        # Tibia axis: same — local-frame (0, 1, 0) passes through
         tibia_axis = joints["j_tibia"].find("axis").attrib["xyz"]
         tibia_axis_vals = [float(v) for v in tibia_axis.split()]
         self.assertAlmostEqual(tibia_axis_vals[0], 0.0, places=3)
@@ -1945,9 +1929,9 @@ def _make_hexapod_mechanism() -> tuple[
         dx = cx / r if r > 0 else 1.0
         dy = cy / r if r > 0 else 0.0
 
-        # World-frame pitch axis: perpendicular to leg direction
-        pitch_ax = -dy
-        pitch_ay = dx
+        # Local-frame pitch axis: Y-axis in child link frame
+        pitch_ax = 0.0
+        pitch_ay = 1.0
 
         coxa_id = f"coxa_{leg_id}"
         femur_id = f"femur_{leg_id}"

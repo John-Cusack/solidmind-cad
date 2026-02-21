@@ -352,6 +352,16 @@ class _IsaacWorldEngine:
             [a for a in _cfg_attrs if "drive" in a.lower() or "damp" in a.lower() or "stiff" in a.lower()],
         )
 
+        # Remove any stale prim at the expected import path to avoid
+        # "name is not unique" errors on re-import.
+        _expected_name = os.path.splitext(os.path.basename(urdf_path))[0]
+        _expected_path = f"/{_expected_name}"
+        _stage = omni.usd.get_context().get_stage()
+        _existing = _stage.GetPrimAtPath(_expected_path)
+        if _existing.IsValid():
+            logger.info("[engine] import_urdf: removing stale prim at %s", _expected_path)
+            _stage.RemovePrim(_expected_path)
+
         logger.info("[engine] import_urdf: calling URDFParseAndImportFile...")
         _ok2, prim_path = omni.kit.commands.execute(
             "URDFParseAndImportFile",
@@ -853,6 +863,13 @@ class _IsaacWorldEngine:
             except Exception:
                 pass
 
+            # Clear the World properly before discarding it.
+            if self._world is not None:
+                try:
+                    self._world.clear()
+                except Exception:
+                    pass
+
             # Tear down the World so next run starts fresh via setup_scene().
             self._world = None
             self._scene_ready = False
@@ -863,10 +880,11 @@ class _IsaacWorldEngine:
                 for prim_path in self._imported_prims:
                     prim = stage.GetPrimAtPath(prim_path)
                     if prim.IsValid():
+                        logger.info("[engine] cleanup: removing prim %s", prim_path)
                         stage.RemovePrim(prim_path)
                 self._imported_prims.clear()
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("[engine] cleanup: prim removal error: %s", exc)
 
         main_thread_dispatcher.submit(_do_cleanup)
 
@@ -1080,8 +1098,11 @@ class IsaacRuntime:
         """Dump the USD prim tree under *prim_path*.
 
         Returns each prim's path, type name, and applied schemas, plus
-        summary counts by type.  Works without an articulation — just
-        reads the stage.
+        summary counts by type.  For joint prims, also returns body0/body1
+        targets, drive stiffness/damping, and position targets.  For the
+        articulation root, returns DOF count and joint names.
+
+        Works without an articulation — just reads the stage.
         """
         if not self._engine.available:
             raise IsaacRuntimeError(
@@ -1090,8 +1111,35 @@ class IsaacRuntime:
             )
 
         def _do_diagnose() -> dict[str, Any]:
+            def _to_json_safe(val: Any) -> Any:
+                """Convert pxr types (Vec3f, Quatf, etc.) to JSON-safe Python types."""
+                # Gf.Quatf / Quatd / Quath -> [real, i, j, k]
+                type_name = type(val).__name__
+                if "Quat" in type_name:
+                    try:
+                        return [float(val.GetReal()), float(val.GetImaginary()[0]),
+                                float(val.GetImaginary()[1]), float(val.GetImaginary()[2])]
+                    except Exception:
+                        return str(val)
+                # Gf.Vec* -> list of floats
+                if "Vec" in type_name or "Matrix" in type_name:
+                    try:
+                        return [float(v) for v in val]
+                    except (TypeError, ValueError):
+                        return str(val)
+                # Basic numeric types
+                if isinstance(val, (int, float, bool, str)):
+                    return val
+                if isinstance(val, (list, tuple)):
+                    return [_to_json_safe(v) for v in val]
+                # Fallback
+                try:
+                    return float(val)
+                except (TypeError, ValueError):
+                    return str(val)
+
             import omni.usd  # type: ignore[import-not-found]
-            from pxr import Usd  # type: ignore[import-not-found]
+            from pxr import Usd, UsdPhysics  # type: ignore[import-not-found]
 
             stage = omni.usd.get_context().get_stage()
             root = stage.GetPrimAtPath(prim_path)
@@ -1105,23 +1153,108 @@ class IsaacRuntime:
 
             prims: list[dict[str, Any]] = []
             type_counts: dict[str, int] = {}
+            joint_details: list[dict[str, Any]] = []
+            articulation_info: dict[str, Any] | None = None
+
             for prim in Usd.PrimRange(root):
                 type_name = prim.GetTypeName() or ""
                 schemas = [str(s) for s in prim.GetAppliedSchemas()]
-                prims.append({
+                prim_info: dict[str, Any] = {
                     "path": str(prim.GetPath()),
                     "type": type_name,
                     "applied_schemas": schemas,
-                })
+                }
+                prims.append(prim_info)
                 if type_name:
                     type_counts[type_name] = type_counts.get(type_name, 0) + 1
 
-            return {
+                # Extract joint details for physics joints
+                if type_name in (
+                    "PhysicsRevoluteJoint", "PhysicsPrismaticJoint",
+                    "PhysicsFixedJoint", "PhysicsJoint",
+                ):
+                    jd: dict[str, Any] = {
+                        "path": str(prim.GetPath()),
+                        "type": type_name,
+                    }
+                    # body0/body1 relationship targets
+                    for rel_name in ("physics:body0", "physics:body1"):
+                        rel = prim.GetRelationship(rel_name)
+                        if rel:
+                            targets = rel.GetTargets()
+                            jd[rel_name.replace(":", "_")] = (
+                                [str(t) for t in targets] if targets else []
+                            )
+                    # Drive stiffness/damping/target from DriveAPI
+                    for drive_ns in ("angular", "linear"):
+                        stiffness_attr = prim.GetAttribute(
+                            f"drive:{drive_ns}:physics:stiffness"
+                        )
+                        damping_attr = prim.GetAttribute(
+                            f"drive:{drive_ns}:physics:damping"
+                        )
+                        target_pos_attr = prim.GetAttribute(
+                            f"drive:{drive_ns}:physics:targetPosition"
+                        )
+                        target_vel_attr = prim.GetAttribute(
+                            f"drive:{drive_ns}:physics:targetVelocity"
+                        )
+                        if stiffness_attr and stiffness_attr.HasValue():
+                            jd[f"drive_{drive_ns}_stiffness"] = _to_json_safe(stiffness_attr.Get())
+                        if damping_attr and damping_attr.HasValue():
+                            jd[f"drive_{drive_ns}_damping"] = _to_json_safe(damping_attr.Get())
+                        if target_pos_attr and target_pos_attr.HasValue():
+                            jd[f"drive_{drive_ns}_target_position"] = _to_json_safe(target_pos_attr.Get())
+                        if target_vel_attr and target_vel_attr.HasValue():
+                            jd[f"drive_{drive_ns}_target_velocity"] = _to_json_safe(target_vel_attr.Get())
+                    # Local position offsets
+                    for pos_name in (
+                        "physics:localPos0", "physics:localPos1",
+                        "physics:localRot0", "physics:localRot1",
+                    ):
+                        attr = prim.GetAttribute(pos_name)
+                        if attr and attr.HasValue():
+                            val = attr.Get()
+                            jd[pos_name.replace(":", "_")] = _to_json_safe(val)
+                    joint_details.append(jd)
+
+                # Extract articulation info
+                if "PhysicsArticulationRootAPI" in schemas:
+                    articulation_info = {
+                        "prim_path": str(prim.GetPath()),
+                        "schemas": schemas,
+                    }
+
+            # Try to get articulation DOF info from the world if available
+            if articulation_info and self._engine.world is not None:
+                try:
+                    from isaacsim.core.prims import SingleArticulation  # type: ignore[import-not-found]
+                    art_path = articulation_info["prim_path"]
+                    # Check if there's an articulation in the scene
+                    art = self._engine.world.scene.get_object(
+                        art_path.split("/")[-1]
+                    )
+                    if art is not None and hasattr(art, "dof_names"):
+                        articulation_info["dof_count"] = art.num_dof
+                        articulation_info["dof_names"] = list(art.dof_names or [])
+                        pos = art.get_joint_positions()
+                        if pos is not None:
+                            articulation_info["joint_positions_rad"] = [
+                                float(p) for p in pos
+                            ]
+                except Exception as exc:
+                    articulation_info["dof_error"] = str(exc)
+
+            result: dict[str, Any] = {
                 "prim_path": prim_path,
                 "prim_count": len(prims),
                 "prims": prims,
                 "type_counts": dict(sorted(type_counts.items())),
+                "joint_details": joint_details,
             }
+            if articulation_info:
+                result["articulation"] = articulation_info
+            return result
 
         return main_thread_dispatcher.submit(_do_diagnose)
 
@@ -1150,7 +1283,14 @@ class IsaacRuntime:
         # Reload the module to pick up code changes
         logger.info("[runtime] reload: reloading isaac_bridge.runtime_isaac...")
         import isaac_bridge.runtime_isaac as _self_mod
+        # Capture the old dispatcher BEFORE reload replaces it in the module dict.
+        _old_dispatcher = _self_mod.main_thread_dispatcher
         importlib.reload(_self_mod)
+
+        # Preserve the original main_thread_dispatcher so the bridge
+        # server's pump loop (which holds a reference to the old module-
+        # level singleton) continues to work with the reloaded module.
+        _self_mod.main_thread_dispatcher = _old_dispatcher
 
         # Recreate engine with the existing SimulationApp
         logger.info("[runtime] reload: recreating engine with existing SimulationApp...")
@@ -1225,6 +1365,7 @@ class IsaacRuntime:
         profile: dict[str, Any] | None = None,
         urdf_path: str | None = None,
         import_config: dict[str, Any] | None = None,
+        verify: bool = True,
     ) -> dict[str, Any]:
         """Non-blocking. Setup scene + begin physics. Returns session_id.
 
@@ -1289,6 +1430,10 @@ class IsaacRuntime:
 
         if urdf_path and self._engine.available:
             logger.info("[runtime] simulate_start: URDF path provided and engine available — setting up...")
+            # Clean up any previous scene so we start fresh.
+            if self._engine._scene_ready:
+                logger.info("[runtime] simulate_start: cleaning up previous scene")
+                self._engine.cleanup()
             try:
                 cfg = URDFImportConfig.from_dict(import_config)
                 prim_path, joint_count, link_count, articulation, drive_warns = (
@@ -1385,6 +1530,16 @@ class IsaacRuntime:
             result["link_count"] = link_count
         if warnings:
             result["warnings"] = warnings
+
+        # Auto-capture verification screenshots after URDF import
+        if verify and prim_path and self._engine.available:
+            try:
+                views = self._capture_verification_views()
+                if views:
+                    result["verification_images"] = views
+            except Exception as exc:
+                logger.warning("[runtime] simulate_start: verification capture failed: %s", exc)
+
         return result
 
     def _batch_step_worker(
@@ -1570,6 +1725,7 @@ class IsaacRuntime:
         profile: dict[str, Any] | None = None,
         urdf_path: str | None = None,
         import_config: dict[str, Any] | None = None,
+        verify: bool = True,
     ) -> dict[str, Any]:
         mech = _validate_mechanism(mechanism)
         unsupported = _unsupported_joints(mech)
@@ -1605,6 +1761,11 @@ class IsaacRuntime:
 
         if urdf_path and self._engine.available:
             try:
+                # Clean up any previous scene so we start fresh.
+                if self._engine._scene_ready:
+                    logger.info("[runtime] teleop_start: cleaning up previous scene")
+                    self._engine.cleanup()
+
                 cfg = URDFImportConfig.from_dict(import_config)
                 prim_path, _jc, _lc, articulation, drive_warns = (
                     self._engine.start_simulation(urdf_path, cfg, mech)
@@ -1688,6 +1849,16 @@ class IsaacRuntime:
             result["prim_path"] = prim_path
         if warnings:
             result["warnings"] = warnings
+
+        # Auto-capture verification screenshots after URDF import
+        if verify and prim_path and self._engine.available:
+            try:
+                views = self._capture_verification_views()
+                if views:
+                    result["verification_images"] = views
+            except Exception as exc:
+                logger.warning("[runtime] teleop_start: verification capture failed: %s", exc)
+
         return result
 
     def teleop_command(
@@ -1882,9 +2053,9 @@ class IsaacRuntime:
         width: int = 512,
         height: int = 512,
     ) -> list[dict[str, Any]]:
-        """Capture 2 verification views of the scene (iso + front).
+        """Capture 4 verification views of the scene (iso, front, top, right).
 
-        Mirrors the FreeCAD pattern: low-res screenshots from 2 angles
+        Mirrors the FreeCAD pattern: low-res screenshots from multiple angles
         returned as part of the tool result for the LLM to inspect.
         """
         views: list[dict[str, Any]] = []
@@ -1921,8 +2092,10 @@ class IsaacRuntime:
             dist = radius * 2.5
             # View definitions: (label, eye_offset_direction)
             view_defs = [
-                ("iso", Gf.Vec3d(0.577, 0.577, 0.577)),
-                ("front", Gf.Vec3d(0.0, -1.0, 0.3)),
+                ("iso",   Gf.Vec3d(0.577, 0.577, 0.577)),
+                ("front", Gf.Vec3d(0.0, -1.0, 0.15)),
+                ("top",   Gf.Vec3d(0.0, 0.0, 1.0)),
+                ("right", Gf.Vec3d(1.0, 0.0, 0.15)),
             ]
 
             captured: list[dict[str, Any]] = []
@@ -1984,9 +2157,11 @@ class IsaacRuntime:
     def _compute_auto_frame(
         self,
         distance_multiplier: float = 2.5,
+        direction: tuple[float, float, float] | None = None,
     ) -> tuple[list[float], list[float]]:
         """Compute camera eye/target to frame imported prims.
 
+        *direction* overrides the default isometric look-from direction.
         Returns (eye, target) as [x,y,z] lists.  Falls back to a
         sensible close-up default if bbox computation fails.
         """
@@ -2034,9 +2209,12 @@ class IsaacRuntime:
             radius = max(size.GetLength() / 2.0, 0.01)
             dist = radius * distance_multiplier
 
-            # Isometric angle: front-right, slightly above
-            direction = Gf.Vec3d(0.577, -0.577, 0.577).GetNormalized()
-            eye = center + direction * dist
+            if direction is not None:
+                dir_vec = Gf.Vec3d(*direction).GetNormalized()
+            else:
+                # Default isometric: front-right, slightly above
+                dir_vec = Gf.Vec3d(0.577, -0.577, 0.577).GetNormalized()
+            eye = center + dir_vec * dist
             target = center
 
             logger.debug(
@@ -2051,6 +2229,17 @@ class IsaacRuntime:
             logger.debug("[runtime] auto-frame failed, using fallback: %s", exc)
             return fallback_eye, fallback_target
 
+    # Preset direction table for camera positioning.
+    _PRESET_DIRECTIONS: dict[str, tuple[float, float, float]] = {
+        "iso":    (0.577, 0.577, 0.577),
+        "front":  (0.0, -1.0, 0.15),
+        "back":   (0.0, 1.0, 0.15),
+        "top":    (0.0, 0.0, 1.0),
+        "bottom": (0.0, 0.0, -1.0),
+        "right":  (1.0, 0.0, 0.15),
+        "left":   (-1.0, 0.0, 0.15),
+    }
+
     def screenshot(
         self,
         *,
@@ -2058,12 +2247,15 @@ class IsaacRuntime:
         height: int = 720,
         camera_position: list[float] | None = None,
         camera_target: list[float] | None = None,
+        preset: str | None = None,
     ) -> dict[str, Any]:
         """Capture the Isaac Sim viewport as a base64-encoded PNG.
 
         If *camera_position* / *camera_target* are provided, the active
-        viewport camera is repositioned before capture.  All viewport
-        operations are dispatched to the main thread.
+        viewport camera is repositioned before capture.  If *preset* is
+        set (e.g. ``"front"``, ``"top"``) and no explicit camera coords
+        are given, the camera is auto-framed from that direction.  All
+        viewport operations are dispatched to the main thread.
         """
         if not self._engine.available:
             raise IsaacRuntimeError(
@@ -2084,12 +2276,21 @@ class IsaacRuntime:
                     "No active viewport — is the renderer enabled?",
                 )
 
-            # Reposition camera: use explicit params, or auto-frame to scene.
+            # Reposition camera: explicit coords > preset > auto-frame.
             if camera_position is not None or camera_target is not None:
                 _reposition_camera(
                     viewport,
                     camera_position or [0.5, -0.5, 0.4],
                     camera_target or [0.0, 0.0, 0.0],
+                    self._engine.sim_app,
+                )
+            elif preset and preset in self._PRESET_DIRECTIONS:
+                direction = self._PRESET_DIRECTIONS[preset]
+                auto_eye, auto_target = self._compute_auto_frame(direction=direction)
+                _reposition_camera(
+                    viewport,
+                    auto_eye,
+                    auto_target,
                     self._engine.sim_app,
                 )
             else:

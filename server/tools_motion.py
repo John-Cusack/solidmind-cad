@@ -874,6 +874,48 @@ def _simulate_with_isaac_legacy(
     return result
 
 
+def _run_urdf_preflight(urdf_path: str | None) -> dict[str, Any] | None:
+    """Run URDF structural validation if a path is provided.
+
+    Returns ``None`` if there's no URDF or no blockers/warnings.
+    Otherwise returns a dict with ``blockers`` and ``warnings`` lists.
+    If blockers exist the caller should short-circuit.
+    """
+    if urdf_path is None:
+        return None
+    if not os.path.isfile(urdf_path):
+        return None
+
+    try:
+        from server.sim_export import validate_urdf
+        from server.models import Severity
+    except ImportError:
+        log.debug("sim_export.validate_urdf not available, skipping preflight")
+        return None
+
+    try:
+        findings = validate_urdf(urdf_path)
+    except Exception as exc:
+        log.warning("URDF preflight validation failed: %s", exc)
+        return None
+
+    if not findings:
+        return None
+
+    blockers = [f.to_dict() for f in findings if f.severity == Severity.BLOCK]
+    warnings = [f.to_dict() for f in findings if f.severity == Severity.WARN]
+    notes = [f.to_dict() for f in findings if f.severity == Severity.NOTE]
+
+    if not blockers and not warnings and not notes:
+        return None
+
+    return {
+        "blockers": blockers,
+        "warnings": warnings,
+        "notes": notes,
+    }
+
+
 def _simulate_with_isaac(
     mech: Mechanism,
     *,
@@ -883,8 +925,18 @@ def _simulate_with_isaac(
     profile: dict[str, Any],
     urdf_path: str | None = None,
     import_config: dict[str, Any] | None = None,
+    verify: bool = True,
 ) -> dict[str, Any]:
     """Run simulation via the optional Isaac sidecar using session lifecycle."""
+    # URDF pre-flight validation
+    preflight = _run_urdf_preflight(urdf_path)
+    if preflight and preflight["blockers"]:
+        return _error_result(
+            "URDF_VALIDATION_FAILED",
+            f"URDF pre-flight found {len(preflight['blockers'])} blocker(s): "
+            + "; ".join(b["message"] for b in preflight["blockers"]),
+        )
+
     from server import isaac_adapter
 
     # Start session
@@ -896,6 +948,7 @@ def _simulate_with_isaac(
         profile=profile,
         urdf_path=urdf_path,
         import_config=import_config,
+        verify=verify,
     )
     if not start_result.get("ok", False):
         err = start_result.get("error", {})
@@ -977,6 +1030,12 @@ def _simulate_with_isaac(
     warnings = start_result.get("warnings") or stop_result.get("warnings")
     if warnings:
         result["warnings"] = warnings
+    # Include URDF pre-flight findings (non-blocker warnings/notes)
+    if preflight:
+        result["urdf_validation"] = preflight
+    # Forward verification images from the bridge
+    if start_result.get("verification_images"):
+        result["verification_images"] = start_result["verification_images"]
     return result
 
 
@@ -990,6 +1049,7 @@ def motion_simulate(
     profile: dict[str, Any] | None = None,
     urdf_path: str | None = None,
     import_config: dict[str, Any] | None = None,
+    verify: bool = True,
 ) -> dict[str, Any]:
     """Run dynamic simulation via selected backend (`isaac` or `chrono`)."""
     if _TOOL_LOG:
@@ -1056,6 +1116,7 @@ def motion_simulate(
             profile=profile or {},
             urdf_path=urdf_path,
             import_config=import_config,
+            verify=verify,
         )
 
     if _TOOL_LOG:
@@ -1075,6 +1136,7 @@ def motion_teleop_start(
     profile: dict[str, Any] | None = None,
     urdf_path: str | None = None,
     import_config: dict[str, Any] | None = None,
+    verify: bool = True,
 ) -> dict[str, Any]:
     """Start an Isaac teleop session for a mechanism.
 
@@ -1111,6 +1173,15 @@ def motion_teleop_start(
     if mech is None:
         return _error_result("NOT_FOUND", f"No mechanism with id '{mechanism_id}'")
 
+    # URDF pre-flight validation
+    preflight = _run_urdf_preflight(urdf_path)
+    if preflight and preflight["blockers"]:
+        return _error_result(
+            "URDF_VALIDATION_FAILED",
+            f"URDF pre-flight found {len(preflight['blockers'])} blocker(s): "
+            + "; ".join(b["message"] for b in preflight["blockers"]),
+        )
+
     from server import isaac_adapter
 
     result = isaac_adapter.teleop_start(
@@ -1118,6 +1189,7 @@ def motion_teleop_start(
         profile=profile or {},
         urdf_path=urdf_path,
         import_config=import_config,
+        verify=verify,
     )
     if not result.get("ok", False):
         err = result.get("error", {})
@@ -1138,12 +1210,16 @@ def motion_teleop_start(
         "backend": "isaac",
         "created_at": time.time(),
     }
-    return {
+    response: dict[str, Any] = {
         "ok": True,
         "backend_used": "isaac",
         "mode_used": "teleop",
         **result,
     }
+    # Include URDF pre-flight findings (non-blocker warnings/notes)
+    if preflight:
+        response["urdf_validation"] = preflight
+    return response
 
 
 def motion_teleop_command(
@@ -1231,8 +1307,14 @@ def motion_isaac_screenshot(
     height: int = 720,
     camera_position: list[float] | None = None,
     camera_target: list[float] | None = None,
+    target: str | None = None,
 ) -> dict[str, Any]:
     """Capture the Isaac Sim viewport and return as base64 PNG.
+
+    *target* is a preset name (``"iso"``, ``"front"``, ``"top"``,
+    ``"right"``, ``"back"``, ``"bottom"``, ``"left"``).  When set and
+    no explicit ``camera_position`` is given, the camera auto-frames
+    from that direction.
 
     The returned dict includes ``image_base64`` which the MCP response
     handler in ``server/main.py`` automatically extracts into an MCP
@@ -1245,4 +1327,5 @@ def motion_isaac_screenshot(
         height=height,
         camera_position=camera_position,
         camera_target=camera_target,
+        preset=target,
     )

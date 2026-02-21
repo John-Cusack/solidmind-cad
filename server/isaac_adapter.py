@@ -106,6 +106,7 @@ def simulate_start(
     profile: dict[str, Any] | None = None,
     urdf_path: str | None = None,
     import_config: dict[str, Any] | None = None,
+    verify: bool = True,
 ) -> dict[str, Any]:
     """Start a simulation session via the Isaac bridge (non-blocking)."""
     try:
@@ -127,6 +128,7 @@ def simulate_start(
             profile=profile or {},
             urdf_path=urdf_path,
             import_config=import_config,
+            verify=verify,
         )
     except IsaacConnectionError as exc:
         return _error("ISAAC_CONNECTION_LOST", str(exc))
@@ -200,6 +202,7 @@ def teleop_start(
     profile: dict[str, Any],
     urdf_path: str | None = None,
     import_config: dict[str, Any] | None = None,
+    verify: bool = True,
 ) -> dict[str, Any]:
     """Start a teleop session on the Isaac bridge."""
     try:
@@ -218,6 +221,7 @@ def teleop_start(
             profile=profile,
             urdf_path=urdf_path,
             import_config=import_config,
+            verify=verify,
         )
     except IsaacConnectionError as exc:
         return _error("ISAAC_CONNECTION_LOST", str(exc))
@@ -341,6 +345,7 @@ def isaac_screenshot(
     height: int = 720,
     camera_position: list[float] | None = None,
     camera_target: list[float] | None = None,
+    preset: str | None = None,
 ) -> dict[str, Any]:
     """Capture the Isaac Sim viewport as a base64-encoded PNG."""
     try:
@@ -359,6 +364,7 @@ def isaac_screenshot(
             height=height,
             camera_position=camera_position,
             camera_target=camera_target,
+            preset=preset,
         )
     except IsaacConnectionError as exc:
         return _error("ISAAC_CONNECTION_LOST", str(exc))
