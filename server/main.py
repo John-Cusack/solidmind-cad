@@ -85,6 +85,7 @@ from server.tools_cad import (
     cad_define_selection,
     cad_delete_objects,
     cad_delete_selection,
+    cad_draft,
     cad_export,
     cad_export_body,
     cad_export_sim_package,
@@ -98,8 +99,10 @@ from server.tools_cad import (
     cad_get_selection,
     cad_helix,
     cad_hole,
+    cad_linear_pattern,
     cad_list_selections,
     cad_loft,
+    cad_mirror,
     cad_new_body,
     cad_new_document,
     cad_pad,
@@ -113,6 +116,7 @@ from server.tools_cad import (
     cad_set_visibility,
     cad_sketch,
     cad_sweep,
+    cad_thickness,
     cad_undo,
 )
 from server.tools_mfg import (
@@ -153,6 +157,7 @@ from server.tools_study import (
 from server.tools_motion import (
     motion_check_gear_train,
     motion_check_interference,
+    motion_check_joint_connectivity,
     motion_create_assembly,
     motion_define_mechanism,
     motion_drive_joint,
@@ -173,6 +178,11 @@ from server.tools_rl import (
     rl_monitor_training,
     rl_start_training,
     rl_stop_training,
+)
+from server.tools_design import (
+    design_get_brief,
+    design_save_brief,
+    design_update_brief,
 )
 
 
@@ -281,12 +291,15 @@ def _cad_tool_list() -> list[dict[str, Any]]:
             "description": (
                 "Create a sketch with geometry and constraints. Combines sketch creation, "
                 "geometry addition, constraint application, and sketch closing into one call. "
-                "Elements: rect, circle, line, arc, spline. ALL element types are fully supported "
-                "including splines (B-spline curves from control points with degree/weights/periodic options). "
-                "Use splines for smooth contours, airfoils, blade profiles, and organic shapes — "
-                "never approximate with line segments. "
-                "Constraints: Coincident, Horizontal, "
-                "Vertical, Distance, Radius, Angle, etc."
+                "Elements: rect, circle, line, arc, spline, external_ref, sketch_fillet, sketch_chamfer. "
+                "ALL element types are fully supported including splines (B-spline curves from control points "
+                "with degree/weights/periodic options). Use splines for smooth contours, airfoils, blade "
+                "profiles, and organic shapes — never approximate with line segments. "
+                "Any element can have \"construction\": true to make it a reference line/circle. "
+                "external_ref projects edges from existing features (needs 'feature' and 'edge' fields). "
+                "sketch_fillet/sketch_chamfer round or chamfer sketch vertices (needs 'vertex' and 'radius'/'size'). "
+                "Constraints: Coincident, Horizontal, Vertical, Distance, Radius, Angle, etc. "
+                "Constraints use partial recovery — a single failed constraint won't abort the sketch."
             ),
             "inputSchema": {
                 "type": "object",
@@ -311,7 +324,7 @@ def _cad_tool_list() -> list[dict[str, Any]]:
                         "items": {
                             "type": "object",
                             "properties": {
-                                "type": {"type": "string", "enum": ["rect", "circle", "line", "arc", "spline"]},
+                                "type": {"type": "string", "enum": ["rect", "circle", "line", "arc", "spline", "external_ref", "sketch_fillet", "sketch_chamfer"]},
                             },
                             "required": ["type"],
                         },
@@ -403,6 +416,139 @@ def _cad_tool_list() -> list[dict[str, Any]]:
                     "doc": {"type": "string", "description": "Document name (optional)"},
                 },
                 "required": ["features"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "cad.mirror",
+            "description": (
+                "Mirror features across a symmetry plane. "
+                "Creates a PartDesign::Mirrored feature."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "features": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Feature names to mirror (e.g., ['Pad'])",
+                    },
+                    "plane": {
+                        "type": "string",
+                        "enum": ["Base_X", "Base_Y", "Base_Z", "V", "H"],
+                        "description": "Mirror plane: Base_X/Y/Z (document origin planes) or V/H (sketch axes)",
+                        "default": "Base_X",
+                    },
+                    "body": {"type": "string", "description": "Body name (optional)"},
+                    "verify": _VERIFY_PROP,
+                    "doc": {"type": "string", "description": "Document name (optional)"},
+                },
+                "required": ["features"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "cad.linear_pattern",
+            "description": (
+                "Create a linear pattern of features along an axis. "
+                "Creates a PartDesign::LinearPattern feature."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "features": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Feature names to pattern (e.g., ['Pocket'])",
+                    },
+                    "axis": {
+                        "type": "string",
+                        "enum": ["Base_X", "Base_Y", "Base_Z", "V", "H"],
+                        "description": "Pattern direction: Base_X/Y/Z (document origin axes) or V/H (sketch axes)",
+                        "default": "Base_X",
+                    },
+                    "length": {
+                        "type": "number",
+                        "description": "Total span of the pattern in mm",
+                        "default": 100.0,
+                    },
+                    "occurrences": {
+                        "type": "integer",
+                        "description": "Total number of copies including the original",
+                        "default": 3,
+                    },
+                    "reversed": {"type": "boolean", "description": "Reverse pattern direction", "default": False},
+                    "body": {"type": "string", "description": "Body name (optional)"},
+                    "verify": _VERIFY_PROP,
+                    "doc": {"type": "string", "description": "Document name (optional)"},
+                },
+                "required": ["features"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "cad.thickness",
+            "description": (
+                "Shell/hollow out a solid by removing faces and adding wall thickness. "
+                "Creates a PartDesign::Thickness feature. Use to create hollow enclosures, "
+                "boxes, containers, and cups."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "faces": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Face references to remove/open (e.g., ['Face6'])",
+                    },
+                    "thickness": {
+                        "type": "number",
+                        "description": "Wall thickness in mm",
+                    },
+                    "join_type": {
+                        "type": "string",
+                        "enum": ["Arc", "Tangent", "Intersection"],
+                        "description": "Corner join type",
+                        "default": "Arc",
+                    },
+                    "reversed": {"type": "boolean", "description": "Reverse thickness direction (inward vs outward)", "default": False},
+                    "body": {"type": "string", "description": "Body name (optional)"},
+                    "verify": _VERIFY_PROP,
+                    "doc": {"type": "string", "description": "Document name (optional)"},
+                },
+                "required": ["faces", "thickness"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "cad.draft",
+            "description": (
+                "Add draft/taper to faces for injection molding or casting. "
+                "Creates a PartDesign::Draft feature."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "faces": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Face references to draft (e.g., ['Face2', 'Face4'])",
+                    },
+                    "angle": {
+                        "type": "number",
+                        "description": "Draft angle in degrees",
+                    },
+                    "neutral_plane": {
+                        "type": "string",
+                        "description": "Face reference for the neutral/stationary plane (e.g., 'Face1')",
+                        "default": "Face1",
+                    },
+                    "reversed": {"type": "boolean", "description": "Reverse pull direction", "default": False},
+                    "body": {"type": "string", "description": "Body name (optional)"},
+                    "verify": _VERIFY_PROP,
+                    "doc": {"type": "string", "description": "Document name (optional)"},
+                },
+                "required": ["faces", "angle"],
                 "additionalProperties": False,
             },
         },
@@ -1786,7 +1932,13 @@ def _motion_tool_list() -> list[dict[str, Any]]:
                             "Mechanism definition with name, parts[], joints[], drives[], "
                             "expected_outputs{}. Parts need id and is_ground. Joints need "
                             "id, joint_type (revolute/gear_mesh/belt_chain/prismatic/cam/fixed/planar), "
-                            "parent_part, child_part. Gear meshes need gear_ratio or teeth_parent+teeth_child."
+                            "parent_part, child_part. Gear meshes need gear_ratio or teeth_parent+teeth_child. "
+                            "Joints should include: axis (e.g. [0,0,1] for yaw, [1,0,0] for pitch), "
+                            "min_angle_deg/max_angle_deg (joint limits in degrees, default ±60°), "
+                            "damping (joint damping coefficient, default 0.1), "
+                            "friction (joint friction, default 0.0), "
+                            "effort_nm (max torque in Nm, default 1.5), "
+                            "velocity_rad_s (max velocity in rad/s, default 6.28)."
                         ),
                     },
                 },
@@ -1890,6 +2042,25 @@ def _motion_tool_list() -> list[dict[str, Any]]:
                     "doc": {"type": "string", "description": "Document name (optional)"},
                 },
                 "required": ["mechanism_id", "joint_id", "value"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "motion.check_joint_connectivity",
+            "description": (
+                "Check that each joint origin touches both parent and child body geometry. "
+                "Uses distToShape in FreeCAD to measure distance from each joint origin point "
+                "to both parent and child body shapes. Run after building bodies but before "
+                "URDF export to catch connectivity issues early."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "mechanism_id": {"type": "string", "description": "Mechanism handle from motion.define_mechanism"},
+                    "tolerance_mm": {"type": "number", "default": 2.0, "description": "Max distance in mm for a joint to be considered connected"},
+                    "doc": {"type": "string", "description": "Document name (optional)"},
+                },
+                "required": ["mechanism_id"],
                 "additionalProperties": False,
             },
         },
@@ -2235,6 +2406,72 @@ def _rl_tool_list() -> list[dict[str, Any]]:
     ]
 
 
+def _design_tool_list() -> list[dict[str, Any]]:
+    """Design brief pipeline tools."""
+    return [
+        {
+            "name": "design.save_brief",
+            "description": (
+                "Save a design brief with any parameters the LLM extracted from "
+                "user specs, research, or conversation. The user reviews and "
+                "approves the brief before building begins."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "Brief name"},
+                    "parameters": {"type": "object", "description": "Design parameters (any key-value pairs)"},
+                    "status": {
+                        "type": "string",
+                        "default": "draft",
+                        "enum": ["draft", "proposed", "approved", "building", "done"],
+                        "description": "Brief status",
+                    },
+                    "research_notes": {
+                        "type": "string",
+                        "default": "",
+                        "description": "Research notes and sources",
+                    },
+                },
+                "required": ["name", "parameters"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "design.get_brief",
+            "description": "Retrieve a saved brief by ID.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "brief_id": {"type": "string", "description": "Brief ID from design.save_brief"},
+                },
+                "required": ["brief_id"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "design.update_brief",
+            "description": "Patch parameters, status, or notes on a brief.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "brief_id": {"type": "string", "description": "Brief ID to update"},
+                    "parameters": {"type": "object", "description": "New parameters (replaces all)"},
+                    "status": {
+                        "type": "string",
+                        "enum": ["draft", "proposed", "approved", "building", "done"],
+                        "description": "New status",
+                    },
+                    "research_notes": {"type": "string", "description": "Updated research notes"},
+                    "name": {"type": "string", "description": "Updated name"},
+                },
+                "required": ["brief_id"],
+                "additionalProperties": False,
+            },
+        },
+    ]
+
+
 def _tool_list() -> list[dict[str, Any]]:
     return (
         _cad_tool_list()
@@ -2246,6 +2483,7 @@ def _tool_list() -> list[dict[str, Any]]:
         + _study_tool_list()
         + _motion_tool_list()
         + _rl_tool_list()
+        + _design_tool_list()
     )
 
 
@@ -2260,6 +2498,10 @@ _CAD_DISPATCH: dict[str, Any] = {
     "cad.pad": cad_pad,
     "cad.revolution": cad_revolution,
     "cad.polar_pattern": cad_polar_pattern,
+    "cad.mirror": cad_mirror,
+    "cad.linear_pattern": cad_linear_pattern,
+    "cad.thickness": cad_thickness,
+    "cad.draft": cad_draft,
     "cad.pocket": cad_pocket,
     "cad.sweep": cad_sweep,
     "cad.helix": cad_helix,
@@ -2354,6 +2596,7 @@ _MOTION_DISPATCH: dict[str, Any] = {
     "motion.check_gear_train": motion_check_gear_train,
     "motion.create_assembly": motion_create_assembly,
     "motion.drive_joint": motion_drive_joint,
+    "motion.check_joint_connectivity": motion_check_joint_connectivity,
     "motion.check_interference": motion_check_interference,
     "motion.simulate": motion_simulate,
     "motion.teleop_start": motion_teleop_start,
@@ -2372,6 +2615,12 @@ _RL_DISPATCH: dict[str, Any] = {
     "rl.evaluate_policy": rl_evaluate_policy,
 }
 
+_DESIGN_DISPATCH: dict[str, Any] = {
+    "design.save_brief": design_save_brief,
+    "design.get_brief": design_get_brief,
+    "design.update_brief": design_update_brief,
+}
+
 
 def _call_tool(name: str, arguments: dict[str, Any]) -> Any:
     handler = (
@@ -2384,6 +2633,7 @@ def _call_tool(name: str, arguments: dict[str, Any]) -> Any:
         or _STUDY_DISPATCH.get(name)
         or _MOTION_DISPATCH.get(name)
         or _RL_DISPATCH.get(name)
+        or _DESIGN_DISPATCH.get(name)
     )
     if handler is None:
         raise KeyError(f"Unknown tool: {name}")

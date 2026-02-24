@@ -152,26 +152,28 @@ def default_foot_position(
 ) -> tuple[float, float, float]:
     """Compute the neutral stance foot position in body frame.
 
-    The foot extends straight out from the hip along the mounting
-    angle at a radial distance of l_coxa + l_femur + l_tibia projected
-    to horizontal, with the given stance_z height.
+    Places the foot at the given ``stance_z`` below the hip, with
+    the horizontal reach computed from the IK solution for a foot
+    at (r, 0, stance_z) in hip frame.  This matches the actual
+    standing geometry instead of assuming a horizontal femur.
     """
-    # Fully extended horizontal reach is not realistic; use a natural
-    # reach where femur is ~horizontal and tibia hangs down.
-    # Natural reach: coxa + femur (horizontal) + tibia * cos(natural_tibia)
-    # For a natural stance, compute the reach that produces stance_z.
     l_c = geom.l_coxa
     l_f = geom.l_femur
     l_t = geom.l_tibia
 
-    # Target: foot at (r_total, 0, stance_z) in hip frame where
-    # r_total = l_c + r, and we solve IK for (r_total, 0, stance_z).
-    # Use a reasonable default: extend horizontally at stance_z.
-    # The IK will clamp if needed.
-    r_natural = l_c + math.sqrt(max(0.0, l_f * l_f + l_t * l_t + 2 * l_f * l_t
-                                     - stance_z * stance_z)) * 0.5 + l_c * 0.5
-    # Simpler: just use l_coxa + l_femur as the radial reach
-    r_reach = l_c + l_f
+    # Compute the natural horizontal reach at the given stance height.
+    # Target a moderate knee fold (~45° elbow angle) for a natural
+    # standing configuration — not fully extended, not overly folded.
+    cos_target_fold = math.cos(math.radians(45))  # ~-45° elbow angle
+    d_sq = l_f * l_f + l_t * l_t + 2.0 * l_f * l_t * cos_target_fold
+    d = math.sqrt(max(0.0, d_sq))
+    d_max = l_f + l_t
+    d_min = abs(l_f - l_t)
+    d = max(d_min + 0.001, min(d, d_max - 0.001))
+
+    vertical = min(abs(stance_z), d - 0.001)
+    h = math.sqrt(max(0.0, d * d - vertical * vertical))
+    r_reach = l_c + h
 
     fx = mount.x + r_reach * math.cos(mount.angle)
     fy = mount.y + r_reach * math.sin(mount.angle)

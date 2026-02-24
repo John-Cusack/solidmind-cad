@@ -1792,6 +1792,11 @@ class IsaacRuntime:
         dof_index_map: dict[str, int] = {}
         joint_limits: dict[str, tuple[float, float]] = {}
         if articulation is not None:
+            avail_dofs = _get_dof_names_safe(articulation)
+            logger.info("[runtime] teleop_start: available DOFs (%d): %s",
+                        len(avail_dofs), avail_dofs)
+            logger.info("[runtime] teleop_start: required joints: %s",
+                        list(teleop_config.joint_names))
             dof_index_map, joint_limits = _resolve_dof_map(
                 articulation, teleop_config.joint_names,
             )
@@ -1934,25 +1939,29 @@ class IsaacRuntime:
     # background threads)
     # ------------------------------------------------------------------
 
-    def tick_teleop(self, dt_s: float) -> None:
+    def tick_teleop(self, dt_s: float) -> bool:
         """Advance all active teleop sessions by one tick.
 
-        Called from ``_pump_main_thread`` on the main thread after
-        ``app.update()`` and ``dispatcher.process_pending()``.
+        Called from ``_pump_main_thread`` on the main thread before
+        ``app.update()``.
 
         For each active teleop session:
         1. Compute joint targets via the session's controller.
         2. Clamp targets to joint limits.
         3. Apply targets to the articulation (if available).
-        4. Step physics via ``world.step(render=False)``.
+        4. Step physics via ``world.step(render=True)``.
         5. Update session diagnostics.
+
+        Returns True if at least one session was ticked (physics was
+        stepped), so the pump loop can skip ``app.update()`` to avoid
+        double-stepping.
 
         Thread-safety: reads ``session.state`` (written by background
         ``teleop_command`` threads under ``_lock``) but only writes to
         teleop-specific fields that the pump loop exclusively owns.
         """
         if dt_s <= 0:
-            return
+            return False
 
         # Snapshot active teleop sessions under lock.
         with self._lock:
@@ -1963,6 +1972,9 @@ class IsaacRuntime:
                 and s.controller is not None
             ]
 
+        if not teleop_sessions:
+            return False
+
         for session in teleop_sessions:
             try:
                 self._tick_one_session(session, dt_s)
@@ -1972,6 +1984,8 @@ class IsaacRuntime:
                     session.session_id, exc,
                 )
                 session.last_apply_ok = False
+
+        return True
 
     def _tick_one_session(self, session: SimulationSession, dt_s: float) -> None:
         """Tick a single teleop session. Runs on the main thread."""
@@ -2026,10 +2040,13 @@ class IsaacRuntime:
         session: SimulationSession,
         targets: dict[str, float],
     ) -> None:
-        """Apply joint targets to the articulation and step physics.
+        """Apply joint targets to the articulation.
 
-        Builds a position-target array from the DOF index map, applies
-        it via ``ArticulationAction``, then calls ``world.step()``.
+        Builds a position-target array from the DOF index map and applies
+        it via ``ArticulationAction``.  Physics stepping and rendering are
+        handled by ``app.update()`` in the main-thread pump loop — calling
+        ``world.step()`` here would double-step physics per frame, causing
+        jitter in non-headless mode.
 
         Must run on the main thread.
         """

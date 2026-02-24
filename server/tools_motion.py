@@ -713,6 +713,71 @@ def motion_drive_joint(
         return _error_result("COMMAND_ERROR", str(exc))
 
 
+def motion_check_joint_connectivity(
+    mechanism_id: str,
+    tolerance_mm: float = 2.0,
+    doc: str | None = None,
+) -> dict[str, Any]:
+    """Check that each joint origin touches both parent and child body geometry.
+
+    Uses ``distToShape`` in FreeCAD to measure the distance from each joint
+    origin point to both the parent and child body shapes.  Flags joints
+    where either body is farther than ``tolerance_mm`` from the origin.
+
+    Run this after building bodies but before URDF export to catch
+    connectivity issues early.
+    """
+    if _TOOL_LOG:
+        log.info("CALL motion_check_joint_connectivity id=%s tol=%.1f", mechanism_id, tolerance_mm)
+    t0 = time.monotonic()
+
+    mech = store_get(mechanism_id)
+    if mech is None:
+        return _error_result("NOT_FOUND", f"No mechanism with id '{mechanism_id}'")
+
+    from server.freecad_client import FreeCADCommandError, FreeCADConnectionError, get_client
+
+    # Build the joints list for the FreeCAD command: map part ids to body names.
+    part_body_map: dict[str, str] = {}
+    for part in mech.parts:
+        part_body_map[part.id] = part.body_name or part.id
+
+    joints_arg: list[dict[str, Any]] = []
+    for jedge in mech.joints:
+        parent_body = part_body_map.get(jedge.parent_part, jedge.parent_part)
+        child_body = part_body_map.get(jedge.child_part, jedge.child_part)
+        joints_arg.append({
+            "id": jedge.id,
+            "parent_body": parent_body,
+            "child_body": child_body,
+            "origin": list(jedge.origin),
+        })
+
+    try:
+        client = get_client()
+        cmd_kwargs: dict[str, Any] = {
+            "joints": joints_arg,
+            "tolerance_mm": tolerance_mm,
+        }
+        if doc is not None:
+            cmd_kwargs["doc"] = doc
+
+        result = client.send_command("check_joint_connectivity", **cmd_kwargs)
+
+        if _TOOL_LOG:
+            log.info(
+                "OK   motion_check_joint_connectivity %.3fs all_connected=%s",
+                time.monotonic() - t0, result.get("all_connected"),
+            )
+
+        return {"ok": True, **result}
+
+    except FreeCADConnectionError as exc:
+        return _error_result("CONNECTION_ERROR", str(exc))
+    except FreeCADCommandError as exc:
+        return _error_result("COMMAND_ERROR", str(exc))
+
+
 def motion_check_interference(
     mechanism_id: str,
     doc: str | None = None,

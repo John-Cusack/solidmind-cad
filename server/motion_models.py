@@ -13,6 +13,7 @@ from typing import Any
 
 class JointType(str, Enum):
     REVOLUTE = "revolute"
+    CONTINUOUS = "continuous"
     PRISMATIC = "prismatic"
     GEAR_MESH = "gear_mesh"
     BELT_CHAIN = "belt_chain"
@@ -77,6 +78,11 @@ class JointEdge:
     max_angle_deg: float | None = None
     min_travel_mm: float | None = None
     max_travel_mm: float | None = None
+    # Actuator parameters (for URDF export)
+    damping: float | None = None
+    friction: float | None = None
+    effort_nm: float | None = None       # max torque (Nm) or force (N)
+    velocity_rad_s: float | None = None  # max velocity (rad/s or m/s)
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {
@@ -106,6 +112,14 @@ class JointEdge:
             d["min_travel_mm"] = self.min_travel_mm
         if self.max_travel_mm is not None:
             d["max_travel_mm"] = self.max_travel_mm
+        if self.damping is not None:
+            d["damping"] = self.damping
+        if self.friction is not None:
+            d["friction"] = self.friction
+        if self.effort_nm is not None:
+            d["effort_nm"] = self.effort_nm
+        if self.velocity_rad_s is not None:
+            d["velocity_rad_s"] = self.velocity_rad_s
         return d
 
     @classmethod
@@ -129,6 +143,10 @@ class JointEdge:
             max_angle_deg=d.get("max_angle_deg"),
             min_travel_mm=d.get("min_travel_mm"),
             max_travel_mm=d.get("max_travel_mm"),
+            damping=d.get("damping"),
+            friction=d.get("friction"),
+            effort_nm=d.get("effort_nm"),
+            velocity_rad_s=d.get("velocity_rad_s"),
         )
 
 

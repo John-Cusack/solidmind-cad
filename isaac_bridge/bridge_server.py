@@ -301,11 +301,7 @@ def _pump_main_thread(server: BridgeServer) -> None:
     last_t = _t.monotonic()
 
     while not server._stop_event.is_set():
-        if app is not None:
-            try:
-                app.update()
-            except Exception:
-                break
+        # Process any dispatched calls (e.g. URDF import, scene setup).
         main_thread_dispatcher.process_pending()
 
         # Compute bounded dt_s from wall clock.
@@ -314,13 +310,20 @@ def _pump_main_thread(server: BridgeServer) -> None:
         last_t = now
         dt_s = max(_DT_MIN, min(_DT_MAX, raw_dt))
 
-        # Tick active teleop sessions (controller + physics step).
+        # Tick active teleop sessions — applies joint targets and
+        # steps physics via world.step(render=False).
         try:
             server._runtime.tick_teleop(dt_s)
         except Exception as exc:
             logger.warning("tick_teleop error (non-fatal): %s", exc)
 
-        if app is None:
+        # Pump Kit event loop for rendering and event processing.
+        if app is not None:
+            try:
+                app.update()
+            except Exception:
+                break
+        else:
             # No Kit — avoid busy-spin
             _t.sleep(0.005)
 

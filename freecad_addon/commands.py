@@ -455,6 +455,7 @@ def sketch_populate(
     # --- Add all geometry elements without recompute ---
     for elem in (elements or []):
         elem_type = elem.get("type", "")
+        is_construction = elem.get("construction", False)
 
         if elem_type == "rect":
             x = elem.get("x", 0)
@@ -478,15 +479,24 @@ def sketch_populate(
             sk.addConstraint(Sketcher.Constraint("Horizontal", i2))
             sk.addConstraint(Sketcher.Constraint("Vertical", i1))
             sk.addConstraint(Sketcher.Constraint("Vertical", i3))
+            if is_construction:
+                for ci in (i0, i1, i2, i3):
+                    sk.toggleConstruction(ci)
             geometry_indices.append({"type": "rect", "indices": [i0, i1, i2, i3]})
 
         elif elem_type == "circle":
-            cx = elem.get("cx", 0)
-            cy = elem.get("cy", 0)
+            center = elem.get("center")
+            if center:
+                cx, cy = center[0], center[1]
+            else:
+                cx = elem.get("cx", 0)
+                cy = elem.get("cy", 0)
             r = elem["r"]
             idx = sk.addGeometry(
                 Part.Circle(FreeCAD.Vector(cx, cy, 0), FreeCAD.Vector(0, 0, 1), r)
             )
+            if is_construction:
+                sk.toggleConstruction(idx)
             geometry_indices.append({"type": "circle", "index": idx})
 
         elif elem_type == "line":
@@ -496,11 +506,17 @@ def sketch_populate(
                     FreeCAD.Vector(elem["x2"], elem["y2"], 0),
                 )
             )
+            if is_construction:
+                sk.toggleConstruction(idx)
             geometry_indices.append({"type": "line", "index": idx})
 
         elif elem_type == "arc":
-            cx = elem.get("cx", 0)
-            cy = elem.get("cy", 0)
+            center = elem.get("center")
+            if center:
+                cx, cy = center[0], center[1]
+            else:
+                cx = elem.get("cx", 0)
+                cy = elem.get("cy", 0)
             r = elem["r"]
             sa = elem["start_angle"]
             ea = elem["end_angle"]
@@ -513,6 +529,8 @@ def sketch_populate(
                     math.radians(ea),
                 )
             )
+            if is_construction:
+                sk.toggleConstruction(idx)
             geometry_indices.append({"type": "arc", "index": idx})
 
         elif elem_type == "spline":
@@ -556,14 +574,47 @@ def sketch_populate(
             bspline = Part.BSplineCurve()
             bspline.buildFromPolesMultsKnots(poles, mults, unique_knots, periodic, degree, w)
             idx = sk.addGeometry(bspline)
+            if is_construction:
+                sk.toggleConstruction(idx)
             geometry_indices.append({"type": "spline", "index": idx})
+
+        elif elem_type == "external_ref":
+            feature = elem.get("feature")
+            edge = elem.get("edge", "Edge1")
+            if feature is None:
+                raise ValueError("external_ref requires a 'feature' field")
+            ref_str = f"{feature}.{edge}"
+            idx = sk.addExternal(feature, edge)
+            geometry_indices.append({"type": "external_ref", "index": idx, "ref": ref_str})
+
+        elif elem_type == "sketch_fillet":
+            vertex = elem.get("vertex")
+            radius = elem.get("radius")
+            if vertex is None or radius is None:
+                raise ValueError("sketch_fillet requires 'vertex' (geometry index) and 'radius' fields")
+            result_indices = sk.fillet(int(vertex), float(radius))
+            idx = result_indices if isinstance(result_indices, int) else result_indices[0] if result_indices else -1
+            geometry_indices.append({"type": "sketch_fillet", "index": idx, "vertex": vertex, "radius": radius})
+
+        elif elem_type == "sketch_chamfer":
+            vertex = elem.get("vertex")
+            size = elem.get("size")
+            if vertex is None or size is None:
+                raise ValueError("sketch_chamfer requires 'vertex' (geometry index) and 'size' fields")
+            result_indices = sk.chamfer(int(vertex), float(size))
+            idx = result_indices if isinstance(result_indices, int) else result_indices[0] if result_indices else -1
+            geometry_indices.append({"type": "sketch_chamfer", "index": idx, "vertex": vertex, "size": size})
 
         else:
             raise ValueError(f"Unknown element type: {elem_type}")
 
     # --- Add all constraints without recompute ---
+    # Partial recovery: each constraint is attempted independently so a single
+    # failure doesn't abort the whole sketch.  Failures are collected and
+    # returned alongside the successful constraints.
     constraint_count = 0
-    for con in (constraints or []):
+    constraint_errors: list[dict[str, Any]] = []
+    for ci, con in enumerate(constraints or []):
         con_type = con.get("type")
         if con_type is None:
             continue
@@ -586,18 +637,29 @@ def sketch_populate(
         if value is not None:
             cargs.append(float(value))
 
-        sk.addConstraint(Sketcher.Constraint(*cargs))
-        constraint_count += 1
+        try:
+            sk.addConstraint(Sketcher.Constraint(*cargs))
+            constraint_count += 1
+        except Exception as exc:
+            constraint_errors.append({
+                "index": ci,
+                "type": con_type,
+                "error": str(exc),
+            })
+            logger.warning("Constraint %d (%s) failed: %s", ci, con_type, exc)
 
     # --- Single recompute for everything ---
     d.recompute()
 
-    return {
+    result: dict[str, Any] = {
         "sketch": sk.Name,
         "element_count": len(geometry_indices),
         "constraint_count": constraint_count,
         "geometry": geometry_indices,
     }
+    if constraint_errors:
+        result["constraint_errors"] = constraint_errors
+    return result
 
 
 def close_sketch(sketch: str, doc: str | None = None) -> dict[str, Any]:
@@ -621,6 +683,48 @@ def close_sketch(sketch: str, doc: str | None = None) -> dict[str, Any]:
 # PartDesign Features
 # ---------------------------------------------------------------------------
 
+def _validate_profile_closure(sk: Any, operation: str) -> None:
+    """Check that the sketch profile has closed wires before pad/pocket.
+
+    Raises ``ValueError`` with actionable diagnostics if the profile is open.
+    """
+    shape = getattr(sk, "Shape", None)
+    if shape is None:
+        return
+
+    wires = shape.Wires
+    if not wires:
+        raise ValueError(
+            f"{operation} failed: sketch '{sk.Name}' has no wires. "
+            "Ensure the sketch contains a closed profile."
+        )
+
+    open_vertices = getattr(sk, "OpenVertices", None)
+    if open_vertices and len(open_vertices) > 0:
+        positions = []
+        for v in open_vertices[:5]:  # limit to first 5
+            if hasattr(v, "Point"):
+                p = v.Point
+                positions.append(f"({p.x:.2f}, {p.y:.2f})")
+            elif hasattr(v, "x"):
+                positions.append(f"({v.x:.2f}, {v.y:.2f})")
+        msg = (
+            f"{operation} failed: sketch '{sk.Name}' has {len(open_vertices)} open "
+            f"vertex(es) — the profile is not closed."
+        )
+        if positions:
+            msg += f" Open vertices near: {', '.join(positions)}."
+        msg += " Close all gaps in the profile before extruding."
+        raise ValueError(msg)
+
+    for i, wire in enumerate(wires):
+        if not wire.isClosed():
+            raise ValueError(
+                f"{operation} failed: wire {i} in sketch '{sk.Name}' is not closed. "
+                "Ensure all profile edges form a closed loop."
+            )
+
+
 def pad(
     sketch: str,
     length: float,
@@ -633,6 +737,7 @@ def pad(
     logger.info("pad: sketch=%s length=%s symmetric=%s reversed=%s", sketch, length, symmetric, reversed)
     d = _get_doc(doc)
     sk = _get_sketch(d, sketch)
+    _validate_profile_closure(sk, "Pad")
 
     body = _find_parent_body(d, sk)
     pad_obj = d.addObject("PartDesign::Pad", "Pad")
@@ -748,6 +853,7 @@ def pocket(
     logger.info("pocket: sketch=%s length=%s type=%s reversed=%s", sketch, length, pocket_type, reversed)
     d = _get_doc(doc)
     sk = _get_sketch(d, sketch)
+    _validate_profile_closure(sk, "Pocket")
 
     body = _find_parent_body(d, sk)
 
@@ -995,6 +1101,223 @@ def polar_pattern(
     return result
 
 
+def mirror(
+    features: list[str],
+    plane: str = "Base_X",
+    body: str | None = None,
+    verify: bool = True,
+    doc: str | None = None,
+) -> dict[str, Any]:
+    """Mirror features across a symmetry plane.
+
+    Creates a ``PartDesign::Mirrored`` feature.
+
+    ``features``: list of feature names to mirror (e.g. ``["Pad"]``).
+    ``plane``: ``"Base_X"``, ``"Base_Y"``, ``"Base_Z"`` (document origin planes),
+    or ``"V"``, ``"H"`` (sketch axes of the first feature's sketch).
+    """
+    logger.info("mirror: features=%s plane=%s", features, plane)
+    d = _get_doc(doc)
+    body_obj = _resolve_body(d, body)
+
+    originals = []
+    for feat_name in features:
+        feat = d.getObject(feat_name)
+        if feat is None:
+            raise ValueError(f"Feature '{feat_name}' not found")
+        originals.append(feat)
+
+    mirror_obj = d.addObject("PartDesign::Mirrored", "Mirrored")
+    body_obj.addObject(mirror_obj)
+    mirror_obj.Originals = originals
+
+    if plane in ("V", "H"):
+        first_feat = originals[0]
+        sk = getattr(first_feat, "Profile", None)
+        if sk is None:
+            raise ValueError("First feature has no Profile sketch for V/H plane reference")
+        if isinstance(sk, (list, tuple)):
+            sk = sk[0]
+        mirror_obj.MirrorPlane = (sk, [f"{plane}_Axis"])
+    else:
+        plane_map = {
+            "Base_X": ("YZ_Plane", "XY_Plane"),  # mirror across YZ plane (X symmetry)
+            "Base_Y": ("XZ_Plane", "XZ_Plane"),  # mirror across XZ plane (Y symmetry)
+            "Base_Z": ("XY_Plane", "XY_Plane"),  # mirror across XY plane (Z symmetry)
+        }
+        # FreeCAD PartDesign::Mirrored uses origin planes as mirror planes
+        fc_plane_map = {
+            "Base_X": "YZ_Plane",
+            "Base_Y": "XZ_Plane",
+            "Base_Z": "XY_Plane",
+        }
+        fc_plane = fc_plane_map.get(plane)
+        if fc_plane is None:
+            raise ValueError(f"Invalid plane '{plane}', must be V, H, Base_X, Base_Y, or Base_Z")
+        plane_obj = d.getObject(fc_plane)
+        if plane_obj is None:
+            raise ValueError(f"Document has no '{fc_plane}' object")
+        mirror_obj.MirrorPlane = (plane_obj, [""])
+
+    op_context = {"op": "mirror", "plane": plane}
+    result = _recompute_and_check(d, mirror_obj, body=body_obj, op_context=op_context)
+    logger.info("mirror: created %s", mirror_obj.Name)
+    if verify:
+        result["verification_images"] = _capture_verification_views(d, op_context=op_context, body=body_obj)
+    return result
+
+
+def linear_pattern(
+    features: list[str],
+    axis: str = "Base_X",
+    length: float = 100.0,
+    occurrences: int = 3,
+    reversed: bool = False,
+    body: str | None = None,
+    verify: bool = True,
+    doc: str | None = None,
+) -> dict[str, Any]:
+    """Create a linear pattern of features along an axis.
+
+    Creates a ``PartDesign::LinearPattern`` feature.
+
+    ``features``: list of feature names to pattern (e.g. ``["Pocket"]``).
+    ``axis``: ``"Base_X"``, ``"Base_Y"``, ``"Base_Z"`` (document origin axes),
+    or ``"V"``, ``"H"`` (sketch axes of the first feature's sketch).
+    ``length``: total span of the pattern in mm.
+    ``occurrences``: total number of copies including the original.
+    """
+    logger.info("linear_pattern: features=%s axis=%s length=%s occurrences=%s", features, axis, length, occurrences)
+    d = _get_doc(doc)
+    body_obj = _resolve_body(d, body)
+
+    originals = []
+    for feat_name in features:
+        feat = d.getObject(feat_name)
+        if feat is None:
+            raise ValueError(f"Feature '{feat_name}' not found")
+        originals.append(feat)
+
+    pattern_obj = d.addObject("PartDesign::LinearPattern", "LinearPattern")
+    body_obj.addObject(pattern_obj)
+    pattern_obj.Originals = originals
+    pattern_obj.Length = length
+    pattern_obj.Occurrences = occurrences
+    pattern_obj.Reversed = reversed
+
+    if axis in ("V", "H"):
+        first_feat = originals[0]
+        sk = getattr(first_feat, "Profile", None)
+        if sk is None:
+            raise ValueError("First feature has no Profile sketch for V/H axis reference")
+        if isinstance(sk, (list, tuple)):
+            sk = sk[0]
+        pattern_obj.Direction = (sk, [f"{axis}_Axis"])
+    else:
+        axis_map = {
+            "Base_X": "X_Axis",
+            "Base_Y": "Y_Axis",
+            "Base_Z": "Z_Axis",
+        }
+        fc_axis = axis_map.get(axis)
+        if fc_axis is None:
+            raise ValueError(f"Invalid axis '{axis}', must be V, H, Base_X, Base_Y, or Base_Z")
+        axis_obj = d.getObject(fc_axis)
+        if axis_obj is None:
+            raise ValueError(f"Document has no '{fc_axis}' object")
+        pattern_obj.Direction = (axis_obj, [""])
+
+    op_context = {"op": "linear_pattern", "axis": axis, "length": length, "occurrences": occurrences}
+    result = _recompute_and_check(d, pattern_obj, body=body_obj, op_context=op_context)
+    logger.info("linear_pattern: created %s", pattern_obj.Name)
+    if verify:
+        result["verification_images"] = _capture_verification_views(d, op_context=op_context, body=body_obj)
+    return result
+
+
+def thickness(
+    faces: list[str],
+    thickness_value: float,
+    join_type: str = "Arc",
+    reversed: bool = False,
+    body: str | None = None,
+    verify: bool = True,
+    doc: str | None = None,
+) -> dict[str, Any]:
+    """Shell/hollow out a solid by removing faces and adding wall thickness.
+
+    Creates a ``PartDesign::Thickness`` feature.
+
+    ``faces``: face references to remove/open (e.g. ``["Face6"]``).
+    ``thickness_value``: wall thickness in mm.
+    ``join_type``: ``"Arc"`` (default), ``"Tangent"``, or ``"Intersection"``.
+    ``reversed``: reverse thickness direction (inward vs outward).
+    """
+    logger.info("thickness: faces=%s thickness=%s join=%s reversed=%s", faces, thickness_value, join_type, reversed)
+    d = _get_doc(doc)
+    body_obj = _resolve_body(d, body)
+
+    tip = _get_tip(body_obj)
+
+    # Base is (tip, [face_names]) — single tuple with list of face names
+    thick_obj = d.addObject("PartDesign::Thickness", "Thickness")
+    body_obj.addObject(thick_obj)
+    thick_obj.Base = (tip, faces)
+    thick_obj.Value = thickness_value
+    thick_obj.Reversed = reversed
+
+    join_map = {"Arc": 0, "Tangent": 1, "Intersection": 2}
+    join_val = join_map.get(join_type, 0)
+    thick_obj.Join = join_val
+
+    op_context = {"op": "thickness", "faces": faces, "thickness": thickness_value}
+    result = _recompute_and_check(d, thick_obj, body=body_obj, op_context=op_context)
+    logger.info("thickness: created %s", thick_obj.Name)
+    if verify:
+        result["verification_images"] = _capture_verification_views(d, op_context=op_context, body=body_obj)
+    return result
+
+
+def draft(
+    faces: list[str],
+    angle: float,
+    neutral_plane: str = "Face1",
+    reversed: bool = False,
+    body: str | None = None,
+    verify: bool = True,
+    doc: str | None = None,
+) -> dict[str, Any]:
+    """Add draft/taper to faces for injection molding or casting.
+
+    Creates a ``PartDesign::Draft`` feature.
+
+    ``faces``: face references to draft (e.g. ``["Face2", "Face4"]``).
+    ``angle``: draft angle in degrees.
+    ``neutral_plane``: the face that defines the stationary plane (e.g. ``"Face1"``).
+    ``reversed``: reverse pull direction.
+    """
+    logger.info("draft: faces=%s angle=%s neutral_plane=%s reversed=%s", faces, angle, neutral_plane, reversed)
+    d = _get_doc(doc)
+    body_obj = _resolve_body(d, body)
+
+    tip = _get_tip(body_obj)
+
+    # Base is (tip, [face_names]) — single tuple with list of face names
+    draft_obj = d.addObject("PartDesign::Draft", "Draft")
+    body_obj.addObject(draft_obj)
+    draft_obj.Base = (tip, faces)
+    draft_obj.Angle = angle
+    draft_obj.NeutralPlane = (tip, [neutral_plane])
+    draft_obj.Reversed = reversed
+
+    op_context = {"op": "draft", "faces": faces, "angle": angle, "neutral_plane": neutral_plane}
+    result = _recompute_and_check(d, draft_obj, body=body_obj, op_context=op_context)
+    logger.info("draft: created %s", draft_obj.Name)
+    if verify:
+        result["verification_images"] = _capture_verification_views(d, op_context=op_context, body=body_obj)
+    return result
+
+
 def sweep(
     profile_sketch: str,
     spine_sketch: str,
@@ -1017,7 +1340,9 @@ def sweep(
     pipe_obj = d.addObject(type_id, "Pipe")
     body.addObject(pipe_obj)
     pipe_obj.Profile = sk_profile
-    pipe_obj.Spine = (sk_spine, ["Edge1"])
+    # Use all edges in the spine sketch (not just Edge1) for multi-segment spines
+    spine_edges = [f"Edge{i + 1}" for i in range(len(sk_spine.Shape.Edges))]
+    pipe_obj.Spine = (sk_spine, spine_edges)
 
     op_context = {"op": "sweep", "subtractive": subtractive}
     result = _recompute_and_check(d, pipe_obj, body=body, op_context=op_context)
@@ -3082,6 +3407,14 @@ _FEATURE_HINTS: dict[str, str] = {
     "PartDesign::Groove": "sketch profile may be invalid, not closed, or axis may intersect the profile",
     "PartDesign::AdditiveHelix": "sketch profile may be invalid, or helix parameters (pitch/height/turns) may be inconsistent",
     "PartDesign::PolarPattern": "pattern may produce overlapping or self-intersecting geometry",
+    "PartDesign::AdditivePipe": "sweep failed: spine may be discontinuous, profile may be open, or profile may intersect the spine",
+    "PartDesign::SubtractivePipe": "subtractive sweep failed: spine may be discontinuous, profile may be open, or cut may not intersect the solid",
+    "PartDesign::AdditiveLoft": "loft failed: sections may have different vertex counts, or profiles may be too far apart",
+    "PartDesign::SubtractiveLoft": "subtractive loft failed: sections may not form a valid cut, or profiles may be incompatible",
+    "PartDesign::Mirrored": "mirror failed: pattern may produce overlapping or self-intersecting geometry",
+    "PartDesign::LinearPattern": "linear pattern failed: pattern spacing may cause overlapping geometry",
+    "PartDesign::Thickness": "shell/thickness failed: selected faces may not form a valid shell, or thickness may be too large",
+    "PartDesign::Draft": "draft failed: faces may not be valid for tapering, or angle may be too large for the geometry",
 }
 
 
@@ -3114,6 +3447,47 @@ def _gather_failure_diagnostics(obj: Any) -> str:
         length = getattr(obj, "Length", None)
         if length is not None and obj.TypeId in ("PartDesign::Pocket",):
             parts.append(f"requested_depth={length:.2f}mm")
+
+        # Profile diagnostics for pad/pocket/revolution/pipe/loft
+        profile = getattr(obj, "Profile", None)
+        if profile is not None:
+            sk = profile[0] if isinstance(profile, (list, tuple)) else profile
+            if hasattr(sk, "Shape") and sk.Shape is not None:
+                wires = sk.Shape.Wires
+                parts.append(f"profile_wires={len(wires)}")
+                for i, wire in enumerate(wires):
+                    parts.append(f"wire{i}_closed={wire.isClosed()}")
+                open_verts = getattr(sk, "OpenVertices", None)
+                if open_verts:
+                    parts.append(f"open_vertices={len(open_verts)}")
+
+        # Spine diagnostics for pipe (sweep) features
+        spine = getattr(obj, "Spine", None)
+        if spine is not None:
+            try:
+                spine_obj = spine[0] if isinstance(spine, (list, tuple)) else spine
+                if hasattr(spine_obj, "Shape") and spine_obj.Shape is not None:
+                    spine_shape = spine_obj.Shape
+                    parts.append(f"spine_edges={len(spine_shape.Edges)}")
+                    if spine_shape.Wires:
+                        for i, wire in enumerate(spine_shape.Wires):
+                            parts.append(f"spine_wire{i}_closed={wire.isClosed()}")
+            except Exception:
+                pass
+
+        # Originals diagnostics for pattern features
+        originals = getattr(obj, "Originals", None)
+        if originals is not None:
+            valid_count = sum(1 for o in originals if getattr(o, "isValid", lambda: True)())
+            parts.append(f"originals={len(originals)}; valid={valid_count}")
+
+        # Thickness/Draft value
+        value = getattr(obj, "Value", None)
+        if value is not None and obj.TypeId == "PartDesign::Thickness":
+            parts.append(f"requested_thickness={value:.2f}mm")
+        angle = getattr(obj, "Angle", None)
+        if angle is not None and obj.TypeId == "PartDesign::Draft":
+            parts.append(f"requested_angle={angle:.2f}deg")
     except Exception:
         pass
     return "; ".join(parts)
@@ -3708,6 +4082,87 @@ def create_primitives(
     return result
 
 
+def check_joint_connectivity(
+    joints: list[dict[str, Any]],
+    tolerance_mm: float = 2.0,
+    doc: str | None = None,
+) -> dict[str, Any]:
+    """Check that each joint origin touches both parent and child body geometry.
+
+    ``joints`` is a list of dicts, each with:
+      - ``id``: joint name
+      - ``parent_body``: FreeCAD body name for the parent part
+      - ``child_body``: FreeCAD body name for the child part
+      - ``origin``: [x, y, z] joint origin in mm (world frame)
+
+    For each joint, computes the minimum distance from the origin point to
+    both the parent and child body shapes.  If either distance exceeds
+    ``tolerance_mm``, the joint is flagged as disconnected.
+    """
+    import Part as FreeCADPart  # type: ignore[import-untyped]
+
+    d = _get_doc(doc)
+
+    results: list[dict[str, Any]] = []
+    all_connected = True
+
+    for jt in joints:
+        jt_id = jt["id"]
+        parent_body_name = jt["parent_body"]
+        child_body_name = jt["child_body"]
+        origin = jt["origin"]
+
+        import FreeCAD  # type: ignore[import-untyped]
+        point_vec = FreeCAD.Vector(origin[0], origin[1], origin[2])
+        # Part.Point creates a TopoDS_Vertex shape suitable for distToShape
+        point_shape = FreeCADPart.Point(point_vec).toShape()
+
+        entry: dict[str, Any] = {
+            "joint": jt_id,
+            "origin_mm": list(origin),
+            "parent_body": parent_body_name,
+            "child_body": child_body_name,
+        }
+
+        for role, body_name in [("parent", parent_body_name), ("child", child_body_name)]:
+            obj = d.getObject(body_name)
+            if obj is None:
+                entry[f"{role}_error"] = f"Body '{body_name}' not found"
+                entry[f"{role}_connected"] = False
+                all_connected = False
+                continue
+
+            shape = getattr(obj, "Shape", None)
+            if shape is None or shape.isNull():
+                entry[f"{role}_error"] = f"Body '{body_name}' has no shape"
+                entry[f"{role}_connected"] = False
+                all_connected = False
+                continue
+
+            try:
+                dist = shape.distToShape(point_shape)[0]
+            except Exception as exc:
+                entry[f"{role}_error"] = f"distToShape failed: {exc}"
+                entry[f"{role}_connected"] = False
+                all_connected = False
+                continue
+
+            entry[f"{role}_distance_mm"] = round(dist, 4)
+            entry[f"{role}_connected"] = dist <= tolerance_mm
+
+            if dist > tolerance_mm:
+                all_connected = False
+
+        results.append(entry)
+
+    return {
+        "all_connected": all_connected,
+        "tolerance_mm": tolerance_mm,
+        "joint_count": len(joints),
+        "joints": results,
+    }
+
+
 COMMAND_HANDLERS: dict[str, Any] = {
     "new_document": new_document,
     "new_body": new_body,
@@ -3728,6 +4183,10 @@ COMMAND_HANDLERS: dict[str, Any] = {
     "pocket": pocket,
     "revolution": revolution,
     "polar_pattern": polar_pattern,
+    "mirror": mirror,
+    "linear_pattern": linear_pattern,
+    "thickness": thickness,
+    "draft": draft,
     "hole": hole,
     "sweep": sweep,
     "helix": helix,
@@ -3765,4 +4224,5 @@ COMMAND_HANDLERS: dict[str, Any] = {
     "freecad_info": freecad_info,
     "create_primitive": create_primitive,
     "create_primitives": create_primitives,
+    "check_joint_connectivity": check_joint_connectivity,
 }

@@ -11,6 +11,7 @@ import time
 from typing import Any
 
 from server.freecad_client import FreeCADCommandError, FreeCADConnectionError, get_client
+from server.sketch_elements import normalize_elements
 
 log = logging.getLogger("solidmind.tools_cad")
 
@@ -152,6 +153,7 @@ def cad_sketch(
 
     # Combine: ref elements first, then inline elements
     all_elements = ref_elements + (elements or [])
+    normalize_elements(all_elements)
 
     # 1. Create sketch
     sk_kwargs: dict[str, Any] = {"body": body, "plane": plane}
@@ -271,6 +273,112 @@ def cad_polar_pattern(
     if doc is not None:
         kwargs["doc"] = doc
     result = client.send_command("polar_pattern", **kwargs)
+    return {"ok": True, **result}
+
+
+@_wrap
+def cad_mirror(
+    features: list[str],
+    plane: str = "Base_X",
+    body: str | None = None,
+    verify: bool = True,
+    doc: str | None = None,
+) -> dict[str, Any]:
+    """Mirror features across a symmetry plane."""
+    client = get_client()
+    kwargs: dict[str, Any] = {
+        "features": features,
+        "plane": plane,
+        "verify": verify,
+    }
+    if body is not None:
+        kwargs["body"] = body
+    if doc is not None:
+        kwargs["doc"] = doc
+    result = client.send_command("mirror", **kwargs)
+    return {"ok": True, **result}
+
+
+@_wrap
+def cad_linear_pattern(
+    features: list[str],
+    axis: str = "Base_X",
+    length: float = 100.0,
+    occurrences: int = 3,
+    reversed: bool = False,
+    body: str | None = None,
+    verify: bool = True,
+    doc: str | None = None,
+) -> dict[str, Any]:
+    """Create a linear pattern of features along an axis."""
+    client = get_client()
+    kwargs: dict[str, Any] = {
+        "features": features,
+        "axis": axis,
+        "length": length,
+        "occurrences": occurrences,
+        "reversed": reversed,
+        "verify": verify,
+    }
+    if body is not None:
+        kwargs["body"] = body
+    if doc is not None:
+        kwargs["doc"] = doc
+    result = client.send_command("linear_pattern", **kwargs)
+    return {"ok": True, **result}
+
+
+@_wrap
+def cad_thickness(
+    faces: list[str],
+    thickness: float,
+    join_type: str = "Arc",
+    reversed: bool = False,
+    body: str | None = None,
+    verify: bool = True,
+    doc: str | None = None,
+) -> dict[str, Any]:
+    """Shell/hollow out a solid by removing faces and adding wall thickness."""
+    client = get_client()
+    kwargs: dict[str, Any] = {
+        "faces": faces,
+        "thickness_value": thickness,
+        "join_type": join_type,
+        "reversed": reversed,
+        "verify": verify,
+    }
+    if body is not None:
+        kwargs["body"] = body
+    if doc is not None:
+        kwargs["doc"] = doc
+    result = client.send_command("thickness", **kwargs)
+    return {"ok": True, **result}
+
+
+@_wrap
+def cad_draft(
+    faces: list[str],
+    angle: float,
+    neutral_plane: str = "Face1",
+    reversed: bool = False,
+    body: str | None = None,
+    verify: bool = True,
+    doc: str | None = None,
+) -> dict[str, Any]:
+    """Add draft/taper to faces for injection molding or casting."""
+    client = get_client()
+    kwargs: dict[str, Any] = {
+        "faces": faces,
+        "angle": angle,
+        "neutral_plane": neutral_plane,
+        "reversed": reversed,
+        "verify": verify,
+    }
+    if body is not None:
+        kwargs["body"] = body
+    if doc is not None:
+        kwargs["doc"] = doc
+    result = client.send_command("draft", **kwargs)
     return {"ok": True, **result}
 
 
@@ -846,7 +954,7 @@ def cad_export_sim_package(
 
         pkg_dir = result.get("output_dir", output_dir or ".")
         urdf_path = os.path.join(pkg_dir, f"{sim_model.name}.urdf")
-        urdf_path = write_urdf(sim_model, urdf_path)
+        urdf_path = write_urdf(sim_model, urdf_path, base_dir=pkg_dir)
 
         # Post-generation validation: structural
         urdf_findings = validate_urdf(urdf_path)

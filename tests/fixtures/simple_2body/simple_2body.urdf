@@ -1,0 +1,50 @@
+<?xml version='1.0' encoding='utf-8'?>
+<!--
+  Minimal 2-body test fixture: base_link (chassis) + arm, 1 revolute joint.
+  Meshes are body-local binary STL boxes (mm), scale 0.001 for URDF (meters).
+  Chassis: 60×40×10mm centered at origin.
+  Arm: 80×20×10mm centered at origin.
+  Joint at (0, 0, 0.05) from chassis, revolute about Z axis.
+-->
+<robot name="simple_2body">
+  <link name="chassis">
+    <visual>
+      <geometry>
+        <mesh filename="Chassis.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </visual>
+    <collision>
+      <geometry>
+        <mesh filename="Chassis.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <mass value="1.0"/>
+      <inertia ixx="0.000142" ixy="0" ixz="0" iyy="0.000308" iyz="0" izz="0.000433"/>
+    </inertial>
+  </link>
+  <link name="arm">
+    <visual>
+      <geometry>
+        <mesh filename="Arm.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </visual>
+    <collision>
+      <geometry>
+        <mesh filename="Arm.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <mass value="0.5"/>
+      <inertia ixx="0.0000208" ixy="0" ixz="0" iyy="0.000271" iyz="0" izz="0.000288"/>
+    </inertial>
+  </link>
+  <joint name="shoulder" type="revolute">
+    <parent link="chassis"/>
+    <child link="arm"/>
+    <origin xyz="0 0 0.05" rpy="0 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-1.5708" upper="1.5708" effort="100" velocity="10"/>
+    <dynamics damping="0.1" friction="0.0"/>
+  </joint>
+</robot>

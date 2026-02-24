@@ -54,16 +54,16 @@ Claude Code CLI ──stdio──▶ MCP Bridge Server ──TCP socket──▶
 - `protocol.py` — Newline-delimited JSON command/response protocol
 - `socket_server.py` — TCP server on localhost:9876, background thread, command dispatch
 - `selection_observer.py` — FreeCADGui.Selection observer, tracks clicked faces/edges/vertices
-- `commands.py` — FreeCAD API command handlers (document, body, sketch, pad, pocket, hole, fillet, chamfer, export, undo, selection, model tree)
+- `commands.py` — FreeCAD API command handlers (document, body, sketch, pad, pocket, hole, fillet, chamfer, mirror, linear_pattern, thickness, draft, export, undo, selection, model tree)
 
 **`server/`:**
-- `main.py` — MCP JSON-RPC stdio server, registers cad.*, mfg.*, and me.* tools
+- `main.py` — MCP JSON-RPC stdio server, registers cad.*, mfg.*, me.*, design.* tools
 - `freecad_client.py` — TCP socket client connecting to FreeCAD addon, retry/reconnect logic
-- `tools_cad.py` — CAD MCP tool implementations (cad.new_document, cad.sketch, cad.pad, cad.pocket, cad.hole, cad.fillet, cad.chamfer, cad.get_selection, cad.get_model_tree, cad.undo, cad.export)
+- `tools_cad.py` — CAD MCP tool implementations (cad.new_document, cad.sketch, cad.pad, cad.pocket, cad.hole, cad.fillet, cad.chamfer, cad.mirror, cad.linear_pattern, cad.thickness, cad.draft, cad.get_selection, cad.get_model_tree, cad.undo, cad.export)
 - `tools_mfg.py` — Manufacturing readiness tools (mfg.set_property, mfg.readiness_check, mfg.export_rfq)
 - `tools_me.py` — ME design-loop tools (deterministic validation, traceability, risk gates)
 - `tools_study.py` — Parametric study tools (create, run, status, results, cancel, list, get_variant)
-- `tools_motion.py` — Motion validation tools (Tier 1: define_mechanism, validate, propagate_motion, check_gear_train; Tier 2: create_assembly, drive_joint, check_interference; Tier 3: simulate, teleop_start/command/state/stop)
+- `tools_motion.py` — Motion validation tools (Tier 1: define_mechanism, validate, propagate_motion, check_gear_train; Tier 1.5: check_joint_connectivity; Tier 2: create_assembly, drive_joint, check_interference; Tier 3: simulate, teleop_start/command/state/stop)
 - `motion_models.py` — Mechanism data models (PartNode, JointEdge, DriveCondition, Mechanism)
 - `motion_store.py` — Session-scoped mechanism storage (UUID handles)
 - `motion_validators.py` — Analytical validators (gear ratio, speed/torque propagation, DOF, Grashof, power conservation)
@@ -77,6 +77,9 @@ Claude Code CLI ──stdio──▶ MCP Bridge Server ──TCP socket──▶
 - `knowledge_store.py` — In-process knowledge store (LanceDB + Docling, module-level singleton)
 - `prompts.py` — System prompts including `cad_copilot_system` for live co-pilot mode
 - `models.py` — Finding, Severity, ToolError, ConversationSignals
+- `design_models.py` — DesignBrief dataclass (frozen, __slots__)
+- `design_store.py` — Session-scoped design brief storage (module-level dict, token_hex handles)
+- `tools_design.py` — Design brief MCP tools (design.save_brief, design.get_brief, design.update_brief)
 
 **`isaac_bridge/`:**
 - `bridge_server.py` — TCP server + main-thread pump loop (Kit event loop, teleop ticking)
@@ -94,29 +97,64 @@ Claude Code CLI ──stdio──▶ MCP Bridge Server ──TCP socket──▶
 
 | Group | Tools | Purpose |
 |-------|-------|---------|
-| `cad.*` | new_document, new_body, sketch, pad, pocket, hole, fillet, chamfer, create_primitive, create_primitives, get_selection, get_model_tree, undo, export | Drive FreeCAD PartDesign |
+| `cad.*` | new_document, new_body, sketch, pad, pocket, hole, fillet, chamfer, mirror, linear_pattern, thickness, draft, create_primitive, create_primitives, get_selection, get_model_tree, undo, export | Drive FreeCAD PartDesign |
 | `mfg.*` | set_property, readiness_check, export_rfq | Manufacturing readiness (on-demand) |
 | `me.*` | validate_constraints, build_traceability, apply_risk_gates, design_loop, list_validators | Deterministic ME preflight (validators + risk gates) |
 | `knowledge.*` | extract, ingest, ingest_status, search, status | Knowledge base — hybrid search, PDF extraction, document ingestion (LanceDB + Docling) |
 | `study.*` | create, run, status, results, cancel, list, get_variant | Parametric design optimization (sweep variables, run solvers, rank results) |
-| `motion.*` | define_mechanism, list_mechanisms, validate, propagate_motion, check_gear_train, create_assembly, drive_joint, check_interference, simulate, teleop_start, teleop_command, teleop_state, teleop_stop | Motion validation pipeline — analytical (Tier 1), kinematic via FreeCAD Assembly (Tier 2), dynamic via Isaac/Chrono (Tier 3) |
+| `motion.*` | define_mechanism, list_mechanisms, validate, propagate_motion, check_gear_train, check_joint_connectivity, create_assembly, drive_joint, check_interference, simulate, teleop_start, teleop_command, teleop_state, teleop_stop | Motion validation pipeline — analytical (Tier 1), check_joint_connectivity (Tier 1.5, pre-export), kinematic via FreeCAD Assembly (Tier 2), dynamic via Isaac/Chrono (Tier 3) |
+| `design.*` | save_brief, get_brief, update_brief | Design brief pipeline — LLM extracts parameters, user approves, then build |
 
 ### Sketch element types
 
-`cad.sketch` supports **all** element types: `rect`, `circle`, `line`, `arc`, **`spline`** (B-spline curves from control points with degree/weights/periodic options). Splines are fully implemented and must be used for smooth contours, airfoils, blade profiles, and organic shapes — never approximate with line segments.
+`cad.sketch` supports **all** element types: `rect`, `circle`, `line`, `arc`, **`spline`** (B-spline curves from control points with degree/weights/periodic options), `external_ref` (project edges from existing features), `sketch_fillet` (round sketch vertices), and `sketch_chamfer` (chamfer sketch vertices). Splines are fully implemented and must be used for smooth contours, airfoils, blade profiles, and organic shapes — never approximate with line segments. Any element can have `"construction": true` to make it a reference line/circle. Constraints use partial recovery — a single failed constraint won't abort the sketch.
 
 ### Interaction flow
 
-1. User describes part → LLM decides whether ME preflight is needed.
-2. If needed, LLM reads research notes + does web research, constructs a constraint dict, calls `me.design_loop(constraints)`.
-3. LLM reviews validation findings + risk gates, then builds geometry with `cad.*` tools.
-4. LLM calls `cad.new_document` → `cad.new_body` → `cad.sketch` → `cad.pad`
-5. User clicks face/edge in FreeCAD → LLM calls `cad.get_selection` → sees geometry context
-6. User says "add holes here" → LLM calls `cad.hole` with face reference
-7. User says "check manufacturing readiness" → LLM calls `mfg.readiness_check`
-8. User provides a PDF → LLM calls `knowledge.extract(file_path)` to read it, then `knowledge.ingest(path)` to index for future sessions
-9. LLM researches a topic → `knowledge.search(query)` first, then WebSearch/WebFetch for gaps
-10. User asks to optimize a design → LLM uses `study.*` tools to sweep design space, then builds the winner
+1. User describes part → LLM decides complexity level.
+2. **Simple parts** (single-body, dimensions given): skip to step 5.
+3. **Complex assemblies** (robots, mechanisms, multi-body): use `design.*` pipeline first.
+   - `design.list_templates` → `design.load_template` or freeform research
+   - If user provides a spec: `design.import_spec` to parse it, then review/fill gaps
+   - `design.save_brief` → present to user → `design.update_brief(status="approved")`
+4. If ME preflight needed, LLM constructs constraint dict, calls `me.design_loop(constraints)`.
+5. LLM calls `cad.new_document` → `cad.new_body` → `cad.sketch` → `cad.pad`
+6. User clicks face/edge in FreeCAD → LLM calls `cad.get_selection` → sees geometry context
+7. User says "add holes here" → LLM calls `cad.hole` with face reference
+8. User says "check manufacturing readiness" → LLM calls `mfg.readiness_check`
+9. User provides a PDF → LLM calls `knowledge.extract(file_path)` to read it, then `knowledge.ingest(path)` to index for future sessions
+10. LLM researches a topic → `knowledge.search(query)` first, then WebSearch/WebFetch for gaps
+11. User asks to optimize a design → LLM uses `study.*` tools to sweep design space, then builds the winner
+
+### Design brief pipeline
+
+The `design.*` tools provide a "research → propose → confirm → build" workflow. The **design brief** is the core artifact — a structured parameter set the LLM produces after research, which the user approves before building.
+
+**When to use `design.*`:**
+- Complex multi-body assemblies (robots, mechanisms, multi-part designs)
+- User provides a detailed spec or reference data to build from
+- The design requires research before building (servo sizing, material selection, proportions)
+
+**Skip `design.*` when:**
+- Simple single-body parts where the user gives all dimensions
+- Quick modifications to existing models
+- User explicitly says "just build it"
+
+**Workflow — same path regardless of input format:**
+```
+1. LLM researches (knowledge.search, web, user-provided specs, own knowledge)
+2. LLM extracts the CAD-driving parameters into a dict
+3. design.save_brief(name="...", parameters={...}, research_notes="...")
+4. Present brief to user as formatted table → user approves/modifies
+5. design.update_brief(status="approved")
+6. Build with cad.*, referencing design.get_brief during construction
+```
+
+The LLM is the parser — it reads whatever the user provides (JSON specs, PDFs, natural language, reference links) and extracts the relevant parameters. No schema or template needed.
+
+**Brief status lifecycle:** `draft` → `proposed` → `approved` → `building` → `done`
+
+**Parameters dict is completely open:** Any key-value pairs. The LLM decides what parameters matter for the design.
 
 ### Parametric study policy
 

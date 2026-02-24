@@ -13,9 +13,10 @@ from __future__ import annotations
 
 import logging
 import math
+import os
 import re
 import xml.etree.ElementTree as ET
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -126,6 +127,10 @@ _JOINT_TYPE_MAP: dict[JointType, str] = {
     JointType.PLANAR: "planar",
     JointType.CAM: "revolute",
 }
+# CONTINUOUS added conditionally for backward compat with running servers
+# that haven't reloaded motion_models yet.
+if hasattr(JointType, "CONTINUOUS"):
+    _JOINT_TYPE_MAP[JointType.CONTINUOUS] = "continuous"
 
 
 # ---------------------------------------------------------------------------
@@ -287,10 +292,10 @@ def build_sim_model(
     Use this for ground-standing robots (hexapods, wheeled bots, etc.) where the
     mesh geometry extends below the kinematic origin.
     """
-    # Index manifest by body name for O(1) lookup
+    # Index manifest by body name for O(1) lookup (case-insensitive keys)
     manifest_by_name: dict[str, dict[str, Any]] = {}
     for entry in body_manifest:
-        manifest_by_name[entry["name"]] = entry
+        manifest_by_name[entry["name"].lower()] = entry
 
     # Build links from mechanism parts
     links: list[SimLink] = []
@@ -301,8 +306,8 @@ def build_sim_model(
     for part in mechanism.parts:
         link_name = part.id
 
-        # Find mesh from manifest — match on body_name first, then part id
-        manifest_entry = manifest_by_name.get(part.body_name or "") or manifest_by_name.get(part.id)
+        # Find mesh from manifest — match on body_name first, then part id (case-insensitive)
+        manifest_entry = manifest_by_name.get((part.body_name or "").lower()) or manifest_by_name.get(part.id.lower())
 
         mesh_path: str | None = None
         position = (0.0, 0.0, 0.0)
@@ -379,7 +384,7 @@ def build_sim_model(
     # re-positions the child frame in world space.
     manifest_pos_by_part: dict[str, tuple[float, float, float]] = {}
     for part in mechanism.parts:
-        m_entry = manifest_by_name.get(part.body_name or "") or manifest_by_name.get(part.id)
+        m_entry = manifest_by_name.get((part.body_name or "").lower()) or manifest_by_name.get(part.id.lower())
         if m_entry is not None:
             plc = m_entry.get("placement", {})
             pos = plc.get("position", [0.0, 0.0, 0.0])
@@ -488,7 +493,10 @@ def build_sim_model(
         # Use mechanism data when available, otherwise provide sensible defaults
         # so the SimJoint invariant (limits required) is always satisfied.
         limits: tuple[float, float] | None = None
-        if jedge.joint_type in (
+        _continuous = getattr(JointType, "CONTINUOUS", None)
+        if _continuous is not None and jedge.joint_type == _continuous:
+            pass  # Continuous joints have no limits in URDF
+        elif jedge.joint_type in (
             JointType.REVOLUTE, JointType.GEAR_MESH,
             JointType.BELT_CHAIN, JointType.CAM,
         ):
@@ -498,8 +506,9 @@ def build_sim_model(
                     math.radians(jedge.max_angle_deg),
                 )
             else:
-                # Default: ±π (full rotation range)
-                limits = (-math.pi, math.pi)
+                # Default: ±60° — typical servo range.  Full rotation (±180°)
+                # causes simulation instability and is rarely correct.
+                limits = (-math.radians(60), math.radians(60))
         elif jedge.joint_type == JointType.PRISMATIC:
             if jedge.min_travel_mm is not None and jedge.max_travel_mm is not None:
                 limits = (
@@ -510,10 +519,14 @@ def build_sim_model(
                 # Default: 0 to 1m range
                 limits = (0.0, 1.0)
 
-        # Effort/velocity from DriveCondition (Bug 3)
+        # Effort/velocity/damping/friction: JointEdge → DriveCondition → defaults
         drive = drives_by_joint.get(jedge.id)
-        effort = drive.torque_nm if drive and drive.torque_nm else 100.0
-        velocity = (drive.speed_rpm * 2.0 * math.pi / 60.0) if drive and drive.speed_rpm else 10.0
+        effort = jedge.effort_nm or (drive.torque_nm if drive and drive.torque_nm else 1.5)
+        velocity = jedge.velocity_rad_s or (
+            (drive.speed_rpm * 2.0 * math.pi / 60.0) if drive and drive.speed_rpm else 6.28
+        )
+        damping = jedge.damping if jedge.damping is not None else 0.1
+        friction = jedge.friction if jedge.friction is not None else 0.0
 
         # Mimic for gear_mesh / belt_chain
         mimic: tuple[str, float] | None = None
@@ -550,6 +563,8 @@ def build_sim_model(
             mimic=mimic,
             effort=effort,
             velocity=velocity,
+            damping=damping,
+            friction=friction,
         ))
         joint_edge_to_name[jedge.id] = joint_name
 
@@ -599,13 +614,38 @@ def build_sim_model(
             links.insert(0, base_link)
 
             # Add fixed joint from base_link to original root
+            base_joint_name = f"base_to_{root_link.name}"
             joints.insert(0, SimJoint(
-                name=f"base_to_{root_link.name}",
+                name=base_joint_name,
                 joint_type="fixed",
                 parent="base_link",
                 child=root_link.name,
                 origin_xyz=(0.0, 0.0, ground_clearance_m),
             ))
+
+            # Correct Z doubling: the base_link joint raises the root by
+            # ground_clearance_m.  Child joint origins were computed as
+            # (child_world - parent_world) / 1000, so they already encode
+            # the delta from the root's *manifest* position.  If the root
+            # manifest Z is 0 the child Z includes the full height and we
+            # must subtract ground_clearance_m.  If the root is already at
+            # z=ground_clearance (manifest placed there), the child Z is
+            # ~0 and no correction is needed.  The general formula is:
+            #   correction = ground_clearance_m - root_manifest_z_m
+            root_name = root_link.name
+            root_world_z = part_world_pos.get(
+                next(p.id for p in mechanism.parts if p.is_ground),
+                (0.0, 0.0, 0.0),
+            )[2]
+            z_correction = ground_clearance_m - root_world_z / 1000.0
+            if abs(z_correction) > 1e-6:
+                for i, jt in enumerate(joints):
+                    if jt.parent == root_name and jt.name != base_joint_name:
+                        joints[i] = replace(jt, origin_xyz=(
+                            jt.origin_xyz[0],
+                            jt.origin_xyz[1],
+                            jt.origin_xyz[2] - z_correction,
+                        ))
 
     return SimModel(
         name=mechanism.name,
@@ -631,8 +671,19 @@ def _rpy_str(rpy: tuple[float, float, float]) -> str:
     return f"{_fmt(rpy[0])} {_fmt(rpy[1])} {_fmt(rpy[2])}"
 
 
-def write_urdf(model: SimModel, output_path: str) -> str:
+def write_urdf(
+    model: SimModel,
+    output_path: str,
+    *,
+    base_dir: str | None = None,
+) -> str:
     """Serialize a SimModel to URDF XML.
+
+    Args:
+        model: The SimModel to serialize.
+        output_path: Path to write the URDF file.
+        base_dir: When set, mesh filenames are written relative to this
+            directory.  Makes the URDF portable across machines.
 
     Returns the absolute path of the written file.
     """
@@ -642,20 +693,24 @@ def write_urdf(model: SimModel, output_path: str) -> str:
         link_el = ET.SubElement(robot, "link", name=link.name)
 
         if link.mesh_path is not None:
+            mesh_filename = link.mesh_path
+            if base_dir:
+                mesh_filename = os.path.relpath(link.mesh_path, base_dir)
+
             # Visual — no <origin> needed: build_sim_model transforms STL
             # meshes to link-local coordinates.  The joint <origin> element
             # handles parent->child positioning.
             visual = ET.SubElement(link_el, "visual")
             geometry = ET.SubElement(visual, "geometry")
             mesh = ET.SubElement(geometry, "mesh")
-            mesh.set("filename", link.mesh_path)
+            mesh.set("filename", mesh_filename)
             mesh.set("scale", "0.001 0.001 0.001")  # FreeCAD mm -> URDF m
 
             # Collision (same mesh)
             collision = ET.SubElement(link_el, "collision")
             c_geometry = ET.SubElement(collision, "geometry")
             c_mesh = ET.SubElement(c_geometry, "mesh")
-            c_mesh.set("filename", link.mesh_path)
+            c_mesh.set("filename", mesh_filename)
             c_mesh.set("scale", "0.001 0.001 0.001")  # FreeCAD mm -> URDF m
 
         # Inertial (optional)
@@ -699,8 +754,8 @@ def write_urdf(model: SimModel, output_path: str) -> str:
             mimic_el.set("joint", joint.mimic[0])
             mimic_el.set("multiplier", _fmt(joint.mimic[1]))
 
-        # Dynamics (damping + friction) for revolute and prismatic joints
-        if joint.joint_type in ("revolute", "prismatic"):
+        # Dynamics (damping + friction) for revolute, continuous, and prismatic joints
+        if joint.joint_type in ("revolute", "continuous", "prismatic"):
             dynamics = ET.SubElement(joint_el, "dynamics")
             dynamics.set("damping", _fmt(joint.damping))
             dynamics.set("friction", _fmt(joint.friction))
@@ -1309,6 +1364,67 @@ def validate_urdf_fk(
                         message=(
                             f"Gap {gap * 1000:.1f}mm between '{parent}' mesh tip "
                             f"and '{child}' joint origin (max 5mm)"
+                        ),
+                        field=f"joint/{jname}",
+                    ))
+
+    # --- Check 2b: urdf.fk.child_detached_from_parent ---
+    # For multi-child parents (chassis, hubs), verify child joint origins
+    # are within the parent's XY footprint.
+    if mesh_bboxes:
+        _SCALE_2B = 0.001  # mm → m
+        _MARGIN_2B = 0.010  # 10 mm
+
+        for jname, jd in joint_data.items():
+            parent = jd["parent"]
+            if parent not in mesh_bboxes or parent not in link_world_tf:
+                continue
+            if parent_child_count.get(parent, 0) <= 1:
+                continue
+            child = jd["child"]
+            if child not in link_world_tf:
+                continue
+
+            p_lo, p_hi = _transform_bbox(
+                link_world_tf[parent], mesh_bboxes[parent], _SCALE_2B)
+            p_cx = (p_lo[0] + p_hi[0]) / 2
+            p_cy = (p_lo[1] + p_hi[1]) / 2
+            half_x = (p_hi[0] - p_lo[0]) / 2
+            half_y = (p_hi[1] - p_lo[1]) / 2
+
+            c_origin = (
+                link_world_tf[child][0][3],
+                link_world_tf[child][1][3],
+                link_world_tf[child][2][3],
+            )
+            dx = abs(c_origin[0] - p_cx)
+            dy = abs(c_origin[1] - p_cy)
+
+            if dx > half_x + _MARGIN_2B or dy > half_y + _MARGIN_2B:
+                findings.append(Finding(
+                    rule_id="urdf.fk.child_detached_from_parent",
+                    severity=Severity.BLOCK,
+                    message=(
+                        f"Child '{child}' joint origin outside parent "
+                        f"'{parent}' AABB + 10mm margin "
+                        f"(dx={dx * 1000:.1f}mm vs {(half_x + _MARGIN_2B) * 1000:.1f}mm, "
+                        f"dy={dy * 1000:.1f}mm vs {(half_y + _MARGIN_2B) * 1000:.1f}mm)"
+                    ),
+                    field=f"joint/{jname}",
+                ))
+            else:
+                inscribed_r = min(half_x, half_y)
+                dist = math.sqrt(
+                    (c_origin[0] - p_cx) ** 2 + (c_origin[1] - p_cy) ** 2
+                )
+                if dist > inscribed_r + _MARGIN_2B:
+                    findings.append(Finding(
+                        rule_id="urdf.fk.child_detached_from_parent",
+                        severity=Severity.WARN,
+                        message=(
+                            f"Child '{child}' at XY dist {dist * 1000:.1f}mm "
+                            f"from parent '{parent}' center exceeds inscribed "
+                            f"radius {inscribed_r * 1000:.1f}mm + 10mm margin"
                         ),
                         field=f"joint/{jname}",
                     ))

@@ -186,6 +186,9 @@ class Hexapod3DOFController:
         # Lazy-init on first tick
         self._mounts: list[HipMount] | None = None
         self._default_feet: list[tuple[float, float, float]] | None = None
+        # IK standing bias: (coxa, femur, tibia) angles at neutral stance.
+        # Subtracted from all IK output so that URDF joint zero = as-built pose.
+        self._standing_bias: list[tuple[float, float, float]] | None = None
 
     @property
     def filtered_vx(self) -> float:
@@ -201,7 +204,10 @@ class Hexapod3DOFController:
 
     def _init_geometry(self, config: TeleopConfig) -> None:
         """Build hip mounts and default foot positions from config."""
-        from isaac_bridge.hexapod_ik import HipMount, LegGeometry, default_foot_position
+        from isaac_bridge.hexapod_ik import (
+            HipMount, LegGeometry, body_to_hip_frame,
+            default_foot_position, inverse_kinematics,
+        )
 
         geom = LegGeometry(
             l_coxa=config.l_coxa,
@@ -209,12 +215,17 @@ class Hexapod3DOFController:
             l_tibia=config.l_tibia,
         )
         n_legs = len(config.leg_joint_names) // 3
-        half_len = config.body_length / 2.0
-        half_wid = config.body_width / 2.0
 
-        # Standard 6-leg layout: LF, LM, LR, RF, RM, RR
-        # Extend to arbitrary leg count by computing positions
-        if n_legs == 6:
+        # Use explicit hip mounts from config if provided
+        if config.hip_mounts and len(config.hip_mounts) == n_legs:
+            self._mounts = [
+                HipMount(x=m[0], y=m[1], angle=m[2])
+                for m in config.hip_mounts
+            ]
+        elif n_legs == 6:
+            half_len = config.body_length / 2.0
+            half_wid = config.body_width / 2.0
+            # Standard 6-leg layout: LF, LM, LR, RF, RM, RR
             self._mounts = [
                 HipMount(x=half_len, y=half_wid, angle=math.pi / 4),       # LF
                 HipMount(x=0.0, y=half_wid, angle=math.pi / 2),            # LM
@@ -225,6 +236,8 @@ class Hexapod3DOFController:
             ]
         else:
             # Fallback: distribute legs evenly around the body
+            half_len = config.body_length / 2.0
+            half_wid = config.body_width / 2.0
             self._mounts = []
             for i in range(n_legs):
                 angle = 2.0 * math.pi * i / n_legs
@@ -237,6 +250,19 @@ class Hexapod3DOFController:
         self._default_feet = [
             default_foot_position(m, geom, config.stance_height) for m in self._mounts
         ]
+
+        # Compute standing bias: IK angles at the neutral foot position.
+        # These are subtracted from all IK outputs so that URDF zero = as-built.
+        self._standing_bias = []
+        for leg_idx in range(n_legs):
+            foot = self._default_feet[leg_idx]
+            hip_pt = body_to_hip_frame(foot, self._mounts[leg_idx])
+            angles = inverse_kinematics(hip_pt[0], hip_pt[1], hip_pt[2], geom)
+            self._standing_bias.append((angles.coxa, angles.femur, angles.tibia))
+            logger.debug(
+                "Leg %d standing bias: coxa=%.3f femur=%.3f tibia=%.3f",
+                leg_idx, angles.coxa, angles.femur, angles.tibia,
+            )
 
     def compute_targets(
         self,
@@ -269,16 +295,13 @@ class Hexapod3DOFController:
         )
 
         if dt_s <= 0:
-            # Return neutral stance — solve IK for default feet
+            # Return neutral stance — all URDF joints at zero (as-built pose)
             targets: dict[str, float] = {}
             for leg_idx in range(n_legs):
-                foot_body = self._default_feet[leg_idx]
-                hip_pt = body_to_hip_frame(foot_body, self._mounts[leg_idx])
-                angles = inverse_kinematics(hip_pt[0], hip_pt[1], hip_pt[2], geom)
                 base = leg_idx * 3
-                targets[config.leg_joint_names[base]] = angles.coxa
-                targets[config.leg_joint_names[base + 1]] = angles.femur
-                targets[config.leg_joint_names[base + 2]] = angles.tibia
+                targets[config.leg_joint_names[base]] = 0.0
+                targets[config.leg_joint_names[base + 1]] = 0.0
+                targets[config.leg_joint_names[base + 2]] = 0.0
             return targets, phase
 
         # ── 1. Slew-filter commanded inputs ──────────────────────────
@@ -302,7 +325,6 @@ class Hexapod3DOFController:
         # ── 3. Per-leg foot trajectory + IK ──────────────────────────
         half_stride = config.stride_length / 2.0
         direction = 1.0 if self._filtered_vx >= 0 else -1.0
-        half_wid = config.body_width / 2.0
 
         targets = {}
         for leg_idx in range(n_legs):
@@ -313,41 +335,59 @@ class Hexapod3DOFController:
             offset = config.leg_phase_offsets[leg_idx]
             leg_phase = (new_phase / _TWO_PI + offset) % 1.0
 
-            # Yaw differential: scale stride by hip lateral position
-            yaw_scale = 1.0
-            if half_wid > 1e-9:
-                yaw_scale = 1.0 + self._filtered_yaw * (mount.y / half_wid)
-
-            stride = half_stride * speed_factor * direction * yaw_scale
-
-            # Compute foot displacement along the mount angle
+            # Phase-based displacement factor:
+            #   stance: sweeps from +1 to -1 (foot pushes backward)
+            #   swing:  sweeps from -1 to +1 (foot recovers forward)
             if leg_phase < config.duty_factor:
-                # Stance phase: push linearly backward
                 stance_frac = leg_phase / config.duty_factor
-                dx = -stride * (stance_frac * 2.0 - 1.0)
+                phase_factor = -(stance_frac * 2.0 - 1.0)
                 dz = 0.0
             else:
-                # Swing phase: lift + move forward
                 swing_frac = (leg_phase - config.duty_factor) / (1.0 - config.duty_factor)
-                dx = stride * (swing_frac * 2.0 - 1.0)
+                phase_factor = swing_frac * 2.0 - 1.0
                 dz = config.step_height * math.sin(math.pi * swing_frac)
+
+            # Forward stride: displacement along body +X axis.
+            # This is the key fix — striding along X (not mount.angle)
+            # produces non-zero coxa angles after hip-frame transform.
+            fwd_stride = half_stride * speed_factor * direction
+
+            # Yaw: each foot traces a tangential arc.
+            # Velocity from yaw: v = ω × r → (-ω·fy, ω·fx)
+            # Scale by stride length for displacement magnitude.
+            r_mount = math.sqrt(mount.x * mount.x + mount.y * mount.y)
+            if r_mount > 1e-9:
+                yaw_dx = -self._filtered_yaw * (mount.y / r_mount) * half_stride
+                yaw_dy = self._filtered_yaw * (mount.x / r_mount) * half_stride
+            else:
+                yaw_dx = 0.0
+                yaw_dy = 0.0
+
+            # Total displacement in body frame
+            dx_body = (fwd_stride + yaw_dx) * phase_factor
+            dy_body = yaw_dy * phase_factor
 
             # Body height offset
             height_offset = self._filtered_height * config.height_max_m
 
-            # Foot position in body frame
-            foot_x = default_foot[0] + dx * math.cos(mount.angle)
-            foot_y = default_foot[1] + dx * math.sin(mount.angle)
+            # Foot position in body frame — stride along body X, not mount angle
+            foot_x = default_foot[0] + dx_body
+            foot_y = default_foot[1] + dy_body
             foot_z = default_foot[2] + dz + height_offset
 
             # Transform to hip frame and solve IK
             hip_pt = body_to_hip_frame((foot_x, foot_y, foot_z), mount)
             angles = inverse_kinematics(hip_pt[0], hip_pt[1], hip_pt[2], geom)
 
+            # Subtract standing bias so URDF zero = as-built pose.
+            # IK outputs absolute angles (0 = fully extended); URDF joints
+            # are zero at the as-built geometry.  The bias is the IK angle
+            # at the neutral standing foot position.
+            bias = self._standing_bias[leg_idx]
             base = leg_idx * 3
-            targets[config.leg_joint_names[base]] = angles.coxa
-            targets[config.leg_joint_names[base + 1]] = angles.femur
-            targets[config.leg_joint_names[base + 2]] = angles.tibia
+            targets[config.leg_joint_names[base]] = angles.coxa - bias[0]
+            targets[config.leg_joint_names[base + 1]] = angles.femur - bias[1]
+            targets[config.leg_joint_names[base + 2]] = angles.tibia - bias[2]
 
         return targets, new_phase
 

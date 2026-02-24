@@ -31,13 +31,14 @@ total_drop = FEMUR_LEN * math.sin(FEMUR_PITCH) + TIBIA_LEN * math.sin(TIBIA_PITC
 CHASSIS_Z = total_drop  # ~158 mm
 
 # Leg attachment points on chassis (x, y) in mm
+# R=60mm at 60° intervals — all fit within the 75mm chassis disc.
 LEGS: dict[str, tuple[float, float]] = {
-    "L1": (70, 75),    # front-left
-    "L2": (0, 75),     # mid-left
-    "L3": (-70, 75),   # rear-left
-    "R1": (70, -75),   # front-right
-    "R2": (0, -75),    # mid-right
-    "R3": (-70, -75),  # rear-right
+    "L1": (52, 30),    # front-left   (30°)
+    "L2": (0, 60),     # mid-left     (90°)
+    "L3": (-52, 30),   # rear-left    (150°)
+    "R1": (52, -30),   # front-right  (330°)
+    "R2": (0, -60),    # mid-right    (270°)
+    "R3": (-52, -30),  # rear-right   (210°)
 }
 
 # Servo block dimensions (mm) — AX-12A proportional

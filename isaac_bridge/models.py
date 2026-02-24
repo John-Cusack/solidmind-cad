@@ -169,6 +169,11 @@ class TeleopConfig:
     # Tripod phase offsets [0,1) per leg: LF, LM, LR, RF, RM, RR
     leg_phase_offsets: tuple[float, ...] = (0.0, 0.5, 0.0, 0.5, 0.0, 0.5)
 
+    # Explicit hip mount positions: tuple of (x_m, y_m, angle_rad) per leg.
+    # Order must match leg_joint_names (groups of 3).  When empty, mounts
+    # are auto-computed from body_length/body_width.
+    hip_mounts: tuple[tuple[float, float, float], ...] = ()
+
     @classmethod
     def from_profile(cls, profile: dict[str, Any] | None) -> TeleopConfig:
         """Parse a teleop profile dict into a validated ``TeleopConfig``.
@@ -266,6 +271,20 @@ class TeleopConfig:
                 )
             kwargs["leg_joint_names"] = tuple(ljn)
 
+        # Hip mounts: list of [x, y, angle_rad] per leg
+        hm = profile.get("hip_mounts")
+        if hm is not None:
+            if not isinstance(hm, list):
+                raise TeleopConfigError("hip_mounts must be a list of [x, y, angle_rad]")
+            parsed_mounts: list[tuple[float, float, float]] = []
+            for i, m in enumerate(hm):
+                if not isinstance(m, (list, tuple)) or len(m) != 3:
+                    raise TeleopConfigError(
+                        f"hip_mounts[{i}] must be [x, y, angle_rad], got {m!r}"
+                    )
+                parsed_mounts.append((float(m[0]), float(m[1]), float(m[2])))
+            kwargs["hip_mounts"] = tuple(parsed_mounts)
+
         # Phase offsets
         lpo = profile.get("leg_phase_offsets")
         if lpo is not None:
@@ -317,6 +336,7 @@ class TeleopConfig:
             "duty_factor": self.duty_factor,
             "leg_joint_names": list(self.leg_joint_names),
             "leg_phase_offsets": list(self.leg_phase_offsets),
+            "hip_mounts": [list(m) for m in self.hip_mounts],
         }
 
 

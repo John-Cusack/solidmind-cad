@@ -15,6 +15,7 @@ from server.tools_cad import (
     cad_define_selection,
     cad_delete_objects,
     cad_delete_selection,
+    cad_draft,
     cad_export,
     cad_export_body,
     cad_export_sim_package,
@@ -27,8 +28,10 @@ from server.tools_cad import (
     cad_get_selection,
     cad_helix,
     cad_hole,
+    cad_linear_pattern,
     cad_list_selections,
     cad_loft,
+    cad_mirror,
     cad_new_body,
     cad_new_document,
     cad_pad,
@@ -40,6 +43,7 @@ from server.tools_cad import (
     cad_set_camera,
     cad_sketch,
     cad_sweep,
+    cad_thickness,
     cad_undo,
 )
 
@@ -2306,6 +2310,219 @@ class TestCadExportSimPackage(unittest.TestCase):
         result = cad_export_sim_package(mechanism_id="mech_nonexistent")
         self.assertFalse(result["ok"])
         self.assertEqual(result["error"]["code"], "INVALID_MECHANISM_ID")
+
+
+class TestCadMirror(unittest.TestCase):
+    @patch("server.tools_cad.get_client")
+    def test_mirror_defaults(self, mock_get: MagicMock) -> None:
+        client = _mock_client()
+        client.send_command.return_value = {
+            "name": "Mirrored", "label": "Mirrored",
+            "type": "PartDesign::Mirrored",
+        }
+        mock_get.return_value = client
+
+        result = cad_mirror(features=["Pad"])
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["name"], "Mirrored")
+        client.send_command.assert_called_once_with(
+            "mirror", features=["Pad"], plane="Base_X", verify=True,
+        )
+
+    @patch("server.tools_cad.get_client")
+    def test_mirror_with_all_params(self, mock_get: MagicMock) -> None:
+        client = _mock_client()
+        client.send_command.return_value = {
+            "name": "Mirrored", "label": "Mirrored",
+            "type": "PartDesign::Mirrored",
+        }
+        mock_get.return_value = client
+
+        result = cad_mirror(
+            features=["Pad", "Pocket"], plane="Base_Y",
+            body="Body", doc="MyDoc",
+        )
+        self.assertTrue(result["ok"])
+        client.send_command.assert_called_once_with(
+            "mirror", features=["Pad", "Pocket"], plane="Base_Y",
+            verify=True, body="Body", doc="MyDoc",
+        )
+
+
+class TestCadLinearPattern(unittest.TestCase):
+    @patch("server.tools_cad.get_client")
+    def test_linear_pattern_defaults(self, mock_get: MagicMock) -> None:
+        client = _mock_client()
+        client.send_command.return_value = {
+            "name": "LinearPattern", "label": "LinearPattern",
+            "type": "PartDesign::LinearPattern",
+        }
+        mock_get.return_value = client
+
+        result = cad_linear_pattern(features=["Pocket"])
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["name"], "LinearPattern")
+        client.send_command.assert_called_once_with(
+            "linear_pattern", features=["Pocket"], axis="Base_X",
+            length=100.0, occurrences=3, reversed=False, verify=True,
+        )
+
+    @patch("server.tools_cad.get_client")
+    def test_linear_pattern_with_all_params(self, mock_get: MagicMock) -> None:
+        client = _mock_client()
+        client.send_command.return_value = {
+            "name": "LinearPattern", "label": "LinearPattern",
+            "type": "PartDesign::LinearPattern",
+        }
+        mock_get.return_value = client
+
+        result = cad_linear_pattern(
+            features=["Pocket"], axis="Base_Y", length=200.0,
+            occurrences=5, reversed=True, body="Body", doc="MyDoc",
+        )
+        self.assertTrue(result["ok"])
+        client.send_command.assert_called_once_with(
+            "linear_pattern", features=["Pocket"], axis="Base_Y",
+            length=200.0, occurrences=5, reversed=True, verify=True,
+            body="Body", doc="MyDoc",
+        )
+
+
+class TestCadThickness(unittest.TestCase):
+    @patch("server.tools_cad.get_client")
+    def test_thickness_defaults(self, mock_get: MagicMock) -> None:
+        client = _mock_client()
+        client.send_command.return_value = {
+            "name": "Thickness", "label": "Thickness",
+            "type": "PartDesign::Thickness",
+        }
+        mock_get.return_value = client
+
+        result = cad_thickness(faces=["Face6"], thickness=2.0)
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["name"], "Thickness")
+        client.send_command.assert_called_once_with(
+            "thickness", faces=["Face6"], thickness_value=2.0,
+            join_type="Arc", reversed=False, verify=True,
+        )
+
+    @patch("server.tools_cad.get_client")
+    def test_thickness_with_all_params(self, mock_get: MagicMock) -> None:
+        client = _mock_client()
+        client.send_command.return_value = {
+            "name": "Thickness", "label": "Thickness",
+            "type": "PartDesign::Thickness",
+        }
+        mock_get.return_value = client
+
+        result = cad_thickness(
+            faces=["Face1", "Face6"], thickness=3.0,
+            join_type="Tangent", reversed=True, body="Body", doc="MyDoc",
+        )
+        self.assertTrue(result["ok"])
+        client.send_command.assert_called_once_with(
+            "thickness", faces=["Face1", "Face6"], thickness_value=3.0,
+            join_type="Tangent", reversed=True, verify=True,
+            body="Body", doc="MyDoc",
+        )
+
+
+class TestCadDraft(unittest.TestCase):
+    @patch("server.tools_cad.get_client")
+    def test_draft_defaults(self, mock_get: MagicMock) -> None:
+        client = _mock_client()
+        client.send_command.return_value = {
+            "name": "Draft", "label": "Draft",
+            "type": "PartDesign::Draft",
+        }
+        mock_get.return_value = client
+
+        result = cad_draft(faces=["Face2"], angle=3.0)
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["name"], "Draft")
+        client.send_command.assert_called_once_with(
+            "draft", faces=["Face2"], angle=3.0,
+            neutral_plane="Face1", reversed=False, verify=True,
+        )
+
+    @patch("server.tools_cad.get_client")
+    def test_draft_with_all_params(self, mock_get: MagicMock) -> None:
+        client = _mock_client()
+        client.send_command.return_value = {
+            "name": "Draft", "label": "Draft",
+            "type": "PartDesign::Draft",
+        }
+        mock_get.return_value = client
+
+        result = cad_draft(
+            faces=["Face2", "Face4"], angle=5.0,
+            neutral_plane="Face3", reversed=True, body="Body", doc="MyDoc",
+        )
+        self.assertTrue(result["ok"])
+        client.send_command.assert_called_once_with(
+            "draft", faces=["Face2", "Face4"], angle=5.0,
+            neutral_plane="Face3", reversed=True, verify=True,
+            body="Body", doc="MyDoc",
+        )
+
+
+class TestSketchNormalization(unittest.TestCase):
+    """Verify alias params are normalized before reaching the FreeCAD client."""
+
+    @patch("server.tools_cad.get_client")
+    def test_circle_center_alias_normalized(self, mock_get: MagicMock) -> None:
+        client = _mock_client()
+        client.send_command.side_effect = [
+            {"sketch": "Sketch"},
+            {
+                "sketch": "Sketch",
+                "element_count": 1,
+                "constraint_count": 0,
+                "geometry": [{"type": "circle", "index": 0}],
+            },
+            {"sketch": "Sketch", "fully_constrained": False, "open_vertices": 0},
+        ]
+        mock_get.return_value = client
+
+        result = cad_sketch(
+            body="Body",
+            elements=[{"type": "circle", "center": [10, 20], "radius": 5}],
+        )
+        self.assertTrue(result["ok"])
+        populate_call = client.send_command.call_args_list[1]
+        sent_elem = populate_call[1]["elements"][0]
+        self.assertEqual(sent_elem["cx"], 10)
+        self.assertEqual(sent_elem["cy"], 20)
+        self.assertEqual(sent_elem["r"], 5)
+        self.assertNotIn("center", sent_elem)
+        self.assertNotIn("radius", sent_elem)
+
+    @patch("server.tools_cad.get_client")
+    def test_rect_width_height_alias_normalized(self, mock_get: MagicMock) -> None:
+        client = _mock_client()
+        client.send_command.side_effect = [
+            {"sketch": "Sketch"},
+            {
+                "sketch": "Sketch",
+                "element_count": 1,
+                "constraint_count": 0,
+                "geometry": [{"type": "rect", "indices": [0, 1, 2, 3]}],
+            },
+            {"sketch": "Sketch", "fully_constrained": True, "open_vertices": 0},
+        ]
+        mock_get.return_value = client
+
+        result = cad_sketch(
+            body="Body",
+            elements=[{"type": "rect", "x": 0, "y": 0, "width": 100, "height": 50}],
+        )
+        self.assertTrue(result["ok"])
+        populate_call = client.send_command.call_args_list[1]
+        sent_elem = populate_call[1]["elements"][0]
+        self.assertEqual(sent_elem["w"], 100)
+        self.assertEqual(sent_elem["h"], 50)
+        self.assertNotIn("width", sent_elem)
+        self.assertNotIn("height", sent_elem)
 
 
 class TestConnectionError(unittest.TestCase):
