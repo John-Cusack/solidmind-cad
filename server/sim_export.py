@@ -15,6 +15,7 @@ import logging
 import math
 import os
 import re
+import struct
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -177,6 +178,36 @@ def _quat_multiply(
     )
 
 
+def _quat_rotate_point(
+    w: float, x: float, y: float, z: float,
+    px: float, py: float, pz: float,
+) -> tuple[float, float, float]:
+    """Rotate a 3D point by a unit quaternion using the optimized formula.
+
+    v' = v + 2w(q_vec × v) + 2(q_vec × (q_vec × v))
+    where q_vec = (x, y, z), v = (px, py, pz).
+    """
+    # Cross 1: q_vec × v
+    c1x = y * pz - z * py
+    c1y = z * px - x * pz
+    c1z = x * py - y * px
+    # Cross 2: q_vec × c1
+    c2x = y * c1z - z * c1y
+    c2y = z * c1x - x * c1z
+    c2z = x * c1y - y * c1x
+    return (
+        px + 2.0 * (w * c1x + c2x),
+        py + 2.0 * (w * c1y + c2y),
+        pz + 2.0 * (w * c1z + c2z),
+    )
+
+
+def _quat_from_yaw(yaw_rad: float) -> tuple[float, float, float, float]:
+    """Create a quaternion (w,x,y,z) from a pure Z-axis rotation."""
+    half = yaw_rad * 0.5
+    return (math.cos(half), 0.0, 0.0, math.sin(half))
+
+
 # ---------------------------------------------------------------------------
 # Inertia helpers
 # ---------------------------------------------------------------------------
@@ -195,28 +226,77 @@ def _box_inertia(
 logger = logging.getLogger("solidmind.sim_export")
 
 
+def _is_binary_stl(stl_path: str) -> bool:
+    """Detect whether an STL file is binary (vs ASCII) format.
+
+    Binary STL: 80-byte header + 4-byte uint32 triangle count + 50 bytes per
+    triangle.  ASCII STL starts with ``solid <name>`` and contains readable text.
+    """
+    try:
+        with open(stl_path, "rb") as f:
+            header = f.read(80)
+            if len(header) < 80:
+                return False
+            count_bytes = f.read(4)
+            if len(count_bytes) < 4:
+                return False
+            tri_count = struct.unpack("<I", count_bytes)[0]
+            expected_size = 84 + tri_count * 50
+            f.seek(0, 2)
+            actual_size = f.tell()
+            return actual_size == expected_size
+    except OSError:
+        return False
+
+
 def _transform_stl_to_link_local(
     stl_path: str,
     world_pos_mm: tuple[float, float, float],
-    world_yaw_rad: float,
+    world_quat: tuple[float, float, float, float],
 ) -> None:
-    """Transform ASCII STL vertices from world coordinates to link-local.
+    """Transform STL vertices from world coordinates to link-local.
 
-    Applies inverse of the link's world transform: rotate by -yaw about Z,
-    then translate by -world_pos.  Normals are rotated but not translated.
+    Applies the inverse of the link's world transform: translate by -world_pos,
+    then rotate by inverse(world_quat).  Normals are rotated but not translated.
 
-    This is idempotent if called with (0, 0, 0) and yaw=0 (no-op).
+    Supports both ASCII and binary STL formats.
+
+    Args:
+        stl_path: Path to the STL file (modified in-place).
+        world_pos_mm: Link world position in mm (x, y, z).
+        world_quat: Link world orientation quaternion (w, x, y, z).
     """
+    # Early return if identity transform
     if (abs(world_pos_mm[0]) < 1e-6
             and abs(world_pos_mm[1]) < 1e-6
             and abs(world_pos_mm[2]) < 1e-6
-            and abs(world_yaw_rad) < 1e-9):
-        return  # Already at origin with no rotation — nothing to do
+            and abs(world_quat[0] - 1.0) < 1e-9
+            and abs(world_quat[1]) < 1e-9
+            and abs(world_quat[2]) < 1e-9
+            and abs(world_quat[3]) < 1e-9):
+        return  # Already at origin with identity rotation — nothing to do
 
-    c = math.cos(-world_yaw_rad)
-    s = math.sin(-world_yaw_rad)
+    inv_w, inv_x, inv_y, inv_z = _quat_inverse(*world_quat)
     px, py, pz = world_pos_mm
 
+    if _is_binary_stl(stl_path):
+        _transform_binary_stl(stl_path, px, py, pz, inv_w, inv_x, inv_y, inv_z)
+    else:
+        _transform_ascii_stl(stl_path, px, py, pz, inv_w, inv_x, inv_y, inv_z)
+
+    logger.debug(
+        "Transformed %s to link-local: translate=(%.1f, %.1f, %.1f) quat=(%s)",
+        stl_path, -px, -py, -pz,
+        ", ".join(f"{v:.4f}" for v in world_quat),
+    )
+
+
+def _transform_ascii_stl(
+    stl_path: str,
+    px: float, py: float, pz: float,
+    inv_w: float, inv_x: float, inv_y: float, inv_z: float,
+) -> None:
+    """Transform an ASCII STL file's vertices and normals in-place."""
     _VERTEX_RE = re.compile(
         r"^(\s*vertex\s+)"
         r"([-+]?\d*\.?\d+(?:[eE][-+]?\d+)?)\s+"
@@ -240,11 +320,9 @@ def _transform_stl_to_link_local(
         vm = _VERTEX_RE.match(line)
         if vm:
             x, y, z = float(vm.group(2)), float(vm.group(3)), float(vm.group(4))
-            # Translate then rotate
+            # Translate then rotate by inverse quaternion
             tx, ty, tz = x - px, y - py, z - pz
-            lx = tx * c - ty * s
-            ly = tx * s + ty * c
-            lz = tz
+            lx, ly, lz = _quat_rotate_point(inv_w, inv_x, inv_y, inv_z, tx, ty, tz)
             out_lines.append(f"{vm.group(1)}{lx:.6f} {ly:.6f} {lz:.6f}{vm.group(5)}")
             continue
 
@@ -252,9 +330,7 @@ def _transform_stl_to_link_local(
         if nm:
             nx, ny, nz = float(nm.group(2)), float(nm.group(3)), float(nm.group(4))
             # Rotate only (normals are direction vectors)
-            lnx = nx * c - ny * s
-            lny = nx * s + ny * c
-            lnz = nz
+            lnx, lny, lnz = _quat_rotate_point(inv_w, inv_x, inv_y, inv_z, nx, ny, nz)
             out_lines.append(f"{nm.group(1)}{lnx:.6f} {lny:.6f} {lnz:.6f}{nm.group(5)}")
             continue
 
@@ -263,10 +339,37 @@ def _transform_stl_to_link_local(
     with open(stl_path, "w") as f:
         f.writelines(out_lines)
 
-    logger.debug(
-        "Transformed %s to link-local: translate=(%.1f, %.1f, %.1f) yaw=%.3f",
-        stl_path, -px, -py, -pz, -world_yaw_rad,
-    )
+
+def _transform_binary_stl(
+    stl_path: str,
+    px: float, py: float, pz: float,
+    inv_w: float, inv_x: float, inv_y: float, inv_z: float,
+) -> None:
+    """Transform a binary STL file's vertices and normals in-place."""
+    with open(stl_path, "rb") as f:
+        header = f.read(80)
+        count_bytes = f.read(4)
+        tri_count = struct.unpack("<I", count_bytes)[0]
+        data = bytearray(f.read())
+
+    for i in range(tri_count):
+        offset = i * 50
+        # Normal (3 × float32 = 12 bytes)
+        nx, ny, nz = struct.unpack_from("<3f", data, offset)
+        rnx, rny, rnz = _quat_rotate_point(inv_w, inv_x, inv_y, inv_z, nx, ny, nz)
+        struct.pack_into("<3f", data, offset, rnx, rny, rnz)
+        # 3 vertices (3 × 3 × float32 = 36 bytes)
+        for v in range(3):
+            v_offset = offset + 12 + v * 12
+            vx, vy, vz = struct.unpack_from("<3f", data, v_offset)
+            tx, ty, tz = vx - px, vy - py, vz - pz
+            lx, ly, lz = _quat_rotate_point(inv_w, inv_x, inv_y, inv_z, tx, ty, tz)
+            struct.pack_into("<3f", data, v_offset, lx, ly, lz)
+
+    with open(stl_path, "wb") as f:
+        f.write(header)
+        f.write(count_bytes)
+        f.write(data)
 
 
 def build_sim_model(
@@ -274,6 +377,8 @@ def build_sim_model(
     body_manifest: list[dict[str, Any]],
     *,
     ground_clearance_m: float | None = None,
+    mesh_transform_error_mode: str = "warn",
+    require_explicit_joint_origins: bool = False,
 ) -> SimModel:
     """Transform a Mechanism + mesh manifest into a format-agnostic SimModel.
 
@@ -291,6 +396,12 @@ def build_sim_model(
     prepended to raise the root link above the ground plane by that many meters.
     Use this for ground-standing robots (hexapods, wheeled bots, etc.) where the
     mesh geometry extends below the kinematic origin.
+
+    Note on rest-pose angles: If a mechanism joint has a nonzero rest angle
+    (e.g. a hexapod leg at its neutral stance pitch), this should be tracked
+    via ``initial_joint_positions`` in the Isaac ``URDFImportConfig`` — NOT
+    baked into the joint RPY.  The joint RPY encodes only the frame-to-frame
+    rotation between parent and child links at the zero-angle configuration.
     """
     # Index manifest by body name for O(1) lookup (case-insensitive keys)
     manifest_by_name: dict[str, dict[str, Any]] = {}
@@ -390,8 +501,10 @@ def build_sim_model(
             pos = plc.get("position", [0.0, 0.0, 0.0])
             manifest_pos_by_part[part.id] = (pos[0], pos[1], pos[2])
 
+    _IDENTITY_QUAT = (1.0, 0.0, 0.0, 0.0)
+
     part_world_pos: dict[str, tuple[float, float, float]] = {}
-    part_world_yaw: dict[str, float] = {}  # cumulative Z rotation (rad)
+    part_world_quat: dict[str, tuple[float, float, float, float]] = {}
     ground_parts: set[str] = set()
     for part in mechanism.parts:
         if part.is_ground:
@@ -399,13 +512,17 @@ def build_sim_model(
             # relative to the actual body position (not world origin).
             ground_pos = manifest_pos_by_part.get(part.id, (0.0, 0.0, 0.0))
             part_world_pos[part.id] = ground_pos
-            part_world_yaw[part.id] = 0.0
+            part_world_quat[part.id] = _IDENTITY_QUAT
             ground_parts.add(part.id)
 
-    # BFS / iterative pass — compute world pos + yaw for every reachable part.
-    # For root-attached joints: yaw = atan2(dy, dx) to orient child +X outward.
-    # For deeper joints: yaw inherited from parent (no extra rotation).
-    joint_added_yaw: dict[str, float] = {}  # joint_id -> yaw added by this joint
+    # BFS / iterative pass — compute world pos + orientation quaternion for
+    # every reachable part.  For root-attached joints: auto-compute outward
+    # yaw to orient child +X radially outward.  For deeper joints: inherit
+    # parent quaternion (no extra rotation).  Using full quaternions instead
+    # of yaw-only allows correct transforms for non-planar robots (arms,
+    # tilted brackets) while producing identical results for planar robots
+    # (hexapods, wheeled bots) where all rotations are pure-Z.
+    joint_added_quat: dict[str, tuple[float, float, float, float]] = {}
     remaining = list(mechanism.joints)
     max_iters = len(remaining) + 1
     for _ in range(max_iters):
@@ -418,32 +535,143 @@ def build_sim_model(
                 if abs(origin[0]) < 1e-3 and abs(origin[1]) < 1e-3 and abs(origin[2]) < 1e-3:
                     fallback = manifest_pos_by_part.get(jedge.child_part)
                     if fallback is not None:
+                        if require_explicit_joint_origins:
+                            logger.warning(
+                                "Joint '%s': origin is (0,0,0), using manifest "
+                                "fallback for child '%s'. Set explicit origins "
+                                "for production use.",
+                                jedge.id, jedge.child_part,
+                            )
                         origin = fallback
 
                 # Place child at the joint's world origin
                 part_world_pos[jedge.child_part] = origin  # type: ignore[assignment]
 
-                parent_yaw = part_world_yaw.get(jedge.parent_part, 0.0)
+                parent_quat = part_world_quat.get(jedge.parent_part, _IDENTITY_QUAT)
 
                 # Auto-compute outward yaw for root-attached joints.
                 # Formula: atan2(dy, dx) orients child +X toward (dx, dy).
                 # Body-local meshes extend along +X, so this aligns them
                 # radially outward from the body center.
-                added_yaw = 0.0
+                added_quat = _IDENTITY_QUAT
                 if jedge.parent_part in ground_parts:
                     ppos = part_world_pos[jedge.parent_part]
                     dx = origin[0] - ppos[0]
                     dy = origin[1] - ppos[1]
                     if abs(dx) > 1e-6 or abs(dy) > 1e-6:
                         added_yaw = math.atan2(dy, dx)
+                        added_quat = _quat_from_yaw(added_yaw)
 
-                joint_added_yaw[jedge.id] = added_yaw
-                part_world_yaw[jedge.child_part] = parent_yaw + added_yaw
+                joint_added_quat[jedge.id] = added_quat
+                part_world_quat[jedge.child_part] = _quat_multiply(
+                    *parent_quat, *added_quat,
+                )
             else:
                 still_remaining.append(jedge)
         if len(still_remaining) == len(remaining):
             break  # No progress — remaining joints have unreachable parents
         remaining = still_remaining
+
+    # -----------------------------------------------------------------------
+    # Second pass: compose manifest quaternion (pitch/roll from FreeCAD
+    # Placement) with the BFS-computed quaternion (auto-yaw).  This handles
+    # non-planar robots where bodies are tilted in the CAD model:
+    #   link_world_quat = auto_yaw_quat * manifest_quat
+    # For hexapods: auto_yaw(45°) * identity = yaw(45°)  (no regression)
+    # For robot arms: identity * pitch(30°) = pitch(30°)  (correct)
+    # -----------------------------------------------------------------------
+    manifest_quat_by_part: dict[str, tuple[float, float, float, float]] = {}
+    for part in mechanism.parts:
+        m_entry = manifest_by_name.get((part.body_name or "").lower()) or manifest_by_name.get(part.id.lower())
+        if m_entry is not None:
+            plc = m_entry.get("placement", {})
+            quat = plc.get("rotation_quat", [1.0, 0.0, 0.0, 0.0])
+            manifest_quat_by_part[part.id] = (quat[0], quat[1], quat[2], quat[3])
+
+    for pid in list(part_world_quat):
+        if pid in ground_parts:
+            continue
+        mq = manifest_quat_by_part.get(pid, _IDENTITY_QUAT)
+        # Only compose when the manifest quaternion has non-trivial
+        # pitch/roll (x or y components).  Pure-yaw manifest quats
+        # (only w,z non-zero) are already handled by the BFS auto-yaw
+        # and must NOT be double-applied.
+        if mq != _IDENTITY_QUAT and (abs(mq[1]) > 1e-6 or abs(mq[2]) > 1e-6):
+            part_world_quat[pid] = _quat_multiply(
+                *part_world_quat[pid], *mq,
+            )
+            logger.debug(
+                "Composed manifest quat %s onto BFS quat for part '%s'",
+                mq, pid,
+            )
+
+    # -----------------------------------------------------------------------
+    # Topology optimization: chain co-located fixed + non-fixed siblings.
+    #
+    # When two joints share the same parent and the same (or nearly the same)
+    # world-frame origin, and one is ``fixed`` while the other is not, the
+    # non-fixed joint should go *through* the fixed joint's child rather than
+    # being a direct sibling.  Example:
+    #
+    #   BEFORE (siblings):          AFTER (chained):
+    #   frame ──fixed──▶ motor      frame ──fixed──▶ motor ──revolute──▶ prop
+    #   frame ──revolute──▶ prop
+    #
+    # This matters for Isaac Sim's ``merge_fixed_joints=true``: fixed-joint
+    # children are absorbed into their parent's articulation root.  When motor
+    # and prop are siblings, merging the fixed motor joint leaves the prop
+    # connected to frame directly — the motor mesh is orphaned.  Chaining
+    # ensures the prop revolute joint originates from the (merged) motor link.
+    # -----------------------------------------------------------------------
+    _COLOC_THRESHOLD_MM = 5.0  # co-location distance threshold
+
+    # Index joints by parent for efficient grouping
+    _joints_by_parent: dict[str, list[Any]] = {}
+    for jedge in mechanism.joints:
+        _joints_by_parent.setdefault(jedge.parent_part, []).append(jedge)
+
+    # Track reparented joints: joint_id -> new_parent_part
+    _reparented: dict[str, str] = {}
+
+    for parent_id, siblings in _joints_by_parent.items():
+        if len(siblings) < 2:
+            continue
+
+        # Separate fixed and non-fixed joints
+        fixed_joints = [j for j in siblings if j.joint_type == JointType.FIXED]
+        non_fixed_joints = [j for j in siblings if j.joint_type != JointType.FIXED]
+
+        if not fixed_joints or not non_fixed_joints:
+            continue
+
+        # For each non-fixed joint, check if there's a co-located fixed joint
+        for nf_joint in non_fixed_joints:
+            nf_pos = part_world_pos.get(nf_joint.child_part, (0.0, 0.0, 0.0))
+            best_fixed = None
+            best_dist = float("inf")
+
+            for f_joint in fixed_joints:
+                f_pos = part_world_pos.get(f_joint.child_part, (0.0, 0.0, 0.0))
+                dist = math.sqrt(
+                    (nf_pos[0] - f_pos[0]) ** 2
+                    + (nf_pos[1] - f_pos[1]) ** 2
+                    + (nf_pos[2] - f_pos[2]) ** 2
+                )
+                if dist < _COLOC_THRESHOLD_MM and dist < best_dist:
+                    best_fixed = f_joint
+                    best_dist = dist
+
+            if best_fixed is not None:
+                new_parent = best_fixed.child_part
+                logger.info(
+                    "Topology optimization: rechaining joint '%s' (%s) "
+                    "from parent '%s' to '%s' (co-located with fixed "
+                    "joint '%s', dist=%.2f mm)",
+                    nf_joint.id, nf_joint.joint_type.value,
+                    parent_id, new_parent,
+                    best_fixed.id, best_dist,
+                )
+                _reparented[nf_joint.id] = new_parent
 
     # Build joints from mechanism joints
     joints: list[SimJoint] = []
@@ -453,41 +681,44 @@ def build_sim_model(
     for jedge in mechanism.joints:
         joint_name = jedge.id
         joint_type = _JOINT_TYPE_MAP.get(jedge.joint_type, "fixed")
-        parent_link = part_to_link.get(jedge.parent_part, jedge.parent_part)
+        # Use reparented parent if topology optimization rechained this joint
+        effective_parent = _reparented.get(jedge.id, jedge.parent_part)
+        parent_link = part_to_link.get(effective_parent, effective_parent)
         child_link = part_to_link.get(jedge.child_part, jedge.child_part)
 
         # Compute parent-relative joint origin (mm -> m for URDF).
         # The child's world position (from BFS, with manifest fallback) is the
         # joint's world-frame origin.  Subtract parent's world pos to get the
-        # world-frame offset, then rotate into the parent's local frame.
+        # world-frame offset, then rotate into the parent's local frame using
+        # the full inverse parent quaternion.
         child_world = part_world_pos.get(jedge.child_part, (0.0, 0.0, 0.0))
-        parent_pos = part_world_pos.get(jedge.parent_part, (0.0, 0.0, 0.0))
+        parent_pos = part_world_pos.get(effective_parent, (0.0, 0.0, 0.0))
         world_dx = child_world[0] - parent_pos[0]
         world_dy = child_world[1] - parent_pos[1]
         world_dz = child_world[2] - parent_pos[2]
 
-        parent_yaw = part_world_yaw.get(jedge.parent_part, 0.0)
-        if abs(parent_yaw) > 1e-9:
-            # Rotate world offset into parent's local frame: R_z(-parent_yaw)
-            c = math.cos(-parent_yaw)
-            s = math.sin(-parent_yaw)
-            local_dx = world_dx * c - world_dy * s
-            local_dy = world_dx * s + world_dy * c
-            local_dz = world_dz
-        else:
-            local_dx, local_dy, local_dz = world_dx, world_dy, world_dz
+        parent_quat = part_world_quat.get(effective_parent, _IDENTITY_QUAT)
+        parent_inv = _quat_inverse(*parent_quat)
+
+        # Rotate world offset into parent's local frame using full quaternion
+        local_dx, local_dy, local_dz = _quat_rotate_point(
+            *parent_inv, world_dx, world_dy, world_dz,
+        )
 
         origin_xyz = (local_dx / 1000.0, local_dy / 1000.0, local_dz / 1000.0)
 
-        # Joint rpy: prefer auto-computed outward yaw (Bug 2); fall back to
-        # manifest-based relative orientation when no outward yaw applies.
-        added_yaw = joint_added_yaw.get(jedge.id, 0.0)
-        if abs(added_yaw) > 1e-9:
-            origin_rpy = (0.0, 0.0, added_yaw)
-        else:
-            # Bug 2 fix: with body-local meshes, pitch/roll come from joint
-            # angle targets at runtime — never bake manifest quaternions here.
-            origin_rpy = (0.0, 0.0, 0.0)
+        # Joint RPY: relative quaternion from parent frame to child frame.
+        # q_relative = q_parent_inv * q_child → converted to RPY.
+        # For hexapods with pure-yaw BFS, this produces (0, 0, yaw) for
+        # root-attached joints and (0, 0, 0) for deeper joints — identical
+        # to the previous yaw-only computation.  For non-planar robots it
+        # correctly encodes pitch/roll frame tilts.
+        child_quat = part_world_quat.get(jedge.child_part, _IDENTITY_QUAT)
+        relative_quat = _quat_multiply(*parent_inv, *child_quat)
+        origin_rpy_raw = _quat_to_rpy(*relative_quat)
+        origin_rpy = tuple(
+            0.0 if abs(v) < 1e-9 else v for v in origin_rpy_raw
+        )
 
         # Limits — required for revolute and prismatic URDF joint types.
         # Use mechanism data when available, otherwise provide sensible defaults
@@ -570,19 +801,22 @@ def build_sim_model(
 
     # -----------------------------------------------------------------------
     # Transform meshes from world coordinates to link-local coordinates.
-    # export_sim_package now exports meshes in world coords (including Body
-    # Placement).  Each link's world position and yaw are known from the BFS
-    # above.  We transform each STL so vertices are relative to the link
-    # frame — the joint <origin> elements handle world positioning.
+    # export_sim_package exports meshes in world coords (including Body
+    # Placement).  Each link's world position and orientation quaternion are
+    # known from the BFS above.  We transform each STL so vertices are
+    # relative to the link frame — the joint <origin> elements handle
+    # parent-to-child positioning.
     # -----------------------------------------------------------------------
     for link in links:
         if link.mesh_path is None:
             continue
         world_pos = part_world_pos.get(link.name, (0.0, 0.0, 0.0))
-        world_yaw = part_world_yaw.get(link.name, 0.0)
+        world_quat = part_world_quat.get(link.name, _IDENTITY_QUAT)
         try:
-            _transform_stl_to_link_local(link.mesh_path, world_pos, world_yaw)
+            _transform_stl_to_link_local(link.mesh_path, world_pos, world_quat)
         except Exception as exc:
+            if mesh_transform_error_mode == "fail":
+                raise
             logger.warning(
                 "Failed to transform mesh %s to link-local: %s",
                 link.mesh_path, exc,
@@ -972,6 +1206,50 @@ def validate_urdf(path: str) -> list[Finding]:
                     except ValueError:
                         pass
 
+    # --- Check 4b: Zero mass on child links ---
+    for lel in links:
+        lname = lel.attrib.get("name", "?")
+        mass_el = lel.find("inertial/mass")
+        if mass_el is not None and lname in child_links:
+            try:
+                mass_val = float(mass_el.attrib.get("value", "1"))
+                if mass_val == 0.0:
+                    findings.append(Finding(
+                        rule_id="urdf.zero_mass",
+                        severity=Severity.WARN,
+                        message=(
+                            f"Link '{lname}' has zero mass but is a child link "
+                            f"— may cause simulation instability"
+                        ),
+                        field=f"link/{lname}/inertial/mass",
+                    ))
+            except ValueError:
+                pass
+
+    # --- Check 4c: Near-zero inertia ---
+    for lel in links:
+        lname = lel.attrib.get("name", "?")
+        inertia_el = lel.find("inertial/inertia")
+        if inertia_el is not None:
+            diag_vals = []
+            for diag in ("ixx", "iyy", "izz"):
+                val_str = inertia_el.attrib.get(diag)
+                if val_str is not None:
+                    try:
+                        diag_vals.append(float(val_str))
+                    except ValueError:
+                        pass
+            if diag_vals and all(v < 1e-12 for v in diag_vals):
+                findings.append(Finding(
+                    rule_id="urdf.tiny_inertia",
+                    severity=Severity.WARN,
+                    message=(
+                        f"Link '{lname}' has near-zero inertia (all diag < 1e-12), "
+                        f"may cause simulation instability"
+                    ),
+                    field=f"link/{lname}/inertial/inertia",
+                ))
+
     # --- Check 6: Connected tree ---
     # Build adjacency from joints and check all links are reachable from root.
     if links and joints:
@@ -1177,6 +1455,7 @@ def validate_urdf_fk(
     path: str,
     mesh_bboxes: dict[str, MeshBBox] | None = None,
     ground_clearance_m: float | None = None,
+    robot_type: str | None = None,
 ) -> list[Finding]:
     """Parse a URDF and run forward-kinematics geometric checks.
 
@@ -1187,6 +1466,10 @@ def validate_urdf_fk(
         path: Path to the URDF file.
         mesh_bboxes: Per-link body-local bounding boxes in mm.
         ground_clearance_m: Expected chassis height above ground (meters).
+        robot_type: Robot category hint for generalized checks.  When
+            ``"legged"`` the tibia/coxa/femur name heuristics are replaced
+            by structural analysis (leaf links, root-attached joints, chain
+            joints).  ``None`` preserves the legacy name-based behaviour.
 
     Returns:
         List of Finding objects.
@@ -1429,56 +1712,82 @@ def validate_urdf_fk(
                         field=f"joint/{jname}",
                     ))
 
-    # --- Check 3: urdf.fk.tibia_tip_height ---
-    # Tibia tips should be between ground (z=0) and chassis height at zero angles.
+    # --- Check 3: urdf.fk.leaf_link_height (née tibia_tip_height) ---
+    # Leaf-link tips should be between ground (z=0) and chassis height at
+    # zero joint angles.  When *robot_type="legged"* we check ALL leaf links
+    # (links that are never a parent in any joint, excluding root/base_link).
+    # Otherwise we fall back to the legacy "tibia" name heuristic.
     if mesh_bboxes:
-        for lname in link_names:
-            if "tibia" not in lname.lower():
-                continue
+        # Build set of leaf links — links that never appear as a parent.
+        parent_links_all = {jd["parent"] for jd in joint_data.values()}
+        leaf_links = (link_names - parent_links_all) - root_links
+
+        # Decide which links to check.
+        _has_tibia = any("tibia" in ln.lower() for ln in leaf_links)
+        if robot_type == "legged" or _has_tibia:
+            tip_check_links = leaf_links
+        else:
+            tip_check_links = set()  # no candidates → skip
+
+        for lname in tip_check_links:
             if lname not in mesh_bboxes or lname not in link_world_tf:
                 continue
-            tibia_bbox = mesh_bboxes[lname]
-            tibia_tf = link_world_tf[lname]
+            leaf_bbox = mesh_bboxes[lname]
+            leaf_tf = link_world_tf[lname]
 
-            # Tibia tip: max local +X
-            mid_y = (tibia_bbox.min_pt[1] + tibia_bbox.max_pt[1]) / 2.0
-            mid_z = (tibia_bbox.min_pt[2] + tibia_bbox.max_pt[2]) / 2.0
+            # Leaf tip: max local +X
+            mid_y = (leaf_bbox.min_pt[1] + leaf_bbox.max_pt[1]) / 2.0
+            mid_z = (leaf_bbox.min_pt[2] + leaf_bbox.max_pt[2]) / 2.0
             tip_local_m = (
-                tibia_bbox.max_pt[0] * 0.001,
+                leaf_bbox.max_pt[0] * 0.001,
                 mid_y * 0.001,
                 mid_z * 0.001,
             )
-            tip_world = _transform_point(tibia_tf, tip_local_m)
+            tip_world = _transform_point(leaf_tf, tip_local_m)
             tip_z = tip_world[2]
 
             chassis_max_z = ground_clearance_m if ground_clearance_m else 0.5
             if tip_z < -0.010 or tip_z > chassis_max_z + 0.050:
                 findings.append(Finding(
-                    rule_id="urdf.fk.tibia_tip_height",
+                    rule_id="urdf.fk.leaf_link_height",
                     severity=Severity.WARN,
                     message=(
-                        f"Tibia '{lname}' tip at Z={tip_z:.4f}m "
+                        f"Leaf link '{lname}' tip at Z={tip_z:.4f}m "
                         f"(expected between 0 and {chassis_max_z:.3f}m)"
                     ),
                     field=f"link/{lname}",
                 ))
 
-    # --- Check 4: urdf.fk.coxa_yaw_matches_radial ---
-    # Coxa joints attached to chassis should have RPY yaw ≈ atan2(origin_y, origin_x).
+    # --- Check 4: urdf.fk.root_joint_yaw_matches_radial (née coxa_yaw) ---
+    # Root-attached revolute joints should have RPY yaw ≈ atan2(origin_y, origin_x).
+    # When *robot_type="legged"* we check ALL root-attached revolute joints.
+    # Otherwise we fall back to the legacy "coxa" name heuristic.
+    def _is_root_attached(jd_inner: dict[str, Any]) -> bool:
+        """Return True if *jd_inner*'s parent is root or one fixed-joint hop away."""
+        p = jd_inner["parent"]
+        if p in root_links:
+            return True
+        pj = child_to_joint.get(p)
+        if pj is None:
+            return False
+        pjd = joint_data.get(pj, {})
+        return pjd.get("type") == "fixed" and pjd.get("parent") in root_links
+
     for jname, jd in joint_data.items():
-        if "coxa" not in jname.lower():
-            continue
+        # Decide whether this joint is a candidate.
+        if robot_type == "legged":
+            if jd["type"] != "revolute":
+                continue
+            if not _is_root_attached(jd):
+                continue
+        else:
+            if "coxa" not in jname.lower():
+                continue
+            if not _is_root_attached(jd):
+                continue
+
         origin = jd["xyz"]
-        # Only check if this is a root-attached joint (parent is root or chassis)
         parent = jd["parent"]
-        if parent not in root_links:
-            # Check if parent is attached to root via fixed joint
-            parent_joint_name = child_to_joint.get(parent)
-            if parent_joint_name is None:
-                continue
-            pjd = joint_data.get(parent_joint_name, {})
-            if pjd.get("type") != "fixed" or pjd.get("parent") not in root_links:
-                continue
 
         # Compute the world-frame position of this joint
         if parent in link_world_tf:
@@ -1494,30 +1803,44 @@ def validate_urdf_fk(
                 yaw_diff = 2 * math.pi - yaw_diff
             if yaw_diff > 0.02:  # ~1.1 degrees
                 findings.append(Finding(
-                    rule_id="urdf.fk.coxa_yaw_matches_radial",
+                    rule_id="urdf.fk.root_joint_yaw_matches_radial",
                     severity=Severity.WARN,
                     message=(
-                        f"Coxa joint '{jname}' yaw={actual_yaw:.4f} rad, "
+                        f"Root-attached joint '{jname}' yaw={actual_yaw:.4f} rad, "
                         f"expected atan2(y,x)={expected_yaw:.4f} rad "
                         f"(diff {yaw_diff:.4f} rad)"
                     ),
                     field=f"joint/{jname}",
                 ))
 
-    # --- Check 5: urdf.fk.pitch_axis_local ---
-    # Femur/tibia joint axes should be ≈ (0, ±1, 0) in local frame.
+    # --- Check 5: urdf.fk.chain_joint_axis (née pitch_axis_local) ---
+    # Non-root revolute joint axes in serial chains should be ≈ (0, ±1, 0)
+    # in the local frame.  When *robot_type="legged"* we check ALL non-root
+    # revolute joints (not just ones named "femur"/"tibia").
+    # Build set of root-attached joint names for exclusion.
+    _root_joint_names: set[str] = set()
+    for jn, jdi in joint_data.items():
+        if _is_root_attached(jdi):
+            _root_joint_names.add(jn)
+
     for jname, jd in joint_data.items():
-        name_lower = jname.lower()
-        if "femur" not in name_lower and "tibia" not in name_lower:
-            continue
         if jd["type"] != "revolute":
             continue
+        if robot_type == "legged":
+            # Skip root-attached joints — they are yaw joints, not pitch.
+            if jname in _root_joint_names:
+                continue
+        else:
+            name_lower = jname.lower()
+            if "femur" not in name_lower and "tibia" not in name_lower:
+                continue
+
         axis = jd["axis"]
         # Check if axis is approximately (0, ±1, 0)
         dot_y = abs(axis[1])
         if dot_y < 0.99:
             findings.append(Finding(
-                rule_id="urdf.fk.pitch_axis_local",
+                rule_id="urdf.fk.chain_joint_axis",
                 severity=Severity.WARN,
                 message=(
                     f"Joint '{jname}' axis ({axis[0]:.3f}, {axis[1]:.3f}, "

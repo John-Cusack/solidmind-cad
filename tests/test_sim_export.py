@@ -27,14 +27,18 @@ from server.sim_export import (
     _aabb_overlap_volume,
     _aabb_volume,
     _box_inertia,
+    _is_binary_stl,
     _make_transform_4x4,
     _multiply_4x4,
+    _quat_from_yaw,
     _quat_inverse,
     _quat_multiply,
+    _quat_rotate_point,
     _quat_to_rpy,
     _rpy_to_matrix,
     _transform_bbox,
     _transform_point,
+    _transform_stl_to_link_local,
     build_sim_model,
     validate_urdf,
     validate_urdf_fk,
@@ -492,11 +496,15 @@ class TestBuildSimModel(unittest.TestCase):
         self.assertIsNotNone(link.inertia)
 
 
-    def test_non_root_joint_rpy_zero_no_baked_pitch(self) -> None:
-        """Bug 2: rotated manifest quaternions on deeper links don't bake pitch."""
+    def test_non_root_joint_rpy_composes_manifest_pitch(self) -> None:
+        """Manifest pitch/roll on deeper links is composed into joint RPY.
+
+        For non-planar robots (robot arms, tilted brackets), the manifest
+        quaternion's pitch/roll must appear in the relative joint RPY so
+        the child frame is correctly oriented.
+        """
         # 3-part chain: chassis (ground) -> coxa -> femur
-        # Femur has a rotated quaternion (30deg pitch) in manifest — should
-        # NOT appear in the URDF joint RPY.
+        # Femur has a rotated quaternion (30deg pitch) in manifest.
         w30 = math.cos(math.radians(15))
         y30 = math.sin(math.radians(15))
         mech = Mechanism(
@@ -535,9 +543,9 @@ class TestBuildSimModel(unittest.TestCase):
 
         model = build_sim_model(mech, manifest)
         femur_joint = [j for j in model.joints if j.child == "femur"][0]
-        # RPY must be (0,0,0) — no baked pitch from manifest
+        # RPY must reflect the 30deg manifest pitch
         self.assertAlmostEqual(femur_joint.origin_rpy[0], 0.0, places=5)
-        self.assertAlmostEqual(femur_joint.origin_rpy[1], 0.0, places=5)
+        self.assertAlmostEqual(femur_joint.origin_rpy[1], math.radians(30), places=5)
         self.assertAlmostEqual(femur_joint.origin_rpy[2], 0.0, places=5)
 
     def test_joint_axis_rotated_to_local_frame(self) -> None:
@@ -2036,7 +2044,7 @@ class TestValidateUrdfFK(unittest.TestCase):
 
         path = self._write_urdf_xml(robot)
         findings = validate_urdf_fk(path)
-        coxa_findings = [f for f in findings if f.rule_id == "urdf.fk.coxa_yaw_matches_radial"]
+        coxa_findings = [f for f in findings if f.rule_id == "urdf.fk.root_joint_yaw_matches_radial"]
         self.assertEqual(len(coxa_findings), 1)
 
     def test_coxa_yaw_correct(self) -> None:
@@ -2059,7 +2067,7 @@ class TestValidateUrdfFK(unittest.TestCase):
 
         path = self._write_urdf_xml(robot)
         findings = validate_urdf_fk(path)
-        coxa_findings = [f for f in findings if f.rule_id == "urdf.fk.coxa_yaw_matches_radial"]
+        coxa_findings = [f for f in findings if f.rule_id == "urdf.fk.root_joint_yaw_matches_radial"]
         self.assertEqual(len(coxa_findings), 0)
 
     def test_pitch_axis_wrong(self) -> None:
@@ -2081,7 +2089,7 @@ class TestValidateUrdfFK(unittest.TestCase):
 
         path = self._write_urdf_xml(robot)
         findings = validate_urdf_fk(path)
-        axis_findings = [f for f in findings if f.rule_id == "urdf.fk.pitch_axis_local"]
+        axis_findings = [f for f in findings if f.rule_id == "urdf.fk.chain_joint_axis"]
         self.assertEqual(len(axis_findings), 1)
 
     def test_pitch_axis_correct(self) -> None:
@@ -2103,7 +2111,7 @@ class TestValidateUrdfFK(unittest.TestCase):
 
         path = self._write_urdf_xml(robot)
         findings = validate_urdf_fk(path)
-        axis_findings = [f for f in findings if f.rule_id == "urdf.fk.pitch_axis_local"]
+        axis_findings = [f for f in findings if f.rule_id == "urdf.fk.chain_joint_axis"]
         self.assertEqual(len(axis_findings), 0)
 
     def test_link_chain_gap_detected(self) -> None:
@@ -2375,11 +2383,11 @@ class TestHexapodRoundTrip(unittest.TestCase):
         self.assertEqual(len(chassis_findings), 0)
 
         # All coxa yaw checks should pass
-        coxa_findings = [f for f in fk_findings if f.rule_id == "urdf.fk.coxa_yaw_matches_radial"]
+        coxa_findings = [f for f in fk_findings if f.rule_id == "urdf.fk.root_joint_yaw_matches_radial"]
         self.assertEqual(len(coxa_findings), 0)
 
         # All pitch axis checks should pass
-        axis_findings = [f for f in fk_findings if f.rule_id == "urdf.fk.pitch_axis_local"]
+        axis_findings = [f for f in fk_findings if f.rule_id == "urdf.fk.chain_joint_axis"]
         self.assertEqual(len(axis_findings), 0)
 
 
@@ -2655,6 +2663,83 @@ class TestURDFGenerationPipeline(unittest.TestCase):
         fix_joints = {j.attrib["name"] for j in fix_tree.getroot().findall("joint")}
         self.assertEqual(gen_joints, fix_joints)
 
+    def test_generated_urdf_numeric_match(self) -> None:
+        """Golden-file regression: generated URDF numeric values match fixture within tolerance."""
+        TOL = 1e-4
+
+        model = build_sim_model(self.mechanism, self.manifest)
+        with tempfile.NamedTemporaryFile(suffix=".urdf", delete=False) as f:
+            generated_path = f.name
+        write_urdf(model, generated_path)
+
+        fixture_urdf = str(self.FIXTURE_DIR / "simple_2body.urdf")
+
+        gen_root = ET.parse(generated_path).getroot()
+        fix_root = ET.parse(fixture_urdf).getroot()
+
+        # Build lookup dicts keyed by joint/link name
+        gen_joints = {j.attrib["name"]: j for j in gen_root.findall("joint")}
+        fix_joints = {j.attrib["name"]: j for j in fix_root.findall("joint")}
+
+        # Compare joint numeric values
+        for jname, fix_j in fix_joints.items():
+            self.assertIn(jname, gen_joints, f"Missing joint '{jname}' in generated URDF")
+            gen_j = gen_joints[jname]
+
+            # origin xyz
+            fix_origin = fix_j.find("origin")
+            gen_origin = gen_j.find("origin")
+            if fix_origin is not None:
+                self.assertIsNotNone(gen_origin, f"Joint '{jname}' missing <origin>")
+                fix_xyz = [float(v) for v in fix_origin.attrib.get("xyz", "0 0 0").split()]
+                gen_xyz = [float(v) for v in gen_origin.attrib.get("xyz", "0 0 0").split()]
+                for i, (fv, gv) in enumerate(zip(fix_xyz, gen_xyz)):
+                    self.assertAlmostEqual(
+                        gv, fv, delta=TOL,
+                        msg=f"Joint '{jname}' origin xyz[{i}]: {gv} != {fv}",
+                    )
+
+                # origin rpy
+                fix_rpy = [float(v) for v in fix_origin.attrib.get("rpy", "0 0 0").split()]
+                gen_rpy = [float(v) for v in gen_origin.attrib.get("rpy", "0 0 0").split()]
+                for i, (fv, gv) in enumerate(zip(fix_rpy, gen_rpy)):
+                    self.assertAlmostEqual(
+                        gv, fv, delta=TOL,
+                        msg=f"Joint '{jname}' origin rpy[{i}]: {gv} != {fv}",
+                    )
+
+            # axis xyz
+            fix_axis = fix_j.find("axis")
+            gen_axis = gen_j.find("axis")
+            if fix_axis is not None:
+                self.assertIsNotNone(gen_axis, f"Joint '{jname}' missing <axis>")
+                fix_ax = [float(v) for v in fix_axis.attrib.get("xyz", "0 0 1").split()]
+                gen_ax = [float(v) for v in gen_axis.attrib.get("xyz", "0 0 1").split()]
+                for i, (fv, gv) in enumerate(zip(fix_ax, gen_ax)):
+                    self.assertAlmostEqual(
+                        gv, fv, delta=TOL,
+                        msg=f"Joint '{jname}' axis xyz[{i}]: {gv} != {fv}",
+                    )
+
+        # Compare link inertial mass values
+        gen_links_map = {lk.attrib["name"]: lk for lk in gen_root.findall("link")}
+        fix_links_map = {lk.attrib["name"]: lk for lk in fix_root.findall("link")}
+
+        for lname, fix_lk in fix_links_map.items():
+            fix_mass_el = fix_lk.find("inertial/mass")
+            if fix_mass_el is not None:
+                self.assertIn(lname, gen_links_map, f"Missing link '{lname}' in generated URDF")
+                gen_mass_el = gen_links_map[lname].find("inertial/mass")
+                self.assertIsNotNone(
+                    gen_mass_el, f"Link '{lname}' missing <inertial><mass> in generated URDF",
+                )
+                fix_mass = float(fix_mass_el.attrib["value"])
+                gen_mass = float(gen_mass_el.attrib["value"])
+                self.assertAlmostEqual(
+                    gen_mass, fix_mass, delta=TOL,
+                    msg=f"Link '{lname}' mass: {gen_mass} != {fix_mass}",
+                )
+
 
 class TestChildDetachedFromParent(unittest.TestCase):
     """Tests for Check 2b: urdf.fk.child_detached_from_parent."""
@@ -2901,6 +2986,890 @@ class TestCaseInsensitiveManifestMatch(unittest.TestCase):
         ]
         model = build_sim_model(mech, manifest)
         self.assertEqual(model.links[0].mesh_path, "/tmp/Motor_FR.stl")
+
+
+class TestQuatRotatePoint(unittest.TestCase):
+    def test_identity_rotation(self) -> None:
+        result = _quat_rotate_point(1.0, 0.0, 0.0, 0.0, 1.0, 2.0, 3.0)
+        self.assertAlmostEqual(result[0], 1.0, places=10)
+        self.assertAlmostEqual(result[1], 2.0, places=10)
+        self.assertAlmostEqual(result[2], 3.0, places=10)
+
+    def test_90_yaw_rotates_x_to_y(self) -> None:
+        # 90° about Z: (1,0,0) -> (0,1,0)
+        w = math.cos(math.radians(45))
+        z = math.sin(math.radians(45))
+        result = _quat_rotate_point(w, 0.0, 0.0, z, 1.0, 0.0, 0.0)
+        self.assertAlmostEqual(result[0], 0.0, places=5)
+        self.assertAlmostEqual(result[1], 1.0, places=5)
+        self.assertAlmostEqual(result[2], 0.0, places=5)
+
+    def test_90_pitch_rotates_x_to_neg_z(self) -> None:
+        # 90° about Y: (1,0,0) -> (0,0,-1)
+        w = math.cos(math.radians(45))
+        y = math.sin(math.radians(45))
+        result = _quat_rotate_point(w, 0.0, y, 0.0, 1.0, 0.0, 0.0)
+        self.assertAlmostEqual(result[0], 0.0, places=5)
+        self.assertAlmostEqual(result[1], 0.0, places=5)
+        self.assertAlmostEqual(result[2], -1.0, places=5)
+
+    def test_inverse_rotation_undoes(self) -> None:
+        # Rotate then inverse should give back original point
+        w = math.cos(math.radians(30))
+        z = math.sin(math.radians(30))
+        p = (3.0, 4.0, 5.0)
+        rotated = _quat_rotate_point(w, 0.0, 0.0, z, *p)
+        inv_w, inv_x, inv_y, inv_z = _quat_inverse(w, 0.0, 0.0, z)
+        restored = _quat_rotate_point(inv_w, inv_x, inv_y, inv_z, *rotated)
+        self.assertAlmostEqual(restored[0], p[0], places=10)
+        self.assertAlmostEqual(restored[1], p[1], places=10)
+        self.assertAlmostEqual(restored[2], p[2], places=10)
+
+
+class TestQuatFromYaw(unittest.TestCase):
+    def test_zero_is_identity(self) -> None:
+        q = _quat_from_yaw(0.0)
+        self.assertAlmostEqual(q[0], 1.0)
+        self.assertAlmostEqual(q[1], 0.0)
+        self.assertAlmostEqual(q[2], 0.0)
+        self.assertAlmostEqual(q[3], 0.0)
+
+    def test_90_deg(self) -> None:
+        q = _quat_from_yaw(math.pi / 2)
+        rpy = _quat_to_rpy(*q)
+        self.assertAlmostEqual(rpy[0], 0.0, places=5)
+        self.assertAlmostEqual(rpy[1], 0.0, places=5)
+        self.assertAlmostEqual(rpy[2], math.pi / 2, places=5)
+
+
+class TestAsciiStlTransform(unittest.TestCase):
+    """Test ASCII STL transformation with full quaternion rotation."""
+
+    _ASCII_STL = """\
+solid test
+  facet normal 0.000000 0.000000 1.000000
+    outer loop
+      vertex 100.000000 200.000000 0.000000
+      vertex 110.000000 200.000000 0.000000
+      vertex 105.000000 210.000000 0.000000
+    endloop
+  endfacet
+endsolid test
+"""
+
+    def test_identity_no_op(self) -> None:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".stl", delete=False) as f:
+            f.write(self._ASCII_STL)
+            path = f.name
+        _transform_stl_to_link_local(path, (0.0, 0.0, 0.0), (1.0, 0.0, 0.0, 0.0))
+        with open(path) as f:
+            content = f.read()
+        # File should be unchanged (identity transform early return)
+        self.assertEqual(content, self._ASCII_STL)
+
+    def test_translate_only(self) -> None:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".stl", delete=False) as f:
+            f.write(self._ASCII_STL)
+            path = f.name
+        _transform_stl_to_link_local(path, (100.0, 200.0, 0.0), (1.0, 0.0, 0.0, 0.0))
+        with open(path) as f:
+            content = f.read()
+        # First vertex at (100, 200, 0) should become (0, 0, 0)
+        self.assertIn("0.000000 0.000000 0.000000", content)
+
+    def test_yaw_rotation(self) -> None:
+        """45° yaw via quaternion matches expected rotation."""
+        stl = """\
+solid test
+  facet normal 1.000000 0.000000 0.000000
+    outer loop
+      vertex 50.000000 0.000000 0.000000
+      vertex 50.000000 0.000000 10.000000
+      vertex 60.000000 0.000000 0.000000
+    endloop
+  endfacet
+endsolid test
+"""
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".stl", delete=False) as f:
+            f.write(stl)
+            path = f.name
+        yaw = math.pi / 4  # 45°
+        quat = _quat_from_yaw(yaw)
+        _transform_stl_to_link_local(path, (0.0, 0.0, 0.0), quat)
+        with open(path) as f:
+            lines = f.readlines()
+        # Find first vertex line
+        for line in lines:
+            if "vertex" in line and "50" not in line:
+                continue
+            if line.strip().startswith("vertex"):
+                vals = [float(v) for v in line.split()[1:]]
+                # After -45° rotation: (50, 0, 0) -> (35.355, -35.355, 0)
+                if abs(vals[2]) < 1:  # The Z=0 vertex
+                    expected_x = 50 * math.cos(-yaw)
+                    expected_y = 50 * math.sin(-yaw)
+                    self.assertAlmostEqual(vals[0], expected_x, places=2)
+                    self.assertAlmostEqual(vals[1], expected_y, places=2)
+                    break
+
+
+class TestBinaryStlTransform(unittest.TestCase):
+    """Test binary STL transformation."""
+
+    def _make_binary_stl(self, vertices: list[tuple[float, float, float]]) -> bytes:
+        """Create a minimal binary STL with one triangle."""
+        import struct
+        header = b"\x00" * 80
+        tri_count = len(vertices) // 3
+        data = bytearray()
+        for i in range(tri_count):
+            # Normal
+            data += struct.pack("<3f", 0.0, 0.0, 1.0)
+            # 3 vertices
+            for j in range(3):
+                v = vertices[i * 3 + j]
+                data += struct.pack("<3f", v[0], v[1], v[2])
+            # Attribute byte count
+            data += struct.pack("<H", 0)
+        return header + struct.pack("<I", tri_count) + bytes(data)
+
+    def test_detect_binary(self) -> None:
+        data = self._make_binary_stl([
+            (0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (0.0, 1.0, 0.0),
+        ])
+        with tempfile.NamedTemporaryFile(suffix=".stl", delete=False) as f:
+            f.write(data)
+            path = f.name
+        self.assertTrue(_is_binary_stl(path))
+
+    def test_detect_ascii(self) -> None:
+        ascii_stl = "solid test\nendsolid test\n"
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".stl", delete=False) as f:
+            f.write(ascii_stl)
+            path = f.name
+        self.assertFalse(_is_binary_stl(path))
+
+    def test_binary_translate(self) -> None:
+        import struct as st
+        data = self._make_binary_stl([
+            (100.0, 200.0, 0.0), (110.0, 200.0, 0.0), (105.0, 210.0, 0.0),
+        ])
+        with tempfile.NamedTemporaryFile(suffix=".stl", delete=False) as f:
+            f.write(data)
+            path = f.name
+        _transform_stl_to_link_local(path, (100.0, 200.0, 0.0), (1.0, 0.0, 0.0, 0.0))
+        with open(path, "rb") as f:
+            f.read(80)  # header
+            f.read(4)   # count
+            f.read(12)  # normal
+            v1 = st.unpack("<3f", f.read(12))
+        self.assertAlmostEqual(v1[0], 0.0, places=2)
+        self.assertAlmostEqual(v1[1], 0.0, places=2)
+        self.assertAlmostEqual(v1[2], 0.0, places=2)
+
+    def test_binary_rotate(self) -> None:
+        import struct as st
+        data = self._make_binary_stl([
+            (50.0, 0.0, 0.0), (50.0, 0.0, 10.0), (60.0, 0.0, 0.0),
+        ])
+        with tempfile.NamedTemporaryFile(suffix=".stl", delete=False) as f:
+            f.write(data)
+            path = f.name
+        yaw = math.pi / 4
+        quat = _quat_from_yaw(yaw)
+        _transform_stl_to_link_local(path, (0.0, 0.0, 0.0), quat)
+        with open(path, "rb") as f:
+            f.read(80)  # header
+            f.read(4)   # count
+            f.read(12)  # normal
+            v1 = st.unpack("<3f", f.read(12))
+        expected_x = 50 * math.cos(-yaw)
+        expected_y = 50 * math.sin(-yaw)
+        self.assertAlmostEqual(v1[0], expected_x, places=2)
+        self.assertAlmostEqual(v1[1], expected_y, places=2)
+
+
+class TestMeshTransformErrorMode(unittest.TestCase):
+    """Test mesh_transform_error_mode parameter."""
+
+    def test_warn_mode_continues(self) -> None:
+        mech = Mechanism(
+            name="test",
+            parts=(
+                PartNode(id="base", is_ground=True),
+                PartNode(id="arm"),
+            ),
+            joints=(
+                JointEdge(
+                    id="j1", joint_type=JointType.REVOLUTE,
+                    parent_part="base", child_part="arm",
+                    origin=(100.0, 0.0, 0.0),
+                ),
+            ),
+            drives=(),
+        )
+        manifest = [
+            {"name": "base", "mesh_path": None,
+             "placement": {"position": [0, 0, 0], "rotation_quat": [1, 0, 0, 0]}},
+            {"name": "arm", "mesh_path": "/nonexistent/arm.stl",
+             "placement": {"position": [100, 0, 0], "rotation_quat": [1, 0, 0, 0]}},
+        ]
+        # warn mode (default) should not raise
+        model = build_sim_model(mech, manifest, mesh_transform_error_mode="warn")
+        self.assertEqual(len(model.links), 2)
+
+    def test_fail_mode_raises(self) -> None:
+        mech = Mechanism(
+            name="test",
+            parts=(
+                PartNode(id="base", is_ground=True),
+                PartNode(id="arm"),
+            ),
+            joints=(
+                JointEdge(
+                    id="j1", joint_type=JointType.REVOLUTE,
+                    parent_part="base", child_part="arm",
+                    origin=(100.0, 0.0, 0.0),
+                ),
+            ),
+            drives=(),
+        )
+        manifest = [
+            {"name": "base", "mesh_path": None,
+             "placement": {"position": [0, 0, 0], "rotation_quat": [1, 0, 0, 0]}},
+            {"name": "arm", "mesh_path": "/nonexistent/arm.stl",
+             "placement": {"position": [100, 0, 0], "rotation_quat": [1, 0, 0, 0]}},
+        ]
+        with self.assertRaises(FileNotFoundError):
+            build_sim_model(mech, manifest, mesh_transform_error_mode="fail")
+
+
+class TestFullQuaternionBFS(unittest.TestCase):
+    """Verify full-quaternion BFS produces correct results for various robot types."""
+
+    def test_hexapod_pure_yaw_no_regression(self) -> None:
+        """Hexapod with pure-yaw placements produces identical results to old yaw-only."""
+        dx, dy = 70.71, 70.71
+        expected_yaw = math.atan2(dy, dx)
+
+        mech = Mechanism(
+            name="hexapod",
+            parts=(
+                PartNode(id="chassis", is_ground=True),
+                PartNode(id="coxa"),
+                PartNode(id="femur"),
+            ),
+            joints=(
+                JointEdge(
+                    id="j_coxa", joint_type=JointType.REVOLUTE,
+                    parent_part="chassis", child_part="coxa",
+                    axis=(0.0, 0.0, 1.0),
+                ),
+                JointEdge(
+                    id="j_femur", joint_type=JointType.REVOLUTE,
+                    parent_part="coxa", child_part="femur",
+                    origin=(dx + 50 * dx / 100, dy + 50 * dy / 100, 0.0),
+                    axis=(0.0, 1.0, 0.0),
+                ),
+            ),
+            drives=(),
+        )
+        manifest = [
+            {"name": "chassis", "mesh_path": None,
+             "placement": {"position": [0, 0, 0], "rotation_quat": [1, 0, 0, 0]}},
+            {"name": "coxa", "mesh_path": None,
+             "placement": {"position": [dx, dy, 0], "rotation_quat": [1, 0, 0, 0]}},
+            {"name": "femur", "mesh_path": None,
+             "placement": {"position": [dx + 50 * dx / 100, dy + 50 * dy / 100, 0],
+                           "rotation_quat": [1, 0, 0, 0]}},
+        ]
+        model = build_sim_model(mech, manifest)
+
+        coxa_j = next(j for j in model.joints if j.name == "j_coxa")
+        femur_j = next(j for j in model.joints if j.name == "j_femur")
+
+        # Coxa: yaw = atan2(70.71, 70.71) ≈ 0.785
+        self.assertAlmostEqual(coxa_j.origin_rpy[2], expected_yaw, places=3)
+        self.assertAlmostEqual(coxa_j.origin_rpy[0], 0.0, places=6)
+        self.assertAlmostEqual(coxa_j.origin_rpy[1], 0.0, places=6)
+
+        # Femur: deeper joint, no added rotation → RPY = (0,0,0)
+        for v in femur_j.origin_rpy:
+            self.assertAlmostEqual(v, 0.0, places=6)
+
+    def test_relative_quat_for_composed_yaws(self) -> None:
+        """Two root-attached legs at different angles produce correct relative RPY."""
+        mech = Mechanism(
+            name="two_legs",
+            parts=(
+                PartNode(id="chassis", is_ground=True),
+                PartNode(id="leg_a"),
+                PartNode(id="leg_b"),
+            ),
+            joints=(
+                JointEdge(
+                    id="j_a", joint_type=JointType.REVOLUTE,
+                    parent_part="chassis", child_part="leg_a",
+                    origin=(100.0, 0.0, 0.0),
+                ),
+                JointEdge(
+                    id="j_b", joint_type=JointType.REVOLUTE,
+                    parent_part="chassis", child_part="leg_b",
+                    origin=(0.0, 100.0, 0.0),
+                ),
+            ),
+            drives=(),
+        )
+        model = build_sim_model(mech, [])
+
+        j_a = next(j for j in model.joints if j.name == "j_a")
+        j_b = next(j for j in model.joints if j.name == "j_b")
+
+        # leg_a at (100, 0) → yaw = 0
+        self.assertAlmostEqual(j_a.origin_rpy[2], 0.0, places=3)
+        # leg_b at (0, 100) → yaw = π/2
+        self.assertAlmostEqual(j_b.origin_rpy[2], math.pi / 2, places=3)
+
+
+class TestMechanismStructuralValidation(unittest.TestCase):
+    """Test validate_mechanism_structure from motion_validators."""
+
+    def test_valid_mechanism_no_errors(self) -> None:
+        from server.motion_validators import validate_mechanism_structure
+        mech = Mechanism(
+            name="simple",
+            parts=(
+                PartNode(id="frame", is_ground=True),
+                PartNode(id="wheel"),
+            ),
+            joints=(
+                JointEdge(
+                    id="j1", joint_type=JointType.REVOLUTE,
+                    parent_part="frame", child_part="wheel",
+                ),
+            ),
+            drives=(),
+        )
+        errors, warnings = validate_mechanism_structure(mech)
+        self.assertEqual(errors, [])
+
+    def test_duplicate_part_id(self) -> None:
+        from server.motion_validators import validate_mechanism_structure
+        mech = Mechanism(
+            name="dup",
+            parts=(
+                PartNode(id="a", is_ground=True),
+                PartNode(id="a"),
+            ),
+            joints=(),
+            drives=(),
+        )
+        errors, warnings = validate_mechanism_structure(mech)
+        self.assertTrue(any("Duplicate part ID" in e for e in errors))
+
+    def test_duplicate_joint_id(self) -> None:
+        from server.motion_validators import validate_mechanism_structure
+        mech = Mechanism(
+            name="dup",
+            parts=(
+                PartNode(id="a", is_ground=True),
+                PartNode(id="b"),
+                PartNode(id="c"),
+            ),
+            joints=(
+                JointEdge(id="j1", joint_type=JointType.REVOLUTE,
+                          parent_part="a", child_part="b"),
+                JointEdge(id="j1", joint_type=JointType.REVOLUTE,
+                          parent_part="a", child_part="c"),
+            ),
+            drives=(),
+        )
+        errors, _ = validate_mechanism_structure(mech)
+        self.assertTrue(any("Duplicate joint ID" in e for e in errors))
+
+    def test_dangling_parent_reference(self) -> None:
+        from server.motion_validators import validate_mechanism_structure
+        mech = Mechanism(
+            name="dangle",
+            parts=(
+                PartNode(id="a", is_ground=True),
+            ),
+            joints=(
+                JointEdge(id="j1", joint_type=JointType.REVOLUTE,
+                          parent_part="a", child_part="nonexistent"),
+            ),
+            drives=(),
+        )
+        errors, _ = validate_mechanism_structure(mech)
+        self.assertTrue(any("unknown child_part" in e for e in errors))
+
+    def test_zero_axis_vector(self) -> None:
+        from server.motion_validators import validate_mechanism_structure
+        mech = Mechanism(
+            name="zero_axis",
+            parts=(
+                PartNode(id="a", is_ground=True),
+                PartNode(id="b"),
+            ),
+            joints=(
+                JointEdge(id="j1", joint_type=JointType.REVOLUTE,
+                          parent_part="a", child_part="b",
+                          axis=(0.0, 0.0, 0.0)),
+            ),
+            drives=(),
+        )
+        errors, _ = validate_mechanism_structure(mech)
+        self.assertTrue(any("zero vector" in e for e in errors))
+
+    def test_non_unit_axis_warning(self) -> None:
+        from server.motion_validators import validate_mechanism_structure
+        mech = Mechanism(
+            name="non_unit",
+            parts=(
+                PartNode(id="a", is_ground=True),
+                PartNode(id="b"),
+            ),
+            joints=(
+                JointEdge(id="j1", joint_type=JointType.REVOLUTE,
+                          parent_part="a", child_part="b",
+                          axis=(0.0, 0.0, 2.0)),
+            ),
+            drives=(),
+        )
+        errors, warnings = validate_mechanism_structure(mech)
+        self.assertEqual(errors, [])
+        self.assertTrue(any("not unit-length" in w for w in warnings))
+
+    def test_limit_consistency(self) -> None:
+        from server.motion_validators import validate_mechanism_structure
+        mech = Mechanism(
+            name="bad_limits",
+            parts=(
+                PartNode(id="a", is_ground=True),
+                PartNode(id="b"),
+            ),
+            joints=(
+                JointEdge(id="j1", joint_type=JointType.REVOLUTE,
+                          parent_part="a", child_part="b",
+                          min_angle_deg=90, max_angle_deg=10),
+            ),
+            drives=(),
+        )
+        errors, _ = validate_mechanism_structure(mech)
+        self.assertTrue(any("min_angle_deg" in e for e in errors))
+
+    def test_cycle_detection(self) -> None:
+        from server.motion_validators import validate_mechanism_structure
+        mech = Mechanism(
+            name="cycle",
+            parts=(
+                PartNode(id="a", is_ground=True),
+                PartNode(id="b"),
+                PartNode(id="c"),
+            ),
+            joints=(
+                JointEdge(id="j1", joint_type=JointType.REVOLUTE,
+                          parent_part="a", child_part="b"),
+                JointEdge(id="j2", joint_type=JointType.REVOLUTE,
+                          parent_part="b", child_part="c"),
+                JointEdge(id="j3", joint_type=JointType.REVOLUTE,
+                          parent_part="c", child_part="a"),
+            ),
+            drives=(),
+        )
+        errors, _ = validate_mechanism_structure(mech)
+        self.assertTrue(any("Cycle" in e for e in errors))
+
+    def test_duplicate_joint_connection(self) -> None:
+        from server.motion_validators import validate_mechanism_structure
+        mech = Mechanism(
+            name="dup_conn",
+            parts=(
+                PartNode(id="a", is_ground=True),
+                PartNode(id="b"),
+            ),
+            joints=(
+                JointEdge(id="j1", joint_type=JointType.REVOLUTE,
+                          parent_part="a", child_part="b"),
+                JointEdge(id="j2", joint_type=JointType.FIXED,
+                          parent_part="a", child_part="b"),
+            ),
+            drives=(),
+        )
+        errors, _ = validate_mechanism_structure(mech)
+        self.assertTrue(any("Duplicate joint connection" in e for e in errors))
+
+    def test_negative_mass(self) -> None:
+        from server.motion_validators import validate_mechanism_structure
+        mech = Mechanism(
+            name="neg_mass",
+            parts=(
+                PartNode(id="a", is_ground=True),
+                PartNode(id="b", mass_kg=-1.0),
+            ),
+            joints=(
+                JointEdge(id="j1", joint_type=JointType.REVOLUTE,
+                          parent_part="a", child_part="b"),
+            ),
+            drives=(),
+        )
+        errors, _ = validate_mechanism_structure(mech)
+        self.assertTrue(any("negative" in e for e in errors))
+
+    def test_zero_mass_warning(self) -> None:
+        from server.motion_validators import validate_mechanism_structure
+        mech = Mechanism(
+            name="zero_mass",
+            parts=(
+                PartNode(id="a", is_ground=True),
+                PartNode(id="b", mass_kg=0.0),
+            ),
+            joints=(
+                JointEdge(id="j1", joint_type=JointType.REVOLUTE,
+                          parent_part="a", child_part="b"),
+            ),
+            drives=(),
+        )
+        errors, warnings = validate_mechanism_structure(mech)
+        self.assertEqual(errors, [])
+        self.assertTrue(any("mass_kg=0" in w for w in warnings))
+
+    def test_no_ground_is_warning(self) -> None:
+        from server.motion_validators import validate_mechanism_structure
+        mech = Mechanism(
+            name="no_ground",
+            parts=(
+                PartNode(id="a"),
+                PartNode(id="b"),
+            ),
+            joints=(
+                JointEdge(id="j1", joint_type=JointType.REVOLUTE,
+                          parent_part="a", child_part="b"),
+            ),
+            drives=(),
+        )
+        errors, warnings = validate_mechanism_structure(mech)
+        self.assertEqual(errors, [])
+        self.assertTrue(any("ground" in w.lower() for w in warnings))
+
+    def test_dangling_drive_reference(self) -> None:
+        from server.motion_validators import validate_mechanism_structure
+        mech = Mechanism(
+            name="bad_drive",
+            parts=(
+                PartNode(id="a", is_ground=True),
+            ),
+            joints=(),
+            drives=(
+                DriveCondition(joint_id="nonexistent", speed_rpm=100),
+            ),
+        )
+        errors, _ = validate_mechanism_structure(mech)
+        self.assertTrue(any("unknown joint_id" in e for e in errors))
+
+    def test_fixed_joint_non_default_axis_warning(self) -> None:
+        from server.motion_validators import validate_mechanism_structure
+        mech = Mechanism(
+            name="fixed_axis",
+            parts=(
+                PartNode(id="a", is_ground=True),
+                PartNode(id="b"),
+            ),
+            joints=(
+                JointEdge(id="j1", joint_type=JointType.FIXED,
+                          parent_part="a", child_part="b",
+                          axis=(1.0, 0.0, 0.0)),
+            ),
+            drives=(),
+        )
+        errors, warnings = validate_mechanism_structure(mech)
+        self.assertEqual(errors, [])
+        self.assertTrue(any("fixed" in w.lower() for w in warnings))
+
+    def test_prismatic_non_principal_axis_warning(self) -> None:
+        from server.motion_validators import validate_mechanism_structure
+        mech = Mechanism(
+            name="prism_diag",
+            parts=(
+                PartNode(id="a", is_ground=True),
+                PartNode(id="b"),
+            ),
+            joints=(
+                JointEdge(id="j1", joint_type=JointType.PRISMATIC,
+                          parent_part="a", child_part="b",
+                          axis=(0.707, 0.707, 0.0)),
+            ),
+            drives=(),
+        )
+        errors, warnings = validate_mechanism_structure(mech)
+        self.assertEqual(errors, [])
+        self.assertTrue(any("prismatic axis not aligned" in w for w in warnings))
+
+    def test_continuous_with_limits_warning(self) -> None:
+        from server.motion_validators import validate_mechanism_structure
+        mech = Mechanism(
+            name="cont_limits",
+            parts=(
+                PartNode(id="a", is_ground=True),
+                PartNode(id="b"),
+            ),
+            joints=(
+                JointEdge(id="j1", joint_type=JointType.CONTINUOUS,
+                          parent_part="a", child_part="b",
+                          min_angle_deg=-90, max_angle_deg=90),
+            ),
+            drives=(),
+        )
+        errors, warnings = validate_mechanism_structure(mech)
+        self.assertEqual(errors, [])
+        self.assertTrue(any("continuous joint has angle limits" in w for w in warnings))
+
+    def test_prismatic_principal_axis_ok(self) -> None:
+        from server.motion_validators import validate_mechanism_structure
+        mech = Mechanism(
+            name="prism_ok",
+            parts=(
+                PartNode(id="a", is_ground=True),
+                PartNode(id="b"),
+            ),
+            joints=(
+                JointEdge(id="j1", joint_type=JointType.PRISMATIC,
+                          parent_part="a", child_part="b",
+                          axis=(0.0, 0.0, 1.0)),
+            ),
+            drives=(),
+        )
+        errors, warnings = validate_mechanism_structure(mech)
+        self.assertEqual(errors, [])
+        self.assertFalse(any("prismatic axis not aligned" in w for w in warnings))
+
+    def test_negative_teeth_count(self) -> None:
+        from server.motion_validators import validate_mechanism_structure
+        mech = Mechanism(
+            name="neg_teeth",
+            parts=(
+                PartNode(id="a", is_ground=True),
+                PartNode(id="b"),
+            ),
+            joints=(
+                JointEdge(id="j1", joint_type=JointType.GEAR_MESH,
+                          parent_part="a", child_part="b",
+                          teeth_parent=-10, teeth_child=20),
+            ),
+            drives=(),
+        )
+        errors, _ = validate_mechanism_structure(mech)
+        self.assertTrue(any("teeth_parent" in e for e in errors))
+
+
+class TestTopologyOptimization(unittest.TestCase):
+    """Tests for co-located fixed + non-fixed sibling rechaining."""
+
+    def _make_quadcopter_mechanism(self) -> Mechanism:
+        """Quadcopter: frame + 4×(motor + prop).
+
+        Motors connect to frame via fixed joints, props via revolute.
+        Motor and prop at each arm share the same position.
+        """
+        parts = [
+            PartNode(id="frame", is_ground=True),
+        ]
+        joints: list[JointEdge] = []
+        positions = [
+            (100.0, 100.0, 0.0),
+            (100.0, -100.0, 0.0),
+            (-100.0, -100.0, 0.0),
+            (-100.0, 100.0, 0.0),
+        ]
+        for i, pos in enumerate(positions):
+            motor_id = f"motor_{i}"
+            prop_id = f"prop_{i}"
+            parts.append(PartNode(id=motor_id))
+            parts.append(PartNode(id=prop_id))
+            # Fixed joint: frame → motor
+            joints.append(JointEdge(
+                id=f"frame_to_motor_{i}",
+                joint_type=JointType.FIXED,
+                parent_part="frame",
+                child_part=motor_id,
+                origin=list(pos),
+            ))
+            # Revolute joint: frame → prop (BEFORE optimization)
+            joints.append(JointEdge(
+                id=f"frame_to_prop_{i}",
+                joint_type=JointType.REVOLUTE,
+                parent_part="frame",
+                child_part=prop_id,
+                origin=list(pos),
+                axis=(0.0, 0.0, 1.0),
+            ))
+
+        return Mechanism(
+            name="quadcopter",
+            parts=tuple(parts),
+            joints=tuple(joints),
+            drives=(),
+        )
+
+    def _make_manifest(self, mechanism: Mechanism) -> list[dict[str, Any]]:
+        """Minimal manifest with positions matching mechanism origins."""
+        manifest = []
+        # Map part positions from joint origins
+        pos_map: dict[str, tuple[float, float, float]] = {"frame": (0.0, 0.0, 0.0)}
+        for j in mechanism.joints:
+            pos_map[j.child_part] = (j.origin[0], j.origin[1], j.origin[2])
+
+        for part in mechanism.parts:
+            pos = pos_map.get(part.id, (0.0, 0.0, 0.0))
+            manifest.append({
+                "name": part.id,
+                "mesh_path": None,
+                "placement": {
+                    "position": list(pos),
+                    "rotation_quat": [1.0, 0.0, 0.0, 0.0],
+                },
+            })
+        return manifest
+
+    def test_props_reparented_to_motors(self) -> None:
+        """Propeller revolute joints should be rechained through motors."""
+        mech = self._make_quadcopter_mechanism()
+        manifest = self._make_manifest(mech)
+        model = build_sim_model(mech, manifest)
+
+        # Each prop's revolute joint should have motor as parent, not frame
+        for i in range(4):
+            prop_joint = next(
+                j for j in model.joints if j.name == f"frame_to_prop_{i}"
+            )
+            self.assertEqual(
+                prop_joint.parent, f"motor_{i}",
+                f"prop_{i} revolute joint should be parented to motor_{i}, "
+                f"not {prop_joint.parent}",
+            )
+
+    def test_fixed_joints_unchanged(self) -> None:
+        """Fixed joints (frame → motor) should keep their original parent."""
+        mech = self._make_quadcopter_mechanism()
+        manifest = self._make_manifest(mech)
+        model = build_sim_model(mech, manifest)
+
+        for i in range(4):
+            motor_joint = next(
+                j for j in model.joints if j.name == f"frame_to_motor_{i}"
+            )
+            self.assertEqual(motor_joint.parent, "frame")
+
+    def test_prop_joint_origin_near_zero(self) -> None:
+        """After rechaining, prop joint origin should be ~zero (co-located)."""
+        mech = self._make_quadcopter_mechanism()
+        manifest = self._make_manifest(mech)
+        model = build_sim_model(mech, manifest)
+
+        for i in range(4):
+            prop_joint = next(
+                j for j in model.joints if j.name == f"frame_to_prop_{i}"
+            )
+            # Motor and prop are at the same position, so the origin
+            # from motor to prop should be approximately zero
+            for dim in range(3):
+                self.assertAlmostEqual(
+                    prop_joint.origin_xyz[dim], 0.0, places=4,
+                    msg=f"prop_{i} joint origin dim {dim} should be ~0",
+                )
+
+    def test_no_rechaining_when_not_colocated(self) -> None:
+        """Non-co-located siblings should NOT be rechained."""
+        parts = [
+            PartNode(id="frame", is_ground=True),
+            PartNode(id="motor"),
+            PartNode(id="sensor"),
+        ]
+        joints = [
+            JointEdge(
+                id="frame_to_motor",
+                joint_type=JointType.FIXED,
+                parent_part="frame",
+                child_part="motor",
+                origin=[100.0, 0.0, 0.0],
+            ),
+            JointEdge(
+                id="frame_to_sensor",
+                joint_type=JointType.REVOLUTE,
+                parent_part="frame",
+                child_part="sensor",
+                origin=[-100.0, 0.0, 0.0],  # Far away from motor
+                axis=(0.0, 0.0, 1.0),
+            ),
+        ]
+        mech = Mechanism(
+            name="spread",
+            parts=tuple(parts),
+            joints=tuple(joints),
+            drives=(),
+        )
+        manifest = [
+            {"name": "frame", "mesh_path": None,
+             "placement": {"position": [0, 0, 0], "rotation_quat": [1, 0, 0, 0]}},
+            {"name": "motor", "mesh_path": None,
+             "placement": {"position": [100, 0, 0], "rotation_quat": [1, 0, 0, 0]}},
+            {"name": "sensor", "mesh_path": None,
+             "placement": {"position": [-100, 0, 0], "rotation_quat": [1, 0, 0, 0]}},
+        ]
+        model = build_sim_model(mech, manifest)
+
+        sensor_joint = next(j for j in model.joints if j.name == "frame_to_sensor")
+        self.assertEqual(
+            sensor_joint.parent, "frame",
+            "Sensor should remain parented to frame (not co-located with motor)",
+        )
+
+    def test_no_rechaining_when_both_non_fixed(self) -> None:
+        """Two non-fixed co-located siblings should NOT be rechained."""
+        parts = [
+            PartNode(id="frame", is_ground=True),
+            PartNode(id="joint_a"),
+            PartNode(id="joint_b"),
+        ]
+        joints = [
+            JointEdge(
+                id="frame_to_a",
+                joint_type=JointType.REVOLUTE,
+                parent_part="frame",
+                child_part="joint_a",
+                origin=[100.0, 0.0, 0.0],
+                axis=(0.0, 0.0, 1.0),
+            ),
+            JointEdge(
+                id="frame_to_b",
+                joint_type=JointType.REVOLUTE,
+                parent_part="frame",
+                child_part="joint_b",
+                origin=[100.0, 0.0, 0.0],
+                axis=(0.0, 1.0, 0.0),
+            ),
+        ]
+        mech = Mechanism(
+            name="twin_revolute",
+            parts=tuple(parts),
+            joints=tuple(joints),
+            drives=(),
+        )
+        manifest = [
+            {"name": "frame", "mesh_path": None,
+             "placement": {"position": [0, 0, 0], "rotation_quat": [1, 0, 0, 0]}},
+            {"name": "joint_a", "mesh_path": None,
+             "placement": {"position": [100, 0, 0], "rotation_quat": [1, 0, 0, 0]}},
+            {"name": "joint_b", "mesh_path": None,
+             "placement": {"position": [100, 0, 0], "rotation_quat": [1, 0, 0, 0]}},
+        ]
+        model = build_sim_model(mech, manifest)
+
+        joint_b = next(j for j in model.joints if j.name == "frame_to_b")
+        self.assertEqual(
+            joint_b.parent, "frame",
+            "Two revolute co-located siblings should not be rechained",
+        )
 
 
 if __name__ == "__main__":
