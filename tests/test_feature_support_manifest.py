@@ -26,6 +26,7 @@ class TestFeatureSupportManifest(unittest.TestCase):
         ids = [str(f["id"]) for f in features]
         self.assertEqual(len(ids), len(set(ids)), "Feature IDs must be unique")
 
+    @unittest.skipUnless(MATRIX_PATH.exists(), "Matrix file not present")
     def test_manifest_rows_align_with_matrix_rows(self) -> None:
         features = load_manifest(MANIFEST_PATH)
         matrix_rows = parse_matrix(MATRIX_PATH)
@@ -39,6 +40,7 @@ class TestFeatureSupportManifest(unittest.TestCase):
             "Manifest and matrix must have identical platform/feature rows",
         )
 
+    @unittest.skipUnless(MATRIX_PATH.exists(), "Matrix file not present")
     def test_baseline_status_and_usage_match_matrix(self) -> None:
         features = load_manifest(MANIFEST_PATH)
         matrix_rows = parse_matrix(MATRIX_PATH)

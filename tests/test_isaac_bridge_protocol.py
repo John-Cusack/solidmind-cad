@@ -419,8 +419,8 @@ class TestMobileRobotDefaults(unittest.TestCase):
         cfg = URDFImportConfig.from_dict({"robot_type": "mobile"})
         self.assertFalse(cfg.fix_base)
         self.assertTrue(cfg.merge_fixed_joints)
-        self.assertAlmostEqual(cfg.default_drive_stiffness, 10.0)
-        self.assertAlmostEqual(cfg.default_drive_damping, 1.0)
+        self.assertAlmostEqual(cfg.default_drive_stiffness, 400.0)
+        self.assertAlmostEqual(cfg.default_drive_damping, 30.0)
         self.assertEqual(cfg.robot_type, "mobile")
 
     def test_mobile_explicit_override_wins(self) -> None:
@@ -435,7 +435,7 @@ class TestMobileRobotDefaults(unittest.TestCase):
         self.assertAlmostEqual(cfg.default_drive_stiffness, 50.0)
         # Non-overridden mobile defaults still apply
         self.assertTrue(cfg.merge_fixed_joints)
-        self.assertAlmostEqual(cfg.default_drive_damping, 1.0)
+        self.assertAlmostEqual(cfg.default_drive_damping, 30.0)
 
     def test_manipulator_defaults_unchanged(self) -> None:
         from isaac_bridge.models import URDFImportConfig

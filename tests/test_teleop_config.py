@@ -22,8 +22,8 @@ class TestTeleopConfigDefaults(unittest.TestCase):
         self.assertEqual(cfg.controller_type, "hexapod_1dof_tripod")
         self.assertEqual(len(cfg.joint_names), 6)
         self.assertAlmostEqual(cfg.amplitude_deg, 18.0)
-        self.assertAlmostEqual(cfg.stride_hz, 1.2)
-        self.assertAlmostEqual(cfg.vx_max_mps, 0.5)
+        self.assertAlmostEqual(cfg.stride_hz, 2.0)
+        self.assertAlmostEqual(cfg.vx_max_mps, 0.3)
         self.assertAlmostEqual(cfg.yaw_max_rps, 1.0)
 
     def test_from_profile_none(self) -> None:

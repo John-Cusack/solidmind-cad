@@ -123,22 +123,38 @@ class TestTripodPhaseOffset(unittest.TestCase):
         ctrl = HexapodTripodController()
         cfg = _default_config()
         state = _default_state(vx=cfg.vx_max_mps)
-        # Run until filter settles and we're at a clear point
+        # Run until slew filter settles (200 ticks at 10ms = 2s)
         phase = 0.0
         for _ in range(200):
             targets, phase = ctrl.compute_targets(state, 0.01, cfg, phase)
 
         neutral = cfg.neutral_deg * _DEG2RAD
-        # Average deviation from neutral for each tripod group
-        a_devs = [targets[n] - neutral for n in cfg.tripod_a]
-        b_devs = [targets[n] - neutral for n in cfg.tripod_b]
-        avg_a = sum(a_devs) / len(a_devs)
-        avg_b = sum(b_devs) / len(b_devs)
+        # The controller negates oscillation for right-side legs, so
+        # averaging raw deviations within a tripod group washes out.
+        # Instead, compare same-side legs across groups: a left leg in
+        # tripod_a should be opposite to a left leg in tripod_b.
+        left_set = set(cfg.left_legs)
+        left_a = [n for n in cfg.tripod_a if n in left_set]
+        left_b = [n for n in cfg.tripod_b if n in left_set]
 
-        # If both averages are nonzero, they should have opposite signs
-        if abs(avg_a) > 0.001 and abs(avg_b) > 0.001:
-            self.assertLess(avg_a * avg_b, 0,
-                            "Tripod groups should oscillate in opposite phase")
+        # Sample across 100 ticks to avoid zero-crossing flukes.
+        opposite_count = 0
+        sample_count = 0
+        for _ in range(100):
+            targets, phase = ctrl.compute_targets(state, 0.01, cfg, phase)
+            if left_a and left_b:
+                dev_a = targets[left_a[0]] - neutral
+                dev_b = targets[left_b[0]] - neutral
+                if abs(dev_a) > 0.001 and abs(dev_b) > 0.001:
+                    sample_count += 1
+                    if dev_a * dev_b < 0:
+                        opposite_count += 1
+
+        self.assertGreater(sample_count, 0, "Should have non-trivial samples")
+        self.assertGreater(opposite_count / sample_count, 0.8,
+                           "Same-side legs in opposite tripod groups should "
+                           "oscillate in opposite phase "
+                           f"(opposite in {opposite_count}/{sample_count} samples)")
 
 
 class TestYawDifferential(unittest.TestCase):
