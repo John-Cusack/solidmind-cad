@@ -1044,6 +1044,24 @@ def cad_create_primitive(
 
 
 @_wrap
+def cad_measure_between(
+    ref_a: str | list[float],
+    ref_b: str | list[float],
+    doc: str | None = None,
+) -> dict[str, Any]:
+    """Measure the minimum distance between two references.
+
+    Each ref can be a body name string, "Body.Face3" format, or [x,y,z] point.
+    """
+    client = get_client()
+    kwargs: dict[str, Any] = {"ref_a": ref_a, "ref_b": ref_b}
+    if doc is not None:
+        kwargs["doc"] = doc
+    result = client.send_command("measure_between", **kwargs)
+    return {"ok": True, **result}
+
+
+@_wrap
 def cad_create_primitives(
     items: list[dict[str, Any]],
     verify: bool = True,

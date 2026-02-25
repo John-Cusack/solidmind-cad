@@ -59,11 +59,11 @@ Claude Code CLI ──stdio──▶ MCP Bridge Server ──TCP socket──▶
 **`server/`:**
 - `main.py` — MCP JSON-RPC stdio server, registers cad.*, mfg.*, me.*, design.* tools
 - `freecad_client.py` — TCP socket client connecting to FreeCAD addon, retry/reconnect logic
-- `tools_cad.py` — CAD MCP tool implementations (cad.new_document, cad.sketch, cad.pad, cad.pocket, cad.hole, cad.fillet, cad.chamfer, cad.mirror, cad.linear_pattern, cad.thickness, cad.draft, cad.get_selection, cad.get_model_tree, cad.undo, cad.export)
+- `tools_cad.py` — CAD MCP tool implementations (cad.new_document, cad.sketch, cad.pad, cad.pocket, cad.hole, cad.fillet, cad.chamfer, cad.mirror, cad.linear_pattern, cad.thickness, cad.draft, cad.get_selection, cad.get_model_tree, cad.measure_between, cad.undo, cad.export)
 - `tools_mfg.py` — Manufacturing readiness tools (mfg.set_property, mfg.readiness_check, mfg.export_rfq)
 - `tools_me.py` — ME design-loop tools (deterministic validation, traceability, risk gates)
 - `tools_study.py` — Parametric study tools (create, run, status, results, cancel, list, get_variant)
-- `tools_motion.py` — Motion validation tools (Tier 1: define_mechanism, validate, propagate_motion, check_gear_train; Tier 1.5: check_joint_connectivity; Tier 2: create_assembly, drive_joint, check_interference; Tier 3: simulate, teleop_start/command/state/stop)
+- `tools_motion.py` — Motion validation tools (Tier 1: define_mechanism, validate, propagate_motion, check_gear_train; Tier 1.5: check_joint_connectivity; Tier 2: create_assembly, drive_joint, check_interference; Tier 3: simulate, verify_sim_package, teleop_start/command/state/stop)
 - `motion_models.py` — Mechanism data models (PartNode, JointEdge, DriveCondition, Mechanism)
 - `motion_store.py` — Session-scoped mechanism storage (UUID handles)
 - `motion_validators.py` — Analytical validators (gear ratio, speed/torque propagation, DOF, Grashof, power conservation)
@@ -77,9 +77,11 @@ Claude Code CLI ──stdio──▶ MCP Bridge Server ──TCP socket──▶
 - `knowledge_store.py` — In-process knowledge store (LanceDB + Docling, module-level singleton)
 - `prompts.py` — System prompts including `cad_copilot_system` for live co-pilot mode
 - `models.py` — Finding, Severity, ToolError, ConversationSignals
-- `design_models.py` — DesignBrief dataclass (frozen, __slots__)
-- `design_store.py` — Session-scoped design brief storage (module-level dict, token_hex handles)
-- `tools_design.py` — Design brief MCP tools (design.save_brief, design.get_brief, design.update_brief)
+- `design_models.py` — DesignBrief, PartEntry, InterfaceEntry dataclasses (frozen, __slots__)
+- `design_store.py` — Session-scoped design brief storage (module-level dict, token_hex handles, part/interface mutations)
+- `tools_design.py` — Design brief MCP tools (design.save_brief, design.get_brief, design.update_brief, design.add_part, design.update_part, design.get_part, design.add_interface, design.list_briefs, design.verify_build)
+- `fastener_data.py` — ISO metric fastener dimension tables (M2-M24, 5 head types, clearance holes, counterbores, tap drills)
+- `tools_fastener.py` — Fastener lookup MCP tool (cad.fastener_spec)
 
 **`isaac_bridge/`:**
 - `bridge_server.py` — TCP server + main-thread pump loop (Kit event loop, teleop ticking)
@@ -97,13 +99,14 @@ Claude Code CLI ──stdio──▶ MCP Bridge Server ──TCP socket──▶
 
 | Group | Tools | Purpose |
 |-------|-------|---------|
-| `cad.*` | new_document, new_body, sketch, pad, pocket, hole, fillet, chamfer, mirror, linear_pattern, thickness, draft, create_primitive, create_primitives, get_selection, get_model_tree, undo, export | Drive FreeCAD PartDesign |
+| `cad.*` | new_document, new_body, sketch, pad, pocket, hole, fillet, chamfer, mirror, linear_pattern, thickness, draft, create_primitive, create_primitives, get_selection, get_model_tree, undo, export, measure_between, fastener_spec | Drive FreeCAD PartDesign + measurement + fastener dimension lookup |
 | `mfg.*` | set_property, readiness_check, export_rfq | Manufacturing readiness (on-demand) |
 | `me.*` | validate_constraints, build_traceability, apply_risk_gates, design_loop, list_validators | Deterministic ME preflight (validators + risk gates) |
 | `knowledge.*` | extract, ingest, ingest_status, search, status | Knowledge base — hybrid search, PDF extraction, document ingestion (LanceDB + Docling) |
 | `study.*` | create, run, status, results, cancel, list, get_variant | Parametric design optimization (sweep variables, run solvers, rank results) |
-| `motion.*` | define_mechanism, list_mechanisms, validate, propagate_motion, check_gear_train, check_joint_connectivity, create_assembly, drive_joint, check_interference, simulate, teleop_start, teleop_command, teleop_state, teleop_stop | Motion validation pipeline — analytical (Tier 1), check_joint_connectivity (Tier 1.5, pre-export), kinematic via FreeCAD Assembly (Tier 2), dynamic via Isaac/Chrono (Tier 3) |
-| `design.*` | save_brief, get_brief, update_brief | Design brief pipeline — LLM extracts parameters, user approves, then build |
+| `motion.*` | define_mechanism, list_mechanisms, validate, propagate_motion, check_gear_train, check_joint_connectivity, create_assembly, drive_joint, check_interference, simulate, verify_sim_package, teleop_start, teleop_command, teleop_state, teleop_stop | Motion validation pipeline — analytical (Tier 1), check_joint_connectivity (Tier 1.5, pre-export), kinematic via FreeCAD Assembly (Tier 2), dynamic via Isaac/Chrono (Tier 3), sim package verification |
+| `design.*` | save_brief, get_brief, update_brief, add_part, update_part, get_part, add_interface, list_briefs, verify_build | Design brief pipeline — phased assembly design with parts decomposition, interface tracking, and build verification |
+| `geometry.*` | spur_gear, tooth_slot, gear_params, planetary_layout, involute_points, propeller_blade | Parametric geometry generators — involute gears, planetary layouts, propeller blades (Rust-backed) |
 
 ### Sketch element types
 
@@ -111,50 +114,164 @@ Claude Code CLI ──stdio──▶ MCP Bridge Server ──TCP socket──▶
 
 ### Interaction flow
 
-1. User describes part → LLM decides complexity level.
-2. **Simple parts** (single-body, dimensions given): skip to step 5.
-3. **Complex assemblies** (robots, mechanisms, multi-body): use `design.*` pipeline first.
-   - `design.list_templates` → `design.load_template` or freeform research
-   - If user provides a spec: `design.import_spec` to parse it, then review/fill gaps
-   - `design.save_brief` → present to user → `design.update_brief(status="approved")`
-4. If ME preflight needed, LLM constructs constraint dict, calls `me.design_loop(constraints)`.
-5. LLM calls `cad.new_document` → `cad.new_body` → `cad.sketch` → `cad.pad`
-6. User clicks face/edge in FreeCAD → LLM calls `cad.get_selection` → sees geometry context
-7. User says "add holes here" → LLM calls `cad.hole` with face reference
-8. User says "check manufacturing readiness" → LLM calls `mfg.readiness_check`
-9. User provides a PDF → LLM calls `knowledge.extract(file_path)` to read it, then `knowledge.ingest(path)` to index for future sessions
-10. LLM researches a topic → `knowledge.search(query)` first, then WebSearch/WebFetch for gaps
-11. User asks to optimize a design → LLM uses `study.*` tools to sweep design space, then builds the winner
+1. User describes what they want → LLM decides complexity level.
+2. **Simple parts** (single-body, dimensions given or obvious): skip to step 4.
+3. **Assemblies and complex parts** (multi-body, needs research, purchased components involved): use the phased design pipeline (see below).
+4. LLM calls `cad.new_document` → `cad.new_body` → `cad.sketch` → `cad.pad` / `cad.pocket` → finishing features.
+5. Each step returns verification images — LLM examines them to confirm geometry.
+6. User clicks face/edge in FreeCAD → LLM calls `cad.get_selection` → uses references in follow-up commands.
+7. User provides a PDF → `knowledge.extract(file_path)` to read it, then `knowledge.ingest(path)` to index.
+8. User asks to optimize → LLM uses `study.*` tools to sweep design space, then builds the winner.
 
-### Design brief pipeline
+### Design pipeline (phased approach)
 
-The `design.*` tools provide a "research → propose → confirm → build" workflow. The **design brief** is the core artifact — a structured parameter set the LLM produces after research, which the user approves before building.
+The `design.*` tools support a **phased design process** that mirrors how an experienced CAD designer works: understand intent, size the system, define the layout, then build parts. Each phase has a user gate — the LLM presents its work and the user confirms before moving on.
 
-**When to use `design.*`:**
-- Complex multi-body assemblies (robots, mechanisms, multi-part designs)
-- User provides a detailed spec or reference data to build from
-- The design requires research before building (servo sizing, material selection, proportions)
+**When to use the phased pipeline:**
+- Multi-body assemblies (robots, drones, mechanisms, vehicles)
+- Designs involving purchased components (motors, fasteners, electronics)
+- The design requires research or engineering calculations before geometry
+- Multiple parts that must interface with each other
 
-**Skip `design.*` when:**
+**Skip the pipeline when:**
 - Simple single-body parts where the user gives all dimensions
 - Quick modifications to existing models
 - User explicitly says "just build it"
 
-**Workflow — same path regardless of input format:**
+#### Phase 1: Intent
+
+Clarify what's being built and why. The LLM asks targeted questions:
+- **What** is it? (5" racing quad, 6-DOF robot arm, two-stage gearbox)
+- **What for?** (racing, photography, precision assembly)
+- **Hard constraints?** (must use specific motors, max weight, must fit in a box)
+
+No tools needed — just conversation. Output: a clear intent summary.
+
 ```
-1. LLM researches (knowledge.search, web, user-provided specs, own knowledge)
-2. LLM extracts the CAD-driving parameters into a dict
-3. design.save_brief(name="...", parameters={...}, research_notes="...")
-4. Present brief to user as formatted table → user approves/modifies
-5. design.update_brief(status="approved")
-6. Build with cad.*, referencing design.get_brief during construction
+design.save_brief(name="Racing Quadcopter", parameters={
+    "intent": "5-inch racing quadcopter, lightweight, acro-capable",
+    "constraints": {"max_auw_g": 600, "prop_size_in": 5}
+}, status="intent")
 ```
 
-The LLM is the parser — it reads whatever the user provides (JSON specs, PDFs, natural language, reference links) and extracts the relevant parameters. No schema or template needed.
+Gate: LLM presents its understanding → user confirms → move to sizing.
 
-**Brief status lifecycle:** `draft` → `proposed` → `approved` → `building` → `done`
+#### Phase 2: Sizing
 
-**Parameters dict is completely open:** Any key-value pairs. The LLM decides what parameters matter for the design.
+Engineering calculations and component selection. The pattern is always **requirements → candidate components → check if the numbers close → iterate**.
+
+Example (drone):
+```
+target AUW ~500g → need ~2kg thrust (4:1) → 4 motors @ 500g each
+→ search for "2306 motor 5 inch prop thrust data"
+→ select Emax 2306: 680g thrust on 5x4.3, M3 16mm bolt pattern, 33g
+→ battery: 4S 1300mAh, 180g
+→ revised AUW: 520g, thrust margin 5.2:1 ✓
+```
+
+**Ask the user about purchased parts.** Don't guess — ask: "Do you have specific motors, props, or electronics in mind?" Then research the specs:
+- `knowledge.search("Emax 2306 motor specs")` or web search for datasheets
+- Extract interface dimensions: bolt patterns, shaft sizes, mounting holes
+- These become hard constraints that flow into every connected custom part
+
+Register each component:
+```
+design.add_part(brief_id, name="motor", kind="purchased", quantity=4,
+    specs={"model": "Emax 2306", "mass_g": 33, "mount_pattern": "M3_16mm_square",
+           "shaft_mm": 5, "max_thrust_g": 680})
+design.add_part(brief_id, name="frame_plate", kind="custom", quantity=1,
+    specs={"material": "CF 2mm", "role": "central structure"})
+design.add_part(brief_id, name="arm", kind="custom", quantity=4,
+    specs={"material": "CF tube 10mm OD", "role": "motor support"})
+design.add_part(brief_id, name="motor_mount", kind="custom", quantity=4,
+    specs={"role": "connects motor to arm tip"})
+```
+
+Gate: LLM presents component table + weight budget → user confirms → move to layout.
+
+#### Phase 3: Layout
+
+Define spatial relationships — where everything goes and how parts connect. Dimensions are **derived from sizing**, not guessed:
+- Prop clearance (15mm min) + prop diameter (5") → minimum arm length
+- Motor mount bolt pattern → from motor datasheet, not LLM arithmetic
+- FC stack mount → standard 30.5mm or 20mm pattern
+
+Define interfaces between parts:
+```
+design.add_interface(brief_id,
+    part_a="motor_mount", port_a="top",
+    part_b="motor", port_b="base",
+    spec={"pattern": "M3_16mm_square", "bolt_size": "M3"})
+design.add_interface(brief_id,
+    part_a="motor_mount", port_a="bottom",
+    part_b="arm", port_b="tip",
+    spec={"type": "clamp", "tube_od_mm": 10})
+design.add_interface(brief_id,
+    part_a="arm", port_a="root",
+    part_b="frame_plate", port_b="arm_slot",
+    spec={"pattern": "M3_bolt_pair", "spacing_mm": 15})
+```
+
+Add layout positions to the brief parameters:
+```
+design.update_brief(brief_id, parameters={
+    "layout": {
+        "arm_length_mm": 110,
+        "arm_angles_deg": [45, 135, 225, 315],
+        "motor_positions": [[77.8, 77.8, 8], [77.8, -77.8, 8], ...],
+        "center_body": {"width": 36, "length": 45}
+    }
+})
+```
+
+Gate: LLM presents the layout (arm lengths, positions, interface summary) → user approves → move to building.
+
+#### Phase 4: Build (micro pipeline per part)
+
+Now build each custom part. For each part:
+
+1. `design.get_part(brief_id, "motor_mount")` — pull its interfaces and specs
+2. `cad.new_body(label="motor_mount")` — create the body
+3. Build geometry where **hole patterns, bore sizes, and mating surfaces come from the interface spec** — not from the LLM redoing arithmetic
+4. Verify with screenshots — confirm dimensions match interface spec
+5. Move to next part
+
+Build order follows dependencies: frame first (everything mounts to it), then arms, then motor mounts, then accessories.
+
+```
+design.update_brief(brief_id, status="building")
+
+# For each custom part:
+part = design.get_part(brief_id, "motor_mount")
+# part.specs has dimensions, part.interfaces has connection constraints
+# → build geometry from those values
+design.update_part(brief_id, "motor_mount", body_label="motor_mount", status="built")
+```
+
+After all parts: `design.update_brief(brief_id, status="done")`
+
+#### Phase lifecycle
+
+```
+intent → sizing → layout → approved → building → verify → done
+         ↑ user    ↑ user    ↑ user              ↑ auto
+         gate      gate      gate                 design.verify_build
+```
+
+Each gate is a natural conversation point where the LLM presents its work and the user confirms, adjusts, or redirects. The verify gate is automatic — `design.verify_build` checks that all planned parts exist before marking done.
+
+#### Adapts to any domain
+
+The phases are universal — only the sizing calculations change:
+
+| Domain | Sizing focus |
+|--------|-------------|
+| Drone | weight budget, thrust-to-weight, prop clearance |
+| Gearbox | gear ratios, shaft torque, bearing loads |
+| Robot arm | joint torques, servo selection, link lengths |
+| Enclosure | component clearances, thermal, IP rating |
+
+The LLM applies its engineering knowledge at each phase. The tools provide structure and memory — the LLM provides the engineering judgment.
 
 ### Parametric study policy
 

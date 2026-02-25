@@ -1,6 +1,7 @@
 mod gears;
 mod involute;
 mod planetary;
+mod propeller;
 mod types;
 
 use pyo3::prelude::*;
@@ -353,6 +354,102 @@ fn planetary_layout(
     Ok(d.unbind().into())
 }
 
+/// Generate a propeller blade definition with airfoil sections, blade table,
+/// and Selig-format .dat string.
+#[pyfunction]
+#[pyo3(signature = (
+    diameter,
+    pitch,
+    hub_diameter,
+    num_blades = 2,
+    airfoil = "NACA4412",
+    chord_root = None,
+    chord_tip = None,
+    num_sections = 6,
+    num_points = 40
+))]
+fn propeller_blade_py(
+    py: Python<'_>,
+    diameter: f64,
+    pitch: f64,
+    hub_diameter: f64,
+    num_blades: u32,
+    airfoil: &str,
+    chord_root: Option<f64>,
+    chord_tip: Option<f64>,
+    num_sections: usize,
+    num_points: usize,
+) -> PyResult<PyObject> {
+    let result = propeller::propeller_blade(
+        diameter,
+        pitch,
+        hub_diameter,
+        num_blades,
+        airfoil,
+        chord_root,
+        chord_tip,
+        num_sections,
+        num_points,
+    )
+    .map_err(|e| pyo3::exceptions::PyValueError::new_err(e))?;
+
+    let d = PyDict::new_bound(py);
+
+    // sections: list of dicts with elements + metadata
+    let sections_list = PyList::empty_bound(py);
+    for sec in &result.sections {
+        let sec_dict = PyDict::new_bound(py);
+        let elements = PyList::empty_bound(py);
+        for elem in &sec.sketch.elements {
+            elements.append(sketch_element_to_py(py, elem)?)?;
+        }
+        sec_dict.set_item("elements", elements)?;
+        sec_dict.set_item("station_radius_mm", sec.station_radius_mm)?;
+        sec_dict.set_item("chord_mm", sec.chord_mm)?;
+        sec_dict.set_item("twist_deg", sec.twist_deg)?;
+        sec_dict.set_item("plane_offset_mm", sec.plane_offset_mm)?;
+        sections_list.append(sec_dict)?;
+    }
+    d.set_item("sections", sections_list)?;
+
+    // hub
+    let hub_dict = PyDict::new_bound(py);
+    let hub_elements = PyList::empty_bound(py);
+    for elem in &result.hub.elements {
+        hub_elements.append(sketch_element_to_py(py, elem)?)?;
+    }
+    hub_dict.set_item("elements", hub_elements)?;
+    hub_dict.set_item("diameter_mm", result.hub_diameter_mm)?;
+    hub_dict.set_item("height_mm", result.hub_height_mm)?;
+    d.set_item("hub", hub_dict)?;
+
+    // blade_table
+    let bt = PyDict::new_bound(py);
+    bt.set_item("r_frac", result.blade_table.r_frac.clone())?;
+    bt.set_item("chord_mm", result.blade_table.chord_mm.clone())?;
+    bt.set_item("twist_deg", result.blade_table.twist_deg.clone())?;
+    bt.set_item("Re_at_5000rpm", result.blade_table.re_at_5000rpm.clone())?;
+    d.set_item("blade_table", bt)?;
+
+    // airfoil_dat
+    d.set_item("airfoil_dat", &result.airfoil_dat)?;
+
+    // params
+    let params = PyDict::new_bound(py);
+    params.set_item("diameter_mm", result.params.diameter_mm)?;
+    params.set_item("pitch_mm", result.params.pitch_mm)?;
+    params.set_item("hub_diameter_mm", result.params.hub_diameter_mm)?;
+    params.set_item("num_blades", result.params.num_blades)?;
+    params.set_item("airfoil", &result.params.airfoil)?;
+    params.set_item("chord_root_mm", result.params.chord_root_mm)?;
+    params.set_item("chord_tip_mm", result.params.chord_tip_mm)?;
+    params.set_item("num_sections", result.params.num_sections)?;
+    params.set_item("num_points", result.params.num_points)?;
+    d.set_item("params", params)?;
+
+    Ok(d.unbind().into())
+}
+
 // ---------------------------------------------------------------------------
 // Module registration
 // ---------------------------------------------------------------------------
@@ -364,5 +461,6 @@ fn solidmind_geometry(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(gear_params, m)?)?;
     m.add_function(wrap_pyfunction!(involute_points, m)?)?;
     m.add_function(wrap_pyfunction!(planetary_layout, m)?)?;
+    m.add_function(wrap_pyfunction!(propeller_blade_py, m)?)?;
     Ok(())
 }

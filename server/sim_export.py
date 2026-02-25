@@ -857,29 +857,10 @@ def build_sim_model(
                 origin_xyz=(0.0, 0.0, ground_clearance_m),
             ))
 
-            # Correct Z doubling: the base_link joint raises the root by
-            # ground_clearance_m.  Child joint origins were computed as
-            # (child_world - parent_world) / 1000, so they already encode
-            # the delta from the root's *manifest* position.  If the root
-            # manifest Z is 0 the child Z includes the full height and we
-            # must subtract ground_clearance_m.  If the root is already at
-            # z=ground_clearance (manifest placed there), the child Z is
-            # ~0 and no correction is needed.  The general formula is:
-            #   correction = ground_clearance_m - root_manifest_z_m
-            root_name = root_link.name
-            root_world_z = part_world_pos.get(
-                next(p.id for p in mechanism.parts if p.is_ground),
-                (0.0, 0.0, 0.0),
-            )[2]
-            z_correction = ground_clearance_m - root_world_z / 1000.0
-            if abs(z_correction) > 1e-6:
-                for i, jt in enumerate(joints):
-                    if jt.parent == root_name and jt.name != base_joint_name:
-                        joints[i] = replace(jt, origin_xyz=(
-                            jt.origin_xyz[0],
-                            jt.origin_xyz[1],
-                            jt.origin_xyz[2] - z_correction,
-                        ))
+            # No Z correction needed: child joint origins are already
+            # computed as (child_world - parent_world) / 1000 — pure
+            # relative deltas.  The base_to_frame joint handles the
+            # ground clearance lift; child joints are unaffected.
 
     return SimModel(
         name=mechanism.name,

@@ -4163,6 +4163,64 @@ def check_joint_connectivity(
     }
 
 
+def _resolve_measure_ref(doc: Any, ref: Any) -> Any:
+    """Resolve a measure_between reference to a Part shape or vertex.
+
+    ``ref`` can be:
+    - A list/tuple [x, y, z] → ``Part.Vertex(x, y, z)``
+    - A string ``"BodyName.Face3"`` → sub-shape of that body's tip
+    - A plain body name string → tip shape of that body
+    """
+    if isinstance(ref, (list, tuple)):
+        if len(ref) != 3:
+            raise ValueError(f"Point reference must have 3 coordinates, got {len(ref)}")
+        return Part.Vertex(float(ref[0]), float(ref[1]), float(ref[2]))
+
+    if not isinstance(ref, str):
+        raise ValueError(f"Reference must be a string or [x,y,z] list, got {type(ref).__name__}")
+
+    if "." in ref:
+        body_name, sub_name = ref.split(".", 1)
+        body = doc.getObject(body_name)
+        if body is None:
+            raise ValueError(f"Body '{body_name}' not found")
+        tip = _get_tip(body)
+        shape = tip.Shape
+        try:
+            return shape.getElement(sub_name)
+        except Exception:
+            raise ValueError(f"Sub-shape '{sub_name}' not found on body '{body_name}'")
+
+    # Plain body name
+    body = doc.getObject(ref)
+    if body is None:
+        raise ValueError(f"Object '{ref}' not found")
+    tip = _get_tip(body)
+    return tip.Shape
+
+
+def measure_between(
+    ref_a: Any,
+    ref_b: Any,
+    doc: str | None = None,
+) -> dict[str, Any]:
+    """Measure the minimum distance between two references."""
+    d = _get_doc(doc)
+    shape_a = _resolve_measure_ref(d, ref_a)
+    shape_b = _resolve_measure_ref(d, ref_b)
+
+    dist, solutions, _info_a, _info_b = shape_a.distToShape(shape_b)
+    # solutions is a list of (point_a, point_b) tuples
+    pt_a = list(solutions[0][0]) if solutions else []
+    pt_b = list(solutions[0][1]) if solutions else []
+
+    return {
+        "distance_mm": round(dist, 4),
+        "point_a": [round(v, 4) for v in pt_a],
+        "point_b": [round(v, 4) for v in pt_b],
+    }
+
+
 COMMAND_HANDLERS: dict[str, Any] = {
     "new_document": new_document,
     "new_body": new_body,
@@ -4225,4 +4283,5 @@ COMMAND_HANDLERS: dict[str, Any] = {
     "create_primitive": create_primitive,
     "create_primitives": create_primitives,
     "check_joint_connectivity": check_joint_connectivity,
+    "measure_between": measure_between,
 }

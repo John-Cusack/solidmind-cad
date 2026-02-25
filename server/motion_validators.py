@@ -730,3 +730,212 @@ def run_validators(
         results.append(fn(mech))
     results.sort(key=lambda r: r.priority)
     return results
+
+
+# ---------------------------------------------------------------------------
+# Structural mechanism validation (pre-storage checks)
+# ---------------------------------------------------------------------------
+
+def validate_mechanism_structure(
+    mech: Mechanism,
+    *,
+    mode: str = "warn",
+) -> tuple[list[str], list[str]]:
+    """Validate mechanism structural integrity before storage.
+
+    Returns (errors, warnings).  Errors should block storage in strict mode.
+
+    Checks performed:
+    1.  Unique part IDs
+    2.  Unique joint IDs
+    3.  Finite numeric values on joints (axis, origin, limits, ratios)
+    4.  Axis near-unit (within 5% tolerance; warning, auto-normalizable)
+    5.  Dangling part references in joints
+    6.  Dangling joint references in drives
+    7.  No ground part defined
+    8.  Limit consistency (min < max)
+    9.  Cycle detection in kinematic tree
+    10. Fixed joint with non-default axis (informational warning)
+    11. Duplicate joint connections (same parent→child pair)
+    12. Negative mass on non-ground parts
+    """
+    errors: list[str] = []
+    warnings: list[str] = []
+
+    # 1. Unique part IDs
+    part_ids: set[str] = set()
+    for p in mech.parts:
+        if p.id in part_ids:
+            errors.append(f"Duplicate part ID: '{p.id}'")
+        part_ids.add(p.id)
+
+    # 2. Unique joint IDs
+    joint_ids: set[str] = set()
+    for j in mech.joints:
+        if j.id in joint_ids:
+            errors.append(f"Duplicate joint ID: '{j.id}'")
+        joint_ids.add(j.id)
+
+    # 3. Finite numeric values + 4. Axis near-unit
+    for j in mech.joints:
+        # Check axis components are finite
+        for i, val in enumerate(j.axis):
+            if not math.isfinite(val):
+                errors.append(
+                    f"Joint '{j.id}': axis[{i}]={val} is not finite"
+                )
+        # Check origin components are finite
+        for i, val in enumerate(j.origin):
+            if not math.isfinite(val):
+                errors.append(
+                    f"Joint '{j.id}': origin[{i}]={val} is not finite"
+                )
+        # Axis should be unit-length (5% tolerance)
+        axis_mag_sq = sum(a * a for a in j.axis)
+        if axis_mag_sq > 0:
+            axis_mag = math.sqrt(axis_mag_sq)
+            if not math.isclose(axis_mag, 1.0, rel_tol=0.05):
+                msg = (
+                    f"Joint '{j.id}': axis magnitude {axis_mag:.4f} "
+                    f"is not unit-length (will be normalized in URDF)"
+                )
+                if mode == "strict":
+                    errors.append(msg)
+                else:
+                    warnings.append(msg)
+        else:
+            errors.append(f"Joint '{j.id}': axis is zero vector")
+
+        # Gear ratio / teeth finite
+        if j.gear_ratio is not None and not math.isfinite(j.gear_ratio):
+            errors.append(
+                f"Joint '{j.id}': gear_ratio={j.gear_ratio} is not finite"
+            )
+        if j.teeth_parent is not None and j.teeth_parent <= 0:
+            errors.append(
+                f"Joint '{j.id}': teeth_parent={j.teeth_parent} must be positive"
+            )
+        if j.teeth_child is not None and j.teeth_child <= 0:
+            errors.append(
+                f"Joint '{j.id}': teeth_child={j.teeth_child} must be positive"
+            )
+
+    # 5. Dangling part references in joints
+    for j in mech.joints:
+        if j.parent_part not in part_ids:
+            errors.append(
+                f"Joint '{j.id}' references unknown parent_part '{j.parent_part}'"
+            )
+        if j.child_part not in part_ids:
+            errors.append(
+                f"Joint '{j.id}' references unknown child_part '{j.child_part}'"
+            )
+
+    # 6. Dangling joint references in drives
+    for d in mech.drives:
+        if mech.get_joint(d.joint_id) is None:
+            errors.append(
+                f"Drive references unknown joint_id '{d.joint_id}'"
+            )
+
+    # 7. No ground part — warning in "warn" mode, error in "strict" mode.
+    if not mech.ground_parts():
+        msg = "No ground part defined (is_ground=true)"
+        if mode == "strict":
+            errors.append(msg)
+        else:
+            warnings.append(msg)
+
+    # 8. Limit consistency (min < max)
+    for j in mech.joints:
+        if j.min_angle_deg is not None and j.max_angle_deg is not None:
+            if j.min_angle_deg >= j.max_angle_deg:
+                errors.append(
+                    f"Joint '{j.id}': min_angle_deg ({j.min_angle_deg}) "
+                    f">= max_angle_deg ({j.max_angle_deg})"
+                )
+        if j.min_travel_mm is not None and j.max_travel_mm is not None:
+            if j.min_travel_mm >= j.max_travel_mm:
+                errors.append(
+                    f"Joint '{j.id}': min_travel_mm ({j.min_travel_mm}) "
+                    f">= max_travel_mm ({j.max_travel_mm})"
+                )
+
+    # 9. Cycle detection in kinematic tree
+    # Build parent→children adjacency and check for cycles via DFS
+    children_of: dict[str, list[str]] = defaultdict(list)
+    for j in mech.joints:
+        if j.parent_part in part_ids and j.child_part in part_ids:
+            children_of[j.parent_part].append(j.child_part)
+    visited: set[str] = set()
+    in_stack: set[str] = set()
+
+    def _has_cycle(node: str) -> bool:
+        if node in in_stack:
+            return True
+        if node in visited:
+            return False
+        visited.add(node)
+        in_stack.add(node)
+        for child in children_of.get(node, []):
+            if _has_cycle(child):
+                return True
+        in_stack.discard(node)
+        return False
+
+    for pid in part_ids:
+        if _has_cycle(pid):
+            errors.append("Cycle detected in kinematic tree")
+            break
+
+    # 10. Fixed joint with non-default axis (informational)
+    for j in mech.joints:
+        if j.joint_type == JointType.FIXED:
+            if j.axis != (0.0, 0.0, 1.0):
+                warnings.append(
+                    f"Joint '{j.id}' is fixed but has non-default "
+                    f"axis {j.axis} (axis is ignored for fixed joints)"
+                )
+
+    # 10a. Prismatic joint axis not aligned with principal direction
+    for j in mech.joints:
+        if j.joint_type == JointType.PRISMATIC:
+            axis_mag_sq = sum(a * a for a in j.axis)
+            if axis_mag_sq > 0:  # zero-axis already caught above
+                if max(abs(j.axis[i]) for i in range(3)) < 0.9:
+                    warnings.append(
+                        f"Joint '{j.id}': prismatic axis not aligned "
+                        f"with any principal direction"
+                    )
+
+    # 10b. Continuous joint with angle limits
+    for j in mech.joints:
+        if j.joint_type == JointType.CONTINUOUS:
+            if j.min_angle_deg is not None or j.max_angle_deg is not None:
+                warnings.append(
+                    f"Joint '{j.id}': continuous joint has angle limits "
+                    f"set (use revolute instead)"
+                )
+
+    # 11. Duplicate joint connections (including reverse direction: a→b and b→a)
+    seen_connections: set[frozenset[str]] = set()
+    for j in mech.joints:
+        key = frozenset((j.parent_part, j.child_part))
+        if key in seen_connections:
+            errors.append(
+                f"Duplicate joint connection: '{j.parent_part}' → "
+                f"'{j.child_part}' (joint '{j.id}')"
+            )
+        seen_connections.add(key)
+
+    # 12. Negative mass
+    for p in mech.parts:
+        if p.mass_kg is not None and p.mass_kg < 0:
+            errors.append(f"Part '{p.id}': mass_kg={p.mass_kg} is negative")
+        if p.mass_kg is not None and p.mass_kg == 0 and not p.is_ground:
+            warnings.append(
+                f"Part '{p.id}': mass_kg=0 on non-ground part "
+                f"(will cause simulation instability)"
+            )
+
+    return errors, warnings

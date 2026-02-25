@@ -63,7 +63,6 @@ def switch_document_log(doc_name: str) -> Path:
 from server.jsonutil import dumps as json_dumps
 from server.jsonutil import loads as json_loads
 from server.prompts import get_prompt, list_prompts
-from server.resources import list_resources, read_resource
 from server.tools import (
     spec_apply_answer,
     spec_assess_design_path,
@@ -102,6 +101,7 @@ from server.tools_cad import (
     cad_linear_pattern,
     cad_list_selections,
     cad_loft,
+    cad_measure_between,
     cad_mirror,
     cad_new_body,
     cad_new_document,
@@ -135,6 +135,7 @@ from server.tools_geometry import (
     geometry_gear_params,
     geometry_involute_points,
     geometry_planetary_layout,
+    geometry_propeller_blade,
     geometry_spur_gear,
     geometry_tooth_slot,
 )
@@ -170,6 +171,7 @@ from server.tools_motion import (
     motion_teleop_state,
     motion_teleop_stop,
     motion_validate,
+    motion_verify_sim_package,
 )
 from server.tools_rl import (
     rl_configure_environment,
@@ -180,10 +182,17 @@ from server.tools_rl import (
     rl_stop_training,
 )
 from server.tools_design import (
+    design_add_interface,
+    design_add_part,
     design_get_brief,
+    design_get_part,
+    design_list_briefs,
     design_save_brief,
     design_update_brief,
+    design_update_part,
+    design_verify_build,
 )
+from server.tools_fastener import cad_fastener_spec
 
 
 def _json_dumps(obj: Any) -> bytes:
@@ -1770,6 +1779,32 @@ def _geometry_tool_list() -> list[dict[str, Any]]:
                 "additionalProperties": False,
             },
         },
+        {
+            "name": "geometry.propeller_blade",
+            "description": (
+                "Generate a propeller blade definition with NACA 4-digit airfoil sections. "
+                "Computes chord taper, twist from pitch, and airfoil profiles at radial stations. "
+                "Returns geometry_ref handles for each section + hub, a blade_table for BEMT analysis, "
+                "and a Selig-format airfoil_dat for XFOIL. "
+                "Use sections with cad.sketch(geometry_ref=...) → cad.loft → cad.polar_pattern."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "diameter": {"type": "number", "description": "Total propeller diameter in mm"},
+                    "pitch": {"type": "number", "description": "Propeller pitch in mm (distance per revolution)"},
+                    "hub_diameter": {"type": "number", "description": "Hub/root diameter in mm"},
+                    "num_blades": {"type": "integer", "default": 2, "description": "Number of blades"},
+                    "airfoil": {"type": "string", "default": "NACA4412", "description": "NACA 4-digit airfoil code (e.g. 'NACA4412', 'NACA0012')"},
+                    "chord_root": {"type": "number", "description": "Root chord in mm (auto-sized ~12% diameter if omitted)"},
+                    "chord_tip": {"type": "number", "description": "Tip chord in mm (auto-sized ~40% of root if omitted)"},
+                    "num_sections": {"type": "integer", "default": 6, "description": "Number of radial cross-sections for loft"},
+                    "num_points": {"type": "integer", "default": 40, "description": "Points per airfoil surface"},
+                },
+                "required": ["diameter", "pitch", "hub_diameter"],
+                "additionalProperties": False,
+            },
+        },
     ]
 
 
@@ -2112,7 +2147,7 @@ def _motion_tool_list() -> list[dict[str, Any]]:
                     },
                     "backend": {
                         "type": "string",
-                        "enum": ["isaac", "chrono"],
+                        "enum": ["isaac", "chrono", "gazebo"],
                         "default": "isaac",
                         "description": "Simulation backend. Defaults to isaac.",
                     },
@@ -2120,7 +2155,7 @@ def _motion_tool_list() -> list[dict[str, Any]]:
                         "type": "string",
                         "enum": ["batch", "teleop"],
                         "default": "batch",
-                        "description": "Isaac supports batch and teleop. Chrono supports batch only.",
+                        "description": "Isaac and Gazebo support batch and teleop. Chrono supports batch only.",
                     },
                     "profile": {
                         "type": "object",
@@ -2167,9 +2202,9 @@ def _motion_tool_list() -> list[dict[str, Any]]:
                     "mechanism_id": {"type": "string", "description": "Mechanism handle"},
                     "backend": {
                         "type": "string",
-                        "enum": ["isaac"],
+                        "enum": ["isaac", "gazebo"],
                         "default": "isaac",
-                        "description": "Teleop backend (currently isaac only).",
+                        "description": "Teleop backend (isaac or gazebo).",
                     },
                     "profile": {
                         "type": "object",
@@ -2228,6 +2263,8 @@ def _motion_tool_list() -> list[dict[str, Any]]:
                     "vx_mps": {"type": "number", "default": 0.0, "description": "Forward velocity command (m/s)"},
                     "yaw_rate_rps": {"type": "number", "default": 0.0, "description": "Yaw-rate command (rad/s)"},
                     "body_height_m": {"type": "number", "default": 0.0, "description": "Body height command (m)"},
+                    "vy_mps": {"type": "number", "default": 0.0, "description": "Lateral velocity command (m/s, Gazebo only)"},
+                    "vz_mps": {"type": "number", "default": 0.0, "description": "Vertical velocity command (m/s, Gazebo only)"},
                 },
                 "required": ["session_id"],
                 "additionalProperties": False,
@@ -2306,6 +2343,45 @@ def _motion_tool_list() -> list[dict[str, Any]]:
                         ),
                     },
                 },
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "motion.verify_sim_package",
+            "description": (
+                "Verify that a mechanism exported correctly through the FreeCAD → URDF → Isaac pipeline. "
+                "Runs up to 3 stages: (1) mechanism parts vs FreeCAD model tree, "
+                "(2) mechanism vs URDF file (mesh existence, joint types/counts, mass/inertia, limits), "
+                "(3) URDF vs Isaac USD scene (joint counts, DOF counts, drive configuration). "
+                "Returns findings classified as block/warn/note. Use after export_sim_package "
+                "and before running simulation to catch silent data loss."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "mechanism_id": {
+                        "type": "string",
+                        "description": "Mechanism ID from motion.define_mechanism",
+                    },
+                    "urdf_path": {
+                        "type": "string",
+                        "description": "Path to the generated URDF file (from cad.export_sim_package)",
+                    },
+                    "doc": {
+                        "type": "string",
+                        "description": "FreeCAD document name (optional, for stage 1 model tree check)",
+                    },
+                    "check_isaac": {
+                        "type": "boolean",
+                        "default": False,
+                        "description": "If true, also query Isaac Sim scene and compare against URDF (stage 3)",
+                    },
+                    "prim_path": {
+                        "type": "string",
+                        "description": "USD prim path to diagnose in Isaac (default '/'). Only used if check_isaac=true.",
+                    },
+                },
+                "required": ["mechanism_id"],
                 "additionalProperties": False,
             },
         },
@@ -2408,13 +2484,13 @@ def _rl_tool_list() -> list[dict[str, Any]]:
 
 def _design_tool_list() -> list[dict[str, Any]]:
     """Design brief pipeline tools."""
+    _STATUS_ENUM = ["intent", "sizing", "layout", "approved", "building", "done"]
     return [
         {
             "name": "design.save_brief",
             "description": (
-                "Save a design brief with any parameters the LLM extracted from "
-                "user specs, research, or conversation. The user reviews and "
-                "approves the brief before building begins."
+                "Create a new design brief. Start of the phased design pipeline. "
+                "Parameters dict is open — store whatever the design needs."
             ),
             "inputSchema": {
                 "type": "object",
@@ -2423,9 +2499,9 @@ def _design_tool_list() -> list[dict[str, Any]]:
                     "parameters": {"type": "object", "description": "Design parameters (any key-value pairs)"},
                     "status": {
                         "type": "string",
-                        "default": "draft",
-                        "enum": ["draft", "proposed", "approved", "building", "done"],
-                        "description": "Brief status",
+                        "default": "intent",
+                        "enum": _STATUS_ENUM,
+                        "description": "Initial phase (typically 'intent')",
                     },
                     "research_notes": {
                         "type": "string",
@@ -2439,7 +2515,7 @@ def _design_tool_list() -> list[dict[str, Any]]:
         },
         {
             "name": "design.get_brief",
-            "description": "Retrieve a saved brief by ID.",
+            "description": "Retrieve a saved brief by ID, including all parts and interfaces.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -2451,21 +2527,218 @@ def _design_tool_list() -> list[dict[str, Any]]:
         },
         {
             "name": "design.update_brief",
-            "description": "Patch parameters, status, or notes on a brief.",
+            "description": (
+                "Patch top-level brief fields: parameters, status, notes, name. "
+                "Use status to advance through phases: intent → sizing → layout → approved → building → done."
+            ),
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "brief_id": {"type": "string", "description": "Brief ID to update"},
-                    "parameters": {"type": "object", "description": "New parameters (replaces all)"},
+                    "parameters": {"type": "object", "description": "New parameters (replaces all top-level params)"},
                     "status": {
                         "type": "string",
-                        "enum": ["draft", "proposed", "approved", "building", "done"],
-                        "description": "New status",
+                        "enum": _STATUS_ENUM,
+                        "description": "New phase/status",
                     },
                     "research_notes": {"type": "string", "description": "Updated research notes"},
                     "name": {"type": "string", "description": "Updated name"},
                 },
                 "required": ["brief_id"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "design.add_part",
+            "description": (
+                "Add a part to the brief. kind='custom' for parts to design in CAD, "
+                "'purchased' for off-the-shelf components whose specs constrain "
+                "the custom parts. specs is an open dict for any dimensions, "
+                "materials, model numbers, mounting patterns, etc."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "brief_id": {"type": "string", "description": "Brief ID"},
+                    "name": {"type": "string", "description": "Part name (unique within brief)"},
+                    "kind": {
+                        "type": "string",
+                        "enum": ["custom", "purchased"],
+                        "default": "custom",
+                        "description": "custom = design in CAD, purchased = off-the-shelf",
+                    },
+                    "quantity": {"type": "integer", "default": 1, "description": "How many of this part"},
+                    "specs": {"type": "object", "description": "Part specs (any key-value pairs)"},
+                },
+                "required": ["brief_id", "name"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "design.update_part",
+            "description": (
+                "Update fields on a named part. Use to mark as built, "
+                "attach body_label after cad.new_body, or refine specs."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "brief_id": {"type": "string", "description": "Brief ID"},
+                    "name": {"type": "string", "description": "Part name to update"},
+                    "specs": {"type": "object", "description": "Updated specs (replaces all)"},
+                    "status": {
+                        "type": "string",
+                        "enum": ["pending", "building", "built"],
+                        "description": "Part build status",
+                    },
+                    "body_label": {"type": "string", "description": "FreeCAD body label after creation"},
+                    "kind": {
+                        "type": "string",
+                        "enum": ["custom", "purchased"],
+                        "description": "Updated kind",
+                    },
+                    "quantity": {"type": "integer", "description": "Updated quantity"},
+                },
+                "required": ["brief_id", "name"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "design.get_part",
+            "description": (
+                "Get a single part and all its interfaces. Returns just what's "
+                "needed to build that part — specs plus connection constraints "
+                "from neighboring parts."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "brief_id": {"type": "string", "description": "Brief ID"},
+                    "name": {"type": "string", "description": "Part name to retrieve"},
+                },
+                "required": ["brief_id", "name"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "design.add_interface",
+            "description": (
+                "Define a connection between two parts. port_a/port_b name the "
+                "connection points (e.g. 'top', 'base', 'arm_slot'). spec "
+                "describes the physical connection (bolt pattern, press fit, etc.)."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "brief_id": {"type": "string", "description": "Brief ID"},
+                    "part_a": {"type": "string", "description": "First part name"},
+                    "port_a": {"type": "string", "description": "Connection point on part_a"},
+                    "part_b": {"type": "string", "description": "Second part name"},
+                    "port_b": {"type": "string", "description": "Connection point on part_b"},
+                    "spec": {"type": "object", "description": "Connection spec (pattern, bolt size, fit type, etc.)"},
+                },
+                "required": ["brief_id", "part_a", "port_a", "part_b", "port_b"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "design.list_briefs",
+            "description": "List all stored design briefs with summary info (id, name, status, counts).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "design.verify_build",
+            "description": (
+                "Verify that all planned parts from a design brief exist in FreeCAD. "
+                "Compares brief parts list against model tree. Reports MISSING, PARTIAL, "
+                "STALE, or OK for each custom part. Checks bounding box dimensions "
+                "against part specs. Use before marking a brief as 'done'."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "brief_id": {"type": "string", "description": "Brief ID to verify"},
+                    "doc": {"type": "string", "description": "Document name (optional)"},
+                },
+                "required": ["brief_id"],
+                "additionalProperties": False,
+            },
+        },
+    ]
+
+
+def _cad_measure_tool_list() -> list[dict[str, Any]]:
+    """Measurement tools."""
+    return [
+        {
+            "name": "cad.measure_between",
+            "description": (
+                "Measure the minimum distance between two references. "
+                "Each ref can be a body name (uses tip shape), "
+                "'Body.Face3' format (uses that sub-shape), "
+                "or [x,y,z] point coordinates."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "ref_a": {
+                        "description": "First reference: body name, 'Body.Face3', or [x,y,z]",
+                        "oneOf": [
+                            {"type": "string"},
+                            {"type": "array", "items": {"type": "number"}, "minItems": 3, "maxItems": 3},
+                        ],
+                    },
+                    "ref_b": {
+                        "description": "Second reference: body name, 'Body.Face3', or [x,y,z]",
+                        "oneOf": [
+                            {"type": "string"},
+                            {"type": "array", "items": {"type": "number"}, "minItems": 3, "maxItems": 3},
+                        ],
+                    },
+                    "doc": {"type": "string", "description": "Document name (optional)"},
+                },
+                "required": ["ref_a", "ref_b"],
+                "additionalProperties": False,
+            },
+        },
+    ]
+
+
+def _fastener_tool_list() -> list[dict[str, Any]]:
+    """Fastener dimension lookup tools."""
+    return [
+        {
+            "name": "cad.fastener_spec",
+            "description": (
+                "Look up all dimensions for a metric fastener: head size, "
+                "through-hole diameters (close/normal/loose fit), counterbore "
+                "or countersink dimensions, tap drill size, socket/wrench size, "
+                "washer dimensions, and thread pitch. Avoids recalling ISO "
+                "tables from memory."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "size": {
+                        "type": "string",
+                        "description": "Metric size, e.g. 'M4', 'M8'",
+                    },
+                    "length": {
+                        "type": "number",
+                        "description": "Bolt shaft length in mm",
+                    },
+                    "head_type": {
+                        "type": "string",
+                        "enum": ["socket_head", "hex", "button_head", "countersunk", "set_screw"],
+                        "default": "socket_head",
+                        "description": "Head type",
+                    },
+                },
+                "required": ["size", "length"],
                 "additionalProperties": False,
             },
         },
@@ -2475,6 +2748,7 @@ def _design_tool_list() -> list[dict[str, Any]]:
 def _tool_list() -> list[dict[str, Any]]:
     return (
         _cad_tool_list()
+        + _cad_measure_tool_list()
         + _mfg_tool_list()
         + _spec_tool_list()
         + _me_tool_list()
@@ -2484,6 +2758,7 @@ def _tool_list() -> list[dict[str, Any]]:
         + _motion_tool_list()
         + _rl_tool_list()
         + _design_tool_list()
+        + _fastener_tool_list()
     )
 
 
@@ -2533,6 +2808,7 @@ _CAD_DISPATCH: dict[str, Any] = {
     "cad.freecad_info": cad_freecad_info,
     "cad.create_primitive": cad_create_primitive,
     "cad.create_primitives": cad_create_primitives,
+    "cad.measure_between": cad_measure_between,
 }
 
 _MFG_DISPATCH: dict[str, Any] = {
@@ -2576,6 +2852,7 @@ _GEOMETRY_DISPATCH: dict[str, Any] = {
     "geometry.gear_params": geometry_gear_params,
     "geometry.planetary_layout": geometry_planetary_layout,
     "geometry.involute_points": geometry_involute_points,
+    "geometry.propeller_blade": geometry_propeller_blade,
 }
 
 _STUDY_DISPATCH: dict[str, Any] = {
@@ -2604,6 +2881,7 @@ _MOTION_DISPATCH: dict[str, Any] = {
     "motion.teleop_state": motion_teleop_state,
     "motion.teleop_stop": motion_teleop_stop,
     "motion.isaac_screenshot": motion_isaac_screenshot,
+    "motion.verify_sim_package": motion_verify_sim_package,
 }
 
 _RL_DISPATCH: dict[str, Any] = {
@@ -2619,6 +2897,16 @@ _DESIGN_DISPATCH: dict[str, Any] = {
     "design.save_brief": design_save_brief,
     "design.get_brief": design_get_brief,
     "design.update_brief": design_update_brief,
+    "design.add_part": design_add_part,
+    "design.update_part": design_update_part,
+    "design.get_part": design_get_part,
+    "design.add_interface": design_add_interface,
+    "design.list_briefs": design_list_briefs,
+    "design.verify_build": design_verify_build,
+}
+
+_FASTENER_DISPATCH: dict[str, Any] = {
+    "cad.fastener_spec": cad_fastener_spec,
 }
 
 
@@ -2634,6 +2922,7 @@ def _call_tool(name: str, arguments: dict[str, Any]) -> Any:
         or _MOTION_DISPATCH.get(name)
         or _RL_DISPATCH.get(name)
         or _DESIGN_DISPATCH.get(name)
+        or _FASTENER_DISPATCH.get(name)
     )
     if handler is None:
         raise KeyError(f"Unknown tool: {name}")
@@ -2704,19 +2993,6 @@ def serve() -> int:
                 content.append({"type": "text", "text": json.dumps(out)})
 
                 _send(_rpc_result(rpc_id, {"isError": False, "content": content}))
-                continue
-
-            if method == "resources/list":
-                _send(_rpc_result(rpc_id, {"resources": list_resources()}))
-                continue
-
-            if method == "resources/read":
-                uri = params.get("uri")
-                if not isinstance(uri, str):
-                    _send(_rpc_error(rpc_id, -32602, "Invalid params"))
-                    continue
-                content = read_resource(uri)
-                _send(_rpc_result(rpc_id, {"contents": [content]}))
                 continue
 
             if method == "prompts/list":

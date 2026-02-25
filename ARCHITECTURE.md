@@ -116,10 +116,6 @@ Default endpoint: `127.0.0.1:9877`.
 - `cad_copilot_system`
 - `knowledge_research_workflow`
 
-### 4.3 Resources (7)
-
-All 7 resources are ME pattern YAML files under `resource://me_patterns/...` exposed by `server/resources.py`.
-
 ## 5. FreeCAD Addon Command Surface
 
 Command registry in `freecad_addon/commands.py` includes:

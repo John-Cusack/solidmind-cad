@@ -400,6 +400,12 @@ class _IsaacWorldEngine:
         # walk all joints and force-set the values post-import.
         self._configure_drives_post_import(prim_path, config)
 
+        # Ensure collision geometry exists on every rigid-body link.
+        # The in-memory-stage URDF importer sometimes creates empty
+        # collision Xforms without actual mesh prims inside, causing
+        # the robot to fall through the ground plane.
+        self._ensure_collision_geometry(prim_path, urdf_path=urdf_path)
+
         # Auto-frame the viewport camera on the imported model
         self._frame_camera_on_prim(prim_path)
 
@@ -515,6 +521,147 @@ class _IsaacWorldEngine:
             )
         except Exception as exc:
             logger.warning("[engine] _configure_drives_post_import failed (non-fatal): %s", exc)
+
+    def _ensure_collision_geometry(
+        self, prim_path: str, urdf_path: str | None = None,
+    ) -> None:
+        """Add collision boxes to links whose collision Xforms are empty.
+
+        The in-memory-stage URDF importer sometimes creates placeholder
+        ``/link/collisions`` Xforms without any child mesh.  This walks
+        every link with ``PhysicsRigidBodyAPI``, checks if its collision
+        container is empty, and if so creates a ``UsdGeom.Cube`` with
+        ``PhysicsCollisionAPI`` sized to match the link's geometry.
+
+        When *urdf_path* is given, the URDF is parsed to extract collision
+        mesh filenames and their ``<origin>`` transforms.  The actual STL
+        files are read (binary or ASCII) to compute real bounding-box
+        extents, so colliders are correctly sized even when the in-memory
+        stage can't resolve mesh references.
+        """
+        try:
+            import omni.usd  # type: ignore[import-not-found]
+            from pxr import Usd, UsdGeom, UsdPhysics, Gf  # type: ignore[import-not-found]
+
+            stage = omni.usd.get_context().get_stage()
+            root_prim = stage.GetPrimAtPath(prim_path)
+            if not root_prim.IsValid():
+                return
+
+            # Build link→(center, half_extents) from URDF collision meshes.
+            urdf_col: dict[str, tuple[tuple[float, float, float], tuple[float, float, float]]] = {}
+            if urdf_path:
+                urdf_col = _parse_urdf_collision_extents(urdf_path)
+                if urdf_col:
+                    logger.info(
+                        "[engine] _ensure_collision_geometry: parsed %d link collision extents from URDF",
+                        len(urdf_col),
+                    )
+
+            added = 0
+            for prim in Usd.PrimRange(root_prim):
+                if not prim.HasAPI(UsdPhysics.RigidBodyAPI):
+                    continue
+
+                # Check if there are any child prims with collision API already
+                has_collider = False
+                for child in Usd.PrimRange(prim):
+                    if child == prim:
+                        continue
+                    if child.HasAPI(UsdPhysics.CollisionAPI):
+                        has_collider = True
+                        break
+                if has_collider:
+                    continue
+
+                link_name = prim.GetName()
+
+                # Skip chassis and base_link — their large collision boxes
+                # catch the ground on any slight tip and cascade into a fall.
+                # Only leg links need ground-contact colliders.
+                _skip = ("base_link", "chassis")
+                if link_name in _skip:
+                    continue
+
+                # Try URDF-derived extents first, fall back to bbox, then default
+                if link_name in urdf_col:
+                    center_t, half_ext = urdf_col[link_name]
+                    center = Gf.Vec3d(*center_t)
+                    sx = max(half_ext[0], 0.005)
+                    sy = max(half_ext[1], 0.005)
+                    sz = max(half_ext[2], 0.005)
+                else:
+                    bbox_cache = UsdGeom.BBoxCache(0.0, [UsdGeom.Tokens.default_])
+                    bbox = bbox_cache.ComputeLocalBound(prim)
+                    box_range = bbox.ComputeAlignedRange()
+                    if not box_range.IsEmpty():
+                        mn = Gf.Vec3d(box_range.GetMin())
+                        mx = Gf.Vec3d(box_range.GetMax())
+                        center = (mn + mx) / 2.0
+                        sx = max(float(mx[0] - mn[0]) / 2.0, 0.005)
+                        sy = max(float(mx[1] - mn[1]) / 2.0, 0.005)
+                        sz = max(float(mx[2] - mn[2]) / 2.0, 0.005)
+                    else:
+                        center = Gf.Vec3d(0, 0, 0)
+                        sx = sy = sz = 0.01
+
+                # Enforce minimum thickness so thin links don't tunnel
+                _MIN_HALF = 0.008  # 8mm minimum half-extent
+                sx = max(sx, _MIN_HALF)
+                sy = max(sy, _MIN_HALF)
+                sz = max(sz, _MIN_HALF)
+
+                # Create collision cube.
+                # UsdGeom.Cube size=2 gives half-extent=1, so scale directly
+                # maps to half-extent in meters.
+                col_path = prim.GetPath().AppendChild("auto_collision")
+                cube = UsdGeom.Cube.Define(stage, col_path)
+                cube.CreateSizeAttr(2.0)
+                cube.AddScaleOp().Set(Gf.Vec3f(sx, sy, sz))
+                cube.AddTranslateOp().Set(Gf.Vec3d(center[0], center[1], center[2]))
+                cube.CreatePurposeAttr("guide")
+
+                col_prim = stage.GetPrimAtPath(col_path)
+                UsdPhysics.CollisionAPI.Apply(col_prim)
+                try:
+                    from pxr import PhysxSchema  # type: ignore[import-not-found]
+                    PhysxSchema.PhysxCollisionAPI.Apply(col_prim)
+                except Exception:
+                    pass
+
+                # For tibia links, add a foot sphere at the tip for ground contact.
+                if "tibia" in link_name.lower():
+                    foot_path = prim.GetPath().AppendChild("foot_collision")
+                    foot_radius = 0.015  # 15mm radius foot sphere
+                    sphere = UsdGeom.Sphere.Define(stage, foot_path)
+                    sphere.CreateRadiusAttr(foot_radius)
+                    # Place at the tip of the tibia (max X in link-local frame)
+                    tip_x = float(center[0]) + sx  # end of the link
+                    sphere.AddTranslateOp().Set(Gf.Vec3d(tip_x, 0.0, 0.0))
+                    sphere.CreatePurposeAttr("guide")
+                    foot_prim = stage.GetPrimAtPath(foot_path)
+                    UsdPhysics.CollisionAPI.Apply(foot_prim)
+                    try:
+                        from pxr import PhysxSchema  # type: ignore[import-not-found]
+                        PhysxSchema.PhysxCollisionAPI.Apply(foot_prim)
+                    except Exception:
+                        pass
+
+                added += 1
+                logger.debug(
+                    "[engine] _ensure_collision_geometry: %s half_ext=(%.4f, %.4f, %.4f) center=(%.4f, %.4f, %.4f)",
+                    link_name, sx, sy, sz, center[0], center[1], center[2],
+                )
+
+            if added > 0:
+                logger.info(
+                    "[engine] _ensure_collision_geometry: added %d collision boxes to links under %s",
+                    added, prim_path,
+                )
+            else:
+                logger.debug("[engine] _ensure_collision_geometry: all links already have colliders")
+        except Exception as exc:
+            logger.warning("[engine] _ensure_collision_geometry failed (non-fatal): %s", exc)
 
     def _set_initial_positions_usd(
         self,
@@ -787,7 +934,11 @@ class _IsaacWorldEngine:
                 except Exception as exc:
                     logger.warning("[engine] start_simulation: position readback failed: %s", exc)
 
-            # Phase 4: Apply mechanism drives
+            # Phase 4: Re-apply drive stiffness/damping AFTER world.reset(),
+            # which resets USD drive attributes to URDF importer defaults.
+            self._configure_drives_post_import(pp, config)
+
+            # Phase 5: Apply mechanism drives
             warns: list[str] = []
             if mechanism:
                 logger.info("[engine] start_simulation: applying drives...")
@@ -1058,15 +1209,186 @@ def _reposition_camera(
         )
 
 
+def _parse_urdf_collision_extents(
+    urdf_path: str,
+) -> dict[str, tuple[tuple[float, float, float], tuple[float, float, float]]]:
+    """Parse a URDF and compute collision box extents from STL meshes.
+
+    Returns ``{link_name: (center_xyz, half_extents_xyz)}`` in metres.
+    Each collision mesh's ``<origin>`` is applied, and the STL scale
+    attribute is respected.  If an STL file can't be read, the link is
+    skipped silently.
+    """
+    import struct
+    import xml.etree.ElementTree as ET
+
+    def _read_stl_extents(stl_path: str) -> tuple[tuple[float, ...], tuple[float, ...]] | None:
+        """Read an STL file (binary or ASCII) and return (min_xyz, max_xyz)."""
+        try:
+            with open(stl_path, "rb") as f:
+                header = f.read(80)
+                num_tri_bytes = f.read(4)
+                if len(num_tri_bytes) < 4:
+                    return None
+                num_tris = struct.unpack("<I", num_tri_bytes)[0]
+                # Quick heuristic: binary STL has 80 + 4 + 50*num_tris bytes
+                import os
+                file_size = os.path.getsize(stl_path)
+                expected_binary = 84 + 50 * num_tris
+                if abs(file_size - expected_binary) < 10:
+                    # Binary STL
+                    mn = [float("inf")] * 3
+                    mx = [float("-inf")] * 3
+                    for _ in range(num_tris):
+                        data = f.read(50)
+                        if len(data) < 50:
+                            break
+                        # Skip normal (12 bytes), read 3 vertices (36 bytes)
+                        verts = struct.unpack("<12x9f2x", data)
+                        for vi in range(3):
+                            x, y, z = verts[vi * 3], verts[vi * 3 + 1], verts[vi * 3 + 2]
+                            mn[0] = min(mn[0], x); mn[1] = min(mn[1], y); mn[2] = min(mn[2], z)
+                            mx[0] = max(mx[0], x); mx[1] = max(mx[1], y); mx[2] = max(mx[2], z)
+                    if mn[0] == float("inf"):
+                        return None
+                    return tuple(mn), tuple(mx)
+                else:
+                    # ASCII STL — re-read as text
+                    f.seek(0)
+                    text = f.read().decode("utf-8", errors="replace")
+                    mn = [float("inf")] * 3
+                    mx = [float("-inf")] * 3
+                    import re
+                    for m in re.finditer(r"vertex\s+([-\d.eE+]+)\s+([-\d.eE+]+)\s+([-\d.eE+]+)", text):
+                        x, y, z = float(m.group(1)), float(m.group(2)), float(m.group(3))
+                        mn[0] = min(mn[0], x); mn[1] = min(mn[1], y); mn[2] = min(mn[2], z)
+                        mx[0] = max(mx[0], x); mx[1] = max(mx[1], y); mx[2] = max(mx[2], z)
+                    if mn[0] == float("inf"):
+                        return None
+                    return tuple(mn), tuple(mx)
+        except Exception:
+            return None
+
+    result: dict[str, tuple[tuple[float, float, float], tuple[float, float, float]]] = {}
+    try:
+        tree = ET.parse(urdf_path)
+    except Exception:
+        return result
+
+    urdf_dir = os.path.dirname(os.path.abspath(urdf_path))
+
+    for link_elem in tree.findall(".//link"):
+        link_name = link_elem.get("name", "")
+        if not link_name:
+            continue
+
+        # Try collision geometry first, fall back to visual
+        for geom_tag in ("collision", "visual"):
+            geom_elem = link_elem.find(geom_tag)
+            if geom_elem is None:
+                continue
+            mesh_elem = geom_elem.find("geometry/mesh")
+            if mesh_elem is None:
+                continue
+            filename = mesh_elem.get("filename", "")
+            if not filename:
+                continue
+
+            # Resolve path
+            if not os.path.isabs(filename):
+                filename = os.path.join(urdf_dir, filename)
+
+            # Parse scale
+            scale_str = mesh_elem.get("scale", "1 1 1")
+            scale = [float(s) for s in scale_str.split()]
+            if len(scale) == 1:
+                scale = scale * 3
+
+            # Parse origin
+            origin_elem = geom_elem.find("origin")
+            ox = oy = oz = 0.0
+            if origin_elem is not None:
+                xyz_str = origin_elem.get("xyz", "0 0 0")
+                ox, oy, oz = [float(v) for v in xyz_str.split()]
+
+            extents = _read_stl_extents(filename)
+            if extents is None:
+                continue
+
+            mn, mx = extents
+            # Apply scale
+            smn = [mn[i] * scale[i] for i in range(3)]
+            smx = [mx[i] * scale[i] for i in range(3)]
+            # Center and half-extents
+            cx = (smn[0] + smx[0]) / 2.0 + ox
+            cy = (smn[1] + smx[1]) / 2.0 + oy
+            cz = (smn[2] + smx[2]) / 2.0 + oz
+            hx = (smx[0] - smn[0]) / 2.0
+            hy = (smx[1] - smn[1]) / 2.0
+            hz = (smx[2] - smn[2]) / 2.0
+
+            result[link_name] = ((cx, cy, cz), (hx, hy, hz))
+            break  # Got geometry, no need to check visual fallback
+
+    return result
+
+
 class IsaacRuntime:
     """Command runtime used by the bridge server."""
 
-    def __init__(self, *, headless: bool = True) -> None:
+    def __init__(self, *, headless: bool = True, environment: str = "") -> None:
         self._headless = headless
+        self._environment = environment
         self._sessions: dict[str, SimulationSession] = {}
         self._batch_threads: dict[str, threading.Thread] = {}
         self._lock = threading.RLock()
         self._engine = _IsaacWorldEngine(headless=headless)
+        self._environment_loaded = False
+
+    def load_environment(self) -> None:
+        """Load the configured environment via dispatcher (call from worker thread)."""
+        if self._environment and not self._environment_loaded:
+            self._load_environment(self._environment)
+
+    def load_environment_direct(self) -> None:
+        """Load the configured environment directly (call from main thread only)."""
+        if self._environment and not self._environment_loaded:
+            self._load_environment_impl(self._environment)
+
+    def _load_environment(self, environment: str) -> None:
+        """Load environment via dispatcher (from worker thread)."""
+        if not self._engine.available:
+            logger.warning("[runtime] Cannot load environment — Isaac not available")
+            return
+        main_thread_dispatcher.submit(self._load_environment_impl, environment)
+        self._environment_loaded = True
+
+    def _load_environment_impl(self, environment: str) -> None:
+        """Load a USD environment file into the scene (must run on main thread)."""
+        try:
+            import omni.usd  # type: ignore[import-not-found]
+            from omni.isaac.nucleus import get_assets_root_path  # type: ignore[import-not-found]
+
+            assets_root = get_assets_root_path()
+            if assets_root is None:
+                logger.warning("[runtime] Could not resolve Isaac assets root path")
+                return
+
+            env_path = f"{assets_root}/Isaac/Environments/Simple_Warehouse/{environment}"
+            logger.info("[runtime] Loading environment: %s", env_path)
+
+            self._engine.setup_scene()
+
+            stage = omni.usd.get_context().get_stage()
+            env_prim_path = "/World/Environment"
+            if not stage.GetPrimAtPath(env_prim_path).IsValid():
+                stage.DefinePrim(env_prim_path).GetReferences().AddReference(env_path)
+                logger.info("[runtime] Environment loaded at %s", env_prim_path)
+            else:
+                logger.info("[runtime] Environment already loaded at %s", env_prim_path)
+            self._environment_loaded = True
+        except Exception as exc:
+            logger.warning("[runtime] Failed to load environment '%s': %s", environment, exc)
 
     def ping(self) -> dict[str, Any]:
         return {

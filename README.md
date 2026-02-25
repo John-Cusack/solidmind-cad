@@ -8,11 +8,11 @@ Make advanced CAD workflows accessible while keeping engineering logic determini
 
 ## Runtime Surface (Current)
 
-The MCP server currently exposes **83 tools** across 8 families:
+The MCP server currently exposes **89 tools** across 8 families:
 
 | Family | Count | Module |
 |---|---:|---|
-| `cad.*` | 35 | `server/tools_cad.py` |
+| `cad.*` | 36 | `server/tools_cad.py`, `server/tools_fastener.py` |
 | `mfg.*` | 3 | `server/tools_mfg.py` |
 | `spec.*` | 10 | `server/tools.py` |
 | `me.*` | 5 | `server/tools_me.py` |
@@ -20,6 +20,7 @@ The MCP server currently exposes **83 tools** across 8 families:
 | `geometry.*` | 5 | `server/tools_geometry.py` |
 | `study.*` | 7 | `server/tools_study.py` |
 | `motion.*` | 13 | `server/tools_motion.py` |
+| `design.*` | 7 | `server/tools_design.py` |
 
 ## What It Supports
 
@@ -50,6 +51,65 @@ flowchart LR
 
 Core modeling remains the two-process bridge (`server/main.py` <-> `freecad_addon`).
 `study.run` adds a background runner subprocess, and `motion.simulate` uses an optional Chrono sidecar daemon.
+
+## How It Works
+
+The LLM drives FreeCAD directly — you describe what you want, it decides the tool sequence, builds the geometry, and verifies the result visually at each step. No manual feature trees or constraint dialogs required.
+
+### Communication Pipeline
+
+```
+MCP host (Claude Code, etc.)
+  → JSON-RPC over stdio
+    → Bridge server (server/main.py)
+      → TCP socket localhost:9876 (newline-delimited JSON)
+        → FreeCAD addon (runs inside FreeCAD GUI)
+          → FreeCAD Python API
+```
+
+Responses flow back the same path, carrying JSON metadata (face maps, topology info) and base64-encoded verification images so the LLM can inspect the model without needing a screen.
+
+### Simple Parts (Direct Build)
+
+When dimensions are known and the part is straightforward, the LLM builds directly:
+
+1. **`cad.new_document`** — create a FreeCAD document
+2. **`cad.new_body`** — create a PartDesign body
+3. **`cad.sketch`** — batch-create all sketch geometry and constraints in a single call (one recompute)
+4. **`cad.pad`** / **`cad.pocket`** — extrude or cut the sketch profile
+5. **`cad.fillet`** / **`cad.chamfer`** — apply finishing features to edges
+6. Each step returns verification images (ISO overview + targeted view) for the LLM to self-check
+
+Between steps, `cad.get_body_topology` and `cad.find_edges` discover current face/edge names (topology shifts after every feature), and `cad.get_selection` reads what the user has clicked in FreeCAD.
+
+### Complex Parts (Design Brief Pipeline)
+
+For multi-body assemblies, robots, or designs that need research before building:
+
+1. **Research** — LLM gathers data via `knowledge.search`, web lookups, user-provided specs
+2. **`design.save_brief`** — LLM extracts CAD-driving parameters into a structured brief
+3. **Review** — brief is presented to the user as a formatted table
+4. **`design.update_brief(status="approved")`** — user approves (or modifies)
+5. **Build** — LLM constructs the model with `cad.*` tools, referencing the approved brief
+
+The brief is an open dict — the LLM decides what parameters matter for each design. Status flows through `draft → proposed → approved → building → done`.
+
+### Verification and Feedback Loop
+
+Every modeling operation returns verification screenshots (two views: ISO overview and a targeted angle on the new feature). The LLM examines these images to confirm the geometry matches intent — catching misaligned sketches, wrong extrusion directions, or missing features before moving on.
+
+User feedback works through FreeCAD's selection system:
+
+- User clicks a face or edge in FreeCAD
+- LLM calls `cad.get_selection` → gets back typed references (e.g., `Face6`, `Edge12`)
+- LLM uses those references in follow-up commands: "fillet these edges", "add holes on this face", "sketch on this surface"
+
+### Optional Post-Build Steps
+
+- **`mfg.readiness_check`** — manufacturing validation (wall thickness, draft angles, tolerances)
+- **`me.design_loop`** — deterministic ME preflight for high-risk parts (rotors, pressure vessels)
+- **`motion.*`** — mechanism validation across analytical, kinematic, and dynamic tiers
+- **`study.*`** — parametric optimization (sweep variables, run solvers, rank and build the winner)
 
 ## Simulation Stack
 

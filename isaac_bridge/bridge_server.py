@@ -28,12 +28,14 @@ class BridgeServer:
         *,
         host: str = "127.0.0.1",
         port: int = 9878,
-        headless: bool = True,
+        headless: bool = False,
+        environment: str = "full_warehouse.usd",
     ) -> None:
         self._host = host
         self._port = port
         self._headless = headless
-        self._runtime = IsaacRuntime(headless=headless)
+        self._environment = environment
+        self._runtime = IsaacRuntime(headless=headless, environment=environment)
         self._sock: socket.socket | None = None
         self._stop_event = threading.Event()
 
@@ -296,6 +298,9 @@ def _pump_main_thread(server: BridgeServer) -> None:
     label = "Kit + dispatcher" if app else "dispatcher-only"
     logger.info("Main-thread pump started (%s)", label)
 
+    # Load environment on the main thread (before pump loop, no dispatcher needed).
+    server._runtime.load_environment_direct()
+
     _DT_MIN = 0.0001  # 0.1 ms — guard against zero/negative dt
     _DT_MAX = 0.1     # 100 ms — guard against long stalls
     last_t = _t.monotonic()
@@ -335,8 +340,13 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument(
         "--headless",
         action=argparse.BooleanOptionalAction,
-        default=True,
-        help="Run runtime in headless mode (default: true)",
+        default=False,
+        help="Run runtime in headless mode (default: false)",
+    )
+    parser.add_argument(
+        "--environment",
+        default="full_warehouse.usd",
+        help="USD environment file to load (default: full_warehouse.usd, pass '' to disable)",
     )
     parser.add_argument(
         "--log-level",
@@ -351,7 +361,12 @@ def main(argv: list[str] | None = None) -> None:
         format="%(asctime)s %(levelname)-5s %(name)s: %(message)s",
     )
 
-    server = BridgeServer(host=args.host, port=args.port, headless=args.headless)
+    server = BridgeServer(
+        host=args.host,
+        port=args.port,
+        headless=args.headless,
+        environment=args.environment,
+    )
 
     def _signal_handler(_signum: int, _frame: Any) -> None:
         server.shutdown()
@@ -365,6 +380,7 @@ def main(argv: list[str] | None = None) -> None:
     # even in headless mode.
     main_thread_dispatcher.enable()
     logger.info("Main-thread dispatcher enabled (headless=%s)", args.headless)
+
     bridge_thread = threading.Thread(
         target=server.serve_forever,
         daemon=True,

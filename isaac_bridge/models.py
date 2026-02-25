@@ -22,13 +22,15 @@ _URDF_IMPORT_FIELDS: frozenset[str] = frozenset({
 })
 
 # Defaults applied when robot_type == "mobile" and the field is not
-# explicitly provided by the caller.  Research-validated values from
-# me_knowledge/sim_changes/ (SG90-class servos, stable standing).
+# explicitly provided by the caller.  Stiffness/damping tuned for
+# hexapod locomotion (PD position drives need enough authority to
+# overcome gravity and accelerate limbs).  Previous values of 10/1
+# were too weak — legs cycled but produced no ground-reaction force.
 _MOBILE_DEFAULTS: dict[str, Any] = {
     "fix_base": False,
     "merge_fixed_joints": True,
-    "default_drive_stiffness": 10.0,
-    "default_drive_damping": 1.0,
+    "default_drive_stiffness": 400.0,
+    "default_drive_damping": 30.0,
 }
 
 
@@ -128,10 +130,10 @@ class TeleopConfig:
     right_legs: tuple[str, ...] = _DEFAULT_RIGHT_LEGS
     neutral_deg: float = 0.0
     amplitude_deg: float = 18.0
-    stride_hz: float = 1.2
+    stride_hz: float = 2.0
     yaw_mix_deg: float = 8.0
     height_mix_deg: float = 5.0
-    vx_max_mps: float = 0.5
+    vx_max_mps: float = 0.3
     yaw_max_rps: float = 1.0
     height_max_m: float = 0.03
     slew_vx_mps2: float = 1.0
@@ -140,20 +142,24 @@ class TeleopConfig:
     policy_path: str = ""
     alpha: float = 0.3
 
-    # 3-DOF leg geometry (meters)
-    l_coxa: float = 0.03
-    l_femur: float = 0.06
-    l_tibia: float = 0.08
+    # 3-DOF leg geometry (meters) — matched to hexapod_18dof_hybrid_v2.urdf
+    # l_coxa: coxa joint→femur joint (URDF femur origin X)
+    # l_femur: femur joint→tibia joint (Euclidean distance of tibia origin)
+    # l_tibia: tibia joint→foot tip (Euclidean distance from joint to mesh far end)
+    l_coxa: float = 0.052
+    l_femur: float = 0.066
+    l_tibia: float = 0.150
 
     # Body dimensions for hip mount positions (meters)
-    body_length: float = 0.16
-    body_width: float = 0.11
+    # Derived from URDF coxa joint origins: ±0.07 X, ±0.075 Y
+    body_length: float = 0.14
+    body_width: float = 0.15
 
     # Gait parameters
     step_height: float = 0.03
-    stance_height: float = -0.08
-    stride_length: float = 0.04
-    duty_factor: float = 0.5
+    stance_height: float = -0.09
+    stride_length: float = 0.06
+    duty_factor: float = 0.65
 
     # Per-leg joint names: flat tuple, groups of 3 (coxa, femur, tibia)
     # Order: LF, LM, LR, RF, RM, RR (matching leg_phase_offsets)
@@ -297,7 +303,7 @@ class TeleopConfig:
         # Validation dispatch based on controller type
         if config.controller_type == "hexapod_3dof_tripod":
             _validate_3dof_consistency(config)
-        elif config.controller_type == "rl_residual":
+        elif config.controller_type in ("rl_residual", "quad_spin"):
             if len(config.joint_names) < 1:
                 raise TeleopConfigError("joint_names must have at least 1 entry")
         else:

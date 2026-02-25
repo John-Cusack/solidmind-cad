@@ -297,6 +297,32 @@ def _blade_geometry(
     return chord, twist
 
 
+def _interp_blade_table(
+    r_frac: float,
+    r_table: list[float],
+    chord_table: list[float],
+    twist_table: list[float],
+) -> tuple[float, float]:
+    """Linearly interpolate chord and twist from a blade table.
+
+    Clamps to the first/last entry for stations outside the table range.
+    """
+    if r_frac <= r_table[0]:
+        return chord_table[0], twist_table[0]
+    if r_frac >= r_table[-1]:
+        return chord_table[-1], twist_table[-1]
+
+    for i in range(len(r_table) - 1):
+        if r_table[i] <= r_frac <= r_table[i + 1]:
+            t = (r_frac - r_table[i]) / (r_table[i + 1] - r_table[i])
+            chord = chord_table[i] + t * (chord_table[i + 1] - chord_table[i])
+            twist = twist_table[i] + t * (twist_table[i + 1] - twist_table[i])
+            return chord, twist
+
+    # Fallback (shouldn't reach here)
+    return chord_table[-1], twist_table[-1]
+
+
 def _prandtl_loss(
     r: float,
     R: float,
@@ -357,11 +383,26 @@ def _bemt_solve(
     radial_stations: int = 15,
     hub_r_frac: float = 0.15,
     xfoil_cache: _XfoilCache | None = None,
+    blade_table: dict[str, list[float]] | None = None,
 ) -> _BEMTResult:
     """Run a Blade Element Momentum Theory solve.
 
+    If *blade_table* is provided (dict with ``r_frac``, ``chord_mm``,
+    ``twist_deg`` lists from ``geometry.propeller_blade``), those values are
+    used directly at each station instead of the linear interpolation from
+    ``chord_root/tip`` and ``twist_root/tip``.
+
     Returns a :class:`_BEMTResult` with thrust, torque, power and efficiency.
     """
+    # Pre-build interpolation arrays from blade_table if provided
+    _bt_r: list[float] | None = None
+    _bt_chord: list[float] | None = None
+    _bt_twist: list[float] | None = None
+    if blade_table is not None:
+        _bt_r = blade_table["r_frac"]
+        _bt_chord = blade_table["chord_mm"]
+        _bt_twist = blade_table["twist_deg"]
+
     R_m = (diameter_mm / 2.0) / 1000.0  # tip radius in meters
     r_hub_m = R_m * hub_r_frac
     omega = rpm * 2.0 * math.pi / 60.0  # rad/s
@@ -383,14 +424,20 @@ def _bemt_solve(
         r_m = r_frac * R_m
         dr = (1.0 - hub_r_frac) * R_m / radial_stations
 
-        chord_mm, twist_deg = _blade_geometry(
-            r_frac,
-            chord_root_mm=chord_root_mm,
-            chord_tip_mm=chord_tip_mm,
-            twist_root_deg=twist_root_deg,
-            twist_tip_deg=twist_tip_deg,
-            hub_r_frac=hub_r_frac,
-        )
+        if _bt_r is not None:
+            # Interpolate from blade_table
+            chord_mm, twist_deg = _interp_blade_table(
+                r_frac, _bt_r, _bt_chord, _bt_twist,  # type: ignore[arg-type]
+            )
+        else:
+            chord_mm, twist_deg = _blade_geometry(
+                r_frac,
+                chord_root_mm=chord_root_mm,
+                chord_tip_mm=chord_tip_mm,
+                twist_root_deg=twist_root_deg,
+                twist_tip_deg=twist_tip_deg,
+                hub_r_frac=hub_r_frac,
+            )
         chord_m = chord_mm / 1000.0
         theta_rad = math.radians(twist_deg + blade_pitch_deg)
 
@@ -605,6 +652,9 @@ class BEMTXfoilSolver(SolverAdapter):
         twist_root = merged.get("twist_root_deg", merged.get("twist_deg", 15.0))
         twist_tip = merged.get("twist_tip_deg", twist_root * 0.3)
 
+        # Accept a pre-computed blade_table from geometry.propeller_blade
+        bt = merged.get("blade_table")
+
         result = _bemt_solve(
             diameter_mm=float(merged["diameter_mm"]),
             num_blades=int(merged["num_blades"]),
@@ -619,6 +669,7 @@ class BEMTXfoilSolver(SolverAdapter):
             airfoil=str(merged.get("airfoil", "NACA4412")),
             Re=float(merged.get("Re", 500_000)),
             radial_stations=int(merged.get("radial_stations", 15)),
+            blade_table=bt,
         )
 
         return {

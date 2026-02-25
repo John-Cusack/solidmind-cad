@@ -29,6 +29,7 @@ from server.motion_validators import (
     propagate_speeds,
     propagate_torques,
     run_validators,
+    validate_mechanism_structure,
 )
 
 log = logging.getLogger("solidmind.tools_motion")
@@ -46,7 +47,8 @@ _assembly_link_maps: dict[str, dict[str, str]] = {}
 # Active Isaac sessions keyed by session_id (teleop and interactive sim).
 _active_sessions: dict[str, dict[str, Any]] = {}
 
-_SIM_BACKENDS = {"chrono", "isaac"}
+_SIM_BACKENDS = {"chrono", "isaac", "gazebo"}
+_TELEOP_BACKENDS = {"isaac", "gazebo"}
 _SIM_MODES = {"batch", "teleop"}
 _DEFAULT_SIM_BACKEND: Literal["isaac"] = "isaac"
 
@@ -73,7 +75,20 @@ def _backend_unavailable_result(
     *,
     unavailable_code: str,
 ) -> dict[str, Any]:
-    alternate = "chrono" if requested_backend == "isaac" else "isaac"
+    alternates = sorted(_SIM_BACKENDS - {requested_backend})
+    choices: list[dict[str, str]] = [
+        {
+            "action": "retry_with_backend",
+            "backend": requested_backend,
+            "description": f"Retry with '{requested_backend}' after setup/fix.",
+        },
+    ]
+    for alt in alternates:
+        choices.append({
+            "action": "retry_with_backend",
+            "backend": alt,
+            "description": f"Retry now with '{alt}'.",
+        })
     return {
         "ok": False,
         "error": {
@@ -84,18 +99,7 @@ def _backend_unavailable_result(
             ),
         },
         "backend_requested": requested_backend,
-        "choices": [
-            {
-                "action": "retry_with_backend",
-                "backend": requested_backend,
-                "description": f"Retry with '{requested_backend}' after setup/fix.",
-            },
-            {
-                "action": "retry_with_backend",
-                "backend": alternate,
-                "description": f"Retry now with '{alternate}'.",
-            },
-        ],
+        "choices": choices,
         "unavailable": {
             "backend": requested_backend,
             "code": unavailable_code,
@@ -132,7 +136,10 @@ def _is_unknown_session_error(result: dict[str, Any]) -> bool:
     if not isinstance(err, dict):
         return False
     code = str(err.get("code", "")).strip().upper()
-    if code in {"ISAAC_UNKNOWN_SESSION", "ISAAC_SESSION_NOT_FOUND"}:
+    if code in {
+        "ISAAC_UNKNOWN_SESSION", "ISAAC_SESSION_NOT_FOUND",
+        "GAZEBO_UNKNOWN_SESSION", "GAZEBO_SESSION_NOT_FOUND",
+    }:
         return True
     msg = str(err.get("message", "")).strip().lower()
     return (
@@ -159,19 +166,13 @@ def motion_define_mechanism(mechanism: dict[str, Any]) -> dict[str, Any]:
     except (KeyError, ValueError, TypeError) as exc:
         return _error_result("INVALID_MECHANISM", str(exc))
 
-    # Basic validation
-    warnings: list[str] = []
-    part_ids = {p.id for p in mech.parts}
-    for j in mech.joints:
-        if j.parent_part not in part_ids:
-            warnings.append(f"Joint '{j.id}' references unknown parent_part '{j.parent_part}'")
-        if j.child_part not in part_ids:
-            warnings.append(f"Joint '{j.id}' references unknown child_part '{j.child_part}'")
-    for d in mech.drives:
-        if mech.get_joint(d.joint_id) is None:
-            warnings.append(f"Drive references unknown joint_id '{d.joint_id}'")
-    if not mech.ground_parts():
-        warnings.append("No ground part defined (is_ground=true)")
+    # Structural validation — catches bad data early
+    errors, warnings = validate_mechanism_structure(mech, mode="strict")
+    if errors:
+        return _error_result(
+            "INVALID_MECHANISM",
+            f"{len(errors)} structural error(s): {'; '.join(errors)}",
+        )
 
     handle = store_put(mech)
 
@@ -902,6 +903,52 @@ def _simulate_with_chrono(
     return response
 
 
+def _simulate_with_gazebo(
+    mech: Mechanism,
+    *,
+    duration_s: float,
+    dt_s: float,
+    output_interval: float,
+    profile: dict[str, Any],
+    urdf_path: str | None = None,
+    import_config: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Run batch simulation via the optional Gazebo sidecar (single-call)."""
+    # URDF pre-flight validation
+    preflight = _run_urdf_preflight(urdf_path)
+    if preflight and preflight["blockers"]:
+        return _error_result(
+            "URDF_VALIDATION_FAILED",
+            f"URDF pre-flight found {len(preflight['blockers'])} blocker(s): "
+            + "; ".join(b["message"] for b in preflight["blockers"]),
+        )
+
+    from server import gazebo_adapter
+
+    result = gazebo_adapter.simulate(
+        mechanism=mech,
+        duration_s=duration_s,
+        dt_s=dt_s,
+        output_interval=output_interval,
+        profile=profile,
+        urdf_path=urdf_path,
+        import_config=import_config,
+    )
+    if not result.get("ok", False):
+        err = result.get("error", {})
+        code = err.get("code", "GAZEBO_COMMAND_ERROR")
+        if code == "GAZEBO_NOT_CONNECTED":
+            return _backend_unavailable_result(
+                "gazebo",
+                err.get("message", "Gazebo bridge is not available."),
+                unavailable_code=code,
+            )
+        return result
+    result["backend_used"] = "gazebo"
+    result["mode_used"] = "batch"
+    return result
+
+
 def _simulate_with_isaac_legacy(
     mech: Mechanism,
     *,
@@ -1151,23 +1198,33 @@ def motion_simulate(
             f"mode must be one of {sorted(_SIM_MODES)}",
         )
 
-    if selected_backend == "chrono" and selected_mode != "batch":
+    if selected_mode == "teleop" and selected_backend not in _TELEOP_BACKENDS:
         return _error_result(
             "INVALID_INPUT",
-            "mode='teleop' is only supported with backend='isaac'",
+            f"mode='teleop' is only supported with backends {sorted(_TELEOP_BACKENDS)}",
         )
 
-    if selected_backend == "chrono":
+    if selected_mode == "teleop":
+        response = motion_teleop_start(
+            mechanism_id=mechanism_id,
+            backend=selected_backend,
+            profile=profile or {},
+            urdf_path=urdf_path,
+            import_config=import_config,
+        )
+    elif selected_backend == "chrono":
         response = _simulate_with_chrono(
             mech,
             duration_s=duration_s,
             dt_s=dt_s,
             output_interval=output_interval,
         )
-    elif selected_mode == "teleop":
-        response = motion_teleop_start(
-            mechanism_id=mechanism_id,
-            backend="isaac",
+    elif selected_backend == "gazebo":
+        response = _simulate_with_gazebo(
+            mech,
+            duration_s=duration_s,
+            dt_s=dt_s,
+            output_interval=output_interval,
             profile=profile or {},
             urdf_path=urdf_path,
             import_config=import_config,
@@ -1193,6 +1250,66 @@ def motion_simulate(
             response.get("mode_used", selected_mode),
         )
     return response
+
+
+def motion_verify_sim_package(
+    mechanism_id: str,
+    urdf_path: str | None = None,
+    doc: str | None = None,
+    check_isaac: bool = False,
+    prim_path: str | None = None,
+) -> dict[str, Any]:
+    """Verify that a mechanism exported correctly through the sim pipeline.
+
+    Runs up to 3 verification stages:
+    1. Mechanism vs FreeCAD model tree (always, if FreeCAD connected)
+    2. Mechanism vs URDF file (if urdf_path provided)
+    3. URDF vs Isaac USD scene (if check_isaac=True and Isaac bridge available)
+
+    Returns a report with findings classified as block/warn/note.
+    """
+    from server.sim_verify import verify_sim_package
+
+    mech = store_get(mechanism_id)
+    if mech is None:
+        return _error_result("NOT_FOUND", f"No mechanism with id '{mechanism_id}'")
+
+    # Stage 1: Get FreeCAD model tree
+    model_tree_bodies: list[dict[str, Any]] | None = None
+    try:
+        from server.tools_cad import cad_get_model_tree
+        tree_result = cad_get_model_tree(doc=doc, detail="bodies")
+        if tree_result.get("ok"):
+            model_tree_bodies = tree_result.get("bodies", [])
+    except Exception as exc:
+        log.warning("Could not get model tree for verify: %s", exc)
+
+    # Stage 3: Get Isaac scene state (if requested)
+    isaac_diagnose: dict[str, Any] | None = None
+    if check_isaac:
+        try:
+            from server import isaac_adapter
+            from server.isaac_client import get_client as get_isaac_client
+
+            client = get_isaac_client()
+            if client is not None:
+                diag_result = client.send_command(
+                    "diagnose",
+                    prim_path=prim_path or "/",
+                )
+                if isinstance(diag_result, dict):
+                    isaac_diagnose = diag_result
+        except Exception as exc:
+            log.warning("Could not get Isaac diagnose for verify: %s", exc)
+
+    result = verify_sim_package(
+        mechanism=mech,
+        model_tree_bodies=model_tree_bodies,
+        urdf_path=urdf_path,
+        isaac_diagnose=isaac_diagnose,
+    )
+
+    return {"ok": True, **result}
 
 
 def motion_teleop_start(
@@ -1228,10 +1345,10 @@ def motion_teleop_start(
     (resolved config with defaults), and ``keyboard_bindings``.
     """
     selected_backend = _normalize_backend(backend)
-    if selected_backend != "isaac":
+    if selected_backend not in _TELEOP_BACKENDS:
         return _error_result(
             "INVALID_INPUT",
-            "motion.teleop_start only supports backend='isaac'",
+            f"motion.teleop_start only supports backends {sorted(_TELEOP_BACKENDS)}",
         )
 
     mech = store_get(mechanism_id)
@@ -1247,37 +1364,53 @@ def motion_teleop_start(
             + "; ".join(b["message"] for b in preflight["blockers"]),
         )
 
-    from server import isaac_adapter
+    if selected_backend == "gazebo":
+        from server import gazebo_adapter
 
-    result = isaac_adapter.teleop_start(
-        mechanism=mech,
-        profile=profile or {},
-        urdf_path=urdf_path,
-        import_config=import_config,
-        verify=verify,
-    )
+        result = gazebo_adapter.teleop_start(
+            mechanism=mech,
+            profile=profile or {},
+            urdf_path=urdf_path,
+            import_config=import_config,
+            verify=verify,
+        )
+        not_connected_code = "GAZEBO_NOT_CONNECTED"
+        protocol_error_code = "GAZEBO_PROTOCOL_ERROR"
+    else:
+        from server import isaac_adapter
+
+        result = isaac_adapter.teleop_start(
+            mechanism=mech,
+            profile=profile or {},
+            urdf_path=urdf_path,
+            import_config=import_config,
+            verify=verify,
+        )
+        not_connected_code = "ISAAC_NOT_CONNECTED"
+        protocol_error_code = "ISAAC_PROTOCOL_ERROR"
+
     if not result.get("ok", False):
         err = result.get("error", {})
-        if err.get("code") == "ISAAC_NOT_CONNECTED":
+        if err.get("code") == not_connected_code:
             return _backend_unavailable_result(
-                "isaac",
-                err.get("message", "Isaac bridge is not available."),
-                unavailable_code="ISAAC_NOT_CONNECTED",
+                selected_backend,
+                err.get("message", f"{selected_backend} bridge is not available."),
+                unavailable_code=not_connected_code,
             )
         return result
 
-    session_id = str(result.get("session_id", "")).strip()
-    if not session_id:
-        return _error_result("ISAAC_PROTOCOL_ERROR", "Isaac teleop response missing session_id")
+    session_id_val = str(result.get("session_id", "")).strip()
+    if not session_id_val:
+        return _error_result(protocol_error_code, f"{selected_backend} teleop response missing session_id")
 
-    _active_sessions[session_id] = {
+    _active_sessions[session_id_val] = {
         "mechanism_id": mechanism_id,
-        "backend": "isaac",
+        "backend": selected_backend,
         "created_at": time.time(),
     }
     response: dict[str, Any] = {
         "ok": True,
-        "backend_used": "isaac",
+        "backend_used": selected_backend,
         "mode_used": "teleop",
         **result,
     }
@@ -1292,8 +1425,10 @@ def motion_teleop_command(
     vx_mps: float = 0.0,
     yaw_rate_rps: float = 0.0,
     body_height_m: float = 0.0,
+    vy_mps: float = 0.0,
+    vz_mps: float = 0.0,
 ) -> dict[str, Any]:
-    """Send a teleop command to an active Isaac session.
+    """Send a teleop command to an active teleop session.
 
     Commands are rate-limited by the controller's slew filters and
     clamped to the profile's maxima (``vx_max_mps``, ``yaw_max_rps``,
@@ -1303,23 +1438,47 @@ def motion_teleop_command(
     if session is None:
         return _error_result("NOT_FOUND", f"No active teleop session '{session_id}'")
 
-    from server import isaac_adapter
+    session_backend = session.get("backend", "isaac")
 
-    result = isaac_adapter.teleop_command(
-        session_id=session_id,
-        vx_mps=vx_mps,
-        yaw_rate_rps=yaw_rate_rps,
-        body_height_m=body_height_m,
-    )
+    # Isaac does not support vy_mps / vz_mps — reject non-zero values
+    if session_backend == "isaac" and (vy_mps != 0.0 or vz_mps != 0.0):
+        return _error_result(
+            "INVALID_INPUT",
+            "Isaac backend does not support vy_mps/vz_mps; only Gazebo accepts lateral/vertical velocities.",
+        )
+
+    if session_backend == "gazebo":
+        from server import gazebo_adapter
+
+        result = gazebo_adapter.teleop_command(
+            session_id=session_id,
+            vx_mps=vx_mps,
+            yaw_rate_rps=yaw_rate_rps,
+            body_height_m=body_height_m,
+            vy_mps=vy_mps,
+            vz_mps=vz_mps,
+        )
+    elif session_backend == "isaac":
+        from server import isaac_adapter
+
+        result = isaac_adapter.teleop_command(
+            session_id=session_id,
+            vx_mps=vx_mps,
+            yaw_rate_rps=yaw_rate_rps,
+            body_height_m=body_height_m,
+        )
+    else:
+        return _error_result("NOT_FOUND", f"Unknown session backend '{session_backend}'")
+
     if not result.get("ok", False):
         if _is_unknown_session_error(result):
             _active_sessions.pop(session_id, None)
         return result
-    return {"ok": True, "backend_used": "isaac", "mode_used": "teleop", **result}
+    return {"ok": True, "backend_used": session_backend, "mode_used": "teleop", **result}
 
 
 def motion_teleop_state(session_id: str) -> dict[str, Any]:
-    """Read current state from an active Isaac teleop session.
+    """Read current state from an active teleop session.
 
     Returns commanded state (``vx_mps``, ``yaw_rate_rps``, ``body_height_m``),
     ``uptime_s``, and teleop telemetry: ``controller_type``, ``joint_names``,
@@ -1330,37 +1489,53 @@ def motion_teleop_state(session_id: str) -> dict[str, Any]:
     if session is None:
         return _error_result("NOT_FOUND", f"No active teleop session '{session_id}'")
 
-    from server import isaac_adapter
+    session_backend = session.get("backend", "isaac")
 
-    result = isaac_adapter.teleop_state(session_id=session_id)
+    if session_backend == "gazebo":
+        from server import gazebo_adapter
+        result = gazebo_adapter.teleop_state(session_id=session_id)
+    elif session_backend == "isaac":
+        from server import isaac_adapter
+        result = isaac_adapter.teleop_state(session_id=session_id)
+    else:
+        return _error_result("NOT_FOUND", f"Unknown session backend '{session_backend}'")
+
     if not result.get("ok", False):
         if _is_unknown_session_error(result):
             _active_sessions.pop(session_id, None)
         return result
-    return {"ok": True, "backend_used": "isaac", "mode_used": "teleop", **result}
+    return {"ok": True, "backend_used": session_backend, "mode_used": "teleop", **result}
 
 
 def motion_teleop_stop(session_id: str) -> dict[str, Any]:
-    """Stop and remove an active Isaac teleop session.
+    """Stop and remove an active teleop session.
 
     Returns final telemetry: ``stopped``, ``controller_type``,
     ``tick_count``, ``limit_clamp_count``, ``last_joint_targets_rad``.
-    Cleans up engine resources (World, imported prims) so a subsequent
-    ``teleop_start`` can create a fresh session.
+    Cleans up engine resources so a subsequent ``teleop_start`` can
+    create a fresh session.
     """
     session = _active_sessions.get(session_id)
     if session is None:
         return _error_result("NOT_FOUND", f"No active teleop session '{session_id}'")
 
-    from server import isaac_adapter
+    session_backend = session.get("backend", "isaac")
 
-    result = isaac_adapter.teleop_stop(session_id=session_id)
+    if session_backend == "gazebo":
+        from server import gazebo_adapter
+        result = gazebo_adapter.teleop_stop(session_id=session_id)
+    elif session_backend == "isaac":
+        from server import isaac_adapter
+        result = isaac_adapter.teleop_stop(session_id=session_id)
+    else:
+        return _error_result("NOT_FOUND", f"Unknown session backend '{session_backend}'")
+
     if not result.get("ok", False):
         if _is_unknown_session_error(result):
             _active_sessions.pop(session_id, None)
         return result
     _active_sessions.pop(session_id, None)
-    return {"ok": True, "backend_used": "isaac", "mode_used": "teleop", **result}
+    return {"ok": True, "backend_used": session_backend, "mode_used": "teleop", **result}
 
 
 # ---------------------------------------------------------------------------

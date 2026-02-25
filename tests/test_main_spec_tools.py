@@ -132,5 +132,29 @@ class TestMainSpecTools(unittest.TestCase):
         self.assertIn("repair_recommendations_present", out["metadata"])
 
 
+    def test_motion_simulate_backend_enum_includes_gazebo(self) -> None:
+        tool = next(t for t in mcp_main._tool_list() if t.get("name") == "motion.simulate")
+        backend_enum = tool["inputSchema"]["properties"]["backend"]["enum"]
+        self.assertIn("gazebo", backend_enum)
+        self.assertIn("isaac", backend_enum)
+        self.assertIn("chrono", backend_enum)
+
+    def test_motion_teleop_start_backend_enum_includes_gazebo(self) -> None:
+        tool = next(t for t in mcp_main._tool_list() if t.get("name") == "motion.teleop_start")
+        backend_enum = tool["inputSchema"]["properties"]["backend"]["enum"]
+        self.assertIn("gazebo", backend_enum)
+        self.assertIn("isaac", backend_enum)
+
+    def test_motion_teleop_command_schema_has_vy_vz(self) -> None:
+        tool = next(t for t in mcp_main._tool_list() if t.get("name") == "motion.teleop_command")
+        props = tool["inputSchema"]["properties"]
+        self.assertIn("vy_mps", props)
+        self.assertIn("vz_mps", props)
+        self.assertEqual(props["vy_mps"]["type"], "number")
+        self.assertEqual(props["vz_mps"]["type"], "number")
+        self.assertEqual(props["vy_mps"]["default"], 0.0)
+        self.assertEqual(props["vz_mps"]["default"], 0.0)
+
+
 if __name__ == "__main__":
     unittest.main()

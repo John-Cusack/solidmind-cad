@@ -186,3 +186,78 @@ def geometry_planetary_layout(
     result["ring"] = _store_gear(result["ring"], "ring")
 
     return {"ok": True, **result}
+
+
+def geometry_propeller_blade(
+    diameter: float,
+    pitch: float,
+    hub_diameter: float,
+    num_blades: int = 2,
+    airfoil: str = "NACA4412",
+    chord_root: float | None = None,
+    chord_tip: float | None = None,
+    num_sections: int = 6,
+    num_points: int = 40,
+) -> dict[str, Any]:
+    """Generate a propeller blade definition with airfoil cross-sections.
+
+    Computes NACA 4-digit airfoil profiles at radial stations with chord taper
+    and twist derived from pitch geometry.  Returns ``geometry_ref`` handles for
+    each section and the hub, a ``blade_table`` for BEMT analysis, and a
+    Selig-format ``airfoil_dat`` string for XFOIL.
+    """
+    _require_lib()
+    result = _geom.propeller_blade_py(
+        diameter=diameter,
+        pitch=pitch,
+        hub_diameter=hub_diameter,
+        num_blades=num_blades,
+        airfoil=airfoil,
+        chord_root=chord_root,
+        chord_tip=chord_tip,
+        num_sections=num_sections,
+        num_points=num_points,
+    )
+
+    # Store each section's elements and replace with geometry_refs
+    sections_out: list[dict[str, Any]] = []
+    for i, sec in enumerate(result["sections"]):
+        elements = sec.pop("elements")
+        ref = _store_geometry(
+            elements,
+            metadata={"tool": "propeller_blade", "section": i},
+        )
+        sections_out.append({
+            "geometry_ref": ref,
+            "station_radius_mm": sec["station_radius_mm"],
+            "chord_mm": sec["chord_mm"],
+            "twist_deg": sec["twist_deg"],
+            "plane_offset_mm": sec["plane_offset_mm"],
+        })
+
+    # Store hub elements
+    hub = result["hub"]
+    hub_elements = hub.pop("elements")
+    hub_ref = _store_geometry(
+        hub_elements,
+        metadata={"tool": "propeller_blade", "part": "hub"},
+    )
+
+    return {
+        "ok": True,
+        "sections": sections_out,
+        "hub": {
+            "geometry_ref": hub_ref,
+            "diameter_mm": hub["diameter_mm"],
+            "height_mm": hub["height_mm"],
+        },
+        "blade_table": result["blade_table"],
+        "airfoil_dat": result["airfoil_dat"],
+        "params": result["params"],
+        "build_hint": (
+            "For each section: cad.sketch on an offset XZ datum plane at "
+            "plane_offset_mm from center, using geometry_ref. "
+            "Then cad.loft across all sections. "
+            "Finally cad.polar_pattern with occurrences=num_blades to replicate."
+        ),
+    }

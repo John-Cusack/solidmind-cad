@@ -8,4 +8,6 @@ set -euo pipefail
 
 ISAAC_PYTHON="${ISAAC_PYTHON:-python3}"
 
+# Default: non-headless with full_warehouse.usd environment.
+# Override with --headless or --environment '' as needed.
 exec "${ISAAC_PYTHON}" -m isaac_bridge.bridge_server "$@"

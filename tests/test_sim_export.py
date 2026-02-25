@@ -1199,7 +1199,7 @@ class TestGroundClearance(unittest.TestCase):
         self.assertEqual(len(model.links), 2)
 
     def test_ground_clearance_corrects_root_child_z(self) -> None:
-        """Ground clearance subtracts Z from root's direct children to avoid doubling."""
+        """Ground clearance preserves relative Z deltas — correction belongs in base_to_frame only."""
         # Chassis at origin, two children at different Z heights (like a hexapod).
         mechanism = Mechanism(
             name="hex_mini",
@@ -1257,11 +1257,11 @@ class TestGroundClearance(unittest.TestCase):
         base_jt = next(j for j in model.joints if j.name == "base_to_chassis")
         self.assertAlmostEqual(base_jt.origin_xyz[2], gc, places=6)
 
-        # hip_yaw_L1 (chassis -> coxa) should have z ≈ 0, NOT 0.1
-        # Because the 100mm world Z is now provided by base_link.
+        # hip_yaw_L1 (chassis -> coxa) should have z = 0.1 (the real relative delta)
+        # Joint origins are pure relative deltas; no z-correction applied.
         hip_jt = next(j for j in model.joints if j.name == "hip_yaw_L1")
-        self.assertAlmostEqual(hip_jt.origin_xyz[2], 0.0, places=4,
-                               msg="Root child joint Z should be corrected to ~0")
+        self.assertAlmostEqual(hip_jt.origin_xyz[2], 0.1, places=4,
+                               msg="Root child joint Z should be the real relative delta")
 
         # hip_pitch_L1 (coxa -> femur) is a deeper joint: delta Z = 0
         # (both coxa and femur are at z=100mm, so dz=0).  Should be unaffected.
@@ -1269,11 +1269,11 @@ class TestGroundClearance(unittest.TestCase):
         self.assertAlmostEqual(pitch_jt.origin_xyz[2], 0.0, places=4,
                                msg="Deeper joint Z delta should remain ~0")
 
-        # FK check: base_link(0,0,0) + base_to_chassis(0,0,0.1) + hip_yaw(~0.052,~0.03,0)
-        # => coxa world pos = (0.052, 0.03, 0.1) = correct (52mm, 30mm, 100mm)
+        # FK check: base_link(0,0,0) + base_to_chassis(0,0,0.1) + hip_yaw(~0.052,~0.03,0.1)
+        # => coxa world pos = (0.052, 0.03, 0.2) = gc + 100mm coxa offset
         coxa_fk_z = base_jt.origin_xyz[2] + hip_jt.origin_xyz[2]
-        self.assertAlmostEqual(coxa_fk_z, gc, places=4,
-                               msg="FK chain should place coxa at ground_clearance height")
+        self.assertAlmostEqual(coxa_fk_z, gc + 0.1, places=4,
+                               msg="FK chain should place coxa at ground_clearance + relative delta")
 
     def test_ground_clearance_no_overcorrect_when_root_placed(self) -> None:
         """When the root body is already at z=ground_clearance, no Z correction needed."""
