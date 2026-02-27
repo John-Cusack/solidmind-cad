@@ -2040,6 +2040,60 @@ class IsaacRuntime:
     # Teleop session lifecycle
     # ------------------------------------------------------------------
 
+    def _configure_velocity_drives(
+        self,
+        articulation: Any,
+        dof_index_map: dict[str, int],
+    ) -> None:
+        """Set mapped joints to velocity drive (stiffness=0, damping=1e4).
+
+        Called when a controller declares ``drive_mode = "velocity"`` so
+        that ``ArticulationAction(joint_velocities=...)`` actually moves
+        the joints.  Position stiffness must be 0, otherwise the default
+        position target (0) fights the velocity command.
+
+        Uses ``articulation.set_gains()`` which sets gains directly on
+        the live PhysX handles — more reliable than USD DriveAPI attr
+        changes which may not be picked up after ``world.reset()``.
+        """
+        def _do() -> None:
+            try:
+                import numpy as np  # type: ignore[import-not-found]
+
+                num_dof = articulation.num_dof
+                # Read current gains as baseline
+                try:
+                    cur_kps = articulation.get_gains()[0]
+                    cur_kds = articulation.get_gains()[1]
+                    kps = np.array(cur_kps, dtype=np.float32)
+                    kds = np.array(cur_kds, dtype=np.float32)
+                except Exception:
+                    kps = np.full(num_dof, 1000.0, dtype=np.float32)
+                    kds = np.full(num_dof, 100.0, dtype=np.float32)
+
+                configured = 0
+                for joint_name, idx in dof_index_map.items():
+                    if 0 <= idx < num_dof:
+                        kps[idx] = 0.0
+                        kds[idx] = 1e4
+                        configured += 1
+
+                articulation.set_gains(kps, kds)
+
+                logger.info(
+                    "[runtime] _configure_velocity_drives: "
+                    "stiffness=0 damping=1e4 on %d/%d DOFs via set_gains()",
+                    configured, len(dof_index_map),
+                )
+                logger.info(
+                    "[runtime] _configure_velocity_drives: kps=%s kds=%s",
+                    kps.tolist(), kds.tolist(),
+                )
+            except Exception as exc:
+                logger.warning("[runtime] _configure_velocity_drives failed: %s", exc)
+
+        main_thread_dispatcher.submit(_do)
+
     def teleop_start(
         self,
         *,
@@ -2141,6 +2195,16 @@ class IsaacRuntime:
                     f"Partial joint map: {len(dof_index_map)}/{len(teleop_config.joint_names)} "
                     f"mapped, missing: {missing}"
                 )
+
+        # If the controller uses velocity drive, reconfigure the mapped
+        # joints: set stiffness=0 (disable position control) and keep
+        # damping for velocity tracking.
+        if (
+            getattr(controller, "drive_mode", "position") == "velocity"
+            and articulation is not None
+            and self._engine.available
+        ):
+            self._configure_velocity_drives(articulation, dof_index_map)
 
         session_id = f"sess_{uuid.uuid4().hex[:12]}"
         now = time.time()
@@ -2364,11 +2428,13 @@ class IsaacRuntime:
     ) -> None:
         """Apply joint targets to the articulation.
 
-        Builds a position-target array from the DOF index map and applies
-        it via ``ArticulationAction``.  Physics stepping and rendering are
-        handled by ``app.update()`` in the main-thread pump loop — calling
-        ``world.step()`` here would double-step physics per frame, causing
-        jitter in non-headless mode.
+        Checks ``controller.drive_mode``: if ``"velocity"``, applies targets
+        as joint velocities (rad/s) for continuous rotation (e.g. propellers).
+        Otherwise applies as joint positions (rad) for pose control.
+
+        Physics stepping and rendering are handled by ``app.update()`` in
+        the main-thread pump loop — calling ``world.step()`` here would
+        double-step physics per frame, causing jitter in non-headless mode.
 
         Must run on the main thread.
         """
@@ -2377,15 +2443,23 @@ class IsaacRuntime:
 
         art = session.articulation
         num_dof = art.num_dof
-        position_targets = np.full(num_dof, float("nan"), dtype=np.float32)
 
-        for joint_name, target_rad in targets.items():
+        # Check if controller wants velocity drive
+        use_velocity = getattr(session.controller, "drive_mode", "position") == "velocity"
+
+        target_array = np.full(num_dof, float("nan"), dtype=np.float32)
+        for joint_name, target_val in targets.items():
             idx = session.dof_index_map.get(joint_name)
             if idx is not None and 0 <= idx < num_dof:
-                position_targets[idx] = float(target_rad)
+                target_array[idx] = float(target_val)
 
-        art.apply_action(ArticulationAction(joint_positions=position_targets))
-        self._engine.world.step(render=False)
+        if use_velocity:
+            art.apply_action(ArticulationAction(joint_velocities=target_array))
+        else:
+            art.apply_action(ArticulationAction(joint_positions=target_array))
+        # Physics stepping is handled by app.update() in the pump loop.
+        # Do NOT call world.step() here — it double-steps physics and
+        # the second step may use stale targets causing jitter.
 
     def _capture_verification_views(
         self,

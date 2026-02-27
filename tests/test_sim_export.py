@@ -40,8 +40,10 @@ from server.sim_export import (
     _transform_point,
     _transform_stl_to_link_local,
     build_sim_model,
+    validate_sdf,
     validate_urdf,
     validate_urdf_fk,
+    write_sdf,
     write_urdf,
 )
 
@@ -3870,6 +3872,81 @@ class TestTopologyOptimization(unittest.TestCase):
             joint_b.parent, "frame",
             "Two revolute co-located siblings should not be rechained",
         )
+
+
+class TestSdfExport(unittest.TestCase):
+    def _simple_model(self) -> SimModel:
+        return SimModel(
+            name="sdf_robot",
+            links=(
+                SimLink(
+                    name="base",
+                    mesh_path="/tmp/base.stl",
+                    mass_kg=2.0,
+                    inertia=(1.0, 0.0, 0.0, 1.0, 0.0, 1.0),
+                    is_root=True,
+                ),
+                SimLink(
+                    name="arm",
+                    mesh_path="/tmp/arm.stl",
+                    mass_kg=1.0,
+                    inertia=(0.5, 0.0, 0.0, 0.5, 0.0, 0.5),
+                ),
+            ),
+            joints=(
+                SimJoint(
+                    name="j1",
+                    joint_type="revolute",
+                    parent="base",
+                    child="arm",
+                    axis=(0.0, 0.0, 1.0),
+                    origin_xyz=(0.0, 0.0, 0.1),
+                    limits=(-1.0, 1.0),
+                ),
+            ),
+        )
+
+    def test_write_sdf_basic_structure(self) -> None:
+        model = self._simple_model()
+        with tempfile.NamedTemporaryFile(suffix=".sdf", delete=False) as f:
+            path = f.name
+
+        sdf_path = write_sdf(model, path)
+        self.assertTrue(sdf_path.endswith(".sdf"))
+
+        tree = ET.parse(sdf_path)
+        root = tree.getroot()
+        self.assertEqual(root.tag, "sdf")
+        model_el = root.find("model")
+        self.assertIsNotNone(model_el)
+        self.assertEqual(model_el.attrib.get("name"), "sdf_robot")
+
+        links = model_el.findall("link")
+        self.assertEqual(len(links), 2)
+        mesh_scale = links[0].find("visual/geometry/mesh/scale")
+        self.assertIsNotNone(mesh_scale)
+        self.assertEqual(mesh_scale.text, "0.001 0.001 0.001")
+
+    def test_validate_sdf_detects_dangling_child(self) -> None:
+        with tempfile.NamedTemporaryFile(suffix=".sdf", mode="w", delete=False) as f:
+            f.write(
+                """<?xml version='1.0'?>
+<sdf version="1.10">
+  <model name="bad">
+    <link name="base"/>
+    <joint name="bad_joint" type="revolute">
+      <parent>base</parent>
+      <child>missing</child>
+    </joint>
+  </model>
+</sdf>
+"""
+            )
+            path = f.name
+
+        findings = validate_sdf(path)
+        self.assertTrue(any(f.rule_id == "sdf.dangling_child" for f in findings))
+        self.assertTrue(any(f.severity == Severity.BLOCK for f in findings))
 
 
 if __name__ == "__main__":

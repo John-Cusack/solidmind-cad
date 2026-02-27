@@ -752,5 +752,117 @@ class TestVerifyBuild(unittest.TestCase):
         self.assertIn("random_extra", result["unmatched_bodies"])
 
 
+class TestDesignUpdateBriefAutoRegistersPlan(unittest.TestCase):
+    """Auto-register placement plan when brief transitions to 'building'."""
+
+    def setUp(self) -> None:
+        clear_briefs()
+
+    def tearDown(self) -> None:
+        clear_briefs()
+
+    @patch("server.tools_cad.cad_register_placement_plan")
+    def test_auto_registers_plan_on_building_transition(
+        self, mock_register: Any,
+    ) -> None:
+        mock_register.return_value = {"ok": True, "registered": 2}
+
+        result = design_save_brief(
+            name="Bot",
+            parameters={
+                "layout": {
+                    "positions": {
+                        "chassis": [0, 0, 0],
+                        "arm": [50, 0, 5],
+                    },
+                },
+            },
+            status="approved",
+        )
+        bid = result["brief"]["brief_id"]
+        design_add_part(bid, name="chassis", kind="custom")
+        design_add_part(bid, name="arm", kind="custom",
+                        specs={"position_mm": [50, 0, 5]})
+
+        update = design_update_brief(bid, status="building")
+        self.assertTrue(update["ok"])
+        self.assertEqual(update.get("placement_plan_registered"), 2)
+        mock_register.assert_called_once()
+
+        # Verify the plan contains correct positions
+        call_kwargs = mock_register.call_args[1]
+        plan = call_kwargs["plan"]
+        self.assertIn("chassis", plan)
+        self.assertEqual(plan["chassis"]["position"], [0, 0, 0])
+        self.assertIn("arm", plan)
+        self.assertEqual(plan["arm"]["position"], [50, 0, 5])
+
+    @patch("server.tools_cad.cad_register_placement_plan")
+    def test_no_reregister_when_already_building(
+        self, mock_register: Any,
+    ) -> None:
+        """Updating a brief that's already 'building' should NOT re-register."""
+        result = design_save_brief(
+            name="Bot",
+            parameters={"layout": {"positions": {"chassis": [0, 0, 0]}}},
+            status="building",
+        )
+        bid = result["brief"]["brief_id"]
+        design_add_part(bid, name="chassis", kind="custom")
+
+        # Update something else while already in "building" status
+        update = design_update_brief(bid, name="Bot v2")
+        self.assertTrue(update["ok"])
+        mock_register.assert_not_called()
+
+    @patch("server.tools_cad.cad_register_placement_plan")
+    def test_no_plan_when_no_positions(
+        self, mock_register: Any,
+    ) -> None:
+        """No plan registered when brief has no position data."""
+        result = design_save_brief(
+            name="Bot",
+            parameters={},
+            status="approved",
+        )
+        bid = result["brief"]["brief_id"]
+        design_add_part(bid, name="chassis", kind="custom")
+
+        update = design_update_brief(bid, status="building")
+        self.assertTrue(update["ok"])
+        self.assertNotIn("placement_plan_registered", update)
+        mock_register.assert_not_called()
+
+    @patch("server.tools_cad.cad_register_placement_plan")
+    def test_purchased_parts_excluded(
+        self, mock_register: Any,
+    ) -> None:
+        """Purchased parts should not appear in the placement plan."""
+        mock_register.return_value = {"ok": True, "registered": 1}
+
+        result = design_save_brief(
+            name="Bot",
+            parameters={
+                "layout": {
+                    "positions": {
+                        "chassis": [0, 0, 0],
+                        "motor": [50, 0, 5],
+                    },
+                },
+            },
+            status="approved",
+        )
+        bid = result["brief"]["brief_id"]
+        design_add_part(bid, name="chassis", kind="custom")
+        design_add_part(bid, name="motor", kind="purchased")
+
+        update = design_update_brief(bid, status="building")
+        self.assertTrue(update["ok"])
+        mock_register.assert_called_once()
+        plan = mock_register.call_args[1]["plan"]
+        self.assertIn("chassis", plan)
+        self.assertNotIn("motor", plan)
+
+
 if __name__ == "__main__":
     unittest.main()

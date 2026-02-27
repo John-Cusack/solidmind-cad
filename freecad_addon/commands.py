@@ -119,6 +119,28 @@ def get_model_tree(doc: str | None = None, detail: str = "bodies") -> dict[str, 
             except Exception:
                 entry["tip"] = None
             entry["feature_count"] = len(obj.Group)
+            # Placement position & rotation
+            plc = obj.Placement
+            entry["position"] = [
+                round(plc.Base.x, 3),
+                round(plc.Base.y, 3),
+                round(plc.Base.z, 3),
+            ]
+            rot = plc.Rotation
+            entry["rotation_angle_deg"] = round(math.degrees(rot.Angle), 3)
+            axis = rot.Axis
+            entry["rotation_axis"] = [round(axis.x, 6), round(axis.y, 6), round(axis.z, 6)]
+            # World-space bounding box from tip shape
+            try:
+                tip = _get_tip(obj)
+                if hasattr(tip, "Shape") and tip.Shape is not None:
+                    bb = tip.Shape.BoundBox
+                    entry["world_bbox"] = {
+                        "min": [round(bb.XMin, 2), round(bb.YMin, 2), round(bb.ZMin, 2)],
+                        "max": [round(bb.XMax, 2), round(bb.YMax, 2), round(bb.ZMax, 2)],
+                    }
+            except Exception:
+                pass
             bodies.append(entry)
 
     for obj in d.Objects:
@@ -3857,6 +3879,123 @@ def delete_objects(
     return {"deleted": deleted, "not_found": not_found}
 
 
+# ---------------------------------------------------------------------------
+# Placement Plan
+# ---------------------------------------------------------------------------
+
+_placement_plan: dict[str, dict[str, Any]] = {}
+_placement_plan_default_tolerance_mm: float = 5.0
+
+
+def register_placement_plan(
+    plan: dict[str, dict[str, Any]],
+    default_tolerance_mm: float = 5.0,
+    doc: str | None = None,
+) -> dict[str, Any]:
+    """Register expected positions/rotations/sizes for bodies.
+
+    Each entry in *plan* maps a body label to a dict with optional keys:
+    - ``position``: [x, y, z] expected position in mm (required)
+    - ``rotation_axis``: [ax, ay, az] expected rotation axis
+    - ``rotation_angle_deg``: expected rotation angle in degrees
+    - ``expected_size``: [sx, sy, sz] expected bounding box size in mm
+    - ``tolerance_mm``: per-body position tolerance (overrides default)
+
+    Only ``position`` is required per entry; the rest are optional.
+    Returns the count and labels of registered entries.
+    """
+    global _placement_plan_default_tolerance_mm  # noqa: PLW0603
+    _placement_plan.clear()
+    _placement_plan_default_tolerance_mm = default_tolerance_mm
+
+    labels: list[str] = []
+    for label, entry in plan.items():
+        if not isinstance(entry, dict):
+            continue
+        if "position" not in entry:
+            continue
+        _placement_plan[label] = entry
+        labels.append(label)
+
+    return {"registered": len(labels), "labels": labels}
+
+
+def clear_placement_plan(doc: str | None = None) -> dict[str, Any]:
+    """Clear the registered placement plan.
+
+    Returns the count of entries that were cleared.
+    """
+    n = len(_placement_plan)
+    _placement_plan.clear()
+    return {"cleared": n}
+
+
+def _check_placement_against_plan(
+    obj: Any,
+    plan_entry: dict[str, Any],
+    doc: Any,
+) -> dict[str, Any]:
+    """Validate an object's placement against its plan entry.
+
+    Returns a dict with position_status, rotation_status, and size_status.
+    """
+    _ROTATION_TOLERANCE_DEG = 2.0
+
+    plan_check: dict[str, Any] = {}
+    p = obj.Placement
+
+    # --- Position check ---
+    exp_pos = plan_entry.get("position")
+    if exp_pos is not None and len(exp_pos) >= 3:
+        actual_pos = [p.Base.x, p.Base.y, p.Base.z]
+        drift = math.sqrt(sum(
+            (a - e) ** 2 for a, e in zip(actual_pos, exp_pos)
+        ))
+        tol = plan_entry.get("tolerance_mm", _placement_plan_default_tolerance_mm)
+        plan_check["drift_mm"] = round(drift, 3)
+        plan_check["position_status"] = "OK" if drift <= tol else "DRIFT"
+
+    # --- Rotation check ---
+    exp_angle = plan_entry.get("rotation_angle_deg")
+    if exp_angle is not None:
+        actual_angle = math.degrees(p.Rotation.Angle)
+        # Normalize angles to 0-360 range for comparison
+        actual_norm = actual_angle % 360.0
+        exp_norm = float(exp_angle) % 360.0
+        delta = abs(actual_norm - exp_norm)
+        if delta > 180.0:
+            delta = 360.0 - delta
+        plan_check["angle_delta_deg"] = round(delta, 3)
+        plan_check["rotation_status"] = (
+            "OK" if delta <= _ROTATION_TOLERANCE_DEG else "ROTATION_MISMATCH"
+        )
+
+    # --- Size check ---
+    exp_size = plan_entry.get("expected_size")
+    if exp_size is not None and len(exp_size) >= 3:
+        try:
+            tip = _get_tip(obj)
+            if hasattr(tip, "Shape") and tip.Shape is not None and not tip.Shape.isNull():
+                bb = tip.Shape.BoundBox
+                actual_size = sorted([bb.XLength, bb.YLength, bb.ZLength])
+                expected_sorted = sorted(float(s) for s in exp_size)
+                max_dim = max(max(actual_size), max(expected_sorted), 1e-9)
+                size_tol = max(max_dim * 0.10, 1.0)
+                mismatches = [
+                    abs(a - e) for a, e in zip(actual_size, expected_sorted)
+                ]
+                max_mismatch = max(mismatches)
+                plan_check["actual_size"] = [round(s, 2) for s in actual_size]
+                plan_check["expected_size"] = [round(s, 2) for s in expected_sorted]
+                plan_check["size_status"] = (
+                    "OK" if max_mismatch <= size_tol else "SIZE_MISMATCH"
+                )
+        except Exception:
+            pass
+
+    return plan_check
+
+
 def set_placement(
     object_name: str,
     position: list[float] | None = None,
@@ -3865,6 +4004,10 @@ def set_placement(
     doc: str | None = None,
 ) -> dict[str, Any]:
     """Set the Placement of any FreeCAD object (body, link, etc.).
+
+    When a placement plan is registered (via ``register_placement_plan``),
+    the response includes a ``plan_check`` dict with position/rotation/size
+    validation against the plan.
 
     Parameters:
         object_name: Name of the FreeCAD object.
@@ -3895,12 +4038,20 @@ def set_placement(
     d.recompute()
 
     p = obj.Placement
-    return {
+    result: dict[str, Any] = {
         "object": object_name,
         "position": [p.Base.x, p.Base.y, p.Base.z],
         "rotation_angle_deg": round(math.degrees(p.Rotation.Angle), 6),
         "rotation_axis": list(p.Rotation.Axis),
     }
+
+    # Validate against placement plan if registered
+    plan_entry = _placement_plan.get(obj.Label) or _placement_plan.get(object_name)
+    if plan_entry is not None:
+        plan_check = _check_placement_against_plan(obj, plan_entry, d)
+        result["plan_check"] = plan_check
+
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -4221,6 +4372,427 @@ def measure_between(
     }
 
 
+# ---------------------------------------------------------------------------
+# Hole detection
+# ---------------------------------------------------------------------------
+
+def find_holes(
+    body: str | None = None,
+    doc: str | None = None,
+    min_diameter: float = 0.0,
+    max_diameter: float = 200.0,
+) -> dict[str, Any]:
+    """Find cylindrical holes in a body.
+
+    Returns structured info for each cylindrical face: face name, diameter,
+    axis direction, center position, and depth along the axis.  The caller
+    can group co-axial cylinders and match diameters to bolt sizes.
+    """
+    d = _get_doc(doc)
+    body_obj = _resolve_body(d, body)
+    tip = _get_tip(body_obj)
+    shape = tip.Shape
+
+    holes: list[dict[str, Any]] = []
+    for i, face in enumerate(shape.Faces):
+        surface = face.Surface
+        surface_type = type(surface).__name__
+        if surface_type != "Cylinder":
+            continue
+
+        radius = surface.Radius
+        diameter = radius * 2
+        if diameter < min_diameter or diameter > max_diameter:
+            continue
+
+        axis = surface.Axis
+        center = surface.Center
+
+        # Compute depth from vertex projections along the cylinder axis
+        projections: list[float] = []
+        for edge in face.Edges:
+            for v in edge.Vertexes:
+                vec = v.Point - center
+                proj = vec.x * axis.x + vec.y * axis.y + vec.z * axis.z
+                projections.append(proj)
+
+        depth = (max(projections) - min(projections)) if projections else 0.0
+
+        # Compute the midpoint along the axis (useful for positioning)
+        if projections:
+            mid_proj = (max(projections) + min(projections)) / 2
+            mid_point = [
+                center.x + axis.x * mid_proj,
+                center.y + axis.y * mid_proj,
+                center.z + axis.z * mid_proj,
+            ]
+        else:
+            mid_point = [center.x, center.y, center.z]
+
+        holes.append({
+            "face": f"Face{i + 1}",
+            "diameter_mm": round(diameter, 4),
+            "radius_mm": round(radius, 4),
+            "depth_mm": round(depth, 4),
+            "axis": [round(axis.x, 6), round(axis.y, 6), round(axis.z, 6)],
+            "center": [round(center.x, 4), round(center.y, 4), round(center.z, 4)],
+            "midpoint": [round(v, 4) for v in mid_point],
+        })
+
+    return {
+        "body": body_obj.Name,
+        "hole_count": len(holes),
+        "holes": holes,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Batch clearance check
+# ---------------------------------------------------------------------------
+
+def check_clearance(
+    bodies: list[str] | None = None,
+    threshold_mm: float = 0.5,
+    doc: str | None = None,
+) -> dict[str, Any]:
+    """Check minimum distance between all body pairs.
+
+    Returns violations (pairs closer than *threshold_mm*) and an ``all_clear``
+    flag.  Uses ``distToShape()`` on each pair's tip shape.
+    """
+    d = _get_doc(doc)
+
+    # Collect target bodies
+    if bodies:
+        body_objs = []
+        for name in bodies:
+            obj = d.getObject(name)
+            if obj is None:
+                raise ValueError(f"Body '{name}' not found")
+            body_objs.append(obj)
+    else:
+        body_objs = [
+            obj for obj in d.Objects
+            if obj.TypeId == "PartDesign::Body"
+        ]
+
+    # Filter to bodies that have a tip with a shape
+    valid: list[tuple[str, Any]] = []
+    for obj in body_objs:
+        try:
+            tip = _get_tip(obj)
+            if tip.Shape and not tip.Shape.isNull():
+                valid.append((obj.Name, tip.Shape))
+        except Exception:
+            continue
+
+    violations: list[dict[str, Any]] = []
+    pairs_checked = 0
+
+    for i in range(len(valid)):
+        for j in range(i + 1, len(valid)):
+            name_a, shape_a = valid[i]
+            name_b, shape_b = valid[j]
+            pairs_checked += 1
+
+            dist, solutions, _info_a, _info_b = shape_a.distToShape(shape_b)
+            intersecting = dist < 1e-6
+
+            if dist < threshold_mm:
+                pt_a = list(solutions[0][0]) if solutions else []
+                pt_b = list(solutions[0][1]) if solutions else []
+                violations.append({
+                    "body_a": name_a,
+                    "body_b": name_b,
+                    "distance_mm": round(dist, 4),
+                    "intersecting": intersecting,
+                    "point_a": [round(v, 4) for v in pt_a],
+                    "point_b": [round(v, 4) for v in pt_b],
+                })
+
+    return {
+        "pairs_checked": pairs_checked,
+        "threshold_mm": threshold_mm,
+        "violation_count": len(violations),
+        "violations": violations,
+        "all_clear": len(violations) == 0,
+    }
+
+
+def check_swept_clearance(
+    body: str,
+    axis: list[float] | None = None,
+    center: list[float] | None = None,
+    angle_deg: float = 360.0,
+    steps: int = 36,
+    others: list[str] | None = None,
+    threshold_mm: float = 0.5,
+    doc: str | None = None,
+) -> dict[str, Any]:
+    """Rotate a copy of *body*'s shape through *steps* increments and check
+    ``distToShape`` against other bodies at each angle.
+
+    Returns per-pair minimum distance and the angle where the closest
+    approach occurs.  No document modifications are made.
+    """
+    d = _get_doc(doc)
+    if axis is None:
+        axis = [0.0, 0.0, 1.0]
+    if center is None:
+        center = [0.0, 0.0, 0.0]
+
+    # Rotating body
+    rot_obj = d.getObject(body)
+    if rot_obj is None:
+        raise ValueError(f"Body '{body}' not found")
+    rot_tip = _get_tip(rot_obj)
+    if rot_tip.Shape is None or rot_tip.Shape.isNull():
+        raise ValueError(f"Body '{body}' has no valid shape")
+    rot_shape = rot_tip.Shape
+
+    # Other bodies
+    if others:
+        other_objs = []
+        for name in others:
+            obj = d.getObject(name)
+            if obj is None:
+                raise ValueError(f"Body '{name}' not found")
+            other_objs.append(obj)
+    else:
+        other_objs = [
+            obj for obj in d.Objects
+            if obj.TypeId == "PartDesign::Body" and obj.Name != body
+        ]
+
+    other_shapes: list[tuple[str, Any]] = []
+    for obj in other_objs:
+        try:
+            tip = _get_tip(obj)
+            if tip.Shape and not tip.Shape.isNull():
+                other_shapes.append((obj.Name, tip.Shape))
+        except Exception:
+            continue
+
+    axis_vec = FreeCAD.Vector(*axis)
+    center_vec = FreeCAD.Vector(*center)
+
+    # Track per-pair minimum distance
+    pair_best: dict[str, dict[str, Any]] = {}
+    for other_name, _ in other_shapes:
+        pair_best[other_name] = {
+            "min_distance_mm": float("inf"),
+            "worst_angle_deg": 0.0,
+            "intersecting": False,
+            "point_a": [],
+            "point_b": [],
+        }
+
+    for i in range(steps):
+        angle = angle_deg * i / steps
+        rot = FreeCAD.Rotation(axis_vec, angle)
+        new_base = center_vec - rot.multVec(center_vec)
+        shape_copy = rot_shape.copy()
+        shape_copy.Placement = FreeCAD.Placement(new_base, rot)
+
+        for other_name, other_shape in other_shapes:
+            dist, solutions, _info_a, _info_b = shape_copy.distToShape(other_shape)
+            if dist < pair_best[other_name]["min_distance_mm"]:
+                pt_a = list(solutions[0][0]) if solutions else []
+                pt_b = list(solutions[0][1]) if solutions else []
+                pair_best[other_name] = {
+                    "min_distance_mm": round(dist, 4),
+                    "worst_angle_deg": round(angle, 4),
+                    "intersecting": dist < 1e-6,
+                    "point_a": [round(v, 4) for v in pt_a],
+                    "point_b": [round(v, 4) for v in pt_b],
+                }
+
+    violations: list[dict[str, Any]] = []
+    for other_name, best in pair_best.items():
+        if best["min_distance_mm"] < threshold_mm:
+            violations.append({"other_body": other_name, **best})
+
+    return {
+        "body": body,
+        "steps": steps,
+        "angle_deg": angle_deg,
+        "pairs_checked": len(other_shapes),
+        "violation_count": len(violations),
+        "violations": violations,
+        "all_clear": len(violations) == 0,
+    }
+
+
+def assembly_audit(
+    cluster_radius_mm: float = 1.0,
+    isolation_radius_mm: float = 500.0,
+    overlap_fraction: float = 0.8,
+    expected_positions: dict[str, list[float]] | None = None,
+    doc: str | None = None,
+) -> dict[str, Any]:
+    """Spatial coherence audit for multi-body assemblies.
+
+    Returns all bodies with positions + bounding boxes, plus automatic
+    anomaly warnings:
+    - CLUSTER: N bodies within *cluster_radius_mm* of same position
+    - ISOLATED: body farther than *isolation_radius_mm* from all neighbors
+    - OVERLAP: two bodies with >*overlap_fraction* bounding box overlap
+    - DRIFT: position differs >5mm from *expected_positions* dict
+    """
+    d = _get_doc(doc)
+
+    # Collect body spatial data
+    body_data: list[dict[str, Any]] = []
+    for obj in d.Objects:
+        if obj.TypeId != "PartDesign::Body":
+            continue
+        plc = obj.Placement
+        pos = [round(plc.Base.x, 3), round(plc.Base.y, 3), round(plc.Base.z, 3)]
+        entry: dict[str, Any] = {
+            "name": obj.Name,
+            "label": obj.Label,
+            "position": pos,
+        }
+        try:
+            tip = _get_tip(obj)
+            if hasattr(tip, "Shape") and tip.Shape is not None:
+                bb = tip.Shape.BoundBox
+                entry["world_bbox"] = {
+                    "min": [round(bb.XMin, 2), round(bb.YMin, 2), round(bb.ZMin, 2)],
+                    "max": [round(bb.XMax, 2), round(bb.YMax, 2), round(bb.ZMax, 2)],
+                }
+                entry["size"] = [
+                    round(bb.XLength, 2),
+                    round(bb.YLength, 2),
+                    round(bb.ZLength, 2),
+                ]
+        except Exception:
+            pass
+        body_data.append(entry)
+
+    n = len(body_data)
+    anomalies: list[dict[str, Any]] = []
+
+    # Helper: Euclidean distance between two 3D points
+    def _dist(a: list[float], b: list[float]) -> float:
+        return math.sqrt(sum((ai - bi) ** 2 for ai, bi in zip(a, b)))
+
+    # Helper: bounding box overlap fraction (intersection volume / smaller volume)
+    def _bbox_overlap(a: dict[str, Any], b: dict[str, Any]) -> float:
+        a_min, a_max = a["min"], a["max"]
+        b_min, b_max = b["min"], b["max"]
+        ix = max(0, min(a_max[0], b_max[0]) - max(a_min[0], b_min[0]))
+        iy = max(0, min(a_max[1], b_max[1]) - max(a_min[1], b_min[1]))
+        iz = max(0, min(a_max[2], b_max[2]) - max(a_min[2], b_min[2]))
+        intersection = ix * iy * iz
+        if intersection == 0:
+            return 0.0
+        vol_a = max(1e-9, (a_max[0] - a_min[0]) * (a_max[1] - a_min[1]) * (a_max[2] - a_min[2]))
+        vol_b = max(1e-9, (b_max[0] - b_min[0]) * (b_max[1] - b_min[1]) * (b_max[2] - b_min[2]))
+        return intersection / min(vol_a, vol_b)
+
+    # CLUSTER detection: bodies within cluster_radius_mm of each other
+    clusters: dict[int, list[int]] = {}  # cluster_id → [body indices]
+    visited: set[int] = set()
+    for i in range(n):
+        if i in visited:
+            continue
+        group = [i]
+        visited.add(i)
+        for j in range(i + 1, n):
+            if j in visited:
+                continue
+            if _dist(body_data[i]["position"], body_data[j]["position"]) <= cluster_radius_mm:
+                group.append(j)
+                visited.add(j)
+        if len(group) > 1:
+            clusters[i] = group
+
+    for _cid, indices in clusters.items():
+        names = [body_data[idx]["label"] for idx in indices]
+        pos = body_data[indices[0]]["position"]
+        anomalies.append({
+            "type": "CLUSTER",
+            "message": f"{len(names)} bodies at ~{pos}: {', '.join(names)}",
+            "bodies": names,
+            "position": pos,
+        })
+
+    # ISOLATED detection: body farther than isolation_radius_mm from all others
+    for i in range(n):
+        if n <= 1:
+            break
+        min_d = min(
+            _dist(body_data[i]["position"], body_data[j]["position"])
+            for j in range(n) if j != i
+        )
+        if min_d > isolation_radius_mm:
+            anomalies.append({
+                "type": "ISOLATED",
+                "message": (
+                    f"{body_data[i]['label']} at {body_data[i]['position']} "
+                    f"is {round(min_d, 1)}mm from nearest neighbor"
+                ),
+                "body": body_data[i]["label"],
+                "nearest_distance_mm": round(min_d, 1),
+            })
+
+    # OVERLAP detection: bounding box overlap > overlap_fraction
+    for i in range(n):
+        if "world_bbox" not in body_data[i]:
+            continue
+        for j in range(i + 1, n):
+            if "world_bbox" not in body_data[j]:
+                continue
+            frac = _bbox_overlap(body_data[i]["world_bbox"], body_data[j]["world_bbox"])
+            if frac > overlap_fraction:
+                anomalies.append({
+                    "type": "OVERLAP",
+                    "message": (
+                        f"{body_data[i]['label']} and {body_data[j]['label']} "
+                        f"overlap {round(frac * 100, 1)}%"
+                    ),
+                    "body_a": body_data[i]["label"],
+                    "body_b": body_data[j]["label"],
+                    "overlap_pct": round(frac * 100, 1),
+                })
+
+    # Auto-use registered placement plan for DRIFT detection
+    if expected_positions is None and _placement_plan:
+        expected_positions = {
+            label: entry["position"]
+            for label, entry in _placement_plan.items()
+            if "position" in entry
+        }
+
+    # DRIFT detection: position vs expected_positions
+    if expected_positions:
+        for bd in body_data:
+            exp = expected_positions.get(bd["label"]) or expected_positions.get(bd["name"])
+            if exp is None:
+                continue
+            drift = _dist(bd["position"], exp)
+            if drift > 5.0:
+                anomalies.append({
+                    "type": "DRIFT",
+                    "message": (
+                        f"{bd['label']} at {bd['position']} vs expected "
+                        f"{exp} — drift {round(drift, 1)}mm"
+                    ),
+                    "body": bd["label"],
+                    "actual": bd["position"],
+                    "expected": exp,
+                    "drift_mm": round(drift, 1),
+                })
+
+    return {
+        "body_count": n,
+        "bodies": body_data,
+        "anomaly_count": len(anomalies),
+        "anomalies": anomalies,
+    }
+
+
 COMMAND_HANDLERS: dict[str, Any] = {
     "new_document": new_document,
     "new_body": new_body,
@@ -4284,4 +4856,10 @@ COMMAND_HANDLERS: dict[str, Any] = {
     "create_primitives": create_primitives,
     "check_joint_connectivity": check_joint_connectivity,
     "measure_between": measure_between,
+    "find_holes": find_holes,
+    "check_clearance": check_clearance,
+    "check_swept_clearance": check_swept_clearance,
+    "register_placement_plan": register_placement_plan,
+    "clear_placement_plan": clear_placement_plan,
+    "assembly_audit": assembly_audit,
 }

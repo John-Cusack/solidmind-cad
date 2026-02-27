@@ -156,12 +156,18 @@ class TeleopConfig:
     body_width: float = 0.15
 
     # Gait parameters
-    step_height: float = 0.03
+    step_height: float = 0.012
     stance_height: float = -0.09
-    stride_length: float = 0.06
+    stride_length: float = 0.04
     duty_factor: float = 0.65
 
-    # Per-leg joint names: flat tuple, groups of 3 (coxa, femur, tibia)
+    # 2-DOF femur lift angle during swing phase (degrees)
+    lift_deg: float = 15.0
+
+    # Degrees-per-leg: 2 for 2-DOF (coxa+femur), 3 for 3-DOF (coxa+femur+tibia)
+    dofs_per_leg: int = 3
+
+    # Per-leg joint names: flat tuple, groups of dofs_per_leg
     # Order: LF, LM, LR, RF, RM, RR (matching leg_phase_offsets)
     leg_joint_names: tuple[str, ...] = (
         "coxa_lf", "femur_lf", "tibia_lf",
@@ -259,6 +265,16 @@ class TeleopConfig:
         if sh is not None:
             kwargs["stance_height"] = _check_finite("stance_height", sh)
 
+        ld = profile.get("lift_deg")
+        if ld is not None:
+            kwargs["lift_deg"] = _check_non_negative("lift_deg", ld)
+
+        dpl = profile.get("dofs_per_leg")
+        if dpl is not None:
+            if dpl not in (2, 3):
+                raise TeleopConfigError("dofs_per_leg must be 2 or 3")
+            kwargs["dofs_per_leg"] = int(dpl)
+
         df = profile.get("duty_factor")
         if df is not None:
             v = _check_positive("duty_factor", df)
@@ -303,6 +319,8 @@ class TeleopConfig:
         # Validation dispatch based on controller type
         if config.controller_type == "hexapod_3dof_tripod":
             _validate_3dof_consistency(config)
+        elif config.controller_type == "hexapod_2dof_tripod":
+            _validate_2dof_consistency(config)
         elif config.controller_type in ("rl_residual", "quad_spin"):
             if len(config.joint_names) < 1:
                 raise TeleopConfigError("joint_names must have at least 1 entry")
@@ -344,6 +362,24 @@ class TeleopConfig:
             "leg_phase_offsets": list(self.leg_phase_offsets),
             "hip_mounts": [list(m) for m in self.hip_mounts],
         }
+
+
+def _validate_2dof_consistency(config: TeleopConfig) -> None:
+    """Validate 2-DOF hexapod configuration."""
+    n_joints = len(config.leg_joint_names)
+    if n_joints < 2 or n_joints % 2 != 0:
+        raise TeleopConfigError(
+            f"leg_joint_names length must be a positive multiple of 2, got {n_joints}"
+        )
+    n_legs = n_joints // 2
+    if len(config.leg_phase_offsets) != n_legs:
+        raise TeleopConfigError(
+            f"leg_phase_offsets length ({len(config.leg_phase_offsets)}) "
+            f"must equal number of legs ({n_legs})"
+        )
+    # Set joint_names to all leg joints so runtime resolves all 12 DOFs.
+    object.__setattr__(config, "joint_names", config.leg_joint_names)
+    object.__setattr__(config, "dofs_per_leg", 2)
 
 
 def _validate_3dof_consistency(config: TeleopConfig) -> None:

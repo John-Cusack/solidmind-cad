@@ -570,10 +570,18 @@ def cad_chamfer(
 
 
 @_wrap
-def cad_get_dimensions(object_name: str, doc: str | None = None) -> dict[str, Any]:
+def cad_get_dimensions(
+    object_name: str | None = None,
+    doc: str | None = None,
+    body: str | None = None,
+) -> dict[str, Any]:
     """Get bounding box, volume, surface area, and topology counts of an object."""
+    # Accept 'body' as alias for 'object_name' (LLMs often confuse the two)
+    name = object_name or body
+    if not name:
+        return _error_result("INVALID_INPUT", "object_name (or body) is required")
     client = get_client()
-    kwargs: dict[str, Any] = {"object_name": object_name}
+    kwargs: dict[str, Any] = {"object_name": name}
     if doc is not None:
         kwargs["doc"] = doc
     result = client.send_command("get_dimensions", **kwargs)
@@ -853,7 +861,11 @@ def cad_set_placement(
     rotation_angle_deg: float = 0.0,
     doc: str | None = None,
 ) -> dict[str, Any]:
-    """Set the Placement of any FreeCAD object (body, link, etc.)."""
+    """Set the Placement of any FreeCAD object (body, link, etc.).
+
+    When a placement plan is registered, the response includes a
+    ``plan_check`` dict with position/rotation/size validation.
+    """
     client = get_client()
     kwargs: dict[str, Any] = {"object_name": object_name}
     if position is not None:
@@ -911,6 +923,7 @@ def cad_export_sim_package(
     format: str = "stl",
     output_dir: str | None = None,
     mechanism_id: str | None = None,
+    emit_sdf: bool = False,
     ground_clearance_m: float | None = None,
     doc: str | None = None,
 ) -> dict[str, Any]:
@@ -920,10 +933,19 @@ def cad_export_sim_package(
     1. Exports all (or specified) bodies as individual STLs — one TCP round trip
     2. Returns each body's Placement (position + rotation quaternion)
     3. If ``mechanism_id`` is provided, generates URDF from the mechanism definition
+    4. If ``emit_sdf=True``, also emits SDF beside URDF for Gazebo workflows
     """
     import os
     from server import motion_store
-    from server.sim_export import MeshBBox, build_sim_model, validate_urdf, validate_urdf_fk, write_urdf
+    from server.sim_export import (
+        MeshBBox,
+        build_sim_model,
+        validate_sdf,
+        validate_urdf,
+        validate_urdf_fk,
+        write_sdf,
+        write_urdf,
+    )
 
     client = get_client()
     kwargs: dict[str, Any] = {"format": format}
@@ -946,18 +968,26 @@ def cad_export_sim_package(
             )
 
         body_manifest = result.get("bodies", [])
+        mesh_findings: list = []
         sim_model = build_sim_model(
             mechanism,
             body_manifest,
             ground_clearance_m=ground_clearance_m,
+            mesh_findings=mesh_findings,
         )
 
         pkg_dir = result.get("output_dir", output_dir or ".")
         urdf_path = os.path.join(pkg_dir, f"{sim_model.name}.urdf")
-        urdf_path = write_urdf(sim_model, urdf_path, base_dir=pkg_dir)
+        urdf_path = write_urdf(
+            sim_model, urdf_path,
+            base_dir=pkg_dir,
+            absolute_mesh_paths=True,
+        )
 
         # Post-generation validation: structural
         urdf_findings = validate_urdf(urdf_path)
+        # Include any mesh extent warnings from build_sim_model
+        urdf_findings.extend(mesh_findings)
 
         # Post-generation validation: forward-kinematics geometric checks
         fk_mesh_bboxes: dict[str, MeshBBox] | None = None
@@ -1001,6 +1031,18 @@ def cad_export_sim_package(
             result["urdf_validation"] = [f.to_dict() for f in urdf_findings]
         if blockers:
             result["urdf_validation_blocked"] = True
+
+        if emit_sdf:
+            sdf_path = os.path.join(pkg_dir, f"{sim_model.name}.sdf")
+            sdf_path = write_sdf(
+                sim_model, sdf_path,
+                base_dir=pkg_dir,
+                absolute_mesh_paths=True,
+            )
+            sdf_findings = validate_sdf(sdf_path)
+            result["sdf_path"] = sdf_path
+            if sdf_findings:
+                result["sdf_validation"] = [f.to_dict() for f in sdf_findings]
 
     return {"ok": True, **result}
 
@@ -1062,12 +1104,137 @@ def cad_measure_between(
 
 
 @_wrap
+def cad_check_clearance(
+    bodies: list[str] | None = None,
+    threshold_mm: float = 0.5,
+    doc: str | None = None,
+) -> dict[str, Any]:
+    """Batch clearance check between all body pairs.
+
+    Returns violations (pairs closer than *threshold_mm*) and ``all_clear``.
+    """
+    client = get_client()
+    kwargs: dict[str, Any] = {"threshold_mm": threshold_mm}
+    if bodies is not None:
+        kwargs["bodies"] = bodies
+    if doc is not None:
+        kwargs["doc"] = doc
+    result = client.send_command("check_clearance", **kwargs)
+    return {"ok": True, **result}
+
+
+@_wrap
+def cad_check_swept_clearance(
+    body: str,
+    axis: list[float] | None = None,
+    center: list[float] | None = None,
+    angle_deg: float = 360.0,
+    steps: int = 36,
+    others: list[str] | None = None,
+    threshold_mm: float = 0.5,
+    doc: str | None = None,
+) -> dict[str, Any]:
+    """Swept clearance check — rotate *body* through angular steps and check
+    ``distToShape`` against other bodies at each angle.
+
+    Returns violations (pairs where min distance < threshold across sweep).
+    """
+    client = get_client()
+    kwargs: dict[str, Any] = {
+        "body": body,
+        "angle_deg": angle_deg,
+        "steps": steps,
+        "threshold_mm": threshold_mm,
+    }
+    if axis is not None:
+        kwargs["axis"] = axis
+    if center is not None:
+        kwargs["center"] = center
+    if others is not None:
+        kwargs["others"] = others
+    if doc is not None:
+        kwargs["doc"] = doc
+    result = client.send_command("check_swept_clearance", **kwargs)
+    return {"ok": True, **result}
+
+
+@_wrap
+def cad_register_placement_plan(
+    plan: dict[str, dict[str, Any]],
+    default_tolerance_mm: float = 5.0,
+    doc: str | None = None,
+) -> dict[str, Any]:
+    """Register expected positions/rotations/sizes for bodies.
+
+    Each entry maps a body label to a dict with ``position`` (required)
+    and optional ``rotation_axis``, ``rotation_angle_deg``,
+    ``expected_size``, ``tolerance_mm``.
+
+    After registration, every ``cad.set_placement`` automatically validates
+    against this plan.
+    """
+    client = get_client()
+    kwargs: dict[str, Any] = {
+        "plan": plan,
+        "default_tolerance_mm": default_tolerance_mm,
+    }
+    if doc is not None:
+        kwargs["doc"] = doc
+    result = client.send_command("register_placement_plan", **kwargs)
+    return {"ok": True, **result}
+
+
+@_wrap
+def cad_clear_placement_plan(doc: str | None = None) -> dict[str, Any]:
+    """Clear the registered placement plan."""
+    client = get_client()
+    kwargs: dict[str, Any] = {}
+    if doc is not None:
+        kwargs["doc"] = doc
+    result = client.send_command("clear_placement_plan", **kwargs)
+    return {"ok": True, **result}
+
+
+@_wrap
+def cad_assembly_audit(
+    cluster_radius_mm: float = 1.0,
+    isolation_radius_mm: float = 500.0,
+    overlap_fraction: float = 0.8,
+    expected_positions: dict[str, list[float]] | None = None,
+    doc: str | None = None,
+) -> dict[str, Any]:
+    """Spatial coherence audit for multi-body assemblies.
+
+    Returns all bodies with positions + bounding boxes, plus anomaly
+    warnings (CLUSTER, ISOLATED, OVERLAP, DRIFT).
+    """
+    client = get_client()
+    kwargs: dict[str, Any] = {
+        "cluster_radius_mm": cluster_radius_mm,
+        "isolation_radius_mm": isolation_radius_mm,
+        "overlap_fraction": overlap_fraction,
+    }
+    if expected_positions is not None:
+        kwargs["expected_positions"] = expected_positions
+    if doc is not None:
+        kwargs["doc"] = doc
+    result = client.send_command("assembly_audit", **kwargs)
+    return {"ok": True, **result}
+
+
+@_wrap
 def cad_create_primitives(
     items: list[dict[str, Any]],
     verify: bool = True,
     doc: str | None = None,
 ) -> dict[str, Any]:
-    """Create multiple simple positioned solid bodies in one call."""
+    """Create multiple simple positioned solid bodies in one call.
+
+    For articulated mechanisms: this creates separate bodies that overlap
+    without structural fusion.  Each kinematic segment (rigid part between
+    two joints) should be ONE composite body via sketch + pad + pocket.
+    Use this tool only for layout visualization or static assemblies.
+    """
     client = get_client()
     kwargs: dict[str, Any] = {"items": items, "verify": verify}
     if doc is not None:

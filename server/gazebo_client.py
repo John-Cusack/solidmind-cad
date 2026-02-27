@@ -230,7 +230,9 @@ class GazeboClient:
         output_interval: float = 0.01,
         profile: dict[str, Any] | None = None,
         urdf_path: str | None = None,
+        sdf_path: str | None = None,
         import_config: dict[str, Any] | None = None,
+        world_name: str | None = None,
     ) -> dict[str, Any]:
         """Run batch simulation and return summary/time-series data."""
         kwargs: dict[str, Any] = {
@@ -242,8 +244,12 @@ class GazeboClient:
         }
         if urdf_path is not None:
             kwargs["urdf_path"] = urdf_path
+        if sdf_path is not None:
+            kwargs["sdf_path"] = sdf_path
         if import_config is not None:
             kwargs["import_config"] = import_config
+        if world_name is not None:
+            kwargs["world_name"] = world_name
         return self.send_command(
             "simulate",
             timeout=max(self._read_timeout, duration_s * 100),
@@ -255,8 +261,10 @@ class GazeboClient:
         mechanism: dict[str, Any],
         profile: dict[str, Any] | None = None,
         urdf_path: str | None = None,
+        sdf_path: str | None = None,
         import_config: dict[str, Any] | None = None,
         verify: bool = True,
+        world_name: str | None = None,
     ) -> dict[str, Any]:
         """Start a teleop session in Gazebo."""
         kwargs: dict[str, Any] = {
@@ -266,9 +274,65 @@ class GazeboClient:
         }
         if urdf_path is not None:
             kwargs["urdf_path"] = urdf_path
+        if sdf_path is not None:
+            kwargs["sdf_path"] = sdf_path
         if import_config is not None:
             kwargs["import_config"] = import_config
+        if world_name is not None:
+            kwargs["world_name"] = world_name
         return self.send_command("teleop_start", **kwargs)
+
+    def spawn_model(
+        self,
+        *,
+        model_name: str | None = None,
+        urdf_path: str | None = None,
+        sdf_path: str | None = None,
+        world_name: str | None = None,
+    ) -> dict[str, Any]:
+        """Spawn a URDF/SDF model into a Gazebo world."""
+        kwargs: dict[str, Any] = {}
+        if model_name is not None:
+            kwargs["model_name"] = model_name
+        if urdf_path is not None:
+            kwargs["urdf_path"] = urdf_path
+        if sdf_path is not None:
+            kwargs["sdf_path"] = sdf_path
+        if world_name is not None:
+            kwargs["world_name"] = world_name
+        return self.send_command("spawn_model", **kwargs)
+
+    def diagnose(self, world_name: str | None = None) -> dict[str, Any]:
+        """Return bridge/runtime diagnostics."""
+        kwargs: dict[str, Any] = {}
+        if world_name is not None:
+            kwargs["world_name"] = world_name
+        return self.send_command("diagnose", **kwargs)
+
+    def px4_start(
+        self,
+        *,
+        binary: str | None = None,
+        args: list[str] | None = None,
+        system_address: str | None = None,
+    ) -> dict[str, Any]:
+        """Start PX4 SITL lifecycle managed by bridge runtime."""
+        kwargs: dict[str, Any] = {}
+        if binary is not None:
+            kwargs["binary"] = binary
+        if args is not None:
+            kwargs["args"] = args
+        if system_address is not None:
+            kwargs["system_address"] = system_address
+        return self.send_command("px4_start", **kwargs)
+
+    def px4_status(self) -> dict[str, Any]:
+        """Return PX4 lifecycle status."""
+        return self.send_command("px4_status")
+
+    def px4_stop(self) -> dict[str, Any]:
+        """Stop PX4 SITL lifecycle."""
+        return self.send_command("px4_stop")
 
     def teleop_command(
         self,

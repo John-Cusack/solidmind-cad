@@ -30,7 +30,9 @@ class _FakeGazeboBridge:
         self._stop = threading.Event()
         self._sessions: dict[str, dict[str, float]] = {}
         self.last_sim_profile: dict | None = None
+        self.last_sim_paths: dict[str, str] | None = None
         self.last_teleop_profile: dict | None = None
+        self.last_teleop_paths: dict[str, str] | None = None
         self.last_teleop_command_args: dict | None = None
 
     def start(self) -> None:
@@ -99,7 +101,26 @@ class _FakeGazeboBridge:
             duration = float(args.get("duration_s", 1.0))
             mech = args.get("mechanism", {})
             self.last_sim_profile = args.get("profile", {})
+            self.last_sim_paths = {}
+            if args.get("urdf_path"):
+                self.last_sim_paths["urdf_path"] = str(args["urdf_path"])
+            if args.get("sdf_path"):
+                self.last_sim_paths["sdf_path"] = str(args["sdf_path"])
             part_ids = [p.get("id") for p in mech.get("parts", []) if p.get("id")]
+            if self.last_sim_profile.get("raw_samples_only"):
+                return {
+                    "ok": True,
+                    "result": {
+                        "samples": [
+                            {"t": 0.0, "parts": {pid: {"omega_rpm": 0.0} for pid in part_ids}},
+                            {"t": duration, "parts": {pid: {"omega_rpm": 99.9} for pid in part_ids}},
+                        ],
+                        "summary": {
+                            "simulation_time_s": duration,
+                            "steady_state_speeds": {pid: 99.9 for pid in part_ids},
+                        },
+                    },
+                }
             return {
                 "ok": True,
                 "result": {
@@ -116,6 +137,11 @@ class _FakeGazeboBridge:
 
         if name == "teleop_start":
             self.last_teleop_profile = args.get("profile", {})
+            self.last_teleop_paths = {}
+            if args.get("urdf_path"):
+                self.last_teleop_paths["urdf_path"] = str(args["urdf_path"])
+            if args.get("sdf_path"):
+                self.last_teleop_paths["sdf_path"] = str(args["sdf_path"])
             session_id = f"gz_sess_{len(self._sessions) + 1}"
             self._sessions[session_id] = {
                 "vx_mps": 0.0,
@@ -129,6 +155,7 @@ class _FakeGazeboBridge:
                 "result": {
                     "session_id": session_id,
                     "status": "started",
+                    "controller_type": self.last_teleop_profile.get("controller_type", "multirotor_direct"),
                 },
             }
 
@@ -220,6 +247,7 @@ class TestMotionGazeboIntegration(unittest.TestCase):
                 "mechanism_id": defined["mechanism_id"],
                 "backend": "gazebo",
                 "duration_s": 0.5,
+                "sdf_path": "/tmp/hexapod.sdf",
             },
         )
 
@@ -228,6 +256,7 @@ class TestMotionGazeboIntegration(unittest.TestCase):
         self.assertEqual(result["mode_used"], "batch")
         self.assertIn("summary", result)
         self.assertAlmostEqual(result["summary"]["simulation_time_s"], 0.5)
+        self.assertEqual(self.bridge.last_sim_paths, {"sdf_path": "/tmp/hexapod.sdf"})
 
     def test_gazebo_teleop_lifecycle_via_main_dispatch(self) -> None:
         defined = mcp_main._call_tool(
@@ -238,11 +267,18 @@ class TestMotionGazeboIntegration(unittest.TestCase):
 
         started = mcp_main._call_tool(
             "motion.teleop_start",
-            {"mechanism_id": mechanism_id, "backend": "gazebo"},
+            {
+                "mechanism_id": mechanism_id,
+                "backend": "gazebo",
+                "urdf_path": "/tmp/hexapod.urdf",
+                "profile": {"controller_type": "multirotor_direct"},
+            },
         )
         self.assertTrue(started["ok"])
         self.assertEqual(started["backend_used"], "gazebo")
         session_id = started["session_id"]
+        self.assertEqual(self.bridge.last_teleop_paths, {"urdf_path": "/tmp/hexapod.urdf"})
+        self.assertEqual(self.bridge.last_teleop_profile.get("controller_type"), "multirotor_direct")
 
         applied = mcp_main._call_tool(
             "motion.teleop_command",
@@ -282,7 +318,7 @@ class TestMotionGazeboIntegration(unittest.TestCase):
 
         started = mcp_main._call_tool(
             "motion.teleop_start",
-            {"mechanism_id": mechanism_id, "backend": "gazebo"},
+            {"mechanism_id": mechanism_id, "backend": "gazebo", "urdf_path": "/tmp/hexapod.urdf"},
         )
         session_id = started["session_id"]
 
@@ -323,7 +359,46 @@ class TestMotionGazeboIntegration(unittest.TestCase):
             choice_backends = {entry["backend"] for entry in result.get("choices", [])}
             self.assertIn("isaac", choice_backends)
             self.assertIn("chrono", choice_backends)
-            self.assertIn("gazebo", choice_backends)
+
+    def test_simulate_normalizes_samples_to_time_series(self) -> None:
+        defined = mcp_main._call_tool(
+            "motion.define_mechanism",
+            {"mechanism": self._mechanism_dict()},
+        )
+        self.assertTrue(defined["ok"])
+
+        result = mcp_main._call_tool(
+            "motion.simulate",
+            {
+                "mechanism_id": defined["mechanism_id"],
+                "backend": "gazebo",
+                "sdf_path": "/tmp/hexapod.sdf",
+                "profile": {"raw_samples_only": True},
+            },
+        )
+
+        self.assertTrue(result["ok"])
+        self.assertIn("time_series", result)
+        self.assertGreaterEqual(len(result["time_series"]), 2)
+
+    def test_teleop_start_rejects_invalid_gazebo_controller_type(self) -> None:
+        defined = mcp_main._call_tool(
+            "motion.define_mechanism",
+            {"mechanism": self._mechanism_dict()},
+        )
+        self.assertTrue(defined["ok"])
+
+        started = mcp_main._call_tool(
+            "motion.teleop_start",
+            {
+                "mechanism_id": defined["mechanism_id"],
+                "backend": "gazebo",
+                "urdf_path": "/tmp/hexapod.urdf",
+                "profile": {"controller_type": "invalid"},
+            },
+        )
+        self.assertFalse(started["ok"])
+        self.assertEqual(started["error"]["code"], "INVALID_INPUT")
 
 
 if __name__ == "__main__":

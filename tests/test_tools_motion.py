@@ -864,12 +864,14 @@ class TestSimulateBackendBehavior(TestMotionToolsBase):
 
     def test_gazebo_backend_is_valid(self):
         mid = self._make_mechanism()
-        # Gazebo bridge is not running — should get BACKEND_UNAVAILABLE_CHOOSE, not INVALID_INPUT
-        result = motion_simulate(mid, backend="gazebo")
+        # Gazebo bridge may or may not be running.  If not running, we get
+        # BACKEND_UNAVAILABLE_CHOOSE or GAZEBO_CONNECTION_LOST.  If running
+        # but the fake URDF doesn't exist, we get GAZEBO_SPAWN_FAILED.
+        result = motion_simulate(mid, backend="gazebo", urdf_path="/tmp/robot.urdf")
         if not result["ok"]:
             self.assertIn(
                 result["error"]["code"],
-                {"BACKEND_UNAVAILABLE_CHOOSE", "GAZEBO_CONNECTION_LOST"},
+                {"BACKEND_UNAVAILABLE_CHOOSE", "GAZEBO_CONNECTION_LOST", "GAZEBO_SPAWN_FAILED"},
             )
 
     def test_gazebo_rejects_teleop_mode(self):
@@ -882,7 +884,12 @@ class TestSimulateBackendBehavior(TestMotionToolsBase):
             "ok": False,
             "error": {"code": "GAZEBO_NOT_CONNECTED", "message": "unavailable"},
         }):
-            result = motion_simulate(mid, backend="gazebo", mode="teleop")
+            result = motion_simulate(
+                mid,
+                backend="gazebo",
+                mode="teleop",
+                urdf_path="/tmp/robot.urdf",
+            )
         self.assertFalse(result["ok"])
         # Should not be INVALID_INPUT — teleop is valid for gazebo
         self.assertNotEqual(result["error"]["code"], "INVALID_INPUT")
@@ -896,7 +903,7 @@ class TestSimulateBackendBehavior(TestMotionToolsBase):
             "error": {"code": "GAZEBO_NOT_CONNECTED", "message": "unavailable"},
         }), patch("server.tools_motion._simulate_with_chrono") as chrono_fallback, \
              patch("server.tools_motion._simulate_with_isaac") as isaac_fallback:
-            result = motion_simulate(mid, backend="gazebo")
+            result = motion_simulate(mid, backend="gazebo", urdf_path="/tmp/robot.urdf")
         self.assertFalse(result["ok"])
         self.assertEqual(result["error"]["code"], "BACKEND_UNAVAILABLE_CHOOSE")
         chrono_fallback.assert_not_called()
@@ -910,12 +917,31 @@ class TestSimulateBackendBehavior(TestMotionToolsBase):
             "ok": False,
             "error": {"code": "GAZEBO_NOT_CONNECTED", "message": "unavailable"},
         }):
-            result = motion_simulate(mid, backend="gazebo")
+            result = motion_simulate(mid, backend="gazebo", urdf_path="/tmp/robot.urdf")
         self.assertFalse(result["ok"])
         choice_backends = {entry["backend"] for entry in result.get("choices", [])}
         self.assertIn("gazebo", choice_backends)
         self.assertIn("chrono", choice_backends)
         self.assertIn("isaac", choice_backends)
+
+    def test_gazebo_requires_urdf_or_sdf_path(self):
+        mid = self._make_mechanism()
+        result = motion_simulate(mid, backend="gazebo")
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["error"]["code"], "INVALID_INPUT")
+        self.assertIn("urdf_path or sdf_path", result["error"]["message"])
+
+    def test_gazebo_accepts_sdf_path_only(self):
+        from unittest.mock import patch
+
+        mid = self._make_mechanism()
+        with patch("server.gazebo_adapter.simulate", return_value={
+            "ok": False,
+            "error": {"code": "GAZEBO_NOT_CONNECTED", "message": "unavailable"},
+        }) as gz_sim:
+            result = motion_simulate(mid, backend="gazebo", sdf_path="/tmp/robot.sdf")
+        self.assertFalse(result["ok"])
+        gz_sim.assert_called_once()
 
     def test_simulate_rejects_non_object_profile(self):
         mid = self._make_mechanism()
@@ -1098,7 +1124,7 @@ class TestTeleopTools(TestMotionToolsBase):
             "ok": True,
             "stopped": True,
         }):
-            start = motion_teleop_start(mid, backend="gazebo")
+            start = motion_teleop_start(mid, backend="gazebo", urdf_path="/tmp/robot.urdf")
             self.assertTrue(start["ok"])
             self.assertEqual(start["session_id"], "gz_sess_1")
             self.assertEqual(start["backend_used"], "gazebo")
@@ -1155,7 +1181,7 @@ class TestTeleopTools(TestMotionToolsBase):
             "session_id": "gz_vy_vz",
             "status": "started",
         }):
-            motion_teleop_start(mid, backend="gazebo")
+            motion_teleop_start(mid, backend="gazebo", urdf_path="/tmp/robot.urdf")
 
         with patch("server.gazebo_adapter.teleop_command", return_value={
             "ok": True,
@@ -1180,7 +1206,7 @@ class TestTeleopTools(TestMotionToolsBase):
             "session_id": "gz_route",
             "status": "started",
         }):
-            motion_teleop_start(mid, backend="gazebo")
+            motion_teleop_start(mid, backend="gazebo", urdf_path="/tmp/robot.urdf")
 
         # Verify state routes to gazebo, not isaac
         with patch("server.gazebo_adapter.teleop_state", return_value={
@@ -1225,6 +1251,44 @@ class TestTeleopTools(TestMotionToolsBase):
             )
         self.assertTrue(result["ok"])
         isaac_cmd.assert_called_once()
+
+    def test_gazebo_teleop_requires_urdf_or_sdf_path(self):
+        mid = self._make_mechanism()
+        result = motion_teleop_start(mid, backend="gazebo")
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["error"]["code"], "INVALID_INPUT")
+        self.assertIn("urdf_path or sdf_path", result["error"]["message"])
+
+    def test_gazebo_teleop_rejects_invalid_controller_type(self):
+        mid = self._make_mechanism()
+        result = motion_teleop_start(
+            mid,
+            backend="gazebo",
+            urdf_path="/tmp/robot.urdf",
+            profile={"controller_type": "bad_controller"},
+        )
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["error"]["code"], "INVALID_INPUT")
+
+    def test_gazebo_teleop_accepts_px4_offboard_controller_type(self):
+        from unittest.mock import patch
+
+        mid = self._make_mechanism()
+        with patch("server.gazebo_adapter.teleop_start", return_value={
+            "ok": True,
+            "session_id": "gz_px4",
+            "status": "started",
+            "controller_type": "px4_offboard",
+        }) as gz_start:
+            result = motion_teleop_start(
+                mid,
+                backend="gazebo",
+                urdf_path="/tmp/robot.urdf",
+                profile={"controller_type": "px4_offboard"},
+            )
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["session_id"], "gz_px4")
+        self.assertEqual(gz_start.call_args.kwargs["profile"]["controller_type"], "px4_offboard")
 
 
 if __name__ == "__main__":

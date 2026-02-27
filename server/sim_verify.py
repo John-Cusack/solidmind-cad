@@ -228,6 +228,14 @@ def verify_mechanism_vs_urdf(
                 message=f"Link '{link_name}': mesh file is empty: {filename}",
                 field=f"link.{link_name}.visual.mesh",
             ))
+        else:
+            # Check mesh has 3D extent (not flat/degenerate)
+            try:
+                from server.sim_export import validate_stl_extent
+                mesh_extent_findings = validate_stl_extent(mesh_path, link_name)
+                findings.extend(mesh_extent_findings)
+            except ImportError:
+                pass
 
     # --- Mass / inertia checks ---
     for link_name, link_el in urdf_links.items():

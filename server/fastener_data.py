@@ -1,11 +1,13 @@
 """ISO metric fastener dimension tables.
 
 Lookup tables for bolt head dimensions, through-hole clearances,
-counterbore/countersink sizes, and thread pitch.  All dimensions in mm.
+counterbore/countersink sizes, thread pitch, and nut dimensions.
+All dimensions in mm.
 
 Sources: ISO 4762 (socket head cap screw), ISO 4014/4017 (hex bolt),
 ISO 7380 (button head), ISO 10642 (countersunk), ISO 273 (clearance holes),
-ISO 4026-4029 (set screws), ISO 7092/7093 (washers).
+ISO 4026-4029 (set screws), ISO 7092/7093 (washers), ISO 4032 (hex nut),
+ISO 4035 (thin hex nut), ISO 7040/10511 (nyloc nut).
 """
 from __future__ import annotations
 
@@ -188,6 +190,114 @@ _HEAD_TABLES: dict[str, dict[str, tuple[float, float, float]]] = {
 
 SUPPORTED_SIZES = sorted(_THREAD.keys(), key=lambda s: float(s[1:]))
 SUPPORTED_HEAD_TYPES = ["socket_head", "hex", "button_head", "countersunk", "set_screw"]
+SUPPORTED_NUT_TYPES = ["hex", "thin", "nyloc"]
+
+
+# ── Nut data ─────────────────────────────────────────────────────
+
+@dataclass(frozen=True, slots=True)
+class NutSpec:
+    """Complete dimension set for a metric nut."""
+    size: str               # e.g. "M4"
+    thread_diameter: float  # nominal thread OD (mm)
+    pitch_coarse: float     # coarse thread pitch (mm)
+    nut_type: str           # hex | thin | nyloc
+    across_flats: float     # wrench size (mm)
+    across_corners: float   # point-to-point (mm)
+    height: float           # total nut height (mm)
+    through_hole: float     # thread bore diameter (mm) — same as nominal
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "size": self.size,
+            "thread_diameter_mm": self.thread_diameter,
+            "pitch_coarse_mm": self.pitch_coarse,
+            "nut_type": self.nut_type,
+            "across_flats_mm": self.across_flats,
+            "across_corners_mm": self.across_corners,
+            "height_mm": self.height,
+            "through_hole_mm": self.through_hole,
+        }
+
+
+# ISO 4032 hex nut: (across_flats, height)
+_NUT_HEX: dict[str, tuple[float, float]] = {
+    "M2":   (4.0,   1.6),
+    "M2.5": (5.0,   2.0),
+    "M3":   (5.5,   2.4),
+    "M4":   (7.0,   3.2),
+    "M5":   (8.0,   4.7),
+    "M6":   (10.0,  5.2),
+    "M8":   (13.0,  6.8),
+    "M10":  (16.0,  8.4),
+    "M12":  (18.0, 10.8),
+    "M16":  (24.0, 14.8),
+    "M20":  (30.0, 18.0),
+    "M24":  (36.0, 21.5),
+}
+
+# ISO 4035 thin/jam nut: (across_flats, height)
+_NUT_THIN: dict[str, tuple[float, float]] = {
+    "M3":   (5.5,  1.8),
+    "M4":   (7.0,  2.2),
+    "M5":   (8.0,  2.7),
+    "M6":   (10.0, 3.2),
+    "M8":   (13.0, 4.0),
+    "M10":  (16.0, 5.0),
+    "M12":  (18.0, 6.0),
+    "M16":  (24.0, 8.0),
+    "M20":  (30.0, 10.0),
+    "M24":  (36.0, 12.0),
+}
+
+# ISO 7040/10511 nyloc nut: (across_flats, height)
+_NUT_NYLOC: dict[str, tuple[float, float]] = {
+    "M3":   (5.5,   4.0),
+    "M4":   (7.0,   5.0),
+    "M5":   (8.0,   5.0),
+    "M6":   (10.0,  6.0),
+    "M8":   (13.0,  8.0),
+    "M10":  (16.0, 10.0),
+    "M12":  (18.0, 12.0),
+    "M16":  (24.0, 16.0),
+    "M20":  (30.0, 20.0),
+    "M24":  (36.0, 21.5),
+}
+
+_NUT_TABLES: dict[str, dict[str, tuple[float, float]]] = {
+    "hex": _NUT_HEX,
+    "thin": _NUT_THIN,
+    "nyloc": _NUT_NYLOC,
+}
+
+_COS30 = 0.8660254037844387  # cos(30°)
+
+
+def match_bolt_size(hole_diameter: float) -> dict[str, Any] | None:
+    """Given a hole diameter (mm), find the best matching bolt size.
+
+    Compares against clearance hole tables (close, normal, loose fit).
+    Returns the best match with fit type, or None if no match within 0.5mm.
+    """
+    best: dict[str, Any] | None = None
+    best_delta = 999.0
+
+    for size_str, (close, normal, loose) in _CLEARANCE.items():
+        for fit_name, fit_val in [("close", close), ("normal", normal), ("loose", loose)]:
+            delta = abs(hole_diameter - fit_val)
+            if delta < best_delta:
+                best_delta = delta
+                best = {
+                    "size": size_str,
+                    "fit": fit_name,
+                    "clearance_hole_mm": fit_val,
+                    "thread_diameter_mm": float(size_str[1:]),
+                    "delta_mm": round(delta, 3),
+                }
+
+    if best is not None and best_delta <= 0.5:
+        return best
+    return None
 
 
 def lookup(
@@ -281,4 +391,42 @@ def lookup(
         length=length,
         tap_drill_coarse=tap_c,
         tap_drill_fine=tap_f,
+    )
+
+
+def nut_lookup(
+    size: str,
+    nut_type: str = "hex",
+) -> NutSpec | None:
+    """Look up dimensions for a metric nut.
+
+    Args:
+        size: Metric size string, e.g. "M4", "M8".
+        nut_type: One of hex, thin, nyloc.
+
+    Returns:
+        NutSpec with all dimensions, or None if size/nut_type not found.
+    """
+    size = size.upper()
+    if size not in _THREAD:
+        return None
+
+    table = _NUT_TABLES.get(nut_type)
+    if table is None or size not in table:
+        return None
+
+    pitch_c = _THREAD[size][0]
+    thread_dia = float(size[1:])
+    af, height = table[size]
+    ac = af / _COS30  # across corners = across_flats / cos(30°)
+
+    return NutSpec(
+        size=size,
+        thread_diameter=thread_dia,
+        pitch_coarse=pitch_c,
+        nut_type=nut_type,
+        across_flats=af,
+        across_corners=round(ac, 2),
+        height=height,
+        through_hole=thread_dia,
     )

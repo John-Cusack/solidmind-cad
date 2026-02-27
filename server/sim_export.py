@@ -1,13 +1,14 @@
 """Simulation description export — format-agnostic intermediate representation.
 
 Transforms a ``Mechanism`` (kinematic graph) + body mesh manifest into a
-``SimModel`` (links + joints), then serializes to URDF (or future SDF/USD/MJCF).
+``SimModel`` (links + joints), then serializes to URDF/SDF.
 
 The key design is separation of concerns:
 - ``build_sim_model()`` assembles the kinematic tree from mechanism + manifest.
 - ``write_urdf()`` serializes a ``SimModel`` to URDF XML (stdlib xml.etree).
-- Future format writers (``write_sdf``, ``write_usd``, ``write_mjcf``) share
-  the same ``build_sim_model()`` logic.
+- ``write_sdf()`` serializes a ``SimModel`` to SDF XML.
+- Future format writers (``write_usd``, ``write_mjcf``) share the same
+  ``build_sim_model()`` logic.
 """
 from __future__ import annotations
 
@@ -291,6 +292,137 @@ def _transform_stl_to_link_local(
     )
 
 
+# Minimum extent threshold (mm) below which a mesh axis is considered flat.
+_MIN_MESH_EXTENT_MM = 0.1
+
+
+def _get_stl_extent(stl_path: str) -> tuple[int, tuple[float, float, float], tuple[float, float, float]] | None:
+    """Read an STL and return (triangle_count, min_vertex, max_vertex).
+
+    Returns ``None`` if the file cannot be read or has no triangles.
+    Works with both ASCII and binary STL formats.
+    """
+    try:
+        if _is_binary_stl(stl_path):
+            return _get_binary_stl_extent(stl_path)
+        return _get_ascii_stl_extent(stl_path)
+    except (OSError, struct.error, ValueError) as exc:
+        logger.debug("Could not read STL extent for %s: %s", stl_path, exc)
+        return None
+
+
+def _get_binary_stl_extent(stl_path: str) -> tuple[int, tuple[float, float, float], tuple[float, float, float]] | None:
+    with open(stl_path, "rb") as f:
+        f.seek(80)
+        count_bytes = f.read(4)
+        if len(count_bytes) < 4:
+            return None
+        tri_count = struct.unpack("<I", count_bytes)[0]
+        if tri_count == 0:
+            return None
+        data = f.read()
+
+    xmin = ymin = zmin = float("inf")
+    xmax = ymax = zmax = float("-inf")
+    for i in range(tri_count):
+        offset = i * 50
+        # Skip normal (12 bytes), read 3 vertices
+        for v in range(3):
+            v_offset = offset + 12 + v * 12
+            vx, vy, vz = struct.unpack_from("<3f", data, v_offset)
+            xmin, xmax = min(xmin, vx), max(xmax, vx)
+            ymin, ymax = min(ymin, vy), max(ymax, vy)
+            zmin, zmax = min(zmin, vz), max(zmax, vz)
+    return tri_count, (xmin, ymin, zmin), (xmax, ymax, zmax)
+
+
+def _get_ascii_stl_extent(stl_path: str) -> tuple[int, tuple[float, float, float], tuple[float, float, float]] | None:
+    _VERTEX_RE_SIMPLE = re.compile(
+        r"^\s*vertex\s+"
+        r"([-+]?\d*\.?\d+(?:[eE][-+]?\d+)?)\s+"
+        r"([-+]?\d*\.?\d+(?:[eE][-+]?\d+)?)\s+"
+        r"([-+]?\d*\.?\d+(?:[eE][-+]?\d+)?)"
+    )
+    xmin = ymin = zmin = float("inf")
+    xmax = ymax = zmax = float("-inf")
+    vertex_count = 0
+    with open(stl_path, "r") as f:
+        for line in f:
+            m = _VERTEX_RE_SIMPLE.match(line)
+            if m:
+                vx, vy, vz = float(m.group(1)), float(m.group(2)), float(m.group(3))
+                xmin, xmax = min(xmin, vx), max(xmax, vx)
+                ymin, ymax = min(ymin, vy), max(ymax, vy)
+                zmin, zmax = min(zmin, vz), max(zmax, vz)
+                vertex_count += 1
+    if vertex_count == 0:
+        return None
+    tri_count = vertex_count // 3
+    return tri_count, (xmin, ymin, zmin), (xmax, ymax, zmax)
+
+
+def validate_stl_extent(stl_path: str, link_name: str = "") -> list[Finding]:
+    """Check that an STL mesh has non-zero 3D extent (not flat/degenerate).
+
+    Returns findings with:
+    - BLOCK if the mesh has zero triangles
+    - WARN if any axis extent is below ``_MIN_MESH_EXTENT_MM``
+    """
+    findings: list[Finding] = []
+    label = f"'{link_name}' " if link_name else ""
+
+    extent_info = _get_stl_extent(stl_path)
+    if extent_info is None:
+        findings.append(Finding(
+            rule_id="stl.no_triangles",
+            severity=Severity.WARN,
+            message=f"Mesh {label}({os.path.basename(stl_path)}) has no readable triangles.",
+            field=f"mesh.{link_name}" if link_name else "mesh",
+        ))
+        return findings
+
+    tri_count, (xmin, ymin, zmin), (xmax, ymax, zmax) = extent_info
+    dx = xmax - xmin
+    dy = ymax - ymin
+    dz = zmax - zmin
+
+    if tri_count == 0:
+        findings.append(Finding(
+            rule_id="stl.no_triangles",
+            severity=Severity.WARN,
+            message=f"Mesh {label}({os.path.basename(stl_path)}) has 0 triangles.",
+            field=f"mesh.{link_name}" if link_name else "mesh",
+        ))
+        return findings
+
+    flat_axes: list[str] = []
+    if dx < _MIN_MESH_EXTENT_MM:
+        flat_axes.append(f"X={dx:.4f}")
+    if dy < _MIN_MESH_EXTENT_MM:
+        flat_axes.append(f"Y={dy:.4f}")
+    if dz < _MIN_MESH_EXTENT_MM:
+        flat_axes.append(f"Z={dz:.4f}")
+
+    if flat_axes:
+        findings.append(Finding(
+            rule_id="stl.flat_mesh",
+            severity=Severity.WARN,
+            message=(
+                f"Mesh {label}({os.path.basename(stl_path)}) is flat/degenerate: "
+                f"extent below {_MIN_MESH_EXTENT_MM}mm on {', '.join(flat_axes)}. "
+                f"Full extent: ({dx:.2f}, {dy:.2f}, {dz:.2f}) mm, "
+                f"{tri_count} triangles."
+            ),
+            field=f"mesh.{link_name}" if link_name else "mesh",
+        ))
+
+    logger.debug(
+        "STL extent %s: triangles=%d, extent=(%.2f, %.2f, %.2f) mm",
+        os.path.basename(stl_path), tri_count, dx, dy, dz,
+    )
+    return findings
+
+
 def _transform_ascii_stl(
     stl_path: str,
     px: float, py: float, pz: float,
@@ -379,6 +511,7 @@ def build_sim_model(
     ground_clearance_m: float | None = None,
     mesh_transform_error_mode: str = "warn",
     require_explicit_joint_origins: bool = False,
+    mesh_findings: list[Finding] | None = None,
 ) -> SimModel:
     """Transform a Mechanism + mesh manifest into a format-agnostic SimModel.
 
@@ -807,6 +940,7 @@ def build_sim_model(
     # relative to the link frame — the joint <origin> elements handle
     # parent-to-child positioning.
     # -----------------------------------------------------------------------
+    mesh_extent_findings: list[Finding] = []
     for link in links:
         if link.mesh_path is None:
             continue
@@ -821,6 +955,14 @@ def build_sim_model(
                 "Failed to transform mesh %s to link-local: %s",
                 link.mesh_path, exc,
             )
+
+        # Post-transform STL sanity: check 3D extent
+        mesh_extent_findings.extend(validate_stl_extent(link.mesh_path, link.name))
+
+    for finding in mesh_extent_findings:
+        logger.warning("Mesh extent issue: %s", finding.message)
+    if mesh_findings is not None:
+        mesh_findings.extend(mesh_extent_findings)
 
     # -----------------------------------------------------------------------
     # Ground clearance: if requested, add a base_link with a fixed joint
@@ -891,6 +1033,7 @@ def write_urdf(
     output_path: str,
     *,
     base_dir: str | None = None,
+    absolute_mesh_paths: bool = False,
 ) -> str:
     """Serialize a SimModel to URDF XML.
 
@@ -899,6 +1042,10 @@ def write_urdf(
         output_path: Path to write the URDF file.
         base_dir: When set, mesh filenames are written relative to this
             directory.  Makes the URDF portable across machines.
+            Ignored when ``absolute_mesh_paths`` is True.
+        absolute_mesh_paths: When True, mesh filenames are written as
+            absolute paths.  Ensures Gazebo (and other simulators) can
+            always resolve mesh files regardless of working directory.
 
     Returns the absolute path of the written file.
     """
@@ -909,7 +1056,9 @@ def write_urdf(
 
         if link.mesh_path is not None:
             mesh_filename = link.mesh_path
-            if base_dir:
+            if absolute_mesh_paths:
+                mesh_filename = os.path.abspath(link.mesh_path)
+            elif base_dir:
                 mesh_filename = os.path.relpath(link.mesh_path, base_dir)
 
             # Visual — no <origin> needed: build_sim_model transforms STL
@@ -982,6 +1131,230 @@ def write_urdf(
     tree.write(out_path, encoding="unicode", xml_declaration=True)
 
     return out_path
+
+
+# ---------------------------------------------------------------------------
+# SDF writer
+# ---------------------------------------------------------------------------
+
+def _pose_str(
+    x: float,
+    y: float,
+    z: float,
+    roll: float,
+    pitch: float,
+    yaw: float,
+) -> str:
+    return f"{_fmt(x)} {_fmt(y)} {_fmt(z)} {_fmt(roll)} {_fmt(pitch)} {_fmt(yaw)}"
+
+
+def write_sdf(
+    model: SimModel,
+    output_path: str,
+    *,
+    base_dir: str | None = None,
+    absolute_mesh_paths: bool = False,
+    drone_config: dict[str, Any] | None = None,
+) -> str:
+    """Serialize a SimModel to SDF XML.
+
+    Meshes are exported in FreeCAD mm units; SDF mesh scale is set to 0.001
+    to convert to meters at runtime, matching URDF export behavior.
+
+    Args:
+        model: The SimModel to serialize.
+        output_path: Path to write the SDF file.
+        base_dir: When set, mesh URIs are written relative to this
+            directory.  Ignored when ``absolute_mesh_paths`` is True.
+        absolute_mesh_paths: When True, mesh URIs are written as absolute
+            paths.  Ensures Gazebo can always resolve mesh files.
+        drone_config: Optional drone plugin configuration.
+    """
+    sdf = ET.Element("sdf", version="1.10")
+    model_el = ET.SubElement(sdf, "model", name=model.name)
+    ET.SubElement(model_el, "static").text = "false"
+
+    for link in model.links:
+        link_el = ET.SubElement(model_el, "link", name=link.name)
+        roll, pitch, yaw = _quat_to_rpy(*link.rotation_quat)
+        # SimLink positions are tracked in mm from FreeCAD export.
+        ET.SubElement(link_el, "pose").text = _pose_str(
+            link.position[0] / 1000.0,
+            link.position[1] / 1000.0,
+            link.position[2] / 1000.0,
+            roll,
+            pitch,
+            yaw,
+        )
+
+        if link.mesh_path is not None:
+            mesh_uri = link.mesh_path
+            if absolute_mesh_paths:
+                mesh_uri = os.path.abspath(link.mesh_path)
+            elif base_dir:
+                mesh_uri = os.path.relpath(link.mesh_path, base_dir)
+            for tag in ("visual", "collision"):
+                node = ET.SubElement(link_el, tag, name=f"{link.name}_{tag}")
+                ET.SubElement(node, "pose").text = "0 0 0 0 0 0"
+                geom = ET.SubElement(node, "geometry")
+                mesh = ET.SubElement(geom, "mesh")
+                ET.SubElement(mesh, "uri").text = mesh_uri
+                ET.SubElement(mesh, "scale").text = "0.001 0.001 0.001"
+
+        if link.mass_kg is not None:
+            inertial = ET.SubElement(link_el, "inertial")
+            ET.SubElement(inertial, "mass").text = _fmt(link.mass_kg)
+            if link.inertia is not None:
+                inertia = ET.SubElement(inertial, "inertia")
+                ET.SubElement(inertia, "ixx").text = _fmt(link.inertia[0])
+                ET.SubElement(inertia, "ixy").text = _fmt(link.inertia[1])
+                ET.SubElement(inertia, "ixz").text = _fmt(link.inertia[2])
+                ET.SubElement(inertia, "iyy").text = _fmt(link.inertia[3])
+                ET.SubElement(inertia, "iyz").text = _fmt(link.inertia[4])
+                ET.SubElement(inertia, "izz").text = _fmt(link.inertia[5])
+
+    for joint in model.joints:
+        joint_type = "revolute" if joint.joint_type == "continuous" else joint.joint_type
+        joint_el = ET.SubElement(model_el, "joint", name=joint.name, type=joint_type)
+        ET.SubElement(joint_el, "parent").text = joint.parent
+        ET.SubElement(joint_el, "child").text = joint.child
+        ET.SubElement(joint_el, "pose").text = _pose_str(
+            joint.origin_xyz[0],
+            joint.origin_xyz[1],
+            joint.origin_xyz[2],
+            joint.origin_rpy[0],
+            joint.origin_rpy[1],
+            joint.origin_rpy[2],
+        )
+
+        axis = ET.SubElement(joint_el, "axis")
+        ET.SubElement(axis, "xyz").text = _xyz_str(joint.axis)
+        if joint.limits is not None:
+            limit = ET.SubElement(axis, "limit")
+            ET.SubElement(limit, "lower").text = _fmt(joint.limits[0])
+            ET.SubElement(limit, "upper").text = _fmt(joint.limits[1])
+            ET.SubElement(limit, "effort").text = _fmt(joint.effort)
+            ET.SubElement(limit, "velocity").text = _fmt(joint.velocity)
+        if joint.joint_type in ("revolute", "continuous", "prismatic"):
+            dynamics = ET.SubElement(axis, "dynamics")
+            ET.SubElement(dynamics, "damping").text = _fmt(joint.damping)
+            ET.SubElement(dynamics, "friction").text = _fmt(joint.friction)
+
+    if drone_config:
+        plugin = ET.SubElement(
+            model_el,
+            "plugin",
+            name=str(drone_config.get("plugin_name", "multirotor_control")),
+            filename=str(
+                drone_config.get(
+                    "plugin_filename",
+                    "libgz-sim-multicopter-motor-model-system.so",
+                )
+            ),
+        )
+        ET.SubElement(plugin, "controller_type").text = str(
+            drone_config.get("controller_type", "multirotor_direct"),
+        )
+        rotors = drone_config.get("rotors")
+        if isinstance(rotors, list):
+            for idx, rotor in enumerate(rotors):
+                if not isinstance(rotor, dict):
+                    continue
+                rotor_el = ET.SubElement(plugin, "rotor")
+                ET.SubElement(rotor_el, "index").text = str(int(rotor.get("index", idx)))
+                ET.SubElement(rotor_el, "joint").text = str(rotor.get("joint", f"rotor_{idx}_joint"))
+                ET.SubElement(rotor_el, "direction").text = str(rotor.get("direction", 1))
+
+    tree = ET.ElementTree(sdf)
+    ET.indent(tree, space="  ")
+    out_path = str(Path(output_path).resolve())
+    tree.write(out_path, encoding="unicode", xml_declaration=True)
+    return out_path
+
+
+def validate_sdf(path: str, *, drone_mode: bool = False) -> list[Finding]:
+    """Validate generated SDF structure with deterministic checks."""
+    findings: list[Finding] = []
+    try:
+        tree = ET.parse(path)
+    except ET.ParseError as exc:
+        return [Finding(
+            rule_id="sdf.parse_error",
+            severity=Severity.BLOCK,
+            message=f"SDF parse error: {exc}",
+        )]
+
+    root = tree.getroot()
+    if root.tag != "sdf":
+        findings.append(Finding(
+            rule_id="sdf.root_tag",
+            severity=Severity.BLOCK,
+            message=f"Root element is <{root.tag}>, expected <sdf>",
+        ))
+        return findings
+
+    model_el = root.find("model")
+    if model_el is None:
+        findings.append(Finding(
+            rule_id="sdf.model_missing",
+            severity=Severity.BLOCK,
+            message="SDF is missing <model> element.",
+        ))
+        return findings
+
+    links = model_el.findall("link")
+    joints = model_el.findall("joint")
+    if not links:
+        findings.append(Finding(
+            rule_id="sdf.links_missing",
+            severity=Severity.BLOCK,
+            message="SDF model has no <link> elements.",
+        ))
+        return findings
+
+    link_names = {lk.attrib.get("name", "") for lk in links}
+    if len(links) > 1 and not joints:
+        findings.append(Finding(
+            rule_id="sdf.joints_missing",
+            severity=Severity.WARN,
+            message="Model has multiple links but no joints.",
+        ))
+
+    for jel in joints:
+        jname = jel.attrib.get("name", "?")
+        parent = (jel.findtext("parent") or "").strip()
+        child = (jel.findtext("child") or "").strip()
+        if not parent or parent not in link_names:
+            findings.append(Finding(
+                rule_id="sdf.dangling_parent",
+                severity=Severity.BLOCK,
+                message=f"Joint '{jname}' references unknown parent '{parent}'.",
+                field=f"joint/{jname}/parent",
+            ))
+        if not child or child not in link_names:
+            findings.append(Finding(
+                rule_id="sdf.dangling_child",
+                severity=Severity.BLOCK,
+                message=f"Joint '{jname}' references unknown child '{child}'.",
+                field=f"joint/{jname}/child",
+            ))
+
+    if drone_mode:
+        plugins = model_el.findall("plugin")
+        if not plugins:
+            findings.append(Finding(
+                rule_id="sdf.drone.plugin_missing",
+                severity=Severity.WARN,
+                message="Drone-mode SDF has no <plugin> control block.",
+            ))
+        if len(links) < 2:
+            findings.append(Finding(
+                rule_id="sdf.drone.too_few_links",
+                severity=Severity.WARN,
+                message="Drone-mode SDF should include at least 2 links.",
+            ))
+
+    return findings
 
 
 # ---------------------------------------------------------------------------

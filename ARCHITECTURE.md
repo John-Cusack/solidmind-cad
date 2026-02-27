@@ -34,7 +34,7 @@ This is the primary two-process architecture for live CAD work.
 ### 2.2 Optional Sidecars
 
 - `study.run` starts a background subprocess: `python -m server.study_runner <study_id>`.
-- `motion.simulate` can connect to optional Chrono daemon (`127.0.0.1:9877`) or Isaac bridge (`127.0.0.1:9878`).
+- `motion.simulate` can connect to optional Chrono daemon (`127.0.0.1:9877`), Isaac bridge (`127.0.0.1:9878`), or Gazebo bridge (`127.0.0.1:9879`).
 
 If sidecars are absent, base CAD/ME/spec workflows remain available.
 
@@ -151,11 +151,13 @@ Tiered behavior:
 - Builds assembly links/joints, solves constraints, drives joints, checks interference.
 
 4. Tier 3 dynamic simulation via selected backend
-- `motion.simulate` supports `backend=chrono|isaac` (default `isaac`).
-- `motion.simulate` supports `mode=batch|teleop` (teleop for Isaac only).
+- `motion.simulate` supports `backend=chrono|isaac|gazebo` (default `isaac`).
+- `motion.simulate` supports `mode=batch|teleop` (teleop for Isaac and Gazebo; Chrono is batch-only).
 - `motion.simulate` accepts optional `profile` for Isaac runtime overrides.
+- For Gazebo backend, `urdf_path` or `sdf_path` is required (SDF preferred for drone workflows).
 - If requested backend is absent, returns deterministic `BACKEND_UNAVAILABLE_CHOOSE` with explicit retry choices (no implicit fallback).
-- Isaac teleop lifecycle is exposed via `motion.teleop_start`, `motion.teleop_command`, `motion.teleop_state`, `motion.teleop_stop`.
+- Teleop lifecycle is exposed via `motion.teleop_start`, `motion.teleop_command`, `motion.teleop_state`, `motion.teleop_stop`.
+- Gazebo teleop controller contract: `profile.controller_type in {multirotor_direct, px4_offboard}`.
 - Isaac bridge v1 supported joints: `revolute`, `prismatic`, `fixed`.
 - Isaac bridge v1 returns deterministic `UNSUPPORTED_JOINT_TYPE` for `gear_mesh`, `belt_chain`, `cam`, `planar`.
 

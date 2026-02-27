@@ -34,6 +34,10 @@ Claude Code CLI ──stdio──▶ MCP Bridge Server ──TCP socket──▶
                                │                             runs inside FreeCAD GUI
                                ├─ TCP socket :9877 ──▶ Chrono Daemon (chrono_daemon/)
                                │                      C++ MBS simulation (optional)
+                               ├─ TCP socket :9878 ──▶ Isaac Bridge (isaac_bridge/)
+                               │                      GPU physics sim + teleop (optional)
+                               ├─ TCP socket :9879 ──▶ Gazebo Bridge (gazebo_bridge/)
+                               │                      CPU physics + ROS/PX4 (optional)
                                ├─ LanceDB (in-process, me_knowledge/lancedb/)
                                ├─ Docling (in-process, pip package)
                                └─ Ollama (optional, for GPU embeddings)
@@ -47,6 +51,8 @@ Claude Code CLI ──stdio──▶ MCP Bridge Server ──TCP socket──▶
 
 **Isaac bridge** (`isaac_bridge/`): Optional Python TCP sidecar on localhost:9878 for Tier 3 `backend=isaac` simulation and teleop lifecycle. Exposes newline-delimited JSON commands (`ping`, `simulate`, `teleop_*`). Start with `scripts/run_isaac_bridge.sh`. v1 supported joints: `revolute`, `prismatic`, `fixed`; unsupported joints return `UNSUPPORTED_JOINT_TYPE`. Teleop uses a `Controller` protocol for pluggable actuation — currently `HexapodTripodController` (1-DOF tripod gait with slew filtering, yaw differential, height offset). Profile keys configure the controller (amplitude, stride frequency, slew rates, etc.).
 
+**Gazebo bridge** (`gazebo_bridge/`): Optional Python TCP sidecar on localhost:9879 for Tier 3 `backend=gazebo` simulation and teleop lifecycle. Same newline-delimited JSON protocol as Isaac bridge. Start with `scripts/run_gazebo_bridge.sh`. Best for drones (PX4 SITL integration in phase 3), wheeled vehicles, and CPU-only environments. Teleop commands support 5-DOF velocity (`vx_mps`, `vy_mps`, `vz_mps`, `yaw_rate_rps`, `body_height_m`) vs Isaac's 3-DOF (`vx_mps`, `yaw_rate_rps`, `body_height_m`).
+
 ### Key modules
 
 **`freecad_addon/`:**
@@ -59,7 +65,7 @@ Claude Code CLI ──stdio──▶ MCP Bridge Server ──TCP socket──▶
 **`server/`:**
 - `main.py` — MCP JSON-RPC stdio server, registers cad.*, mfg.*, me.*, design.* tools
 - `freecad_client.py` — TCP socket client connecting to FreeCAD addon, retry/reconnect logic
-- `tools_cad.py` — CAD MCP tool implementations (cad.new_document, cad.sketch, cad.pad, cad.pocket, cad.hole, cad.fillet, cad.chamfer, cad.mirror, cad.linear_pattern, cad.thickness, cad.draft, cad.get_selection, cad.get_model_tree, cad.measure_between, cad.undo, cad.export)
+- `tools_cad.py` — CAD MCP tool implementations (cad.new_document, cad.sketch, cad.pad, cad.pocket, cad.hole, cad.fillet, cad.chamfer, cad.mirror, cad.linear_pattern, cad.thickness, cad.draft, cad.get_selection, cad.get_model_tree, cad.measure_between, cad.undo, cad.export, cad.assembly_audit, cad.register_placement_plan). `get_model_tree` returns position, rotation, and world bounding box per body for spatial overview. `assembly_audit` detects CLUSTER/ISOLATED/OVERLAP/DRIFT anomalies in multi-body assemblies (auto-uses registered placement plan for DRIFT). `set_placement` returns `plan_check` when a placement plan is registered.
 - `tools_mfg.py` — Manufacturing readiness tools (mfg.set_property, mfg.readiness_check, mfg.export_rfq)
 - `tools_me.py` — ME design-loop tools (deterministic validation, traceability, risk gates)
 - `tools_study.py` — Parametric study tools (create, run, status, results, cancel, list, get_variant)
@@ -69,6 +75,8 @@ Claude Code CLI ──stdio──▶ MCP Bridge Server ──TCP socket──▶
 - `motion_validators.py` — Analytical validators (gear ratio, speed/torque propagation, DOF, Grashof, power conservation)
 - `chrono_client.py` — TCP client to Chrono daemon on localhost:9877 (Tier 3 dynamic simulation)
 - `isaac_client.py` — TCP client to Isaac bridge on localhost:9878 (Tier 3 dynamic simulation + teleop)
+- `gazebo_client.py` — TCP client to Gazebo bridge on localhost:9879 (Tier 3 dynamic simulation + teleop)
+- `gazebo_adapter.py` — Error-wrapping adapter for Gazebo bridge (GAZEBO_* error codes)
 - `study_models.py` — Study data models (Study, DesignVariable, Variant, SolverConfig, ObjectiveConfig)
 - `study_store.py` — JSON-file persistence for studies in `studies/<study_id>/`
 - `study_runner.py` — Background subprocess runner (coarse sweep → refine → rank)
@@ -90,8 +98,14 @@ Claude Code CLI ──stdio──▶ MCP Bridge Server ──TCP socket──▶
 - `controllers.py` — `HexapodTripodController` (1-DOF tripod gait), `PolicyController` (RL residual blending), `create_controller()` registry, `clamp_targets()` utility
 - `keyboard_teleop.py` — `KeyboardTeleopMapper` (key→command mapping, no Isaac dependency)
 
-**`scripts/`** (teleop-related):
+**`gazebo_bridge/`:**
+- `bridge_server.py` — TCP server on localhost:9879 (no main-thread pump needed)
+- `runtime_gazebo.py` — Gazebo runtime: stub command handlers, session tracking for teleop
+- `models.py` — `GazeboConfig` (frozen dataclass), `GazeboSession` (mutable session state with 5-DOF teleop)
+
+**`scripts/`** (simulation-related):
 - `run_isaac_bridge.sh` — Launch the Isaac bridge sidecar
+- `run_gazebo_bridge.sh` — Launch the Gazebo bridge sidecar (optional `--launch-gz` flag)
 - `isaac_keyboard_teleop.py` — Standalone keyboard teleop client (W/A/S/D/Q/E, 20 Hz, raw terminal)
 - `smoke_test_isaac.py` — TCP smoke test client for the Isaac bridge
 
@@ -99,12 +113,12 @@ Claude Code CLI ──stdio──▶ MCP Bridge Server ──TCP socket──▶
 
 | Group | Tools | Purpose |
 |-------|-------|---------|
-| `cad.*` | new_document, new_body, sketch, pad, pocket, hole, fillet, chamfer, mirror, linear_pattern, thickness, draft, create_primitive, create_primitives, get_selection, get_model_tree, undo, export, measure_between, fastener_spec | Drive FreeCAD PartDesign + measurement + fastener dimension lookup |
+| `cad.*` | new_document, new_body, sketch, pad, pocket, hole, fillet, chamfer, mirror, linear_pattern, thickness, draft, create_primitive, create_primitives, get_selection, get_model_tree, undo, export, measure_between, fastener_spec, assembly_audit, register_placement_plan, clear_placement_plan | Drive FreeCAD PartDesign + measurement + fastener dimension lookup + spatial audit + placement plan validation |
 | `mfg.*` | set_property, readiness_check, export_rfq | Manufacturing readiness (on-demand) |
 | `me.*` | validate_constraints, build_traceability, apply_risk_gates, design_loop, list_validators | Deterministic ME preflight (validators + risk gates) |
 | `knowledge.*` | extract, ingest, ingest_status, search, status | Knowledge base — hybrid search, PDF extraction, document ingestion (LanceDB + Docling) |
 | `study.*` | create, run, status, results, cancel, list, get_variant | Parametric design optimization (sweep variables, run solvers, rank results) |
-| `motion.*` | define_mechanism, list_mechanisms, validate, propagate_motion, check_gear_train, check_joint_connectivity, create_assembly, drive_joint, check_interference, simulate, verify_sim_package, teleop_start, teleop_command, teleop_state, teleop_stop | Motion validation pipeline — analytical (Tier 1), check_joint_connectivity (Tier 1.5, pre-export), kinematic via FreeCAD Assembly (Tier 2), dynamic via Isaac/Chrono (Tier 3), sim package verification |
+| `motion.*` | define_mechanism, list_mechanisms, validate, propagate_motion, check_gear_train, check_joint_connectivity, create_assembly, drive_joint, check_interference, simulate, verify_sim_package, teleop_start, teleop_command, teleop_state, teleop_stop | Motion validation pipeline — analytical (Tier 1), check_joint_connectivity (Tier 1.5, pre-export), kinematic via FreeCAD Assembly (Tier 2), dynamic via Isaac/Gazebo/Chrono (Tier 3), sim package verification |
 | `design.*` | save_brief, get_brief, update_brief, add_part, update_part, get_part, add_interface, list_briefs, verify_build | Design brief pipeline — phased assembly design with parts decomposition, interface tracking, and build verification |
 | `geometry.*` | spur_gear, tooth_slot, gear_params, planetary_layout, involute_points, propeller_blade | Parametric geometry generators — involute gears, planetary layouts, propeller blades (Rust-backed) |
 
@@ -226,26 +240,91 @@ design.update_brief(brief_id, parameters={
 
 Gate: LLM presents the layout (arm lengths, positions, interface summary) → user approves → move to building.
 
+**Part decomposition for articulated mechanisms:**
+
+For robots, hexapods, arms, and any design with joints, decompose parts by
+**kinematic segment** — the rigid portion between two joints — not by component type.
+
+Anti-pattern (creates overlapping bodies with seams):
+```
+design.add_part(brief_id, name="coxa_servo", kind="custom", quantity=6, ...)
+design.add_part(brief_id, name="coxa_arm", kind="custom", quantity=6, ...)
+# Result: 12 separate bodies that overlap at every servo-arm junction
+```
+
+Correct pattern (one body per kinematic segment):
+```
+design.add_part(brief_id, name="coxa_servo", kind="purchased", quantity=6,
+    specs={"model": "SG90", "body_mm": [23, 12.2, 22], ...})
+design.add_part(brief_id, name="coxa_segment", kind="custom", quantity=6,
+    specs={"role": "rigid link: coxa joint → femur joint",
+           "integrates": ["coxa_servo pocket", "structural arm"],
+           "profile": "L-shaped composite"})
+# Servo is purchased (for specs/mass), segment is custom (gets built as one body)
+```
+
+Interfaces for articulated mechanisms define joints between segments:
+```
+design.add_interface(brief_id,
+    part_a="chassis", port_a="coxa_pivot",
+    part_b="coxa_segment", port_b="proximal",
+    spec={"type": "revolute", "axis": [0,0,1], "servo": "coxa_servo"})
+design.add_interface(brief_id,
+    part_a="coxa_segment", port_a="distal",
+    part_b="femur_segment", port_b="proximal",
+    spec={"type": "revolute", "axis": [0,1,0], "servo": "femur_servo"})
+```
+
 #### Phase 4: Build (micro pipeline per part)
 
-Now build each custom part. For each part:
+Now build each custom part. The build process depends on whether the design is articulated.
 
+**For static assemblies** (drones, enclosures, brackets — no revolute/prismatic joints between custom parts):
+
+For each part:
 1. `design.get_part(brief_id, "motor_mount")` — pull its interfaces and specs
 2. `cad.new_body(label="motor_mount")` — create the body
-3. Build geometry where **hole patterns, bore sizes, and mating surfaces come from the interface spec** — not from the LLM redoing arithmetic
+3. Build geometry where **hole patterns, bore sizes, and mating surfaces come from the interface spec**
 4. Verify with screenshots — confirm dimensions match interface spec
 5. Move to next part
 
-Build order follows dependencies: frame first (everything mounts to it), then arms, then motor mounts, then accessories.
+Build order follows dependencies: frame first, then arms, then motor mounts, then accessories.
 
-```
+**For articulated mechanisms** (robots, hexapods, arms, linkages — has revolute/prismatic joints):
+
+Step 0 — Identify kinematic segments:
+Walk the joint tree from chassis to leaf. Each rigid group between two joints = ONE body.
+Purchased servos/motors are NOT separate bodies — their form becomes pockets in the segment body.
+
+Step 1 — Build each segment as ONE composite body:
+1. `design.get_part(brief_id, "coxa_segment")` — pull specs + interfaces
+2. `cad.new_body(label="coxa_segment_L1")` — one body for the whole segment
+3. `cad.sketch` with composite profile:
+   - Wide rectangular section matching servo body dimensions (from purchased part specs)
+   - Narrower arm section extending from the servo housing
+   - Result: L-shaped, T-shaped, or stepped outline — one closed contour
+4. `cad.pad` the composite profile to segment thickness
+5. `cad.pocket` to cut the servo cavity (sized from purchased part specs)
+6. `cad.hole` for joint pivot holes at each end, servo horn slot, wire routing
+7. `cad.fillet` transitions between wide and narrow sections
+8. Verify with screenshots — confirm continuous solid, no floating geometry
+
+Step 2 — Verify segment integrity:
+After all segments: confirm each kinematic segment is exactly one body, no separate
+servo/motor bodies exist, joint pivot points are correctly placed.
+
+Do NOT use `cad.create_primitives` for the final build of articulated mechanisms — it
+creates separate overlapping bodies. Use it only for early layout visualization.
+
+```python
 design.update_brief(brief_id, status="building")
 
-# For each custom part:
-part = design.get_part(brief_id, "motor_mount")
-# part.specs has dimensions, part.interfaces has connection constraints
-# → build geometry from those values
-design.update_part(brief_id, "motor_mount", body_label="motor_mount", status="built")
+# For each kinematic segment:
+part = design.get_part(brief_id, "coxa_segment")
+# part.specs has servo dimensions, arm length, profile type
+# part.interfaces has joint positions, pivot hole specs
+# → build composite body from those values
+design.update_part(brief_id, "coxa_segment", body_label="coxa_segment_L1", status="built")
 ```
 
 After all parts: `design.update_brief(brief_id, status="done")`
@@ -269,6 +348,7 @@ The phases are universal — only the sizing calculations change:
 | Drone | weight budget, thrust-to-weight, prop clearance |
 | Gearbox | gear ratios, shaft torque, bearing loads |
 | Robot arm | joint torques, servo selection, link lengths |
+| Articulated mechanism | kinematic segment decomposition, servo pocket integration, joint placement |
 | Enclosure | component clearances, thermal, IP rating |
 
 The LLM applies its engineering knowledge at each phase. The tools provide structure and memory — the LLM provides the engineering judgment.
@@ -322,8 +402,18 @@ with moving parts (gears, linkages, cams, belt drives). Skip for static parts
 4. Report results to user. Wait for user approval before escalating.
 5. If user requests Tier 2: motion.create_assembly + motion.drive_joint + motion.check_interference (requires FreeCAD Assembly workbench)
 6. If user requests Tier 3: motion.simulate with backend selection:
-   - `backend=isaac` requires Isaac bridge sidecar (`scripts/run_isaac_bridge.sh`)
-   - `backend=chrono` requires Chrono daemon
+   - `backend=isaac` — GPU physics via Isaac Sim (`scripts/run_isaac_bridge.sh`). Best for legged robots (hexapods, bipeds), articulated mechanisms, and anything needing GPU-accelerated contact. Teleop supports `vx_mps`, `yaw_rate_rps`, `body_height_m`.
+   - `backend=gazebo` — CPU physics via Gazebo (`scripts/run_gazebo_bridge.sh`). Best for drones (PX4 SITL in phase 3), wheeled/tracked vehicles, and CPU-only environments. Teleop supports 5-DOF: adds `vy_mps` (lateral) and `vz_mps` (vertical) for flight.
+   - `backend=chrono` — C++ multibody via Project Chrono (batch only, no teleop). Best for gear trains, linkages, and mechanisms where analytical torque/speed propagation matters.
+
+   **Backend selection heuristic:**
+   - Drone / multirotor / fixed-wing → `gazebo` (PX4 ecosystem, 5-DOF teleop)
+   - Wheeled vehicle / rover → `gazebo` (ROS ecosystem, lateral velocity)
+   - Legged robot / hexapod / biped → `isaac` (GPU contact, existing tripod controller)
+   - Articulated arm / manipulator → `isaac` (GPU physics, joint-level control)
+   - Gear train / linkage / cam → `chrono` (analytical MBS, batch validation)
+   - User has no GPU / CPU-only → `gazebo`
+   - User explicitly requests a backend → use what they ask for
 
 **When to suggest validation (but always let user decide):**
 - After building a gear train, linkage, or cam mechanism

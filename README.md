@@ -47,6 +47,7 @@ flowchart LR
 
     S -->|TCP localhost:9877 optional| C[Chrono daemon]
     S -->|TCP localhost:9878 optional| I[Isaac bridge sidecar]
+    S -->|TCP localhost:9879 optional| G[Gazebo bridge sidecar]
 ```
 
 Core modeling remains the two-process bridge (`server/main.py` <-> `freecad_addon`).
@@ -116,8 +117,9 @@ User feedback works through FreeCAD's selection system:
 - **Tier 1 (analytical)**: `motion.validate`, `motion.propagate_motion`, `motion.check_gear_train`.
 - **Tier 2 (kinematic in FreeCAD Assembly)**: `motion.create_assembly`, `motion.drive_joint`, `motion.check_interference`.
 - **Tier 3 (dynamic backend selection)**:
-  - `motion.simulate` with `backend=isaac|chrono` (default: `isaac`)
-  - Isaac teleop lifecycle: `motion.teleop_start`, `motion.teleop_command`, `motion.teleop_state`, `motion.teleop_stop`
+  - `motion.simulate` with `backend=isaac|chrono|gazebo` (default: `isaac`)
+  - Gazebo batch/teleop requires `urdf_path` or `sdf_path` (SDF recommended for drones)
+  - Teleop lifecycle: `motion.teleop_start`, `motion.teleop_command`, `motion.teleop_state`, `motion.teleop_stop`
   - Isaac bridge v1 supports joint types: `revolute`, `prismatic`, `fixed`
   - Unsupported for Isaac bridge v1: `gear_mesh`, `belt_chain`, `cam`, `planar` (returns `UNSUPPORTED_JOINT_TYPE`)
 
@@ -146,6 +148,7 @@ Optional/conditional components:
 
 - Chrono daemon binary (required for `motion.simulate` and `study` `chrono` solver runs)
 - Isaac bridge sidecar (required for Tier 3 `backend=isaac` simulation/teleop)
+- Gazebo Harmonic (`gz` CLI) + Gazebo bridge sidecar (required for Tier 3 `backend=gazebo`)
 - OpenFOAM + `FreeCADCmd` (required for OpenFOAM study pipeline)
 - LanceDB/Docling/embedding runtime for full knowledge store mode (tools degrade to local-note fallback when unavailable)
 
@@ -213,6 +216,20 @@ Optional runtime-backed simulation validation:
 SOLIDMIND_RUN_ISAAC_E2E=1 python3 -m unittest tests.test_isaac_bridge_real_runtime
 ```
 
+Optional Gazebo bridge runtime validation:
+
+```bash
+scripts/run_gazebo_bridge.sh --runtime real --world default
+SOLIDMIND_RUN_GAZEBO_E2E=1 python3 -m unittest tests.test_gazebo_bridge_real_runtime
+```
+
+Optional Gazebo PX4 lifecycle validation (fake PX4 mode for CI/local):
+
+```bash
+SOLIDMIND_GAZEBO_PX4_FAKE=1 scripts/run_gazebo_bridge.sh --runtime stub --enable-px4
+SOLIDMIND_RUN_GAZEBO_PX4_E2E=1 python3 -m unittest tests.test_gazebo_px4_e2e
+```
+
 Optional Chrono backend runtime validation:
 
 ```bash
@@ -236,6 +253,20 @@ Optional Isaac bridge env overrides:
 - `SOLIDMIND_ISAAC_PORT`
 - `SOLIDMIND_ISAAC_CONNECT_TIMEOUT_S`
 - `SOLIDMIND_ISAAC_READ_TIMEOUT_S`
+
+Optional Gazebo bridge sidecar (manual runtime path for `backend=gazebo`):
+
+```bash
+scripts/run_gazebo_bridge.sh --runtime real --world default --host 127.0.0.1 --port 9879
+```
+
+Optional Gazebo bridge env overrides:
+
+- `SOLIDMIND_GAZEBO_RUNTIME` (`real` or `stub`)
+- `SOLIDMIND_GAZEBO_HOST`
+- `SOLIDMIND_GAZEBO_PORT`
+- `SOLIDMIND_GAZEBO_CONNECT_TIMEOUT_S`
+- `SOLIDMIND_GAZEBO_READ_TIMEOUT_S`
 
 Optional transcript replay:
 

@@ -1,8 +1,4 @@
-"""TCP bridge server for Gazebo simulation/teleop commands.
-
-Simpler than the Isaac bridge — no main-thread pump needed.
-Gazebo handles its own event loop internally.
-"""
+"""TCP bridge server for Gazebo simulation/teleop commands."""
 from __future__ import annotations
 
 import argparse
@@ -13,7 +9,7 @@ import socket
 import threading
 from typing import Any
 
-from gazebo_bridge.runtime_gazebo import GazeboRuntime, GazeboRuntimeError
+from gazebo_bridge.runtime_gazebo import GazeboRuntimeError, create_runtime
 
 logger = logging.getLogger("solidmind.gazebo_bridge")
 
@@ -26,10 +22,17 @@ class GazeboBridgeServer:
         *,
         host: str = "127.0.0.1",
         port: int = 9879,
+        runtime_mode: str | None = None,
+        world_name: str = "default",
+        enable_px4: bool = False,
     ) -> None:
         self._host = host
         self._port = port
-        self._runtime = GazeboRuntime()
+        self._runtime = create_runtime(
+            runtime_mode=runtime_mode,
+            world_name=world_name,
+            enable_px4=enable_px4,
+        )
         self._sock: socket.socket | None = None
         self._stop_event = threading.Event()
 
@@ -47,9 +50,10 @@ class GazeboBridgeServer:
         self._port = int(srv.getsockname()[1])
 
         logger.info(
-            "Gazebo bridge listening on %s:%d",
+            "Gazebo bridge listening on %s:%d (runtime=%s)",
             self._host,
             self._port,
+            type(self._runtime).__name__,
         )
 
         try:
@@ -111,10 +115,18 @@ class GazeboBridgeServer:
         try:
             msg = json.loads(line.decode("utf-8"))
         except (json.JSONDecodeError, UnicodeDecodeError) as exc:
-            return json.dumps({"ok": False, "error": f"JSON parse error: {exc}"}) + "\n"
+            return json.dumps({
+                "ok": False,
+                "error": {"code": "GAZEBO_PROTOCOL_ERROR", "message": f"JSON parse error: {exc}"},
+            }) + "\n"
 
         cmd = msg.get("cmd", "")
         args = msg.get("args", {})
+        if not isinstance(args, dict):
+            return json.dumps({
+                "ok": False,
+                "error": {"code": "GAZEBO_PROTOCOL_ERROR", "message": "Message field 'args' must be an object."},
+            }) + "\n"
 
         try:
             result = self._route(cmd, args)
@@ -134,6 +146,10 @@ class GazeboBridgeServer:
     def _route(self, cmd: str, args: dict[str, Any]) -> Any:
         if cmd == "ping":
             return self._runtime.handle_ping()
+        if cmd == "diagnose":
+            return self._runtime.handle_diagnose(args)
+        if cmd == "spawn_model":
+            return self._runtime.handle_spawn_model(args)
         if cmd == "simulate":
             return self._runtime.handle_simulate(args)
         if cmd == "teleop_start":
@@ -144,6 +160,12 @@ class GazeboBridgeServer:
             return self._runtime.handle_teleop_state(args)
         if cmd == "teleop_stop":
             return self._runtime.handle_teleop_stop(args)
+        if cmd == "px4_start":
+            return self._runtime.handle_px4_start(args)
+        if cmd == "px4_status":
+            return self._runtime.handle_px4_status(args)
+        if cmd == "px4_stop":
+            return self._runtime.handle_px4_stop(args)
         raise GazeboRuntimeError(f"Unknown command: {cmd}", code="UNKNOWN_COMMAND")
 
 
@@ -151,6 +173,14 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="SolidMind Gazebo Bridge")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=9879)
+    parser.add_argument("--runtime", choices=["real", "stub"], default=None)
+    parser.add_argument("--world", default="default")
+    parser.add_argument("--enable-px4", action="store_true")
+    parser.add_argument(
+        "--launch-gz",
+        action="store_true",
+        help="Accepted for script compatibility; Gazebo launching is handled by the wrapper script.",
+    )
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -158,7 +188,13 @@ def main() -> None:
         format="%(asctime)s %(name)s %(levelname)s %(message)s",
     )
 
-    server = GazeboBridgeServer(host=args.host, port=args.port)
+    server = GazeboBridgeServer(
+        host=args.host,
+        port=args.port,
+        runtime_mode=args.runtime,
+        world_name=args.world,
+        enable_px4=bool(args.enable_px4),
+    )
 
     def _shutdown(signum: int, frame: Any) -> None:
         logger.info("Received signal %d, shutting down", signum)

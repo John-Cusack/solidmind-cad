@@ -78,6 +78,7 @@ from server.tools import (
 from server.tools_cad import (
     cad_animate,
     cad_animate_stop,
+    cad_assembly_audit,
     cad_chamfer,
     cad_create_primitive,
     cad_create_primitives,
@@ -90,6 +91,8 @@ from server.tools_cad import (
     cad_export_sim_package,
     cad_fillet,
     cad_find_edges,
+    cad_register_placement_plan,
+    cad_clear_placement_plan,
     cad_freecad_info,
     cad_get_body_topology,
     cad_get_camera,
@@ -101,6 +104,8 @@ from server.tools_cad import (
     cad_linear_pattern,
     cad_list_selections,
     cad_loft,
+    cad_check_clearance,
+    cad_check_swept_clearance,
     cad_measure_between,
     cad_mirror,
     cad_new_body,
@@ -184,6 +189,7 @@ from server.tools_rl import (
 from server.tools_design import (
     design_add_interface,
     design_add_part,
+    design_generate_mechanism,
     design_get_brief,
     design_get_part,
     design_list_briefs,
@@ -193,6 +199,7 @@ from server.tools_design import (
     design_verify_build,
 )
 from server.tools_fastener import cad_fastener_spec
+from server.tools_fastener_build import cad_bolt, cad_find_holes, cad_nut
 
 
 def _json_dumps(obj: Any) -> bytes:
@@ -763,7 +770,7 @@ def _cad_tool_list() -> list[dict[str, Any]]:
         },
         {
             "name": "cad.get_model_tree",
-            "description": "Get the feature tree of the current FreeCAD document with object types and bounding boxes.",
+            "description": "Get the feature tree of the current FreeCAD document. Bodies include position, rotation, world bounding box, and sizes — use as a one-call spatial overview.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -783,9 +790,9 @@ def _cad_tool_list() -> list[dict[str, Any]]:
                 "type": "object",
                 "properties": {
                     "object_name": {"type": "string", "description": "Name of the object to measure"},
+                    "body": {"type": "string", "description": "Alias for object_name (either works)"},
                     "doc": {"type": "string", "description": "Document name (optional)"},
                 },
-                "required": ["object_name"],
                 "additionalProperties": False,
             },
         },
@@ -1072,6 +1079,14 @@ def _cad_tool_list() -> list[dict[str, Any]]:
                     "format": {"type": "string", "enum": ["stl", "step"], "default": "stl"},
                     "output_dir": {"type": "string", "description": "Output directory (auto tempdir if omitted)"},
                     "mechanism_id": {"type": "string", "description": "Mechanism handle from motion.define_mechanism — triggers URDF generation"},
+                    "emit_sdf": {
+                        "type": "boolean",
+                        "default": False,
+                        "description": (
+                            "When mechanism_id is provided, also emit an SDF artifact beside URDF. "
+                            "Recommended for Gazebo-native drone simulation."
+                        ),
+                    },
                     "ground_clearance_m": {
                         "type": "number",
                         "description": (
@@ -1101,7 +1116,13 @@ def _cad_tool_list() -> list[dict[str, Any]]:
         },
         {
             "name": "cad.set_placement",
-            "description": "Set the Placement of any FreeCAD object (body, link, etc.). Use to position objects with explicit translation and rotation.",
+            "description": (
+                "Set the Placement of any FreeCAD object (body, link, etc.). "
+                "When a placement plan is registered (via "
+                "cad.register_placement_plan), the response includes a "
+                "'plan_check' dict with position/rotation/size validation "
+                "against the plan — no separate call needed."
+            ),
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -1248,8 +1269,10 @@ def _cad_tool_list() -> list[dict[str, Any]]:
             "name": "cad.create_primitives",
             "description": (
                 "Create multiple simple solid bodies in one call. Each item has the same schema as "
-                "cad.create_primitive. Use when placing many identical or similar bodies (servos, "
-                "fasteners, standoffs)."
+                "cad.create_primitive. Use for layout visualization and static assemblies (fasteners, "
+                "standoffs, enclosure parts). For articulated mechanisms (hexapods, robot arms), do NOT "
+                "use this for final builds — each kinematic segment should be ONE composite body built "
+                "with sketch + pad + pocket instead."
             ),
             "inputSchema": {
                 "type": "object",
@@ -2120,8 +2143,10 @@ def _motion_tool_list() -> list[dict[str, Any]]:
             "name": "motion.simulate",
             "description": (
                 "Run Tier 3 dynamic simulation using selected backend. "
-                "Backends: isaac (default), chrono. "
-                "Set mode=teleop (Isaac only) to start a live drive session."
+                "Backends: isaac (default, GPU physics, best for legged robots and articulated mechanisms), "
+                "chrono (C++ multibody, batch only, best for gear trains and linkages), "
+                "gazebo (CPU physics + ROS/PX4 ecosystem, best for drones and wheeled vehicles). "
+                "Set mode=teleop (Isaac or Gazebo) to start a live drive session."
             ),
             "inputSchema": {
                 "type": "object",
@@ -2168,6 +2193,13 @@ def _motion_tool_list() -> list[dict[str, Any]]:
                             "Enables physics-based articulation simulation with Isaac."
                         ),
                     },
+                    "sdf_path": {
+                        "type": "string",
+                        "description": (
+                            "Path to SDF file from cad.export_sim_package(emit_sdf=true). "
+                            "For Gazebo backend, provide urdf_path or sdf_path (sdf preferred)."
+                        ),
+                    },
                     "import_config": {
                         "type": "object",
                         "description": (
@@ -2193,8 +2225,9 @@ def _motion_tool_list() -> list[dict[str, Any]]:
         {
             "name": "motion.teleop_start",
             "description": (
-                "Start an Isaac teleop session for a mechanism. "
-                "Keyboard controls are handled inside Isaac UI runtime."
+                "Start a teleop session for a mechanism. "
+                "Isaac backend: legged robots, articulated mechanisms. "
+                "Gazebo backend: drones (PX4 SITL), wheeled vehicles, supports vy_mps/vz_mps."
             ),
             "inputSchema": {
                 "type": "object",
@@ -2211,7 +2244,8 @@ def _motion_tool_list() -> list[dict[str, Any]]:
                         "description": (
                             "Optional teleop profile/config overrides. "
                             "All fields have sensible defaults for a 1-DOF hexapod tripod gait. "
-                            "Keys: controller_type (str, default 'hexapod_1dof_tripod'), "
+                            "Keys: controller_type (Isaac default 'hexapod_1dof_tripod'; "
+                            "Gazebo requires 'multirotor_direct' or 'px4_offboard'), "
                             "joint_names (list[str]), tripod_a/tripod_b (list[str], must partition joint_names), "
                             "left_legs/right_legs (list[str]), neutral_deg (float), "
                             "amplitude_deg (float, >0, oscillation amplitude), "
@@ -2229,6 +2263,13 @@ def _motion_tool_list() -> list[dict[str, Any]]:
                         "description": (
                             "Path to URDF file from cad.export_sim_package. "
                             "Enables physics-based articulation teleop with Isaac."
+                        ),
+                    },
+                    "sdf_path": {
+                        "type": "string",
+                        "description": (
+                            "Path to SDF file from cad.export_sim_package(emit_sdf=true). "
+                            "For Gazebo backend, provide urdf_path or sdf_path."
                         ),
                     },
                     "import_config": {
@@ -2656,13 +2697,60 @@ def _design_tool_list() -> list[dict[str, Any]]:
                 "Verify that all planned parts from a design brief exist in FreeCAD. "
                 "Compares brief parts list against model tree. Reports MISSING, PARTIAL, "
                 "STALE, or OK for each custom part. Checks bounding box dimensions "
-                "against part specs. Use before marking a brief as 'done'."
+                "against part specs. If mechanism_id is provided, also checks that "
+                "every interface has a corresponding joint. Use before marking a brief as 'done'."
             ),
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "brief_id": {"type": "string", "description": "Brief ID to verify"},
                     "doc": {"type": "string", "description": "Document name (optional)"},
+                    "mechanism_id": {
+                        "type": "string",
+                        "description": (
+                            "Optional mechanism handle from motion.define_mechanism. "
+                            "If provided, checks that every brief interface has a "
+                            "corresponding joint in the mechanism."
+                        ),
+                    },
+                    "check_clearance": {
+                        "type": "boolean",
+                        "description": (
+                            "If true, run a batch clearance check on all bodies "
+                            "and report violations. Default false."
+                        ),
+                    },
+                    "clearance_threshold_mm": {
+                        "type": "number",
+                        "description": (
+                            "Minimum clearance in mm for the clearance check. "
+                            "Default 0.5. Only used when check_clearance is true."
+                        ),
+                    },
+                },
+                "required": ["brief_id"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "design.generate_mechanism",
+            "description": (
+                "Auto-generate a Mechanism definition from a design brief's parts "
+                "and interfaces. Maps interface types to joint types: bolt/clamp → fixed, "
+                "bearing/shaft → revolute, slider/rail → prismatic. Returns a mechanism "
+                "dict ready for motion.define_mechanism(). Review before committing."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "brief_id": {"type": "string", "description": "Brief ID to generate mechanism from"},
+                    "ground_part": {
+                        "type": "string",
+                        "description": (
+                            "Part name to use as ground (is_ground=True). "
+                            "Defaults to the first part in the brief."
+                        ),
+                    },
                 },
                 "required": ["brief_id"],
                 "additionalProperties": False,
@@ -2705,11 +2793,227 @@ def _cad_measure_tool_list() -> list[dict[str, Any]]:
                 "additionalProperties": False,
             },
         },
+        {
+            "name": "cad.check_clearance",
+            "description": (
+                "Batch clearance check between all PartDesign body pairs (or a "
+                "specified subset). Reports pairs closer than threshold_mm, "
+                "including intersecting bodies. Use after placing fasteners or "
+                "near moving parts to verify nothing collides."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "bodies": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": (
+                            "Optional list of body names to check. "
+                            "If omitted, checks all PartDesign::Body objects."
+                        ),
+                    },
+                    "threshold_mm": {
+                        "type": "number",
+                        "description": (
+                            "Minimum clearance threshold in mm (default 0.5). "
+                            "Pairs closer than this are reported as violations."
+                        ),
+                    },
+                    "doc": {"type": "string", "description": "Document name (optional)"},
+                },
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "cad.check_swept_clearance",
+            "description": (
+                "Swept clearance check — rotates a copy of a body's shape "
+                "through angular steps around an axis/center and checks "
+                "distToShape against other bodies at each angle. Use for "
+                "rotating parts (propellers, gears, arms) to verify they "
+                "clear nearby bodies across the full sweep. No document "
+                "modifications — purely read-only."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "body": {
+                        "type": "string",
+                        "description": "The rotating body name.",
+                    },
+                    "axis": {
+                        "type": "array",
+                        "items": {"type": "number"},
+                        "minItems": 3,
+                        "maxItems": 3,
+                        "description": "Rotation axis [x,y,z] (default [0,0,1]).",
+                    },
+                    "center": {
+                        "type": "array",
+                        "items": {"type": "number"},
+                        "minItems": 3,
+                        "maxItems": 3,
+                        "description": "Rotation center [x,y,z] in mm (default [0,0,0]).",
+                    },
+                    "angle_deg": {
+                        "type": "number",
+                        "description": "Total sweep angle in degrees (default 360).",
+                    },
+                    "steps": {
+                        "type": "integer",
+                        "description": "Number of angular steps (default 36 = every 10°).",
+                    },
+                    "others": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": (
+                            "Bodies to check against. If omitted, checks all "
+                            "other PartDesign::Body objects."
+                        ),
+                    },
+                    "threshold_mm": {
+                        "type": "number",
+                        "description": (
+                            "Violation threshold in mm (default 0.5). "
+                            "Pairs closer than this at any angle are reported."
+                        ),
+                    },
+                    "doc": {"type": "string", "description": "Document name (optional)"},
+                },
+                "required": ["body"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "cad.assembly_audit",
+            "description": (
+                "Spatial coherence audit for multi-body assemblies. Returns all "
+                "bodies with positions and bounding boxes, plus anomaly warnings: "
+                "CLUSTER (bodies piled at same position), ISOLATED (body far from "
+                "all neighbors), OVERLAP (excessive bounding box overlap), DRIFT "
+                "(position differs from expected). Automatically uses the "
+                "registered placement plan for DRIFT detection when no "
+                "expected_positions are passed explicitly."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "cluster_radius_mm": {
+                        "type": "number",
+                        "description": (
+                            "Bodies within this distance are flagged as a cluster "
+                            "(default 1.0mm). Catches 'forgot to call set_placement'."
+                        ),
+                    },
+                    "isolation_radius_mm": {
+                        "type": "number",
+                        "description": (
+                            "Body farther than this from all neighbors is flagged "
+                            "as isolated (default 500.0mm). Catches wrong coordinates."
+                        ),
+                    },
+                    "overlap_fraction": {
+                        "type": "number",
+                        "description": (
+                            "Bounding box overlap threshold (0-1, default 0.8). "
+                            "Pairs exceeding this are flagged as overlapping."
+                        ),
+                    },
+                    "expected_positions": {
+                        "type": "object",
+                        "additionalProperties": {
+                            "type": "array",
+                            "items": {"type": "number"},
+                            "minItems": 3,
+                            "maxItems": 3,
+                        },
+                        "description": (
+                            "Optional dict mapping body label/name to expected "
+                            "[x,y,z] position. Bodies drifting >5mm from expected "
+                            "position are flagged as DRIFT."
+                        ),
+                    },
+                    "doc": {"type": "string", "description": "Document name (optional)"},
+                },
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "cad.register_placement_plan",
+            "description": (
+                "Register expected positions/rotations/sizes for bodies. "
+                "After registration, every cad.set_placement returns a "
+                "'plan_check' dict with position/rotation/size validation. "
+                "Also auto-used by cad.assembly_audit for DRIFT detection. "
+                "Auto-registered when design.update_brief transitions to "
+                "'building' status."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "plan": {
+                        "type": "object",
+                        "additionalProperties": {
+                            "type": "object",
+                            "properties": {
+                                "position": {
+                                    "type": "array",
+                                    "items": {"type": "number"},
+                                    "minItems": 3,
+                                    "maxItems": 3,
+                                    "description": "Expected [x,y,z] position in mm (required)",
+                                },
+                                "rotation_axis": {
+                                    "type": "array",
+                                    "items": {"type": "number"},
+                                    "description": "Expected rotation axis",
+                                },
+                                "rotation_angle_deg": {
+                                    "type": "number",
+                                    "description": "Expected rotation angle in degrees",
+                                },
+                                "expected_size": {
+                                    "type": "array",
+                                    "items": {"type": "number"},
+                                    "minItems": 3,
+                                    "maxItems": 3,
+                                    "description": "Expected bounding box [sx,sy,sz] in mm",
+                                },
+                                "tolerance_mm": {
+                                    "type": "number",
+                                    "description": "Per-body position tolerance (default 5.0mm)",
+                                },
+                            },
+                            "required": ["position"],
+                        },
+                        "description": "Dict mapping body label to plan entry.",
+                    },
+                    "default_tolerance_mm": {
+                        "type": "number",
+                        "description": "Default position tolerance in mm (default 5.0).",
+                    },
+                    "doc": {"type": "string", "description": "Document name (optional)"},
+                },
+                "required": ["plan"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "cad.clear_placement_plan",
+            "description": "Clear the registered placement plan.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "doc": {"type": "string", "description": "Document name (optional)"},
+                },
+                "additionalProperties": False,
+            },
+        },
     ]
 
 
 def _fastener_tool_list() -> list[dict[str, Any]]:
-    """Fastener dimension lookup tools."""
+    """Fastener dimension lookup and geometry building tools."""
     return [
         {
             "name": "cad.fastener_spec",
@@ -2717,8 +3021,9 @@ def _fastener_tool_list() -> list[dict[str, Any]]:
                 "Look up all dimensions for a metric fastener: head size, "
                 "through-hole diameters (close/normal/loose fit), counterbore "
                 "or countersink dimensions, tap drill size, socket/wrench size, "
-                "washer dimensions, and thread pitch. Avoids recalling ISO "
-                "tables from memory."
+                "washer + nut dimensions, and thread pitch. Accepts aliases: "
+                "'socket' for socket_head, 'button' for button_head, "
+                "'csk'/'flat' for countersunk. Avoids recalling ISO tables from memory."
             ),
             "inputSchema": {
                 "type": "object",
@@ -2729,7 +3034,38 @@ def _fastener_tool_list() -> list[dict[str, Any]]:
                     },
                     "length": {
                         "type": "number",
-                        "description": "Bolt shaft length in mm",
+                        "default": 0,
+                        "description": "Bolt shaft length in mm (optional, 0 if only head/hole dims needed)",
+                    },
+                    "head_type": {
+                        "type": "string",
+                        "default": "socket_head",
+                        "description": "Head type: socket_head, hex, button_head, countersunk, set_screw (aliases: socket, button, csk, flat, grub)",
+                    },
+                },
+                "required": ["size"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "cad.bolt",
+            "description": (
+                "Build a complete bolt in FreeCAD. Creates a body with head + shaft "
+                "in one call. Hex heads are proper hexagons; other types are cylindrical. "
+                "Head sits at z=0..head_height, shaft extends z=0..-length. "
+                "Use rotation_axis + rotation_angle_deg for non-vertical holes."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "size": {
+                        "type": "string",
+                        "description": "Metric size, e.g. 'M4', 'M8'",
+                    },
+                    "length": {
+                        "type": "number",
+                        "description": "Shaft length in mm",
+                        "exclusiveMinimum": 0,
                     },
                     "head_type": {
                         "type": "string",
@@ -2737,8 +3073,122 @@ def _fastener_tool_list() -> list[dict[str, Any]]:
                         "default": "socket_head",
                         "description": "Head type",
                     },
+                    "position": {
+                        "type": "array",
+                        "items": {"type": "number"},
+                        "minItems": 3,
+                        "maxItems": 3,
+                        "description": "Optional [x, y, z] placement in mm",
+                    },
+                    "rotation_axis": {
+                        "type": "array",
+                        "items": {"type": "number"},
+                        "minItems": 3,
+                        "maxItems": 3,
+                        "description": "Rotation axis, e.g. [1,0,0] to tilt bolt",
+                    },
+                    "rotation_angle_deg": {
+                        "type": "number",
+                        "default": 0.0,
+                        "description": "Rotation angle in degrees",
+                    },
+                    "name": {
+                        "type": "string",
+                        "description": "Body label (default: Bolt_M4_socket_head etc.)",
+                    },
+                    "verify": {
+                        "type": "boolean",
+                        "default": True,
+                        "description": "Capture verification screenshots",
+                    },
+                    "doc": {"type": "string", "description": "Document name (optional)"},
                 },
                 "required": ["size", "length"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "cad.nut",
+            "description": (
+                "Build a complete nut in FreeCAD. Creates a hexagonal prism body "
+                "with a center through-hole in one call. Sits from z=0 to z=height. "
+                "Nut types: hex (ISO 4032), thin (ISO 4035), nyloc (ISO 7040). "
+                "Use rotation_axis + rotation_angle_deg for non-horizontal orientation."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "size": {
+                        "type": "string",
+                        "description": "Metric size, e.g. 'M4', 'M8'",
+                    },
+                    "nut_type": {
+                        "type": "string",
+                        "enum": ["hex", "thin", "nyloc"],
+                        "default": "hex",
+                        "description": "Nut type",
+                    },
+                    "position": {
+                        "type": "array",
+                        "items": {"type": "number"},
+                        "minItems": 3,
+                        "maxItems": 3,
+                        "description": "Optional [x, y, z] placement in mm",
+                    },
+                    "rotation_axis": {
+                        "type": "array",
+                        "items": {"type": "number"},
+                        "minItems": 3,
+                        "maxItems": 3,
+                        "description": "Rotation axis, e.g. [1,0,0] to tilt nut",
+                    },
+                    "rotation_angle_deg": {
+                        "type": "number",
+                        "default": 0.0,
+                        "description": "Rotation angle in degrees",
+                    },
+                    "name": {
+                        "type": "string",
+                        "description": "Body label (default: Nut_M4_hex etc.)",
+                    },
+                    "verify": {
+                        "type": "boolean",
+                        "default": True,
+                        "description": "Capture verification screenshots",
+                    },
+                    "doc": {"type": "string", "description": "Document name (optional)"},
+                },
+                "required": ["size"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "cad.find_holes",
+            "description": (
+                "Find cylindrical holes in a body. Returns each hole's diameter, "
+                "axis direction, center position, and depth. Suggests matching "
+                "bolt sizes from ISO 273 clearance hole tables. Use this to "
+                "identify where to place bolts and nuts."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "body": {
+                        "type": "string",
+                        "description": "Body name to inspect (uses active body if omitted)",
+                    },
+                    "doc": {"type": "string", "description": "Document name (optional)"},
+                    "min_diameter": {
+                        "type": "number",
+                        "default": 0.0,
+                        "description": "Minimum hole diameter to report (mm)",
+                    },
+                    "max_diameter": {
+                        "type": "number",
+                        "default": 200.0,
+                        "description": "Maximum hole diameter to report (mm)",
+                    },
+                },
                 "additionalProperties": False,
             },
         },
@@ -2809,6 +3259,11 @@ _CAD_DISPATCH: dict[str, Any] = {
     "cad.create_primitive": cad_create_primitive,
     "cad.create_primitives": cad_create_primitives,
     "cad.measure_between": cad_measure_between,
+    "cad.check_clearance": cad_check_clearance,
+    "cad.check_swept_clearance": cad_check_swept_clearance,
+    "cad.assembly_audit": cad_assembly_audit,
+    "cad.register_placement_plan": cad_register_placement_plan,
+    "cad.clear_placement_plan": cad_clear_placement_plan,
 }
 
 _MFG_DISPATCH: dict[str, Any] = {
@@ -2903,10 +3358,14 @@ _DESIGN_DISPATCH: dict[str, Any] = {
     "design.add_interface": design_add_interface,
     "design.list_briefs": design_list_briefs,
     "design.verify_build": design_verify_build,
+    "design.generate_mechanism": design_generate_mechanism,
 }
 
 _FASTENER_DISPATCH: dict[str, Any] = {
     "cad.fastener_spec": cad_fastener_spec,
+    "cad.bolt": cad_bolt,
+    "cad.nut": cad_nut,
+    "cad.find_holes": cad_find_holes,
 }
 
 

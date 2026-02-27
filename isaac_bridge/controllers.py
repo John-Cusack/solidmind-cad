@@ -191,6 +191,134 @@ class HexapodTripodController:
         return targets, new_phase
 
 
+class Hexapod2DOFController:
+    """2-DOF hexapod tripod gait controller.
+
+    Generates per-leg coxa (yaw) and femur (pitch) targets for a tripod
+    gait.  Coxa oscillates sinusoidally to swing legs forward/back.
+    Femur lifts during the swing phase so the foot clears the ground,
+    then returns to neutral during stance.
+
+    Designed for a rectangular body with 3 legs per side, all pointing
+    straight outward.  Uses explicit ``left_legs`` / ``right_legs``
+    config lists (same as 1-DOF controller) instead of parsing names.
+    """
+
+    def __init__(self) -> None:
+        self._filtered_vx: float = 0.0
+        self._filtered_yaw: float = 0.0
+        self._filtered_height: float = 0.0
+
+    @property
+    def filtered_vx(self) -> float:
+        return self._filtered_vx
+
+    @property
+    def filtered_yaw(self) -> float:
+        return self._filtered_yaw
+
+    @property
+    def filtered_height(self) -> float:
+        return self._filtered_height
+
+    def compute_targets(
+        self,
+        state: TeleopState,
+        dt_s: float,
+        config: TeleopConfig,
+        phase: float,
+    ) -> tuple[dict[str, float], float]:
+        """Compute coxa + femur joint targets for one tick.
+
+        Returns (targets_rad, new_phase).
+        """
+        n_legs = len(config.leg_joint_names) // 2
+
+        if dt_s <= 0:
+            targets: dict[str, float] = {
+                name: 0.0 for name in config.leg_joint_names
+            }
+            return targets, phase
+
+        # ── 1. Slew-filter commanded inputs ──────────────────────────
+        target_vx_norm = max(-1.0, min(1.0, state.vx_mps / config.vx_max_mps))
+        target_yaw_norm = max(-1.0, min(1.0, state.yaw_rate_rps / config.yaw_max_rps))
+        target_height_norm = max(-1.0, min(1.0, state.body_height_m / config.height_max_m))
+
+        slew_vx_norm = config.slew_vx_mps2 / config.vx_max_mps
+        slew_yaw_norm = config.slew_yaw_rps2 / config.yaw_max_rps
+        slew_height_norm = config.slew_height_mps2 / config.height_max_m
+
+        self._filtered_vx = _slew(self._filtered_vx, target_vx_norm, slew_vx_norm, dt_s)
+        self._filtered_yaw = _slew(self._filtered_yaw, target_yaw_norm, slew_yaw_norm, dt_s)
+        self._filtered_height = _slew(self._filtered_height, target_height_norm, slew_height_norm, dt_s)
+
+        # ── 2. Advance gait phase ───────────────────────────────────
+        speed_factor = abs(self._filtered_vx)
+        phase_rate = config.stride_hz * _TWO_PI * speed_factor
+        new_phase = (phase + phase_rate * dt_s) % _TWO_PI
+
+        # ── 3. Compute per-leg targets ──────────────────────────────
+        amplitude_rad = config.amplitude_deg * _DEG2RAD
+        yaw_mix_rad = config.yaw_mix_deg * _DEG2RAD
+        height_mix_rad = config.height_mix_deg * _DEG2RAD
+        lift_rad = config.lift_deg * _DEG2RAD
+
+        direction = 1.0 if self._filtered_vx >= 0 else -1.0
+
+        # Use explicit left_legs set from config (same as 1-DOF controller).
+        left_set = set(config.left_legs)
+        tripod_a_set = set(config.tripod_a)
+
+        targets: dict[str, float] = {}
+        for leg_idx in range(n_legs):
+            base = leg_idx * 2
+            coxa_name = config.leg_joint_names[base]
+            femur_name = config.leg_joint_names[base + 1]
+
+            # Leg phase with tripod offset
+            offset = config.leg_phase_offsets[leg_idx]
+            leg_phase = (new_phase / _TWO_PI + offset) % 1.0
+
+            # Stance/swing split
+            in_swing = leg_phase >= config.duty_factor
+            swing_frac = (
+                (leg_phase - config.duty_factor) / (1.0 - config.duty_factor)
+                if in_swing else 0.0
+            )
+
+            # ── Coxa (yaw): sinusoidal oscillation ──────────────────
+            joint_phase_rad = leg_phase * _TWO_PI
+            oscillation = direction * amplitude_rad * speed_factor * math.sin(joint_phase_rad)
+
+            # Right-side legs are mirror-mounted — negate oscillation.
+            is_left = coxa_name in left_set
+            if not is_left:
+                oscillation = -oscillation
+
+            # Yaw differential for turning
+            if is_left:
+                yaw_offset = -yaw_mix_rad * self._filtered_yaw
+            else:
+                yaw_offset = yaw_mix_rad * self._filtered_yaw
+
+            # Height offset on coxa
+            height_offset = height_mix_rad * self._filtered_height
+
+            targets[coxa_name] = oscillation + yaw_offset + height_offset
+
+            # ── Femur (pitch): lift during swing, neutral in stance ──
+            if in_swing:
+                # Sine arc: 0 at start → peak at mid-swing → 0 at end
+                femur_target = lift_rad * speed_factor * math.sin(math.pi * swing_frac)
+            else:
+                femur_target = 0.0
+
+            targets[femur_name] = femur_target
+
+        return targets, new_phase
+
+
 class Hexapod3DOFController:
     """3-DOF hexapod controller with analytical IK.
 
@@ -211,15 +339,6 @@ class Hexapod3DOFController:
         # IK standing bias: (coxa, femur, tibia) angles at neutral stance.
         # Subtracted from all IK output so that URDF joint zero = as-built pose.
         self._standing_bias: list[tuple[float, float, float]] | None = None
-        # Dead-reckoned body world pose
-        self._body_x: float = 0.0
-        self._body_y: float = 0.0
-        self._body_yaw: float = 0.0
-        # Per-leg world-frame foot plant and liftoff points
-        self._foot_plant_world: list[tuple[float, float, float]] | None = None
-        self._foot_liftoff_world: list[tuple[float, float, float]] | None = None
-        self._foot_swing_target: list[tuple[float, float, float]] | None = None
-        self._prev_leg_in_stance: list[bool] | None = None
 
     @property
     def filtered_vx(self) -> float:
@@ -300,12 +419,8 @@ class Hexapod3DOFController:
                 leg_idx, angles.coxa, angles.femur, angles.tibia,
             )
 
-        # Initialize world-frame foot planting state.
-        # At t=0 body is at origin, so world coords == body coords.
-        self._foot_plant_world = [tuple(f) for f in self._default_feet]
-        self._foot_liftoff_world = [tuple(f) for f in self._default_feet]
-        self._foot_swing_target = [tuple(f) for f in self._default_feet]
-        self._prev_leg_in_stance = [True] * n_legs
+        # (World-frame foot tracking removed — body-frame approach is
+        # simpler and avoids dead-reckoning drift.)
 
     def compute_targets(
         self,
@@ -365,29 +480,14 @@ class Hexapod3DOFController:
         phase_rate = config.stride_hz * _TWO_PI * speed_factor
         new_phase = (phase + phase_rate * dt_s) % _TWO_PI
 
-        # ── 3. Dead-reckon body pose ─────────────────────────────────
-        actual_vx = self._filtered_vx * config.vx_max_mps
-        actual_yaw_rate = self._filtered_yaw * config.yaw_max_rps
-
-        # Semi-implicit Euler: advance yaw first, then integrate position.
-        self._body_yaw += actual_yaw_rate * dt_s
-        self._body_x += actual_vx * math.cos(self._body_yaw) * dt_s
-        self._body_y += actual_vx * math.sin(self._body_yaw) * dt_s
-
-        # ── 4. Per-leg foot trajectory (world-frame planting) + IK ───
-        # Raibert heuristic: place feet proportional to velocity so the
-        # foot plant is centered under the body's expected mid-stance
-        # position.  This keeps the COG inside the support polygon.
-        stance_duration = config.duty_factor / max(
-            config.stride_hz * speed_factor, 1e-6,
-        )
-        half_stride = abs(actual_vx) * stance_duration / 2.0
+        # ── 3. Per-leg foot trajectory (body-frame) + IK ─────────────
+        # Simple body-frame approach: no dead reckoning.  Each foot
+        # offsets from its default position along body +X (forward).
+        # Stance: slides from +half_stride to -half_stride (body moves
+        # forward over planted foot).  Swing: arcs from -half_stride
+        # back to +half_stride with a vertical lift.
+        half_stride = config.stride_length / 2.0 * speed_factor
         direction = 1.0 if self._filtered_vx >= 0 else -1.0
-
-        assert self._foot_plant_world is not None
-        assert self._foot_liftoff_world is not None
-        assert self._foot_swing_target is not None
-        assert self._prev_leg_in_stance is not None
 
         targets = {}
         for leg_idx in range(n_legs):
@@ -399,78 +499,34 @@ class Hexapod3DOFController:
             leg_phase = (new_phase / _TWO_PI + offset) % 1.0
 
             in_stance = leg_phase < config.duty_factor
-            was_in_stance = self._prev_leg_in_stance[leg_idx]
 
-            # Forward offset along body +X for foot placement.
-            # half_stride is already velocity-proportional (Raibert),
-            # so just apply direction, no extra speed_factor.
-            fwd_offset_x = half_stride * direction
-
-            # Yaw tangential offset per foot
-            r_mount = math.sqrt(mount.x * mount.x + mount.y * mount.y)
-            if r_mount > 1e-9:
-                yaw_dx = -self._filtered_yaw * (mount.y / r_mount) * half_stride
-                yaw_dy = self._filtered_yaw * (mount.x / r_mount) * half_stride
-            else:
-                yaw_dx = 0.0
-                yaw_dy = 0.0
-
-            # ── Detect transitions ──────────────────────────────────
-            if in_stance and not was_in_stance:
-                # Swing→Stance: plant foot at default + Raibert half-stride
-                # offset so the foot is centered under the body at mid-stance.
-                plant_bx = default_foot[0] + fwd_offset_x + yaw_dx
-                plant_by = default_foot[1] + yaw_dy
-                plant_bz = default_foot[2]
-                self._foot_plant_world[leg_idx] = _body_to_world(
-                    plant_bx, plant_by, plant_bz,
-                    self._body_x, self._body_y, self._body_yaw,
-                )
-
-            if not in_stance and was_in_stance:
-                # Stance→Swing: record liftoff = current plant point.
-                self._foot_liftoff_world[leg_idx] = self._foot_plant_world[leg_idx]
-                # Swing target: place at default + offset in the future
-                # body frame (where body will be at end of swing).
-                swing_duration = (1.0 - config.duty_factor) / max(config.stride_hz * speed_factor, 1e-6)
-                future_yaw = self._body_yaw + actual_yaw_rate * swing_duration
-                future_x = self._body_x + actual_vx * math.cos(future_yaw) * swing_duration
-                future_y = self._body_y + actual_vx * math.sin(future_yaw) * swing_duration
-                target_bx = default_foot[0] + fwd_offset_x + yaw_dx
-                target_by = default_foot[1] + yaw_dy
-                target_bz = default_foot[2]
-                self._foot_swing_target[leg_idx] = _body_to_world(
-                    target_bx, target_by, target_bz,
-                    future_x, future_y, future_yaw,
-                )
-
-            self._prev_leg_in_stance[leg_idx] = in_stance
-
-            # ── Compute foot world position ─────────────────────────
+            # Stride offset along body +X (forward direction).
+            # This creates a tangential component in the hip frame
+            # that makes coxa oscillate, plus a radial component
+            # that femur/tibia handle.
             if in_stance:
-                # Foot stays fixed in world frame (the key fix).
-                foot_world = self._foot_plant_world[leg_idx]
+                # Linear slide: front (+half_stride) to back (-half_stride)
+                stance_frac = leg_phase / config.duty_factor
+                stride_x = half_stride * (1.0 - 2.0 * stance_frac) * direction
+                lift = 0.0
             else:
-                # Swing: interpolate from liftoff to next plant target.
+                # Swing arc: back (-half_stride) to front (+half_stride)
                 swing_frac = (leg_phase - config.duty_factor) / (1.0 - config.duty_factor)
-                liftoff = self._foot_liftoff_world[leg_idx]
-                swing_target = self._foot_swing_target[leg_idx]
-                fx = liftoff[0] + (swing_target[0] - liftoff[0]) * swing_frac
-                fy = liftoff[1] + (swing_target[1] - liftoff[1]) * swing_frac
-                fz = liftoff[2] + config.step_height * math.sin(math.pi * swing_frac)
-                foot_world = (fx, fy, fz)
+                stride_x = half_stride * (-1.0 + 2.0 * swing_frac) * direction
+                lift = config.step_height * math.sin(math.pi * swing_frac)
 
-            # ── Transform world→body frame ──────────────────────────
-            foot_body = _world_to_body(
-                foot_world[0], foot_world[1], foot_world[2],
-                self._body_x, self._body_y, self._body_yaw,
-            )
+            # Yaw offset: rotate foot placement around body center
+            yaw_offset_x = -self._filtered_yaw * half_stride * (mount.y / max(abs(mount.y), 1e-6)) * abs(mount.y) / 0.075
+            # Simplified: left legs get -yaw, right legs get +yaw
+            # (same sign convention as 1-DOF controller)
+
+            foot_x = default_foot[0] + stride_x + yaw_offset_x * direction
+            foot_y = default_foot[1]
+            foot_z = default_foot[2] + lift
 
             # Body height offset
             height_offset = self._filtered_height * config.height_max_m
-            foot_x = foot_body[0]
-            foot_y = foot_body[1]
-            foot_z = foot_body[2] + height_offset
+            foot_z += height_offset
 
             # Transform to hip frame and solve IK
             hip_pt = body_to_hip_frame((foot_x, foot_y, foot_z), mount)
@@ -681,6 +737,8 @@ class QuadSpinController:
     rotate continuously.  ``vx_mps`` controls RPM (0→0, 1→max_rpm).
     """
 
+    drive_mode: str = "velocity"  # Use velocity drive for continuous spinning
+
     def __init__(self, *, max_rpm: float = 6000.0) -> None:
         self._max_rpm = max_rpm
         self._filtered_vx: float = 0.0
@@ -717,16 +775,17 @@ class QuadSpinController:
         rpm = throttle * self._max_rpm
         rad_per_s = rpm * _TWO_PI / 60.0
 
-        # Advance phase by angular velocity
+        # Advance phase tracking
         new_phase = (phase + rad_per_s * dt_s) % _TWO_PI
 
-        # All joints get the same target angle (continuous rotation)
-        targets = {name: new_phase for name in config.joint_names}
+        # Return velocity targets (rad/s) — runtime uses joint_velocities
+        targets = {name: rad_per_s for name in config.joint_names}
         return targets, new_phase
 
 
 _CONTROLLER_REGISTRY: dict[str, Any] = {
     "hexapod_1dof_tripod": lambda cfg: HexapodTripodController(),
+    "hexapod_2dof_tripod": lambda cfg: Hexapod2DOFController(),
     "hexapod_3dof_tripod": lambda cfg: Hexapod3DOFController(),
     "rl_residual": lambda cfg: PolicyController(
         policy_path=cfg.policy_path,

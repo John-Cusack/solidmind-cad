@@ -1,9 +1,9 @@
 """MCP tool implementations for the design brief pipeline.
 
 Tools: save_brief, get_brief, update_brief, add_part, update_part,
-get_part, add_interface, list_briefs, verify_build.  The phased design
-pipeline uses these to decompose assemblies into parts with tracked
-interfaces and verify that all planned parts are built.
+get_part, add_interface, list_briefs, verify_build, generate_mechanism.
+The phased design pipeline uses these to decompose assemblies into parts
+with tracked interfaces and verify that all planned parts are built.
 """
 from __future__ import annotations
 
@@ -21,6 +21,7 @@ from server.design_store import (
     update_brief,
     update_part as store_update_part,
 )
+from server.motion_models import JointEdge, JointType, Mechanism, PartNode
 
 log = logging.getLogger("solidmind.tools_design")
 
@@ -70,6 +71,61 @@ def design_get_brief(brief_id: str) -> dict[str, Any]:
     return {"ok": True, "brief": brief.to_dict()}
 
 
+def _extract_placement_plan(
+    brief: Any,
+) -> dict[str, dict[str, Any]]:
+    """Extract a placement plan dict from a design brief.
+
+    Reads ``brief.parameters["layout"]["positions"]`` and per-part specs
+    for position, rotation, and size information.
+
+    Returns a dict mapping body labels (or part names) to plan entries.
+    """
+    from server.design_models import DesignBrief  # noqa: C0415
+
+    plan: dict[str, dict[str, Any]] = {}
+    layout = brief.parameters.get("layout", {})
+    positions = layout.get("positions", {})
+
+    for part in brief.parts:
+        if part.kind == "purchased":
+            continue
+
+        # Determine the label to use (body_label if set, else part name)
+        label = part.body_label or part.name
+
+        # Find position: positions dict, then part specs
+        pos = positions.get(part.name)
+        if pos is None:
+            pos = part.specs.get("position_mm") or part.specs.get("position")
+        if pos is None:
+            continue
+        if not isinstance(pos, (list, tuple)) or len(pos) < 3:
+            continue
+
+        entry: dict[str, Any] = {
+            "position": [float(pos[0]), float(pos[1]), float(pos[2])],
+        }
+
+        # Rotation from part specs
+        rot_axis = part.specs.get("rotation_axis")
+        if isinstance(rot_axis, (list, tuple)) and len(rot_axis) >= 3:
+            entry["rotation_axis"] = [float(v) for v in rot_axis[:3]]
+        rot_angle = part.specs.get("rotation_angle_deg")
+        if isinstance(rot_angle, (int, float)):
+            entry["rotation_angle_deg"] = float(rot_angle)
+
+        # Size from dimensional specs
+        size_keys = ("length_mm", "width_mm", "height_mm")
+        dims = [part.specs.get(k) for k in size_keys]
+        if all(isinstance(d, (int, float)) for d in dims):
+            entry["expected_size"] = [float(d) for d in dims]
+
+        plan[label] = entry
+
+    return plan
+
+
 def design_update_brief(
     brief_id: str,
     parameters: dict[str, Any] | None = None,
@@ -84,6 +140,9 @@ def design_update_brief(
             f"Invalid status '{status}'. Must be one of: {sorted(_VALID_STATUSES)}",
         )
 
+    # Read old brief before update to detect transitions
+    old_brief = get_brief(brief_id)
+
     updated = update_brief(
         brief_id,
         parameters=parameters,
@@ -94,7 +153,28 @@ def design_update_brief(
     if updated is None:
         return _error_result("BRIEF_NOT_FOUND", f"No brief with id '{brief_id}'")
 
-    return {"ok": True, "brief": updated.to_dict()}
+    result: dict[str, Any] = {"ok": True, "brief": updated.to_dict()}
+
+    # Auto-register placement plan on transition to "building"
+    if (
+        status == "building"
+        and old_brief is not None
+        and old_brief.status != "building"
+    ):
+        try:
+            plan = _extract_placement_plan(updated)
+            if plan:
+                from server.tools_cad import cad_register_placement_plan  # noqa: C0415
+
+                plan_result = cad_register_placement_plan(plan=plan)
+                if plan_result.get("ok"):
+                    result["placement_plan_registered"] = plan_result.get(
+                        "registered", 0
+                    )
+        except Exception:
+            log.debug("Failed to auto-register placement plan", exc_info=True)
+
+    return result
 
 
 # ── Part management ─────────────────────────────────────────────────
@@ -252,6 +332,192 @@ def design_list_briefs() -> dict[str, Any]:
     return {"ok": True, "briefs": list_briefs()}
 
 
+# ── Mechanism generation ───────────────────────────────────────────
+
+# Mapping from interface spec keywords to joint types.
+_FIXED_KEYWORDS = frozenset({
+    "bolt", "bolt_pair", "screw", "rivet", "weld", "glue", "adhesive",
+    "clamp", "press_fit", "press-fit", "pressfit", "snap", "snap_fit",
+    "fixed", "bonded",
+})
+_REVOLUTE_KEYWORDS = frozenset({
+    "bearing", "shaft", "hinge", "pivot", "bushing", "journal",
+    "revolute", "rotation", "axle",
+})
+_PRISMATIC_KEYWORDS = frozenset({
+    "slider", "rail", "linear", "slide", "prismatic", "guide",
+})
+
+
+def _classify_joint_type(spec: dict[str, Any]) -> JointType:
+    """Infer joint type from an interface spec dict.
+
+    Checks the ``type`` key and ``pattern`` key for keywords.  Falls back
+    to ``fixed`` when nothing matches — bolted/clamped connections are the
+    most common assembly interface.
+    """
+    tokens: list[str] = []
+    for key in ("type", "pattern"):
+        val = spec.get(key, "")
+        if isinstance(val, str):
+            tokens.extend(val.lower().replace("-", "_").split("_"))
+
+    token_set = set(tokens)
+    if token_set & _REVOLUTE_KEYWORDS:
+        return JointType.REVOLUTE
+    if token_set & _PRISMATIC_KEYWORDS:
+        return JointType.PRISMATIC
+    if token_set & _FIXED_KEYWORDS:
+        return JointType.FIXED
+
+    # Default: if spec has a bolt size or pattern, treat as fixed
+    if spec.get("bolt_size") or spec.get("pattern"):
+        return JointType.FIXED
+
+    return JointType.FIXED
+
+
+def _resolve_origin(
+    part_name: str,
+    layout: dict[str, Any],
+    part_specs: dict[str, Any],
+) -> tuple[float, float, float]:
+    """Derive a joint origin from brief layout or part specs.
+
+    Checks layout.motor_positions (by part name pattern), layout.<part>_position,
+    and falls back to part specs position_mm / origin_mm.
+    """
+    # Check motor_positions if part name contains "motor"
+    motor_positions = layout.get("motor_positions", [])
+    if "motor" in part_name.lower() and motor_positions:
+        # Return first motor position as representative
+        pos = motor_positions[0]
+        if isinstance(pos, (list, tuple)) and len(pos) >= 3:
+            return (float(pos[0]), float(pos[1]), float(pos[2]))
+
+    # Check layout.<part_name>_position
+    pos_key = f"{part_name}_position"
+    pos = layout.get(pos_key)
+    if isinstance(pos, (list, tuple)) and len(pos) >= 3:
+        return (float(pos[0]), float(pos[1]), float(pos[2]))
+
+    # Check part specs
+    for key in ("position_mm", "origin_mm", "position"):
+        pos = part_specs.get(key)
+        if isinstance(pos, (list, tuple)) and len(pos) >= 3:
+            return (float(pos[0]), float(pos[1]), float(pos[2]))
+
+    return (0.0, 0.0, 0.0)
+
+
+def _resolve_mass(part: PartEntry, default_kg: float = 0.1) -> float:
+    """Get part mass from specs.  Checks mass_g and mass_kg keys."""
+    mass_g = part.specs.get("mass_g")
+    if isinstance(mass_g, (int, float)) and mass_g > 0:
+        return float(mass_g) / 1000.0
+    mass_kg = part.specs.get("mass_kg")
+    if isinstance(mass_kg, (int, float)) and mass_kg > 0:
+        return float(mass_kg)
+    return default_kg
+
+
+def design_generate_mechanism(
+    brief_id: str,
+    ground_part: str | None = None,
+) -> dict[str, Any]:
+    """Auto-generate a Mechanism definition from a design brief.
+
+    Reads all parts and interfaces from the brief.  Maps interface spec
+    types to joint types (bolt/clamp → fixed, bearing/shaft → revolute,
+    slider/rail → prismatic).  Derives joint origins from the brief's
+    layout parameters or part specs.
+
+    Returns a mechanism dict ready to pass to ``motion.define_mechanism()``.
+    The user can review/edit before committing.
+
+    Parameters
+    ----------
+    brief_id : str
+        The design brief to generate from.
+    ground_part : str | None
+        Name of the part to treat as ground (is_ground=True).  If None,
+        uses the first part in the brief (typically the frame/base).
+    """
+    brief = get_brief(brief_id)
+    if brief is None:
+        return _error_result("BRIEF_NOT_FOUND", f"No brief with id '{brief_id}'")
+
+    if not brief.parts:
+        return _error_result("NO_PARTS", "Brief has no parts defined")
+
+    if not brief.interfaces:
+        return _error_result("NO_INTERFACES", "Brief has no interfaces defined — add interfaces first")
+
+    # Determine ground part
+    ground_name = ground_part or brief.parts[0].name
+
+    # Build layout dict from brief parameters
+    layout = brief.parameters.get("layout", {})
+
+    # Build PartNodes
+    part_nodes: list[PartNode] = []
+    part_names: set[str] = set()
+    for part in brief.parts:
+        part_names.add(part.name)
+        part_nodes.append(PartNode(
+            id=part.name,
+            body_name=part.body_label or part.name,
+            mass_kg=_resolve_mass(part),
+            is_ground=(part.name == ground_name),
+        ))
+
+    # Build JointEdges from interfaces
+    joint_edges: list[JointEdge] = []
+    for idx, iface in enumerate(brief.interfaces):
+        joint_type = _classify_joint_type(iface.spec)
+
+        # Derive origin from child part's layout position
+        child_specs = {}
+        child_part = brief.get_part(iface.part_b)
+        if child_part:
+            child_specs = child_part.specs
+        origin = _resolve_origin(iface.part_b, layout, child_specs)
+
+        joint_id = f"joint_{iface.part_a}_{iface.part_b}_{idx}"
+
+        joint_edges.append(JointEdge(
+            id=joint_id,
+            joint_type=joint_type,
+            parent_part=iface.part_a,
+            child_part=iface.part_b,
+            origin=origin,
+        ))
+
+    # Build mechanism dict (not stored yet — user reviews first)
+    mechanism = Mechanism(
+        name=brief.name,
+        parts=tuple(part_nodes),
+        joints=tuple(joint_edges),
+        drives=(),
+    )
+
+    return {
+        "ok": True,
+        "mechanism": mechanism.to_dict(),
+        "summary": {
+            "part_count": len(part_nodes),
+            "joint_count": len(joint_edges),
+            "ground_part": ground_name,
+            "joint_types": {jt.value: sum(1 for j in joint_edges if j.joint_type == jt)
+                           for jt in JointType if any(j.joint_type == jt for j in joint_edges)},
+        },
+        "hint": (
+            "Review the mechanism dict above.  When ready, pass it to "
+            "motion.define_mechanism() to register it for simulation."
+        ),
+    }
+
+
 # ── Build verification ─────────────────────────────────────────────
 
 def _check_dimension(
@@ -296,12 +562,19 @@ def _check_dimension(
 def design_verify_build(
     brief_id: str,
     doc: str | None = None,
+    mechanism_id: str | None = None,
+    check_clearance: bool = False,
+    clearance_threshold_mm: float = 0.5,
 ) -> dict[str, Any]:
     """Verify that all planned parts from a design brief exist in FreeCAD.
 
     Compares the brief's parts list against the model tree from FreeCAD.
     For each custom part, classifies as OK / MISSING / PARTIAL / STALE.
     Also checks bounding box dimensions against part specs.
+
+    If ``mechanism_id`` is provided, also checks that every interface in the
+    brief has a corresponding joint in the mechanism connecting the same
+    two parts.  Unconnected interfaces are reported as warnings.
     """
     from server.tools_cad import cad_get_model_tree  # noqa: C0415
 
@@ -437,7 +710,53 @@ def design_verify_build(
 
     completeness = (custom_found / custom_planned * 100.0) if custom_planned > 0 else 100.0
 
-    return {
+    # Interface-joint coverage check
+    interface_warnings: list[str] = []
+    if mechanism_id is not None:
+        from server import motion_store  # noqa: C0415
+
+        mech = motion_store.get(mechanism_id)
+        if mech is None:
+            interface_warnings.append(
+                f"Mechanism '{mechanism_id}' not found — skipping interface-joint check"
+            )
+        else:
+            # Build a set of connected part pairs from mechanism joints
+            connected_pairs: set[frozenset[str]] = set()
+            for joint in mech.joints:
+                connected_pairs.add(frozenset({joint.parent_part, joint.child_part}))
+
+            for iface in brief.interfaces:
+                pair = frozenset({iface.part_a, iface.part_b})
+                if pair not in connected_pairs:
+                    interface_warnings.append(
+                        f"Interface {iface.part_a}:{iface.port_a} ↔ "
+                        f"{iface.part_b}:{iface.port_b} has no corresponding "
+                        f"joint in mechanism"
+                    )
+
+    # Optional batch clearance check
+    clearance_violations: list[dict[str, Any]] = []
+    if check_clearance:
+        from server.tools_cad import cad_check_clearance  # noqa: C0415
+
+        cl_result = cad_check_clearance(
+            threshold_mm=clearance_threshold_mm, doc=doc,
+        )
+        if cl_result.get("ok", False):
+            clearance_violations = cl_result.get("violations", [])
+            for v in clearance_violations:
+                if v.get("intersecting"):
+                    action_items.append(
+                        f"Clearance: {v['body_a']} intersects {v['body_b']}"
+                    )
+                else:
+                    action_items.append(
+                        f"Clearance: {v['body_a']} ↔ {v['body_b']} = "
+                        f"{v['distance_mm']}mm (< {clearance_threshold_mm}mm)"
+                    )
+
+    result: dict[str, Any] = {
         "ok": True,
         "summary": {
             "custom_parts_planned": custom_planned,
@@ -450,3 +769,8 @@ def design_verify_build(
         "action_items": action_items,
         "unmatched_bodies": unmatched,
     }
+    if interface_warnings:
+        result["interface_warnings"] = interface_warnings
+    if clearance_violations:
+        result["clearance_violations"] = clearance_violations
+    return result

@@ -11,7 +11,10 @@ from unittest.mock import MagicMock, patch
 from server.tools_cad import (
     cad_animate,
     cad_animate_stop,
+    cad_assembly_audit,
     cad_chamfer,
+    cad_check_clearance,
+    cad_check_swept_clearance,
     cad_define_selection,
     cad_delete_objects,
     cad_delete_selection,
@@ -21,6 +24,8 @@ from server.tools_cad import (
     cad_export_sim_package,
     cad_fillet,
     cad_find_edges,
+    cad_register_placement_plan,
+    cad_clear_placement_plan,
     cad_get_body_topology,
     cad_get_camera,
     cad_get_dimensions,
@@ -41,6 +46,7 @@ from server.tools_cad import (
     cad_revolution,
     cad_screenshot,
     cad_set_camera,
+    cad_set_placement,
     cad_sketch,
     cad_sweep,
     cad_thickness,
@@ -2311,6 +2317,60 @@ class TestCadExportSimPackage(unittest.TestCase):
         self.assertFalse(result["ok"])
         self.assertEqual(result["error"]["code"], "INVALID_MECHANISM_ID")
 
+    @patch("server.motion_store.get")
+    @patch("server.tools_cad.get_client")
+    def test_export_sim_package_emit_sdf(self, mock_get: MagicMock, mock_mech_get: MagicMock) -> None:
+        import tempfile
+        from server.motion_models import JointEdge, JointType, Mechanism, PartNode
+
+        client = _mock_client()
+        tmp_dir = tempfile.mkdtemp()
+        client.send_command.return_value = {
+            "output_dir": tmp_dir,
+            "format": "stl",
+            "body_count": 2,
+            "bodies": [
+                {
+                    "name": "Body_Base",
+                    "label": "Base",
+                    "mesh_path": f"{tmp_dir}/Body_Base.stl",
+                    "placement": {"position": [0, 0, 0], "rotation_quat": [1, 0, 0, 0]},
+                },
+                {
+                    "name": "Body_Arm",
+                    "label": "Arm",
+                    "mesh_path": f"{tmp_dir}/Body_Arm.stl",
+                    "placement": {"position": [0, 0, 50], "rotation_quat": [1, 0, 0, 0]},
+                },
+            ],
+        }
+        mock_get.return_value = client
+
+        mechanism = Mechanism(
+            name="test_arm",
+            parts=(
+                PartNode(id="base", body_name="Body_Base", is_ground=True),
+                PartNode(id="arm", body_name="Body_Arm"),
+            ),
+            joints=(
+                JointEdge(
+                    id="shoulder",
+                    joint_type=JointType.REVOLUTE,
+                    parent_part="base",
+                    child_part="arm",
+                    origin=(0.0, 0.0, 50.0),
+                ),
+            ),
+            drives=(),
+        )
+        mock_mech_get.return_value = mechanism
+
+        result = cad_export_sim_package(mechanism_id="mech_test123", emit_sdf=True)
+        self.assertTrue(result["ok"])
+        self.assertIn("urdf_path", result)
+        self.assertIn("sdf_path", result)
+        self.assertTrue(str(result["sdf_path"]).endswith(".sdf"))
+
 
 class TestCadMirror(unittest.TestCase):
     @patch("server.tools_cad.get_client")
@@ -2523,6 +2583,419 @@ class TestSketchNormalization(unittest.TestCase):
         self.assertEqual(sent_elem["h"], 50)
         self.assertNotIn("width", sent_elem)
         self.assertNotIn("height", sent_elem)
+
+
+class TestCheckClearance(unittest.TestCase):
+    @patch("server.tools_cad.get_client")
+    def test_all_clear(self, mock_get: MagicMock) -> None:
+        client = _mock_client()
+        mock_get.return_value = client
+        client.send_command.return_value = {
+            "pairs_checked": 3,
+            "threshold_mm": 0.5,
+            "violation_count": 0,
+            "violations": [],
+            "all_clear": True,
+        }
+        result = cad_check_clearance()
+        self.assertTrue(result["ok"])
+        self.assertTrue(result["all_clear"])
+        self.assertEqual(result["violation_count"], 0)
+        client.send_command.assert_called_once_with("check_clearance", threshold_mm=0.5)
+
+    @patch("server.tools_cad.get_client")
+    def test_violation_found(self, mock_get: MagicMock) -> None:
+        client = _mock_client()
+        mock_get.return_value = client
+        client.send_command.return_value = {
+            "pairs_checked": 3,
+            "threshold_mm": 0.5,
+            "violation_count": 1,
+            "violations": [{
+                "body_a": "Body",
+                "body_b": "Body001",
+                "distance_mm": 0.2,
+                "intersecting": False,
+                "point_a": [10.0, 0.0, 0.0],
+                "point_b": [10.2, 0.0, 0.0],
+            }],
+            "all_clear": False,
+        }
+        result = cad_check_clearance(threshold_mm=0.5)
+        self.assertTrue(result["ok"])
+        self.assertFalse(result["all_clear"])
+        self.assertEqual(len(result["violations"]), 1)
+        self.assertAlmostEqual(result["violations"][0]["distance_mm"], 0.2)
+
+    @patch("server.tools_cad.get_client")
+    def test_custom_bodies_list(self, mock_get: MagicMock) -> None:
+        client = _mock_client()
+        mock_get.return_value = client
+        client.send_command.return_value = {
+            "pairs_checked": 1,
+            "threshold_mm": 1.0,
+            "violation_count": 0,
+            "violations": [],
+            "all_clear": True,
+        }
+        result = cad_check_clearance(bodies=["Body", "Body001"], threshold_mm=1.0)
+        self.assertTrue(result["ok"])
+        client.send_command.assert_called_once_with(
+            "check_clearance", threshold_mm=1.0, bodies=["Body", "Body001"],
+        )
+
+    @patch("server.tools_cad.get_client")
+    def test_intersection_detected(self, mock_get: MagicMock) -> None:
+        client = _mock_client()
+        mock_get.return_value = client
+        client.send_command.return_value = {
+            "pairs_checked": 1,
+            "threshold_mm": 0.5,
+            "violation_count": 1,
+            "violations": [{
+                "body_a": "Body",
+                "body_b": "Body001",
+                "distance_mm": 0.0,
+                "intersecting": True,
+                "point_a": [5.0, 0.0, 0.0],
+                "point_b": [5.0, 0.0, 0.0],
+            }],
+            "all_clear": False,
+        }
+        result = cad_check_clearance()
+        self.assertTrue(result["ok"])
+        self.assertFalse(result["all_clear"])
+        self.assertTrue(result["violations"][0]["intersecting"])
+        self.assertAlmostEqual(result["violations"][0]["distance_mm"], 0.0)
+
+
+class TestCheckSweptClearance(unittest.TestCase):
+    @patch("server.tools_cad.get_client")
+    def test_all_clear_sweep(self, mock_get: MagicMock) -> None:
+        client = _mock_client()
+        mock_get.return_value = client
+        client.send_command.return_value = {
+            "body": "Propeller",
+            "steps": 36,
+            "angle_deg": 360.0,
+            "pairs_checked": 3,
+            "violation_count": 0,
+            "violations": [],
+            "all_clear": True,
+        }
+        result = cad_check_swept_clearance(body="Propeller")
+        self.assertTrue(result["ok"])
+        self.assertTrue(result["all_clear"])
+        self.assertEqual(result["violation_count"], 0)
+        self.assertEqual(result["pairs_checked"], 3)
+        client.send_command.assert_called_once_with(
+            "check_swept_clearance",
+            body="Propeller",
+            angle_deg=360.0,
+            steps=36,
+            threshold_mm=0.5,
+        )
+
+    @patch("server.tools_cad.get_client")
+    def test_violation_at_angle(self, mock_get: MagicMock) -> None:
+        client = _mock_client()
+        mock_get.return_value = client
+        client.send_command.return_value = {
+            "body": "Propeller",
+            "steps": 36,
+            "angle_deg": 360.0,
+            "pairs_checked": 5,
+            "violation_count": 1,
+            "violations": [{
+                "other_body": "Bolt003",
+                "min_distance_mm": 0.3,
+                "worst_angle_deg": 130.0,
+                "intersecting": False,
+                "point_a": [10.0, 5.0, 0.0],
+                "point_b": [10.3, 5.0, 0.0],
+            }],
+            "all_clear": False,
+        }
+        result = cad_check_swept_clearance(
+            body="Propeller",
+            axis=[0, 0, 1],
+            center=[0, 0, 10],
+        )
+        self.assertTrue(result["ok"])
+        self.assertFalse(result["all_clear"])
+        self.assertEqual(len(result["violations"]), 1)
+        self.assertAlmostEqual(result["violations"][0]["min_distance_mm"], 0.3)
+        self.assertAlmostEqual(result["violations"][0]["worst_angle_deg"], 130.0)
+
+    @patch("server.tools_cad.get_client")
+    def test_custom_others_list(self, mock_get: MagicMock) -> None:
+        client = _mock_client()
+        mock_get.return_value = client
+        client.send_command.return_value = {
+            "body": "Gear",
+            "steps": 72,
+            "angle_deg": 360.0,
+            "pairs_checked": 2,
+            "violation_count": 0,
+            "violations": [],
+            "all_clear": True,
+        }
+        result = cad_check_swept_clearance(
+            body="Gear",
+            others=["Shaft", "Housing"],
+            steps=72,
+        )
+        self.assertTrue(result["ok"])
+        client.send_command.assert_called_once_with(
+            "check_swept_clearance",
+            body="Gear",
+            angle_deg=360.0,
+            steps=72,
+            threshold_mm=0.5,
+            others=["Shaft", "Housing"],
+        )
+
+    @patch("server.tools_cad.get_client")
+    def test_defaults(self, mock_get: MagicMock) -> None:
+        client = _mock_client()
+        mock_get.return_value = client
+        client.send_command.return_value = {
+            "body": "Arm",
+            "steps": 36,
+            "angle_deg": 360.0,
+            "pairs_checked": 1,
+            "violation_count": 0,
+            "violations": [],
+            "all_clear": True,
+        }
+        result = cad_check_swept_clearance(body="Arm")
+        self.assertTrue(result["ok"])
+        # Verify defaults: no axis/center/others sent, default angle/steps/threshold
+        call_kwargs = client.send_command.call_args[1]
+        self.assertEqual(call_kwargs["body"], "Arm")
+        self.assertEqual(call_kwargs["angle_deg"], 360.0)
+        self.assertEqual(call_kwargs["steps"], 36)
+        self.assertEqual(call_kwargs["threshold_mm"], 0.5)
+        self.assertNotIn("axis", call_kwargs)
+        self.assertNotIn("center", call_kwargs)
+        self.assertNotIn("others", call_kwargs)
+        self.assertNotIn("doc", call_kwargs)
+
+
+class TestCadAssemblyAudit(unittest.TestCase):
+    @patch("server.tools_cad.get_client")
+    def test_assembly_audit_defaults(self, mock_get: MagicMock) -> None:
+        client = _mock_client()
+        client.send_command.return_value = {
+            "body_count": 3,
+            "bodies": [
+                {"name": "Body", "label": "chassis", "position": [0, 0, 0]},
+                {"name": "Body001", "label": "arm_L1", "position": [50, 0, 0]},
+                {"name": "Body002", "label": "arm_R1", "position": [-50, 0, 0]},
+            ],
+            "anomaly_count": 0,
+            "anomalies": [],
+        }
+        mock_get.return_value = client
+
+        result = cad_assembly_audit()
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["body_count"], 3)
+        self.assertEqual(result["anomaly_count"], 0)
+        call_kwargs = client.send_command.call_args[1]
+        self.assertEqual(call_kwargs["cluster_radius_mm"], 1.0)
+        self.assertEqual(call_kwargs["isolation_radius_mm"], 500.0)
+        self.assertEqual(call_kwargs["overlap_fraction"], 0.8)
+        self.assertNotIn("expected_positions", call_kwargs)
+        self.assertNotIn("doc", call_kwargs)
+
+    @patch("server.tools_cad.get_client")
+    def test_assembly_audit_with_expected_positions(self, mock_get: MagicMock) -> None:
+        client = _mock_client()
+        client.send_command.return_value = {
+            "body_count": 2,
+            "bodies": [
+                {"name": "Body", "label": "motor_L", "position": [80, 80, 10]},
+                {"name": "Body001", "label": "motor_R", "position": [-80, 80, 10]},
+            ],
+            "anomaly_count": 1,
+            "anomalies": [
+                {
+                    "type": "DRIFT",
+                    "message": "motor_L at [80, 80, 10] vs expected [77.8, 77.8, 8] — drift 3.6mm",
+                    "body": "motor_L",
+                    "drift_mm": 3.6,
+                },
+            ],
+        }
+        mock_get.return_value = client
+
+        expected = {"motor_L": [77.8, 77.8, 8], "motor_R": [-80, 80, 10]}
+        result = cad_assembly_audit(expected_positions=expected, doc="MyDoc")
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["anomaly_count"], 1)
+        call_kwargs = client.send_command.call_args[1]
+        self.assertEqual(call_kwargs["expected_positions"], expected)
+        self.assertEqual(call_kwargs["doc"], "MyDoc")
+
+    @patch("server.tools_cad.get_client")
+    def test_assembly_audit_custom_thresholds(self, mock_get: MagicMock) -> None:
+        client = _mock_client()
+        client.send_command.return_value = {
+            "body_count": 0,
+            "bodies": [],
+            "anomaly_count": 0,
+            "anomalies": [],
+        }
+        mock_get.return_value = client
+
+        result = cad_assembly_audit(
+            cluster_radius_mm=5.0,
+            isolation_radius_mm=1000.0,
+            overlap_fraction=0.5,
+        )
+        self.assertTrue(result["ok"])
+        call_kwargs = client.send_command.call_args[1]
+        self.assertEqual(call_kwargs["cluster_radius_mm"], 5.0)
+        self.assertEqual(call_kwargs["isolation_radius_mm"], 1000.0)
+        self.assertEqual(call_kwargs["overlap_fraction"], 0.5)
+
+
+class TestCadGetModelTreePositionFields(unittest.TestCase):
+    @patch("server.tools_cad.get_client")
+    def test_model_tree_with_position_fields(self, mock_get: MagicMock) -> None:
+        """Verify that position/rotation/world_bbox fields pass through."""
+        client = _mock_client()
+        client.send_command.return_value = {
+            "doc": "MyDoc",
+            "body_count": 1,
+            "bodies": [
+                {
+                    "name": "Body",
+                    "label": "chassis",
+                    "tip": "Pad",
+                    "size": [100, 50, 10],
+                    "feature_count": 2,
+                    "position": [0, 0, 0],
+                    "rotation_angle_deg": 0.0,
+                    "rotation_axis": [0, 0, 1],
+                    "world_bbox": {
+                        "min": [-50, -25, 0],
+                        "max": [50, 25, 10],
+                    },
+                },
+            ],
+            "other_objects": [],
+        }
+        mock_get.return_value = client
+
+        result = cad_get_model_tree()
+        self.assertTrue(result["ok"])
+        body = result["bodies"][0]
+        self.assertEqual(body["position"], [0, 0, 0])
+        self.assertEqual(body["rotation_angle_deg"], 0.0)
+        self.assertIn("world_bbox", body)
+        self.assertEqual(body["world_bbox"]["min"], [-50, -25, 0])
+
+
+class TestCadRegisterPlacementPlan(unittest.TestCase):
+    @patch("server.tools_cad.get_client")
+    def test_register_plan_sends_correct_command(self, mock_get: MagicMock) -> None:
+        client = _mock_client()
+        client.send_command.return_value = {
+            "registered": 2,
+            "labels": ["chassis", "coxa_L1"],
+        }
+        mock_get.return_value = client
+
+        plan = {
+            "chassis": {"position": [0, 0, 0]},
+            "coxa_L1": {"position": [50, 0, 5], "rotation_angle_deg": 60.0},
+        }
+        result = cad_register_placement_plan(plan=plan, default_tolerance_mm=3.0)
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["registered"], 2)
+        call_kwargs = client.send_command.call_args[1]
+        self.assertEqual(call_kwargs["plan"], plan)
+        self.assertEqual(call_kwargs["default_tolerance_mm"], 3.0)
+
+    @patch("server.tools_cad.get_client")
+    def test_clear_plan(self, mock_get: MagicMock) -> None:
+        client = _mock_client()
+        client.send_command.return_value = {"cleared": 3}
+        mock_get.return_value = client
+
+        result = cad_clear_placement_plan()
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["cleared"], 3)
+
+
+class TestCadSetPlacementPlanCheck(unittest.TestCase):
+    @patch("server.tools_cad.get_client")
+    def test_set_placement_with_plan_check_ok(self, mock_get: MagicMock) -> None:
+        client = _mock_client()
+        client.send_command.return_value = {
+            "object": "coxa_L1",
+            "position": [50, 0, 5],
+            "rotation_angle_deg": 60.0,
+            "rotation_axis": [0, 0, 1],
+            "plan_check": {
+                "drift_mm": 0.3,
+                "position_status": "OK",
+                "angle_delta_deg": 0.0,
+                "rotation_status": "OK",
+            },
+        }
+        mock_get.return_value = client
+
+        result = cad_set_placement(
+            object_name="coxa_L1",
+            position=[50, 0, 5],
+            rotation_angle_deg=60.0,
+        )
+        self.assertTrue(result["ok"])
+        self.assertIn("plan_check", result)
+        self.assertEqual(result["plan_check"]["position_status"], "OK")
+
+    @patch("server.tools_cad.get_client")
+    def test_set_placement_with_plan_check_drift(self, mock_get: MagicMock) -> None:
+        client = _mock_client()
+        client.send_command.return_value = {
+            "object": "coxa_L1",
+            "position": [60, 0, 5],
+            "rotation_angle_deg": 60.0,
+            "rotation_axis": [0, 0, 1],
+            "plan_check": {
+                "drift_mm": 10.0,
+                "position_status": "DRIFT",
+            },
+        }
+        mock_get.return_value = client
+
+        result = cad_set_placement(
+            object_name="coxa_L1",
+            position=[60, 0, 5],
+        )
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["plan_check"]["position_status"], "DRIFT")
+        self.assertEqual(result["plan_check"]["drift_mm"], 10.0)
+
+
+class TestCadSetPlacementNoPlan(unittest.TestCase):
+    @patch("server.tools_cad.get_client")
+    def test_no_plan_check_when_no_plan(self, mock_get: MagicMock) -> None:
+        client = _mock_client()
+        client.send_command.return_value = {
+            "object": "Body",
+            "position": [0, 0, 0],
+            "rotation_angle_deg": 0.0,
+            "rotation_axis": [0, 0, 1],
+        }
+        mock_get.return_value = client
+
+        result = cad_set_placement(object_name="Body", position=[0, 0, 0])
+        self.assertTrue(result["ok"])
+        self.assertNotIn("plan_check", result)
 
 
 class TestConnectionError(unittest.TestCase):
