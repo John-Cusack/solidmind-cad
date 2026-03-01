@@ -19,6 +19,7 @@ _URDF_IMPORT_FIELDS: frozenset[str] = frozenset({
     "default_drive_damping",
     "robot_type",
     "initial_joint_positions",
+    "spawn_height",
 })
 
 # Defaults applied when robot_type == "mobile" and the field is not
@@ -53,6 +54,7 @@ class URDFImportConfig:
     default_drive_damping: float = 100.0
     robot_type: str = "manipulator"
     initial_joint_positions: dict[str, float] = field(default_factory=dict)
+    spawn_height: float = 0.0  # z-offset for root prim (metres); set to ground clearance for mobile robots
 
     @classmethod
     def from_dict(cls, d: dict[str, Any] | None) -> URDFImportConfig:
@@ -321,7 +323,7 @@ class TeleopConfig:
             _validate_3dof_consistency(config)
         elif config.controller_type == "hexapod_2dof_tripod":
             _validate_2dof_consistency(config)
-        elif config.controller_type in ("rl_residual", "quad_spin"):
+        elif config.controller_type in ("rl_residual", "rl_direct", "quad_spin"):
             if len(config.joint_names) < 1:
                 raise TeleopConfigError("joint_names must have at least 1 entry")
         else:

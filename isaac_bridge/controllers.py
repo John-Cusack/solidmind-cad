@@ -359,12 +359,21 @@ class Hexapod3DOFController:
             default_foot_position, inverse_kinematics,
         )
 
+        # Validate leg_joint_names length matches n_legs * dofs_per_leg
+        n_joint_names = len(config.leg_joint_names)
+        expected_dpl = config.dofs_per_leg
+        if n_joint_names % expected_dpl != 0:
+            raise ValueError(
+                f"leg_joint_names length ({n_joint_names}) must be a multiple "
+                f"of dofs_per_leg ({expected_dpl})"
+            )
+
         geom = LegGeometry(
             l_coxa=config.l_coxa,
             l_femur=config.l_femur,
             l_tibia=config.l_tibia,
         )
-        n_legs = len(config.leg_joint_names) // 3
+        n_legs = n_joint_names // expected_dpl
 
         # Use explicit hip mounts from config if provided
         if config.hip_mounts and len(config.hip_mounts) == n_legs:
@@ -516,7 +525,8 @@ class Hexapod3DOFController:
                 lift = config.step_height * math.sin(math.pi * swing_frac)
 
             # Yaw offset: rotate foot placement around body center
-            yaw_offset_x = -self._filtered_yaw * half_stride * (mount.y / max(abs(mount.y), 1e-6)) * abs(mount.y) / 0.075
+            body_half_width = config.body_width / 2.0
+            yaw_offset_x = -self._filtered_yaw * half_stride * (mount.y / max(abs(mount.y), 1e-6)) * abs(mount.y) / max(body_half_width, 1e-6)
             # Simplified: left legs get -yaw, right legs get +yaw
             # (same sign convention as 1-DOF controller)
 
@@ -730,6 +740,218 @@ def clamp_targets(
 # To add a new controller: define the class above, then register it:
 #   _CONTROLLER_REGISTRY["my_type"] = lambda cfg: MyController(...)
 
+class DirectPolicyController:
+    """Direct RL policy controller (no base controller).
+
+    Loads a JIT-traced policy that maps observations directly to joint
+    position targets.  Unlike ``PolicyController`` (which adds residuals
+    to a base controller), this controller runs the policy as the sole
+    source of joint commands.
+
+    Observation layout matches training (66 dims for 18-joint hexapod):
+        base_lin_vel(3), base_ang_vel(3), projected_gravity(3),
+        commands(3), joint_pos_relative(18), joint_vel(18),
+        prev_actions(18)
+
+    At teleop time, we only have the commanded velocity and the current
+    joint state from Isaac.  The full observation is built from whatever
+    the runtime provides via ``TeleopState`` + joint feedback.
+    """
+
+    def __init__(
+        self,
+        policy_path: str,
+        action_scale: float = 0.25,
+    ) -> None:
+        self._action_scale = action_scale
+        self._policy: Any = None
+        self._joint_names: list[str] | None = None
+        self._obs_mean: Any = None
+        self._obs_std: Any = None
+        self._obs_dim: int = 66
+        self._prev_actions: dict[str, float] = {}
+
+        self._filtered_vx: float = 0.0
+        self._filtered_yaw: float = 0.0
+        self._filtered_height: float = 0.0
+
+        self._load_policy(policy_path)
+
+    def _load_policy(self, policy_path: str) -> None:
+        """Load JIT-traced policy, normalization, and deployment config."""
+        policy_file = Path(policy_path)
+        if not policy_file.is_file():
+            logger.warning(
+                "Policy file not found: %s — controller will output zeros",
+                policy_path,
+            )
+            return
+
+        try:
+            import torch  # type: ignore[import-not-found]
+            self._policy = torch.jit.load(str(policy_file), map_location="cpu")
+            self._policy.eval()
+            logger.info("Loaded direct policy from %s", policy_path)
+        except ImportError:
+            logger.warning("PyTorch not available — controller will output zeros")
+            return
+        except Exception as exc:
+            logger.warning("Failed to load policy %s: %s", policy_path, exc)
+            return
+
+        # Load deployment config
+        config_file = policy_file.parent / "deployment_config.json"
+        if config_file.is_file():
+            try:
+                config = json.loads(config_file.read_text(encoding="utf-8"))
+                self._joint_names = config.get("joint_names")
+                self._action_scale = config.get("action_scale", self._action_scale)
+                self._obs_dim = config.get("obs_dim", self._obs_dim)
+            except Exception as exc:
+                logger.warning("Failed to load deployment config: %s", exc)
+
+        # Load normalization params
+        norm_file = policy_file.parent / "normalization_params.json"
+        if norm_file.is_file():
+            try:
+                import torch  # type: ignore[import-not-found]
+                norm = json.loads(norm_file.read_text(encoding="utf-8"))
+                self._obs_mean = torch.tensor(norm["obs_mean"], dtype=torch.float32)
+                self._obs_std = torch.tensor(norm["obs_std"], dtype=torch.float32)
+                logger.info("Loaded normalization params (%d dims)", len(norm["obs_mean"]))
+            except Exception as exc:
+                logger.warning("Failed to load normalization params: %s", exc)
+
+    @property
+    def filtered_vx(self) -> float:
+        return self._filtered_vx
+
+    @property
+    def filtered_yaw(self) -> float:
+        return self._filtered_yaw
+
+    @property
+    def filtered_height(self) -> float:
+        return self._filtered_height
+
+    def _build_observation(
+        self,
+        state: TeleopState,
+        config: TeleopConfig,
+        phase: float,
+    ) -> Any:
+        """Build observation tensor matching training layout.
+
+        Layout: [base_lin_vel(3), base_ang_vel(3), projected_gravity(3),
+                 commands(3), joint_pos_rel(N), joint_vel(N), prev_actions(N)]
+
+        During teleop we approximate:
+        - base_lin_vel ≈ [filtered_vx, 0, 0] (body frame)
+        - base_ang_vel ≈ [0, 0, filtered_yaw]
+        - projected_gravity ≈ [0, 0, -1] (upright)
+        - commands = [vx, 0, yaw_rate]
+        - joint_pos_rel = 0 (unknown without joint feedback)
+        - joint_vel = 0 (unknown)
+        - prev_actions from last step
+        """
+        import torch  # type: ignore[import-not-found]
+
+        n_joints = len(config.joint_names)
+        obs_list: list[float] = []
+
+        # base_lin_vel (3) — approximate from commands
+        obs_list.extend([self._filtered_vx * config.vx_max_mps, 0.0, 0.0])
+        # base_ang_vel (3)
+        obs_list.extend([0.0, 0.0, self._filtered_yaw * config.yaw_max_rps])
+        # projected_gravity (3) — assume upright
+        obs_list.extend([0.0, 0.0, -1.0])
+        # velocity commands (3)
+        obs_list.extend([state.vx_mps, 0.0, state.yaw_rate_rps])
+        # joint_pos_relative (N) — zeros (no feedback available in teleop)
+        obs_list.extend([0.0] * n_joints)
+        # joint_vel (N) — zeros
+        obs_list.extend([0.0] * n_joints)
+        # prev_actions (N)
+        for name in config.joint_names:
+            obs_list.append(self._prev_actions.get(name, 0.0))
+
+        obs = torch.tensor(obs_list, dtype=torch.float32).unsqueeze(0)
+
+        # Normalize
+        if self._obs_mean is not None and self._obs_std is not None:
+            obs_len = obs.shape[1]
+            if len(self._obs_mean) >= obs_len:
+                mean = self._obs_mean[:obs_len].unsqueeze(0)
+                std = self._obs_std[:obs_len].unsqueeze(0)
+                obs = (obs - mean) / (std + 1e-8)
+
+        return obs
+
+    def compute_targets(
+        self,
+        state: TeleopState,
+        dt_s: float,
+        config: TeleopConfig,
+        phase: float,
+    ) -> tuple[dict[str, float], float]:
+        """Compute joint targets directly from policy network."""
+        if dt_s <= 0:
+            targets = {name: 0.0 for name in config.joint_names}
+            return targets, phase
+
+        # Slew-filter commands
+        target_vx_norm = max(-1.0, min(1.0, state.vx_mps / config.vx_max_mps))
+        target_yaw_norm = max(-1.0, min(1.0, state.yaw_rate_rps / config.yaw_max_rps))
+        target_height_norm = max(-1.0, min(1.0, state.body_height_m / config.height_max_m))
+
+        slew_vx = config.slew_vx_mps2 / config.vx_max_mps
+        slew_yaw = config.slew_yaw_rps2 / config.yaw_max_rps
+        slew_height = config.slew_height_mps2 / config.height_max_m
+
+        self._filtered_vx = _slew(self._filtered_vx, target_vx_norm, slew_vx, dt_s)
+        self._filtered_yaw = _slew(self._filtered_yaw, target_yaw_norm, slew_yaw, dt_s)
+        self._filtered_height = _slew(self._filtered_height, target_height_norm, slew_height, dt_s)
+
+        # Advance phase (for compatibility with teleop telemetry)
+        speed_factor = abs(self._filtered_vx)
+        new_phase = (phase + config.stride_hz * _TWO_PI * speed_factor * dt_s) % _TWO_PI
+
+        # If no policy loaded, return zeros
+        if self._policy is None:
+            targets = {name: 0.0 for name in config.joint_names}
+            return targets, new_phase
+
+        try:
+            import torch  # type: ignore[import-not-found]
+
+            obs = self._build_observation(state, config, phase)
+            with torch.no_grad():
+                action_raw = self._policy(obs)
+
+            # Scale actions to joint offsets
+            targets: dict[str, float] = {}
+            joint_names = list(config.joint_names)
+            for i, name in enumerate(joint_names):
+                if i < action_raw.shape[1]:
+                    offset = float(action_raw[0, i]) * self._action_scale
+                else:
+                    offset = 0.0
+                targets[name] = offset
+
+            # Store for next observation
+            self._prev_actions = {
+                name: float(action_raw[0, i]) if i < action_raw.shape[1] else 0.0
+                for i, name in enumerate(joint_names)
+            }
+
+            return targets, new_phase
+
+        except Exception as exc:
+            logger.warning("Direct policy inference failed: %s — returning zeros", exc)
+            targets = {name: 0.0 for name in config.joint_names}
+            return targets, new_phase
+
+
 class QuadSpinController:
     """Simple controller that spins all joints at a constant velocity.
 
@@ -790,6 +1012,10 @@ _CONTROLLER_REGISTRY: dict[str, Any] = {
     "rl_residual": lambda cfg: PolicyController(
         policy_path=cfg.policy_path,
         alpha=cfg.alpha,
+    ),
+    "rl_direct": lambda cfg: DirectPolicyController(
+        policy_path=cfg.policy_path,
+        action_scale=cfg.alpha,  # reuse alpha field as action_scale
     ),
     "quad_spin": lambda cfg: QuadSpinController(),
 }

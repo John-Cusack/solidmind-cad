@@ -40,6 +40,7 @@ from server.sim_export import (
     _transform_point,
     _transform_stl_to_link_local,
     build_sim_model,
+    extract_leg_geometry,
     validate_sdf,
     validate_urdf,
     validate_urdf_fk,
@@ -3947,6 +3948,93 @@ class TestSdfExport(unittest.TestCase):
         findings = validate_sdf(path)
         self.assertTrue(any(f.rule_id == "sdf.dangling_child" for f in findings))
         self.assertTrue(any(f.severity == Severity.BLOCK for f in findings))
+
+
+class TestExtractLegGeometry(unittest.TestCase):
+    """Tests for extract_leg_geometry — reads leg chains from a SimModel."""
+
+    def _make_hexapod_sim_model(self) -> SimModel:
+        """Build a minimal 6-leg, 3-DOF SimModel (in meters)."""
+        links = [SimLink(name="chassis", is_root=True)]
+        joints: list[SimJoint] = []
+
+        legs = ["lf", "lm", "lr", "rf", "rm", "rr"]
+        hip_positions = [
+            (0.07, 0.075), (0.0, 0.075), (-0.07, 0.075),
+            (0.07, -0.075), (0.0, -0.075), (-0.07, -0.075),
+        ]
+
+        for i, leg in enumerate(legs):
+            hx, hy = hip_positions[i]
+            links.append(SimLink(name=f"coxa_{leg}"))
+            links.append(SimLink(name=f"femur_{leg}"))
+            links.append(SimLink(name=f"tibia_{leg}"))
+
+            joints.append(SimJoint(
+                name=f"coxa_{leg}", joint_type="revolute",
+                parent="chassis", child=f"coxa_{leg}",
+                origin_xyz=(hx, hy, 0.0),
+                limits=(-0.785, 0.785),
+            ))
+            joints.append(SimJoint(
+                name=f"femur_{leg}", joint_type="revolute",
+                parent=f"coxa_{leg}", child=f"femur_{leg}",
+                origin_xyz=(hx + 0.052, hy, 0.0),
+                axis=(0.0, 1.0, 0.0),
+                limits=(-1.57, 1.57),
+            ))
+            joints.append(SimJoint(
+                name=f"tibia_{leg}", joint_type="revolute",
+                parent=f"femur_{leg}", child=f"tibia_{leg}",
+                origin_xyz=(hx + 0.052 + 0.066, hy, 0.0),
+                axis=(0.0, 1.0, 0.0),
+                limits=(-2.09, 0.0),
+            ))
+
+        return SimModel(
+            name="hexapod",
+            links=tuple(links),
+            joints=tuple(joints),
+        )
+
+    def test_finds_6_legs(self) -> None:
+        model = self._make_hexapod_sim_model()
+        result = extract_leg_geometry(model)
+        self.assertEqual(result["n_legs"], 6)
+
+    def test_dofs_per_leg(self) -> None:
+        model = self._make_hexapod_sim_model()
+        result = extract_leg_geometry(model)
+        self.assertEqual(result["dofs_per_leg"], 3)
+
+    def test_segment_lengths(self) -> None:
+        model = self._make_hexapod_sim_model()
+        result = extract_leg_geometry(model)
+        leg0 = result["legs"][0]
+        # coxa→femur = 0.052m, femur→tibia = 0.066m
+        self.assertAlmostEqual(leg0["segment_lengths_m"][0], 0.052, places=3)
+        self.assertAlmostEqual(leg0["segment_lengths_m"][1], 0.066, places=3)
+
+    def test_hip_mounts(self) -> None:
+        model = self._make_hexapod_sim_model()
+        result = extract_leg_geometry(model)
+        self.assertEqual(len(result["hip_mounts"]), 6)
+        # First hip mount should be at (0.07, 0.075)
+        hm0 = result["hip_mounts"][0]
+        self.assertAlmostEqual(hm0[0], 0.07, places=4)
+        self.assertAlmostEqual(hm0[1], 0.075, places=4)
+
+    def test_body_dims(self) -> None:
+        model = self._make_hexapod_sim_model()
+        result = extract_leg_geometry(model)
+        body_len, body_wid = result["body_dims_m"]
+        self.assertAlmostEqual(body_len, 0.14, places=3)
+        self.assertAlmostEqual(body_wid, 0.15, places=3)
+
+    def test_empty_model(self) -> None:
+        model = SimModel(name="empty")
+        result = extract_leg_geometry(model)
+        self.assertEqual(result["n_legs"], 0)
 
 
 if __name__ == "__main__":

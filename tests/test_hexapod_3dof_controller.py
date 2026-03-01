@@ -355,5 +355,52 @@ class TestStaticStability(unittest.TestCase):
         )
 
 
+class TestJointNameLengthValidation(unittest.TestCase):
+    """Validate that mismatched leg_joint_names length raises early."""
+
+    def test_wrong_length_raises_value_error(self) -> None:
+        ctrl = Hexapod3DOFController()
+        # 17 joints instead of 18 (not a multiple of 3)
+        bad_names = [f"joint_{i}" for i in range(17)]
+        cfg = TeleopConfig(
+            controller_type="hexapod_3dof_tripod",
+            leg_joint_names=tuple(bad_names),
+            dofs_per_leg=3,
+        )
+        with self.assertRaises(ValueError) as ctx:
+            ctrl.compute_targets(_state(vx=0.3), 0.01, cfg, 0.0)
+        self.assertIn("leg_joint_names", str(ctx.exception))
+
+    def test_correct_length_does_not_raise(self) -> None:
+        ctrl = Hexapod3DOFController()
+        cfg = _3dof_config()
+        # Should not raise
+        targets, _ = ctrl.compute_targets(_state(vx=0.3), 0.01, cfg, 0.0)
+        self.assertEqual(len(targets), 18)
+
+
+class TestBodyWidthYawGain(unittest.TestCase):
+    """Verify that body_width is used instead of hardcoded 0.075."""
+
+    def test_wider_body_amplifies_yaw(self) -> None:
+        ctrl_narrow = Hexapod3DOFController()
+        ctrl_wide = Hexapod3DOFController()
+        cfg_narrow = _3dof_config(body_width=0.10)
+        cfg_wide = _3dof_config(body_width=0.30)
+
+        state = _state(vx=0.3, yaw=1.0)
+        phase = 0.0
+        for _ in range(200):
+            t_narrow, phase = ctrl_narrow.compute_targets(state, 0.01, cfg_narrow, phase)
+        phase = 0.0
+        for _ in range(200):
+            t_wide, phase = ctrl_wide.compute_targets(state, 0.01, cfg_wide, phase)
+
+        # Wider body should produce different yaw-affected targets
+        diff = sum(abs(t_narrow[n] - t_wide[n]) for n in t_narrow)
+        self.assertGreater(diff, 0.001,
+                           "Different body_width should change yaw behavior")
+
+
 if __name__ == "__main__":
     unittest.main()

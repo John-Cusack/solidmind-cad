@@ -302,6 +302,7 @@ class IsaacClient:
         urdf_path: str | None = None,
         import_config: dict[str, Any] | None = None,
         verify: bool = True,
+        allow_partial: bool = False,
     ) -> dict[str, Any]:
         """Start a teleop session in Isaac."""
         kwargs: dict[str, Any] = {
@@ -313,6 +314,8 @@ class IsaacClient:
             kwargs["urdf_path"] = urdf_path
         if import_config is not None:
             kwargs["import_config"] = import_config
+        if allow_partial:
+            kwargs["allow_partial"] = True
         return self.send_command("teleop_start", **kwargs)
 
     def teleop_command(

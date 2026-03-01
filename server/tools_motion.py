@@ -1372,6 +1372,196 @@ def motion_verify_sim_package(
     return {"ok": True, **result}
 
 
+# ---------------------------------------------------------------------------
+# Auto-profile generation from mechanism
+# ---------------------------------------------------------------------------
+
+def _build_profile_from_mechanism(
+    mechanism: Mechanism,
+    manifest: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Auto-extract a teleop controller profile from a mechanism definition.
+
+    Walks the kinematic tree from the chassis (ground part) through revolute
+    joints to identify leg chains, then populates:
+    - joint_names / leg_joint_names
+    - leg geometry (l_coxa, l_femur, l_tibia)
+    - hip mounts
+    - body dimensions
+    - controller_type
+    - tripod phase offsets
+    - left_legs / right_legs / tripod_a / tripod_b (for 1-DOF)
+
+    Returns a profile dict suitable for merging with user-provided overrides.
+    """
+    profile: dict[str, Any] = {}
+
+    # Find ground/chassis part(s)
+    ground_ids = {p.id for p in mechanism.parts if p.is_ground}
+    if not ground_ids:
+        log.debug("_build_profile_from_mechanism: no ground part found")
+        return profile
+
+    # Build adjacency: parent_part → [(joint, child_part)]
+    children_of: dict[str, list[tuple[JointEdge, str]]] = {}
+    for jnt in mechanism.joints:
+        children_of.setdefault(jnt.parent_part, []).append((jnt, jnt.child_part))
+
+    # Walk from ground through fixed joints to reach the real chassis
+    _MOVABLE_TYPES = {JointType.REVOLUTE, JointType.CONTINUOUS}
+
+    def _walk_chain(part_id: str) -> list[list[JointEdge]]:
+        """DFS collecting chains of movable joints."""
+        kids = children_of.get(part_id, [])
+        movable = [(j, c) for j, c in kids if j.joint_type in _MOVABLE_TYPES]
+        fixed = [(j, c) for j, c in kids if j.joint_type not in _MOVABLE_TYPES]
+
+        chains: list[list[JointEdge]] = []
+        for _fj, fchild in fixed:
+            chains.extend(_walk_chain(fchild))
+        for mj, mchild in movable:
+            sub_chains = _walk_chain(mchild)
+            if sub_chains:
+                for sc in sub_chains:
+                    chains.append([mj] + sc)
+            else:
+                chains.append([mj])
+        return chains
+
+    all_chains: list[list[JointEdge]] = []
+    for gid in ground_ids:
+        all_chains.extend(_walk_chain(gid))
+
+    if not all_chains:
+        return profile
+
+    # Find the dominant chain length (= dofs_per_leg)
+    from collections import Counter
+    length_counts = Counter(len(c) for c in all_chains)
+    dofs_per_leg = length_counts.most_common(1)[0][0]
+    chains = [c for c in all_chains if len(c) == dofs_per_leg]
+
+    # Sort chains into canonical order: left side (y >= 0) before right
+    # side (y < 0), front-to-back (descending X) within each side.
+    # This produces [LF, LM, LR, RF, RM, RR] which matches the hardcoded
+    # leg_phase_offsets and controller expectations regardless of DFS
+    # discovery order.
+    def _chain_sort_key(chain: list[JointEdge]) -> tuple[int, float]:
+        oy = chain[0].origin[1]
+        ox = chain[0].origin[0]
+        side = 0 if oy >= 0 else 1  # left first
+        return (side, -ox)  # front (high X) first within each side
+
+    chains.sort(key=_chain_sort_key)
+
+    n_legs = len(chains)
+
+    if n_legs > 0:
+        log.info(
+            "_build_profile_from_mechanism: sorted %d chains — order: %s",
+            n_legs,
+            ", ".join(
+                f"{c[0].id}(x={c[0].origin[0]:.1f},y={c[0].origin[1]:.1f})"
+                for c in chains
+            ),
+        )
+
+    profile["dofs_per_leg"] = dofs_per_leg
+
+    # Build leg_joint_names (flat list, groups of dofs_per_leg)
+    leg_joint_names: list[str] = []
+    hip_mounts: list[list[float]] = []
+
+    for chain in chains:
+        for jnt in chain:
+            leg_joint_names.append(jnt.id)
+
+        # Compute hip mount from first joint origin (mm → m)
+        coxa_origin = chain[0].origin
+        hx = coxa_origin[0] / 1000.0
+        hy = coxa_origin[1] / 1000.0
+        hip_angle = math.atan2(hy, hx)
+        hip_mounts.append([hx, hy, hip_angle])
+
+    profile["leg_joint_names"] = leg_joint_names
+    profile["hip_mounts"] = hip_mounts
+
+    # Compute segment lengths from joint-to-joint distances (mm → m)
+    if dofs_per_leg >= 2 and chains:
+        # Use the first leg chain as reference
+        ref = chains[0]
+        seg_names = ["l_coxa", "l_femur", "l_tibia"]
+        for i in range(min(dofs_per_leg - 1, 3)):
+            o1 = ref[i].origin
+            o2 = ref[i + 1].origin
+            dist_m = math.sqrt(
+                (o2[0] - o1[0]) ** 2
+                + (o2[1] - o1[1]) ** 2
+                + (o2[2] - o1[2]) ** 2
+            ) / 1000.0
+            if i < len(seg_names):
+                profile[seg_names[i]] = dist_m
+
+    # Body dimensions from hip positions
+    if hip_mounts:
+        xs = [abs(m[0]) for m in hip_mounts]
+        ys = [abs(m[1]) for m in hip_mounts]
+        profile["body_length"] = max(xs) * 2.0 if xs else 0.14
+        profile["body_width"] = max(ys) * 2.0 if ys else 0.15
+
+    # Controller type selection
+    if dofs_per_leg == 1:
+        profile["controller_type"] = "hexapod_1dof_tripod"
+    elif dofs_per_leg == 2:
+        profile["controller_type"] = "hexapod_2dof_tripod"
+    elif dofs_per_leg == 3:
+        profile["controller_type"] = "hexapod_3dof_tripod"
+
+    # Tripod phase offsets (alternating pattern for 6 legs)
+    if n_legs == 6:
+        profile["leg_phase_offsets"] = [0.0, 0.5, 0.0, 0.5, 0.0, 0.5]
+    else:
+        # Evenly distribute phases
+        profile["leg_phase_offsets"] = [i / n_legs for i in range(n_legs)]
+
+    # Left/right classification based on hip Y position
+    left_legs: list[str] = []
+    right_legs: list[str] = []
+    for leg_idx, mount in enumerate(hip_mounts):
+        base = leg_idx * dofs_per_leg
+        # Use first joint of each leg for left/right classification
+        joint_name = leg_joint_names[base]
+        if mount[1] >= 0:
+            left_legs.append(joint_name)
+        else:
+            right_legs.append(joint_name)
+    profile["left_legs"] = left_legs
+    profile["right_legs"] = right_legs
+
+    # Set joint_names for all DOF counts so the DOF mapping in the
+    # Isaac runtime can always find the right names to resolve.
+    profile["joint_names"] = leg_joint_names
+
+    # For 1-DOF: also set tripod_a, tripod_b
+    if dofs_per_leg == 1:
+        # Alternate tripod groups
+        tripod_a: list[str] = []
+        tripod_b: list[str] = []
+        for i, jname in enumerate(leg_joint_names):
+            if i % 2 == 0:
+                tripod_a.append(jname)
+            else:
+                tripod_b.append(jname)
+        profile["tripod_a"] = tripod_a
+        profile["tripod_b"] = tripod_b
+
+    log.info(
+        "_build_profile_from_mechanism: n_legs=%d dofs_per_leg=%d controller=%s",
+        n_legs, dofs_per_leg, profile.get("controller_type", "unknown"),
+    )
+    return profile
+
+
 def motion_teleop_start(
     mechanism_id: str,
     backend: str = "isaac",
@@ -1419,6 +1609,34 @@ def motion_teleop_start(
     mech = store_get(mechanism_id)
     if mech is None:
         return _error_result("NOT_FOUND", f"No mechanism with id '{mechanism_id}'")
+
+    # Auto-populate profile from mechanism when fields are missing.
+    # Only for Isaac backend — Gazebo uses a different controller model
+    # (multirotor_direct, px4_offboard) that doesn't match hexapod profiles.
+    if selected_backend == "isaac":
+        auto_profile = _build_profile_from_mechanism(mech)
+        if auto_profile:
+            merged = {**auto_profile, **profile_obj}
+            profile_obj = merged
+
+        # Auto-compute spawn_height from stance geometry so the robot
+        # doesn't clip through the ground on the first physics step.
+        ic = import_config or {}
+        if "spawn_height" not in ic:
+            stance_h = profile_obj.get("stance_height", -0.09)
+            margin = 0.02  # 2 cm clearance above ground
+            computed_spawn = abs(stance_h) + margin
+            ic = {**ic, "spawn_height": computed_spawn}
+            log.info(
+                "motion_teleop_start: auto spawn_height=%.4f "
+                "(|stance_height|=%.4f + margin=%.4f)",
+                computed_spawn, abs(stance_h), margin,
+            )
+            import_config = ic
+
+        # Default to mobile robot type so Isaac uses free-base defaults
+        if "robot_type" not in ic:
+            import_config = {**(import_config or {}), "robot_type": "mobile"}
 
     if selected_backend == "gazebo":
         path_error = _validate_gazebo_sim_paths(urdf_path, sdf_path)
@@ -1649,3 +1867,31 @@ def motion_isaac_screenshot(
         camera_target=camera_target,
         preset=target,
     )
+
+
+def motion_isaac_launch(
+    headless: bool = False,
+    port: int = 9878,
+    environment: str = "full_warehouse.usd",
+    timeout_s: float = 120.0,
+) -> dict[str, Any]:
+    """Launch the Isaac bridge as a managed subprocess.
+
+    Spawns the bridge process and waits for it to accept TCP connections.
+    If the bridge is already running, returns immediately.
+    """
+    from server import isaac_adapter
+
+    return isaac_adapter.launch_bridge(
+        headless=headless,
+        port=port,
+        environment=environment,
+        timeout_s=timeout_s,
+    )
+
+
+def motion_isaac_stop() -> dict[str, Any]:
+    """Stop the managed Isaac bridge subprocess."""
+    from server import isaac_adapter
+
+    return isaac_adapter.stop_bridge()

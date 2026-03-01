@@ -3,8 +3,10 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import signal
 import socket
+import sys
 import threading
 from typing import Any
 
@@ -20,6 +22,32 @@ from isaac_bridge.runtime_isaac import IsaacRuntime, IsaacRuntimeError, main_thr
 logger = logging.getLogger("solidmind.isaac_bridge")
 
 
+def _probe_port(host: str, port: int) -> socket.socket:
+    """Bind a TCP socket to *host*:*port* and return it (already listening).
+
+    Called BEFORE the expensive SimulationApp init so we fail fast if the
+    port is already in use.  The returned socket is passed to
+    ``BridgeServer`` so it doesn't need to bind again.
+
+    Raises ``SystemExit`` on bind failure — this is a fatal startup error.
+    """
+    srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    srv.settimeout(0.2)
+    try:
+        srv.bind((host, port))
+    except OSError as exc:
+        srv.close()
+        logger.critical(
+            "Cannot bind %s:%d — %s.  Is another bridge already running?",
+            host, port, exc,
+        )
+        sys.exit(1)
+    srv.listen(8)
+    logger.info("Port %s:%d reserved (pre-bind OK)", host, port)
+    return srv
+
+
 class BridgeServer:
     """Newline-delimited JSON TCP server for Isaac command handling."""
 
@@ -30,34 +58,62 @@ class BridgeServer:
         port: int = 9878,
         headless: bool = False,
         environment: str = "full_warehouse.usd",
+        pre_bound_socket: socket.socket | None = None,
     ) -> None:
         self._host = host
         self._port = port
         self._headless = headless
         self._environment = environment
         self._runtime = IsaacRuntime(headless=headless, environment=environment)
-        self._sock: socket.socket | None = None
+        self._sock: socket.socket | None = pre_bound_socket
         self._stop_event = threading.Event()
+        # Signalled when serve_forever() is accepting or has failed.
+        self._ready_event = threading.Event()
+        self._ready_error: Exception | None = None
 
     @property
     def port(self) -> int:
         return self._port
 
-    def serve_forever(self) -> None:
-        srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        srv.settimeout(0.2)
-        srv.bind((self._host, self._port))
-        srv.listen(8)
-        self._sock = srv
-        self._port = int(srv.getsockname()[1])
+    def wait_ready(self, timeout: float = 30.0) -> None:
+        """Block until the TCP server is accepting or has failed.
 
-        logger.info(
-            "Isaac bridge listening on %s:%d (headless=%s)",
-            self._host,
-            self._port,
-            self._headless,
-        )
+        Raises the bind/listen exception if ``serve_forever`` could not start.
+        """
+        self._ready_event.wait(timeout=timeout)
+        if self._ready_error is not None:
+            raise self._ready_error
+
+    def serve_forever(self) -> None:
+        try:
+            if self._sock is None:
+                # No pre-bound socket — bind now (legacy / test path).
+                srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                srv.settimeout(0.2)
+                srv.bind((self._host, self._port))
+                srv.listen(8)
+                self._sock = srv
+            else:
+                srv = self._sock
+
+            self._port = int(srv.getsockname()[1])
+            logger.info(
+                "Isaac bridge listening on %s:%d (headless=%s)",
+                self._host,
+                self._port,
+                self._headless,
+            )
+            # Signal: TCP server is ready.
+            self._ready_event.set()
+        except Exception as exc:
+            # Signal: TCP server failed to start.
+            self._ready_error = exc
+            self._ready_event.set()
+            logger.critical("Bridge server failed to start: %s", exc)
+            # Trigger shutdown so main-thread pump exits too.
+            self._stop_event.set()
+            return
 
         try:
             while not self._stop_event.is_set():
@@ -139,6 +195,11 @@ class BridgeServer:
                 if new_runtime is not None:
                     self._runtime = new_runtime
                 result = reload_result
+            elif cmd == "load_environment":
+                result = self._runtime.load_environment(
+                    usd_url=_require_str(args, "usd_url"),
+                    skip_ground_plane=_optional_bool(args, "skip_ground_plane", True),
+                )
             elif cmd == "simulate":
                 result = self._runtime.simulate(
                     mechanism=_optional_object(args, "mechanism"),
@@ -175,6 +236,7 @@ class BridgeServer:
                     urdf_path=_optional_str(args, "urdf_path"),
                     import_config=_optional_object(args, "import_config"),
                     verify=_optional_bool(args, "verify", True),
+                    allow_partial=_optional_bool(args, "allow_partial", False),
                 )
             elif cmd == "teleop_command":
                 result = self._runtime.teleop_command(
@@ -361,15 +423,37 @@ def main(argv: list[str] | None = None) -> None:
         format="%(asctime)s %(levelname)-5s %(name)s: %(message)s",
     )
 
+    # ── Fix 1: Bind port BEFORE the expensive SimulationApp init ────
+    # This fails fast (<1ms) if the port is already in use, instead of
+    # wasting 15+ seconds on GPU init only to discover the port conflict.
+    pre_bound = _probe_port(args.host, args.port)
+
     server = BridgeServer(
         host=args.host,
         port=args.port,
         headless=args.headless,
         environment=args.environment,
+        pre_bound_socket=pre_bound,
     )
 
-    def _signal_handler(_signum: int, _frame: Any) -> None:
+    # ── Fix 3: Kill the whole process group on SIGTERM/SIGINT ───────
+    # When launched via `scripts/run_isaac_bridge.sh &`, killing the
+    # wrapper shell may leave the Isaac python child orphaned.  By
+    # setting ourselves as a process group leader and forwarding
+    # signals, we ensure clean teardown.
+    try:
+        os.setpgrp()
+    except OSError:
+        pass  # Already a group leader or not permitted.
+
+    def _signal_handler(signum: int, _frame: Any) -> None:
+        logger.info("Received signal %d, shutting down...", signum)
         server.shutdown()
+        # Kill our entire process group so no orphaned children survive.
+        try:
+            os.killpg(os.getpgrp(), signal.SIGTERM)
+        except OSError:
+            pass
 
     signal.signal(signal.SIGINT, _signal_handler)
     signal.signal(signal.SIGTERM, _signal_handler)
@@ -387,6 +471,18 @@ def main(argv: list[str] | None = None) -> None:
         name="isaac-bridge-server",
     )
     bridge_thread.start()
+
+    # ── Fix 2: Wait for TCP server to be ready (or fail) ───────────
+    # If serve_forever() can't start (e.g. socket already closed),
+    # this raises immediately instead of pumping Kit forever.
+    try:
+        server.wait_ready(timeout=30.0)
+    except Exception as exc:
+        logger.critical("Bridge server thread failed: %s", exc)
+        server.shutdown()
+        bridge_thread.join(timeout=5.0)
+        sys.exit(1)
+
     try:
         _pump_main_thread(server)
     finally:

@@ -167,7 +167,9 @@ from server.tools_motion import (
     motion_create_assembly,
     motion_define_mechanism,
     motion_drive_joint,
+    motion_isaac_launch,
     motion_isaac_screenshot,
+    motion_isaac_stop,
     motion_list_mechanisms,
     motion_propagate_motion,
     motion_simulate,
@@ -2388,6 +2390,53 @@ def _motion_tool_list() -> list[dict[str, Any]]:
             },
         },
         {
+            "name": "motion.isaac_launch",
+            "description": (
+                "Launch the Isaac Sim bridge as a managed subprocess. Spawns the bridge process "
+                "and waits for it to accept TCP connections (up to timeout). If the bridge is "
+                "already running, returns immediately. Use before any Isaac Sim operations "
+                "(teleop, simulate, screenshot) if the bridge is not already started."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "headless": {
+                        "type": "boolean",
+                        "default": False,
+                        "description": "Run Isaac Sim without GUI window (for CI/remote)",
+                    },
+                    "port": {
+                        "type": "integer",
+                        "default": 9878,
+                        "description": "TCP port for the bridge server",
+                    },
+                    "environment": {
+                        "type": "string",
+                        "default": "full_warehouse.usd",
+                        "description": "Isaac Sim environment/scene to load",
+                    },
+                    "timeout_s": {
+                        "type": "number",
+                        "default": 120.0,
+                        "description": "Max seconds to wait for bridge to become ready",
+                    },
+                },
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "motion.isaac_stop",
+            "description": (
+                "Stop the managed Isaac Sim bridge subprocess. Sends SIGTERM and waits "
+                "for clean exit. Only affects bridges launched via motion.isaac_launch."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": False,
+            },
+        },
+        {
             "name": "motion.verify_sim_package",
             "description": (
                 "Verify that a mechanism exported correctly through the FreeCAD → URDF → Isaac pipeline. "
@@ -3336,6 +3385,8 @@ _MOTION_DISPATCH: dict[str, Any] = {
     "motion.teleop_state": motion_teleop_state,
     "motion.teleop_stop": motion_teleop_stop,
     "motion.isaac_screenshot": motion_isaac_screenshot,
+    "motion.isaac_launch": motion_isaac_launch,
+    "motion.isaac_stop": motion_isaac_stop,
     "motion.verify_sim_package": motion_verify_sim_package,
 }
 

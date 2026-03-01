@@ -1,10 +1,19 @@
 """Tests for server.tools_motion — MCP tool wrappers for motion validation."""
 from __future__ import annotations
 
+import math
 import unittest
 
 from server import motion_store
+from server.motion_models import (
+    DriveCondition,
+    JointEdge,
+    JointType,
+    Mechanism,
+    PartNode,
+)
 from server.tools_motion import (
+    _build_profile_from_mechanism,
     motion_check_gear_train,
     motion_check_interference,
     motion_create_assembly,
@@ -1101,10 +1110,10 @@ class TestTeleopTools(TestMotionToolsBase):
         self.assertTrue(result["ok"])
         self.assertEqual(result["mode_used"], "teleop")
         teleop_start.assert_called_once()
-        self.assertEqual(
-            teleop_start.call_args.kwargs.get("profile"),
-            {"linear_speed_mps": 0.5},
-        )
+        # Auto-profile merges mechanism-derived fields with user-provided ones.
+        # Check that user field is preserved, not exact equality.
+        actual_profile = teleop_start.call_args.kwargs.get("profile", {})
+        self.assertEqual(actual_profile.get("linear_speed_mps"), 0.5)
 
     def test_gazebo_teleop_lifecycle(self):
         from unittest.mock import patch
@@ -1289,6 +1298,275 @@ class TestTeleopTools(TestMotionToolsBase):
         self.assertTrue(result["ok"])
         self.assertEqual(result["session_id"], "gz_px4")
         self.assertEqual(gz_start.call_args.kwargs["profile"]["controller_type"], "px4_offboard")
+
+
+class TestBuildProfileFromMechanism(unittest.TestCase):
+    """Tests for _build_profile_from_mechanism auto-profile generation."""
+
+    def _make_hexapod_18dof(self) -> Mechanism:
+        """Create a minimal 18-DOF hexapod mechanism for testing."""
+        chassis = PartNode(id="chassis", is_ground=True)
+        parts = [chassis]
+        joints: list[JointEdge] = []
+
+        # 6 legs: LF, LM, LR, RF, RM, RR
+        # Each leg has coxa, femur, tibia joints
+        hip_positions = [
+            (70.0, 75.0),   # LF
+            (0.0, 75.0),    # LM
+            (-70.0, 75.0),  # LR
+            (70.0, -75.0),  # RF
+            (0.0, -75.0),   # RM
+            (-70.0, -75.0), # RR
+        ]
+        leg_names = ["lf", "lm", "lr", "rf", "rm", "rr"]
+
+        for i, (hx, hy) in enumerate(hip_positions):
+            leg = leg_names[i]
+            coxa_id = f"coxa_{leg}"
+            femur_id = f"femur_{leg}"
+            tibia_id = f"tibia_{leg}"
+
+            parts.append(PartNode(id=f"coxa_seg_{leg}"))
+            parts.append(PartNode(id=f"femur_seg_{leg}"))
+            parts.append(PartNode(id=f"tibia_seg_{leg}"))
+
+            joints.append(JointEdge(
+                id=coxa_id,
+                joint_type=JointType.REVOLUTE,
+                parent_part="chassis",
+                child_part=f"coxa_seg_{leg}",
+                axis=(0.0, 0.0, 1.0),
+                origin=(hx, hy, 0.0),
+                min_angle_deg=-45.0, max_angle_deg=45.0,
+            ))
+            joints.append(JointEdge(
+                id=femur_id,
+                joint_type=JointType.REVOLUTE,
+                parent_part=f"coxa_seg_{leg}",
+                child_part=f"femur_seg_{leg}",
+                axis=(0.0, 1.0, 0.0),
+                origin=(hx + 52.0, hy, 0.0),
+                min_angle_deg=-90.0, max_angle_deg=90.0,
+            ))
+            joints.append(JointEdge(
+                id=tibia_id,
+                joint_type=JointType.REVOLUTE,
+                parent_part=f"femur_seg_{leg}",
+                child_part=f"tibia_seg_{leg}",
+                axis=(0.0, 1.0, 0.0),
+                origin=(hx + 52.0 + 66.0, hy, 0.0),
+                min_angle_deg=-120.0, max_angle_deg=0.0,
+            ))
+
+        return Mechanism(
+            name="hexapod_18dof",
+            parts=tuple(parts),
+            joints=tuple(joints),
+            drives=(),
+        )
+
+    def test_18dof_controller_type(self) -> None:
+        mech = self._make_hexapod_18dof()
+        profile = _build_profile_from_mechanism(mech)
+        self.assertEqual(profile["controller_type"], "hexapod_3dof_tripod")
+
+    def test_18dof_dofs_per_leg(self) -> None:
+        mech = self._make_hexapod_18dof()
+        profile = _build_profile_from_mechanism(mech)
+        self.assertEqual(profile["dofs_per_leg"], 3)
+
+    def test_18dof_joint_names(self) -> None:
+        mech = self._make_hexapod_18dof()
+        profile = _build_profile_from_mechanism(mech)
+        self.assertEqual(len(profile["leg_joint_names"]), 18)
+        # All joints should be present
+        for leg in ["lf", "lm", "lr", "rf", "rm", "rr"]:
+            for jtype in ["coxa", "femur", "tibia"]:
+                self.assertIn(f"{jtype}_{leg}", profile["leg_joint_names"])
+
+    def test_18dof_hip_mounts(self) -> None:
+        mech = self._make_hexapod_18dof()
+        profile = _build_profile_from_mechanism(mech)
+        self.assertEqual(len(profile["hip_mounts"]), 6)
+        # Check first hip mount (LF at 70, 75 mm → 0.07, 0.075 m)
+        hm0 = profile["hip_mounts"][0]
+        self.assertAlmostEqual(hm0[0], 0.07, places=4)
+        self.assertAlmostEqual(hm0[1], 0.075, places=4)
+
+    def test_18dof_segment_lengths(self) -> None:
+        mech = self._make_hexapod_18dof()
+        profile = _build_profile_from_mechanism(mech)
+        # l_coxa = distance between coxa and femur origins = 52mm = 0.052m
+        self.assertAlmostEqual(profile["l_coxa"], 0.052, places=3)
+        # l_femur = distance between femur and tibia origins = 66mm = 0.066m
+        self.assertAlmostEqual(profile["l_femur"], 0.066, places=3)
+
+    def test_18dof_body_dimensions(self) -> None:
+        mech = self._make_hexapod_18dof()
+        profile = _build_profile_from_mechanism(mech)
+        # body_length = 2 * max(|hx|) = 2 * 0.07 = 0.14
+        self.assertAlmostEqual(profile["body_length"], 0.14, places=3)
+        # body_width = 2 * max(|hy|) = 2 * 0.075 = 0.15
+        self.assertAlmostEqual(profile["body_width"], 0.15, places=3)
+
+    def test_18dof_left_right_classification(self) -> None:
+        mech = self._make_hexapod_18dof()
+        profile = _build_profile_from_mechanism(mech)
+        # Left legs have positive Y
+        self.assertEqual(len(profile["left_legs"]), 3)
+        self.assertEqual(len(profile["right_legs"]), 3)
+        for name in profile["left_legs"]:
+            self.assertIn("l", name)  # coxa_lf, coxa_lm, coxa_lr
+        for name in profile["right_legs"]:
+            self.assertIn("r", name)  # coxa_rf, coxa_rm, coxa_rr
+
+    def test_18dof_phase_offsets(self) -> None:
+        mech = self._make_hexapod_18dof()
+        profile = _build_profile_from_mechanism(mech)
+        self.assertEqual(profile["leg_phase_offsets"], [0.0, 0.5, 0.0, 0.5, 0.0, 0.5])
+
+    def _make_hexapod_18dof_shuffled(self) -> Mechanism:
+        """Create an 18-DOF hexapod with joints in non-canonical order.
+
+        Joints are added in RF, LR, RM, LF, RR, LM order — NOT the
+        canonical [LF, LM, LR, RF, RM, RR].  The sort in
+        _build_profile_from_mechanism must recover canonical order.
+        """
+        chassis = PartNode(id="chassis", is_ground=True)
+        parts: list[PartNode] = [chassis]
+        joints: list[JointEdge] = []
+
+        # Shuffled order: RF, LR, RM, LF, RR, LM
+        hip_positions = [
+            (70.0, -75.0),   # RF
+            (-70.0, 75.0),   # LR
+            (0.0, -75.0),    # RM
+            (70.0, 75.0),    # LF
+            (-70.0, -75.0),  # RR
+            (0.0, 75.0),     # LM
+        ]
+        leg_names = ["rf", "lr", "rm", "lf", "rr", "lm"]
+
+        for i, (hx, hy) in enumerate(hip_positions):
+            leg = leg_names[i]
+            parts.append(PartNode(id=f"coxa_seg_{leg}"))
+            parts.append(PartNode(id=f"femur_seg_{leg}"))
+            parts.append(PartNode(id=f"tibia_seg_{leg}"))
+
+            joints.append(JointEdge(
+                id=f"coxa_{leg}",
+                joint_type=JointType.REVOLUTE,
+                parent_part="chassis",
+                child_part=f"coxa_seg_{leg}",
+                axis=(0.0, 0.0, 1.0),
+                origin=(hx, hy, 0.0),
+                min_angle_deg=-45.0, max_angle_deg=45.0,
+            ))
+            joints.append(JointEdge(
+                id=f"femur_{leg}",
+                joint_type=JointType.REVOLUTE,
+                parent_part=f"coxa_seg_{leg}",
+                child_part=f"femur_seg_{leg}",
+                axis=(0.0, 1.0, 0.0),
+                origin=(hx + 52.0, hy, 0.0),
+                min_angle_deg=-90.0, max_angle_deg=90.0,
+            ))
+            joints.append(JointEdge(
+                id=f"tibia_{leg}",
+                joint_type=JointType.REVOLUTE,
+                parent_part=f"femur_seg_{leg}",
+                child_part=f"tibia_seg_{leg}",
+                axis=(0.0, 1.0, 0.0),
+                origin=(hx + 52.0 + 66.0, hy, 0.0),
+                min_angle_deg=-120.0, max_angle_deg=0.0,
+            ))
+
+        return Mechanism(
+            name="hexapod_18dof_shuffled",
+            parts=tuple(parts),
+            joints=tuple(joints),
+            drives=(),
+        )
+
+    def test_shuffled_order_produces_canonical(self) -> None:
+        """Chains discovered in arbitrary order are sorted to canonical
+        [LF, LM, LR, RF, RM, RR] so phase offsets match the right legs."""
+        mech = self._make_hexapod_18dof_shuffled()
+        profile = _build_profile_from_mechanism(mech)
+
+        # Should still detect 6 legs with 3 DOF each
+        self.assertEqual(profile["dofs_per_leg"], 3)
+        self.assertEqual(len(profile["hip_mounts"]), 6)
+
+        # Expected canonical order: LF, LM, LR, RF, RM, RR
+        expected_first_joints = [
+            "coxa_lf", "coxa_lm", "coxa_lr",
+            "coxa_rf", "coxa_rm", "coxa_rr",
+        ]
+        actual_first_joints = [
+            profile["leg_joint_names"][i * 3]
+            for i in range(6)
+        ]
+        self.assertEqual(actual_first_joints, expected_first_joints)
+
+        # Verify hip mount positions match canonical order
+        hm = profile["hip_mounts"]
+        # LF: positive x, positive y
+        self.assertGreater(hm[0][0], 0)
+        self.assertGreater(hm[0][1], 0)
+        # LM: zero x, positive y
+        self.assertAlmostEqual(hm[1][0], 0.0, places=3)
+        self.assertGreater(hm[1][1], 0)
+        # LR: negative x, positive y
+        self.assertLess(hm[2][0], 0)
+        self.assertGreater(hm[2][1], 0)
+        # RF: positive x, negative y
+        self.assertGreater(hm[3][0], 0)
+        self.assertLess(hm[3][1], 0)
+        # RM: zero x, negative y
+        self.assertAlmostEqual(hm[4][0], 0.0, places=3)
+        self.assertLess(hm[4][1], 0)
+        # RR: negative x, negative y
+        self.assertLess(hm[5][0], 0)
+        self.assertLess(hm[5][1], 0)
+
+    def test_shuffled_matches_canonical_profile(self) -> None:
+        """Shuffled and canonical input produce identical profiles."""
+        canonical = _build_profile_from_mechanism(self._make_hexapod_18dof())
+        shuffled = _build_profile_from_mechanism(self._make_hexapod_18dof_shuffled())
+
+        # Core profile keys must match exactly
+        for key in ("dofs_per_leg", "controller_type", "leg_phase_offsets",
+                     "l_coxa", "l_femur", "body_length", "body_width"):
+            self.assertEqual(canonical[key], shuffled[key], f"mismatch on {key}")
+
+        # Joint name order must match
+        self.assertEqual(
+            canonical["leg_joint_names"],
+            shuffled["leg_joint_names"],
+        )
+
+    def test_no_ground_returns_empty(self) -> None:
+        mech = Mechanism(
+            name="no_ground",
+            parts=(PartNode(id="a"),),
+            joints=(),
+            drives=(),
+        )
+        profile = _build_profile_from_mechanism(mech)
+        self.assertEqual(profile, {})
+
+    def test_user_override_takes_priority(self) -> None:
+        """User-provided profile fields override auto-extracted values."""
+        mech = self._make_hexapod_18dof()
+        auto = _build_profile_from_mechanism(mech)
+        user = {"controller_type": "custom", "l_coxa": 0.1}
+        merged = {**auto, **user}
+        self.assertEqual(merged["controller_type"], "custom")
+        self.assertAlmostEqual(merged["l_coxa"], 0.1)
+        # Auto values preserved for unset fields
+        self.assertEqual(merged["dofs_per_leg"], 3)
 
 
 if __name__ == "__main__":

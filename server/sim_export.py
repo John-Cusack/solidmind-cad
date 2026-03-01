@@ -2279,3 +2279,142 @@ def validate_urdf_fk(
                     ))
 
     return findings
+
+
+# ---------------------------------------------------------------------------
+# Leg geometry extraction from SimModel
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True, slots=True)
+class LegChain:
+    """One kinematic leg chain extracted from a SimModel."""
+    joint_names: tuple[str, ...]  # ordered coxa→femur→tibia
+    segment_lengths_m: tuple[float, ...]  # joint-to-joint distances in meters
+    hip_position_m: tuple[float, float, float]  # coxa joint origin (meters)
+    hip_angle_rad: float  # atan2(y, x) of coxa joint relative to base
+
+
+def extract_leg_geometry(
+    sim_model: SimModel,
+) -> dict[str, Any]:
+    """Extract leg geometry from a built SimModel.
+
+    Walks the link/joint tree to identify leg chains (root → coxa → femur → tibia)
+    and computes segment lengths from joint-to-joint distances.
+
+    Returns a dict with:
+    - ``legs``: list of per-leg dicts with joint_names, segment_lengths_m,
+      hip_position_m, hip_angle_rad
+    - ``n_legs``: number of legs found
+    - ``dofs_per_leg``: joints per leg chain (2 or 3)
+    - ``hip_mounts``: list of ``(x_m, y_m, angle_rad)`` per leg
+    - ``body_dims_m``: ``(length, width)`` estimated from hip positions
+
+    Only revolute/continuous joints are followed as leg segments.
+    """
+    _EMPTY: dict[str, Any] = {
+        "legs": [], "n_legs": 0, "dofs_per_leg": 0,
+        "hip_mounts": [], "body_dims_m": (0.0, 0.0),
+    }
+
+    # Build adjacency: parent_link → [(joint, child_link)]
+    children_of: dict[str, list[tuple[SimJoint, str]]] = {}
+    for jnt in sim_model.joints:
+        children_of.setdefault(jnt.parent, []).append((jnt, jnt.child))
+
+    # Find root link (is_root=True or the one with no parent)
+    child_set = {jnt.child for jnt in sim_model.joints}
+    root_links = [lnk for lnk in sim_model.links if lnk.is_root]
+    if not root_links:
+        root_links = [lnk for lnk in sim_model.links if lnk.name not in child_set]
+    if not root_links:
+        return _EMPTY
+
+    root_name = root_links[0].name
+
+    # Build joint origin lookup (SimJoint origin_xyz is in meters)
+    joint_origin: dict[str, tuple[float, float, float]] = {}
+    for jnt in sim_model.joints:
+        joint_origin[jnt.name] = jnt.origin_xyz
+
+    _MOVABLE_TYPES = frozenset({"revolute", "continuous"})
+
+    def _walk_chain(link: str) -> list[list[SimJoint]]:
+        """DFS from link, collecting chains of movable joints."""
+        kids = children_of.get(link, [])
+        movable = [(j, c) for j, c in kids if j.joint_type in _MOVABLE_TYPES]
+        fixed = [(j, c) for j, c in kids if j.joint_type not in _MOVABLE_TYPES]
+
+        chains: list[list[SimJoint]] = []
+
+        # Follow fixed joints transparently (e.g. base_link → chassis)
+        for _fj, fchild in fixed:
+            chains.extend(_walk_chain(fchild))
+
+        # Each movable joint starts or extends a chain
+        for mj, mchild in movable:
+            sub_chains = _walk_chain(mchild)
+            if sub_chains:
+                for sc in sub_chains:
+                    chains.append([mj] + sc)
+            else:
+                chains.append([mj])
+
+        return chains
+
+    raw_chains = _walk_chain(root_name)
+    if not raw_chains:
+        return _EMPTY
+
+    # All leg chains should have the same length; use the mode
+    from collections import Counter
+    chain_lengths = [len(c) for c in raw_chains]
+    length_counts = Counter(chain_lengths)
+    target_len = length_counts.most_common(1)[0][0]
+    chains = [c for c in raw_chains if len(c) == target_len]
+
+    # Build per-leg dicts
+    legs: list[dict[str, Any]] = []
+    hip_mounts: list[tuple[float, float, float]] = []
+
+    for chain in chains:
+        joint_names = tuple(j.name for j in chain)
+        seg_lengths: list[float] = []
+        for i in range(len(chain) - 1):
+            o1 = joint_origin[chain[i].name]
+            o2 = joint_origin[chain[i + 1].name]
+            dist = math.sqrt(
+                (o2[0] - o1[0]) ** 2
+                + (o2[1] - o1[1]) ** 2
+                + (o2[2] - o1[2]) ** 2
+            )
+            seg_lengths.append(dist)
+
+        hip_pos = joint_origin[chain[0].name]
+        hip_angle = math.atan2(hip_pos[1], hip_pos[0])
+
+        legs.append({
+            "joint_names": joint_names,
+            "segment_lengths_m": tuple(seg_lengths),
+            "hip_position_m": hip_pos,
+            "hip_angle_rad": hip_angle,
+        })
+        hip_mounts.append((hip_pos[0], hip_pos[1], hip_angle))
+
+    # Estimate body dimensions from hip positions
+    if hip_mounts:
+        xs = [abs(m[0]) for m in hip_mounts]
+        ys = [abs(m[1]) for m in hip_mounts]
+        body_length = max(xs) * 2.0 if xs else 0.0
+        body_width = max(ys) * 2.0 if ys else 0.0
+    else:
+        body_length = 0.0
+        body_width = 0.0
+
+    return {
+        "legs": legs,
+        "n_legs": len(legs),
+        "dofs_per_leg": target_len,
+        "hip_mounts": hip_mounts,
+        "body_dims_m": (body_length, body_width),
+    }

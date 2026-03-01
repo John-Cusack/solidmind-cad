@@ -174,9 +174,8 @@ def main(argv: list[str] | None = None) -> int:
         status="initialized",
     )
 
-    # Attempt to import Isaac Lab and run training
+    # Attempt to import PyTorch
     try:
-        # This import will only succeed in Isaac Lab's Python
         import torch  # type: ignore[import-not-found]
         log.info("PyTorch available: %s (CUDA: %s)", torch.__version__, torch.cuda.is_available())
     except ImportError:
@@ -191,15 +190,239 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 0
 
-    # Training would happen here in Isaac Lab Python
-    log.info("Training pipeline initialized. Actual training requires Isaac Lab runtime.")
+    # ── Bootstrap Isaac Sim (SimulationApp) ────────────────────────
+    # Isaac Sim requires the Kit application to be running before any
+    # omni.isaac imports work.  SimulationApp must be created ONCE,
+    # before importing omni.isaac.core or any Omniverse extension.
+    simulation_app = None
+    try:
+        from isaacsim import SimulationApp  # type: ignore[import-not-found]
+        headless = True  # Training always headless for throughput
+        simulation_app = SimulationApp({"headless": headless})
+        log.info("Isaac Sim SimulationApp initialized (headless=%s)", headless)
+    except ImportError:
+        log.warning(
+            "isaacsim.SimulationApp not available — "
+            "training requires Isaac Sim Python ($ISAAC_PYTHON)"
+        )
+        write_progress(
+            output_dir,
+            iteration=0,
+            max_iterations=ppo_config.max_iterations,
+            mean_reward=0.0,
+            status="ready",
+            note="SimulationApp not available. Run with $ISAAC_PYTHON.",
+        )
+        return 0
+    except Exception as exc:
+        log.error("Failed to initialize SimulationApp: %s", exc)
+        write_progress(
+            output_dir, iteration=0,
+            max_iterations=ppo_config.max_iterations,
+            mean_reward=0.0, status="error",
+            error=f"SimulationApp init failed: {exc}",
+        )
+        return 1
+
+    # Now that SimulationApp is running, import training modules
+    try:
+        from rl_training.hexapod_env import HexapodEnvConfig, HexapodLocomotionEnv
+        from rl_training.ppo import PPOHyperparams, PPOTrainer
+    except ImportError as exc:
+        log.error("Training modules not available: %s", exc)
+        write_progress(
+            output_dir,
+            iteration=0,
+            max_iterations=ppo_config.max_iterations,
+            mean_reward=0.0,
+            status="error",
+            error=f"Import failed: {exc}",
+        )
+        if simulation_app:
+            simulation_app.close()
+        return 1
+
+    # Build environment config from generated module
+    try:
+        import importlib.util as ilu
+        spec = ilu.spec_from_file_location("_env_cfg_mod", args.env_config)
+        if spec is None or spec.loader is None:
+            raise ImportError(f"Cannot load {args.env_config}")
+        mod = ilu.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+
+        hex_cfg = HexapodEnvConfig.from_env_config_module(mod)
+        if args.num_envs is not None:
+            hex_cfg.num_envs = args.num_envs
+    except Exception as exc:
+        log.error("Failed to build HexapodEnvConfig: %s", exc)
+        write_progress(
+            output_dir, iteration=0,
+            max_iterations=ppo_config.max_iterations,
+            mean_reward=0.0, status="error",
+            error=f"Env config build failed: {exc}",
+        )
+        if simulation_app:
+            simulation_app.close()
+        return 1
+
+    # Create and initialize environment
+    try:
+        env = HexapodLocomotionEnv(hex_cfg)
+        env.initialize()
+    except Exception as exc:
+        log.error("Failed to initialize environment: %s", exc)
+        write_progress(
+            output_dir, iteration=0,
+            max_iterations=ppo_config.max_iterations,
+            mean_reward=0.0, status="error",
+            error=f"Env init failed: {exc}",
+        )
+        if simulation_app:
+            simulation_app.close()
+        return 1
+
+    # Create PPO trainer
+    ppo_params = PPOHyperparams(
+        learning_rate=ppo_config.learning_rate,
+        num_epochs=ppo_config.num_epochs,
+        num_mini_batches=ppo_config.num_mini_batches,
+        gamma=ppo_config.gamma,
+        lam=ppo_config.lam,
+        entropy_coef=ppo_config.entropy_coef,
+        clip_param=ppo_config.clip_param,
+        max_grad_norm=ppo_config.max_grad_norm,
+        actor_hidden_dims=ppo_config.actor_hidden_dims,
+        critic_hidden_dims=ppo_config.critic_hidden_dims,
+        activation=ppo_config.activation,
+        num_steps_per_env=ppo_config.num_steps_per_env,
+        desired_kl=ppo_config.kl_target,
+    )
+
+    device = "cuda:0" if torch.cuda.is_available() else "cpu"
+    trainer = PPOTrainer(env, params=ppo_params, device=device)
+
+    log.info(
+        "Training started: %d envs, %d joints, obs_dim=%d, action_dim=%d, device=%s",
+        hex_cfg.num_envs, hex_cfg.num_joints, hex_cfg.obs_dim, hex_cfg.action_dim, device,
+    )
+
+    write_progress(
+        output_dir, iteration=0,
+        max_iterations=ppo_config.max_iterations,
+        mean_reward=0.0, status="training",
+    )
+
+    # ── Training loop ─────────────────────────────────────────────
+    best_reward = float("-inf")
+    checkpoints_dir = output_dir / "checkpoints"
+    checkpoints_dir.mkdir(exist_ok=True)
+
+    try:
+        for iteration in range(1, ppo_config.max_iterations + 1):
+            t0 = time.time()
+
+            # Collect rollouts
+            rollout_stats = trainer.collect_rollouts()
+            mean_reward = rollout_stats["mean_reward"]
+
+            # PPO update
+            update_stats = trainer.update()
+
+            elapsed = time.time() - t0
+
+            # Logging
+            if iteration % ppo_config.log_interval == 0 or iteration == 1:
+                log.info(
+                    "Iter %d/%d | reward=%.3f | policy_loss=%.4f | value_loss=%.4f | "
+                    "entropy=%.4f | kl=%.5f | lr=%.2e | %.1fs",
+                    iteration, ppo_config.max_iterations,
+                    mean_reward,
+                    update_stats["policy_loss"],
+                    update_stats["value_loss"],
+                    update_stats["entropy"],
+                    update_stats["kl_divergence"],
+                    update_stats["learning_rate"],
+                    elapsed,
+                )
+
+            # Write progress
+            write_progress(
+                output_dir,
+                iteration=iteration,
+                max_iterations=ppo_config.max_iterations,
+                mean_reward=mean_reward,
+                status="training",
+                policy_loss=update_stats["policy_loss"],
+                value_loss=update_stats["value_loss"],
+                entropy=update_stats["entropy"],
+                kl_divergence=update_stats["kl_divergence"],
+                learning_rate=update_stats["learning_rate"],
+                elapsed_s=elapsed,
+            )
+
+            # Save checkpoint
+            if iteration % ppo_config.save_interval == 0:
+                ckpt_path = checkpoints_dir / f"model_{iteration}.pt"
+                trainer.save_checkpoint(str(ckpt_path))
+
+            # Track best model
+            if mean_reward > best_reward:
+                best_reward = mean_reward
+                trainer.save_checkpoint(str(checkpoints_dir / "model_best.pt"))
+
+    except KeyboardInterrupt:
+        log.info("Training interrupted at iteration %d", trainer.current_iteration)
+    except Exception as exc:
+        log.error("Training failed at iteration %d: %s", trainer.current_iteration, exc)
+        write_progress(
+            output_dir,
+            iteration=trainer.current_iteration,
+            max_iterations=ppo_config.max_iterations,
+            mean_reward=best_reward if best_reward > float("-inf") else 0.0,
+            status="error",
+            error=str(exc),
+        )
+        env.close()
+        if simulation_app:
+            simulation_app.close()
+        return 1
+
+    # Export final policy and save checkpoint BEFORE closing SimulationApp
+    # (SimulationApp.close() may terminate the process)
+    deployed_dir = output_dir / "deployed"
+    try:
+        policy_path = trainer.export_policy(str(deployed_dir))
+        deploy_config = {
+            "joint_names": hex_cfg.joint_names,
+            "action_scale": hex_cfg.action_scale,
+            "alpha": 1.0,  # Direct mode, no residual blending
+            "obs_dim": hex_cfg.obs_dim,
+            "action_dim": hex_cfg.action_dim,
+        }
+        (deployed_dir / "deployment_config.json").write_text(
+            json.dumps(deploy_config, indent=2), encoding="utf-8",
+        )
+        log.info("Final policy exported to %s", policy_path)
+    except Exception as exc:
+        log.warning("Failed to export final policy: %s", exc)
+
+    trainer.save_checkpoint(str(checkpoints_dir / "model_final.pt"))
+
     write_progress(
         output_dir,
-        iteration=0,
+        iteration=ppo_config.max_iterations,
         max_iterations=ppo_config.max_iterations,
-        mean_reward=0.0,
-        status="ready",
+        mean_reward=best_reward if best_reward > float("-inf") else 0.0,
+        status="completed",
     )
+
+    log.info("Training complete. Best reward: %.3f", best_reward)
+
+    # Cleanup
+    env.close()
+    if simulation_app:
+        simulation_app.close()
     return 0
 
 

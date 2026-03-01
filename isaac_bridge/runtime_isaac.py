@@ -286,6 +286,52 @@ class _IsaacWorldEngine:
         except Exception as exc:
             logger.warning("[engine] setup_scene failed (non-fatal): %s", exc)
 
+    def load_environment(self, usd_url: str, *, skip_ground_plane: bool = True) -> str:
+        """Reference an external USD environment into the stage.
+
+        Args:
+            usd_url: Local path or Omniverse/S3 URL to a USD file.
+            skip_ground_plane: If True, remove the default ground plane
+                (the environment typically provides its own floor).
+
+        Returns:
+            The prim path where the environment was loaded.
+        """
+        if not self._available:
+            raise IsaacRuntimeError(
+                "ENGINE_UNAVAILABLE",
+                "Isaac Sim engine not available",
+            )
+
+        def _do_load() -> str:
+            import omni.usd  # type: ignore[import-not-found]
+            from pxr import Sdf, UsdGeom  # type: ignore[import-not-found]
+
+            stage = omni.usd.get_context().get_stage()
+            env_path = "/Environment"
+
+            # Remove existing environment prim if present
+            existing = stage.GetPrimAtPath(env_path)
+            if existing.IsValid():
+                stage.RemovePrim(env_path)
+
+            # Create an Xform and add the USD as a reference
+            env_prim = stage.DefinePrim(env_path, "Xform")
+            env_prim.GetReferences().AddReference(usd_url)
+            logger.info("[engine] load_environment: referenced %s at %s", usd_url, env_path)
+
+            # Optionally remove the default ground plane (environment has its own)
+            if skip_ground_plane:
+                gp = stage.GetPrimAtPath("/World/GroundPlane")
+                if gp.IsValid():
+                    stage.RemovePrim("/World/GroundPlane")
+                    logger.info("[engine] load_environment: removed default ground plane")
+
+            self._imported_prims.append(env_path)
+            return env_path
+
+        return main_thread_dispatcher.submit(_do_load)
+
     def import_urdf(
         self,
         urdf_path: str,
@@ -550,6 +596,7 @@ class _IsaacWorldEngine:
 
             # Build link→(center, half_extents) from URDF collision meshes.
             urdf_col: dict[str, tuple[tuple[float, float, float], tuple[float, float, float]]] = {}
+            fixed_child_links: set[str] = set()
             if urdf_path:
                 urdf_col = _parse_urdf_collision_extents(urdf_path)
                 if urdf_col:
@@ -557,6 +604,28 @@ class _IsaacWorldEngine:
                         "[engine] _ensure_collision_geometry: parsed %d link collision extents from URDF",
                         len(urdf_col),
                     )
+                # Identify links that are children of fixed joints — these are
+                # co-located with their parent link (e.g. servo bodies merged
+                # into structural links).  Adding separate collision boxes to
+                # them causes self-collision with the parent's collider.
+                try:
+                    import xml.etree.ElementTree as _ET
+                    _tree = _ET.parse(urdf_path)
+                    for _j in _tree.findall(".//joint"):
+                        if _j.get("type") == "fixed":
+                            _child = _j.find("child")
+                            if _child is not None:
+                                _cname = _child.get("link", "")
+                                if _cname:
+                                    fixed_child_links.add(_cname)
+                    if fixed_child_links:
+                        logger.info(
+                            "[engine] _ensure_collision_geometry: skipping %d fixed-joint child links: %s",
+                            len(fixed_child_links),
+                            ", ".join(sorted(fixed_child_links)[:6]) + ("..." if len(fixed_child_links) > 6 else ""),
+                        )
+                except Exception as _exc:
+                    logger.debug("[engine] failed to parse fixed joints from URDF: %s", _exc)
 
             added = 0
             for prim in Usd.PrimRange(root_prim):
@@ -576,11 +645,16 @@ class _IsaacWorldEngine:
 
                 link_name = prim.GetName()
 
-                # Skip chassis and base_link — their large collision boxes
+                # Skip chassis / base_link — their large collision boxes
                 # catch the ground on any slight tip and cascade into a fall.
                 # Only leg links need ground-contact colliders.
-                _skip = ("base_link", "chassis")
+                _skip = ("base_link", "chassis", "Body_Chassis")
                 if link_name in _skip:
+                    continue
+
+                # Skip fixed-joint child links (e.g. servo bodies) — they
+                # are co-located with their parent and would self-collide.
+                if link_name in fixed_child_links:
                     continue
 
                 # Try URDF-derived extents first, fall back to bbox, then default
@@ -888,6 +962,7 @@ class _IsaacWorldEngine:
         urdf_path: str,
         config: URDFImportConfig,
         mechanism: dict[str, Any] | None = None,
+        skip_mechanism_drives: bool = False,
     ) -> tuple[str, int, int, Any, list[str]]:
         """Setup scene, import URDF, create articulation, apply drives.
 
@@ -903,6 +978,38 @@ class _IsaacWorldEngine:
             """Runs on the main thread (via dispatcher)."""
             self.setup_scene()
             pp, jc, lc = self.import_urdf(urdf_path, config)
+
+            # Phase 0: Raise root prim so the robot spawns above the ground.
+            # For mobile robots the URDF root is at z=0 but the standing
+            # configuration has feet at z=-ground_clearance.  Without this
+            # offset the legs start underground and the robot collapses.
+            logger.info("[engine] start_simulation: config.spawn_height=%r", getattr(config, 'spawn_height', 'MISSING'))
+            if getattr(config, 'spawn_height', 0) and abs(config.spawn_height) > 1e-6:
+                try:
+                    import omni.usd  # type: ignore[import-not-found]
+                    from pxr import UsdGeom, Gf  # type: ignore[import-not-found]
+                    stage = omni.usd.get_context().get_stage()
+                    root_prim = stage.GetPrimAtPath(pp)
+                    logger.info("[engine] start_simulation: root_prim valid=%s path=%s", root_prim.IsValid(), pp)
+                    if root_prim.IsValid():
+                        xformable = UsdGeom.Xformable(root_prim)
+                        # URDF importer already creates xformOp:translate —
+                        # modify the existing op's z instead of adding a new one.
+                        translate_set = False
+                        for op in xformable.GetOrderedXformOps():
+                            if op.GetOpType() == UsdGeom.XformOp.TypeTranslate:
+                                cur = op.Get()
+                                op.Set(Gf.Vec3d(cur[0], cur[1], cur[2] + config.spawn_height))
+                                translate_set = True
+                                break
+                        if not translate_set:
+                            xformable.AddTranslateOp().Set(Gf.Vec3d(0, 0, config.spawn_height))
+                        logger.info(
+                            "[engine] start_simulation: spawn_height=%.4f applied on %s",
+                            config.spawn_height, pp,
+                        )
+                except Exception as exc:
+                    logger.warning("[engine] start_simulation: spawn_height failed: %s", exc, exc_info=True)
 
             # Phase 1: Set JointStateAPI + drive targets on USD (before world.reset)
             if config.initial_joint_positions:
@@ -938,13 +1045,17 @@ class _IsaacWorldEngine:
             # which resets USD drive attributes to URDF importer defaults.
             self._configure_drives_post_import(pp, config)
 
-            # Phase 5: Apply mechanism drives
+            # Phase 5: Apply mechanism drives (skipped for teleop — teleop
+            # needs position drives, but mechanism drives set velocity mode
+            # with stiffness=0, which disables position control entirely).
             warns: list[str] = []
-            if mechanism:
+            if mechanism and not skip_mechanism_drives:
                 logger.info("[engine] start_simulation: applying drives...")
                 warns = self.apply_drives(pp, mechanism)
                 if warns:
                     logger.warning("[engine] start_simulation: drive warnings: %s", warns)
+            elif skip_mechanism_drives:
+                logger.info("[engine] start_simulation: skipping mechanism drives (teleop mode)")
             return pp, jc, lc, art, warns
 
         result = main_thread_dispatcher.submit(_do_setup)
@@ -1400,6 +1511,7 @@ class IsaacRuntime:
                     "diagnose",
                     "reload",
                     "import_urdf",
+                    "load_environment",
                     "simulate",
                     "simulate_start",
                     "simulate_status",
@@ -1414,6 +1526,34 @@ class IsaacRuntime:
                 "headless_default": self._headless,
                 "isaac_available": self._engine.available,
             },
+        }
+
+    def load_environment(
+        self,
+        usd_url: str,
+        skip_ground_plane: bool = True,
+    ) -> dict[str, Any]:
+        """Load a USD environment into the scene.
+
+        Must be called before ``teleop_start`` — the environment is
+        referenced into the stage and persists across robot imports.
+        """
+        if not self._engine.available:
+            raise IsaacRuntimeError(
+                "ENGINE_UNAVAILABLE",
+                "Isaac Sim engine not available",
+            )
+
+        # Ensure the scene is set up first (World, physics, etc.)
+        self._engine.setup_scene()
+
+        env_path = self._engine.load_environment(
+            usd_url, skip_ground_plane=skip_ground_plane,
+        )
+        return {
+            "env_prim_path": env_path,
+            "usd_url": usd_url,
+            "skip_ground_plane": skip_ground_plane,
         }
 
     def diagnose(self, *, prim_path: str = "/") -> dict[str, Any]:
@@ -2102,6 +2242,7 @@ class IsaacRuntime:
         urdf_path: str | None = None,
         import_config: dict[str, Any] | None = None,
         verify: bool = True,
+        allow_partial: bool = False,
     ) -> dict[str, Any]:
         mech = _validate_mechanism(mechanism)
         unsupported = _unsupported_joints(mech)
@@ -2144,7 +2285,9 @@ class IsaacRuntime:
 
                 cfg = URDFImportConfig.from_dict(import_config)
                 prim_path, _jc, _lc, articulation, drive_warns = (
-                    self._engine.start_simulation(urdf_path, cfg, mech)
+                    self._engine.start_simulation(
+                        urdf_path, cfg, mech, skip_mechanism_drives=True,
+                    )
                 )
                 warnings.extend(drive_warns)
             except IsaacRuntimeError:
@@ -2171,10 +2314,19 @@ class IsaacRuntime:
             avail_dofs = _get_dof_names_safe(articulation)
             logger.info("[runtime] teleop_start: available DOFs (%d): %s",
                         len(avail_dofs), avail_dofs)
-            logger.info("[runtime] teleop_start: required joints: %s",
-                        list(teleop_config.joint_names))
+            # For multi-DOF controllers (2-DOF, 3-DOF), the controller
+            # outputs targets keyed by leg_joint_names (e.g. 18 joints for
+            # a 3-DOF hexapod).  The DOF map must use those names, not the
+            # 1-DOF joint_names (which default to 6 hip names).
+            if (teleop_config.dofs_per_leg >= 2
+                    and teleop_config.leg_joint_names):
+                joints_to_map = teleop_config.leg_joint_names
+            else:
+                joints_to_map = teleop_config.joint_names
+            logger.info("[runtime] teleop_start: required joints (%d): %s",
+                        len(joints_to_map), list(joints_to_map))
             dof_index_map, joint_limits = _resolve_dof_map(
-                articulation, teleop_config.joint_names,
+                articulation, joints_to_map,
             )
             if not dof_index_map:
                 raise IsaacRuntimeError(
@@ -2182,7 +2334,7 @@ class IsaacRuntime:
                     "None of the required joint names could be mapped to "
                     "articulation DOFs",
                     details={
-                        "required_joints": list(teleop_config.joint_names),
+                        "required_joints": list(joints_to_map),
                         "available_dofs": _get_dof_names_safe(articulation),
                     },
                 )
@@ -2190,7 +2342,19 @@ class IsaacRuntime:
                 j for j in teleop_config.joint_names
                 if j not in dof_index_map
             ]
-            if missing:
+            if missing and not allow_partial:
+                raise IsaacRuntimeError(
+                    "TELEOP_JOINT_MAP_FAILED",
+                    f"Partial joint map: {len(dof_index_map)}/{len(teleop_config.joint_names)} "
+                    f"mapped, missing: {missing}. Pass allow_partial=True to proceed anyway.",
+                    details={
+                        "mapped": len(dof_index_map),
+                        "required": len(teleop_config.joint_names),
+                        "missing_joints": missing,
+                        "available_dofs": avail_dofs,
+                    },
+                )
+            elif missing:
                 warnings.append(
                     f"Partial joint map: {len(dof_index_map)}/{len(teleop_config.joint_names)} "
                     f"mapped, missing: {missing}"

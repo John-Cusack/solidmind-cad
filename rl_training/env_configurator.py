@@ -78,6 +78,18 @@ def generate_env_config(
         lower_limits.append(lo)
         upper_limits.append(hi)
 
+    # Extract body dimensions from URDF link geometry if available
+    body_length = getattr(analysis, 'body_length_m', 0.14)
+    body_width = getattr(analysis, 'body_width_m', 0.15)
+
+    # Link masses for domain randomization
+    link_masses: dict[str, float] = {}
+    if hasattr(analysis, 'link_masses') and analysis.link_masses:
+        link_masses = dict(analysis.link_masses)
+
+    # Default joint positions (zeros unless specified)
+    default_positions = [0.0] * n_joints
+
     config_code = textwrap.dedent(f"""\
         # Auto-generated Isaac Lab environment configuration.
         # Robot: {analysis.robot_name}
@@ -101,6 +113,7 @@ def generate_env_config(
         JOINT_NAMES = {list(analysis.actuated_joints)!r}
         JOINT_LOWER_LIMITS = {lower_limits!r}
         JOINT_UPPER_LIMITS = {upper_limits!r}
+        DEFAULT_JOINT_POSITIONS = {default_positions!r}
 
         # Actuator parameters
         ACTUATOR_STIFFNESS = {actuator['stiffness']}
@@ -111,6 +124,13 @@ def generate_env_config(
         STANDING_HEIGHT_M = {analysis.standing_height_m}
         BASE_LINK = {analysis.base_link!r}
         FOOT_LINKS = {list(analysis.foot_links)!r}
+
+        # Body dimensions (metres) for hip mount computation
+        BODY_LENGTH_M = {body_length}
+        BODY_WIDTH_M = {body_width}
+
+        # Per-link masses (kg) for domain randomization
+        LINK_MASSES = {link_masses!r}
 
         # Physics
         PHYSICS_DT = 1.0 / 120.0  # 120 Hz

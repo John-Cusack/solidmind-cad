@@ -62,7 +62,7 @@ Opens with:
 **What the LLM should do:**
 1. Research AX-12A servo dimensions, hexapod proportions
 2. Present design brief:
-   - Chassis: 150mm disc, 5mm thick
+   - Chassis: rectangular plate ~120×90mm, 5mm thick (length along X, width along Y)
    - Segments: coxa 52mm, femur 66mm, tibia 133mm
    - Servos: AX-12A (32×24×24mm)
    - Standing pose: femur 30° below horizontal, tibia 70°
@@ -79,14 +79,14 @@ Opens with:
 
 **Expected tool calls:**
 1. `cad.new_document("Hexapod")` + `cad.new_body("Body_Chassis")`
-2. `cad.sketch(circle r=75)` + `cad.pad(length=5)` → **disc appears**
+2. `cad.sketch(rect 120×90)` + `cad.pad(length=5)` → **plate appears**
 3. `cad.sketch(rect 24×22)` + `cad.pocket(length=3)` → servo cutout
-4. `cad.polar_pattern(Pocket, 6x, Base_Z)` → **6 pockets radiate** (wow moment)
-5. `cad.fillet(radius=1.5)` → polished edges
+4. `cad.linear_pattern` or manual placement → **6 pockets appear** (wow moment)
+5. `cad.fillet(radius=2)` → polished edges
 
 **Key visual moments (keep at 1x):**
-- Disc appears (pad)
-- 6 pockets radiate (polar pattern)
+- Plate appears (pad)
+- 6 servo pockets cut
 - Edges round off (fillet)
 
 ---
@@ -142,15 +142,14 @@ Positions from FK math (same as `scripts/add_hexapod_servos.py`).
 > **Import into Isaac Sim and make it walk.**
 
 **Expected:**
-1. `motion.teleop_start(mechanism_id=..., urdf_path=..., profile={...})` with:
-   - `controller_type: "hexapod_3dof_tripod"`
-   - IK geometry: `l_coxa=0.052, l_femur=0.066, l_tibia=0.133`
-   - `leg_joint_names: [18 joint names matching URDF]`
+1. `motion.teleop_start(mechanism_id=..., urdf_path=...)` — **no profile needed!**
+   Auto-profile extracts everything from the mechanism: controller type, 18 joint names,
+   leg geometry (l_coxa/l_femur/l_tibia), hip mounts, body dims, tripod phases, left/right.
 2. Isaac imports URDF (~60-120s, speed up in edit)
-3. `motion.isaac_screenshot()` — **hexapod standing in Isaac Sim**
+3. `cad.screenshot()` — **hexapod standing in Isaac Sim**
 4. `motion.teleop_command(vx_mps=0.3)` — **hexapod walks forward with IK tripod gait**
 5. `motion.teleop_command(yaw_rate_rps=0.5)` — **hexapod turns**
-6. `motion.isaac_screenshot()` from multiple angles
+6. `cad.screenshot()` from multiple angles
 
 **Keep walking at real speed for 10-15 seconds.** This is analytical IK computing 18 joint angles per tick at 20Hz, with stance/swing foot trajectories, in rigid-body physics. Not animation.
 
@@ -179,7 +178,7 @@ Positions from FK math (same as `scripts/add_hexapod_servos.py`).
 |-----------------|------------|
 | Wrong leg lengths | *"Use coxa 52mm, femur 66mm, tibia 133mm"* |
 | Wrong servo model | *"Use AX-12A dimensions: 32×24×24mm"* |
-| Square chassis | *"Use a circular plate, looks better on camera"* |
+| Circular chassis | *"Use a rectangular plate ~120×90mm — cleaner body_length/body_width for the controller"* |
 | Skips research | *"Stop. Research the specs first and tell me your plan."* |
 | 1-DOF instead of 18 | *"I want 3 joints per leg: hip yaw, hip pitch, knee"* |
 
@@ -204,7 +203,7 @@ Positions from FK math (same as `scripts/add_hexapod_servos.py`).
 - **Real speed:** Spec summary (beat 1), geometry appearing (beats 2-4), **walking (beat 7)**.
 - **Key visual moments at 1x:**
   - Act 1: Involute sketch, gear assembly hero shot
-  - Beat 2: Polar pattern (6 pockets)
+  - Beat 2: Servo pockets cut into chassis
   - Beat 3: Leg structure appears
   - Beat 4: Full 37-body hexapod hero shot
   - Beat 7: Walking starts

@@ -280,7 +280,8 @@ class TestMotionIsaacIntegration(unittest.TestCase):
 
         self.assertTrue(result["ok"])
         self.assertEqual(result["mode_used"], "teleop")
-        self.assertEqual(self.bridge.last_teleop_profile, {"linear_speed_mps": 0.4})
+        # Auto-profile merges mechanism-derived fields; check user field is preserved
+        self.assertEqual(self.bridge.last_teleop_profile.get("linear_speed_mps"), 0.4)
 
     def test_full_teleop_lifecycle_via_main_dispatch(self) -> None:
         defined = mcp_main._call_tool(
