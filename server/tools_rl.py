@@ -252,12 +252,47 @@ def rl_deploy_policy(
     else:
         out = Path(output_dir)
 
-    # Read env config to get joint names
-    joint_names: list[str] = []
-    training_config = ckpt_dir / "training_config.json"
-    if training_config.is_file():
+    # ── Resolution order ────────────────────────────────────────────
+    # 1. Check if isaaclab_train.py already exported artifacts
+    existing_policy = out / "policy.pt"
+    existing_config = out / "deployment_config.json"
+    if existing_policy.is_file() and existing_config.is_file():
         try:
-            tc = json.loads(training_config.read_text(encoding="utf-8"))
+            cfg = json.loads(existing_config.read_text(encoding="utf-8"))
+            joint_names = cfg.get("joint_names", [])
+            if joint_names:
+                log.info("Using existing deployed artifacts in %s", out)
+                return {
+                    "ok": True,
+                    "policy_path": str(existing_policy),
+                    "config_path": str(existing_config),
+                    "joint_names": joint_names,
+                    "action_scale_per_joint": cfg.get("action_scale_per_joint"),
+                    "alpha": cfg.get("alpha", alpha),
+                    "reused_existing": True,
+                }
+        except Exception:
+            pass  # Fall through to re-export
+
+    # 2. Read joint_names from training_config.json (written by isaaclab_train.py)
+    joint_names: list[str] = []
+    action_scale: float = 0.3
+    training_config_file = ckpt_dir / "training_config.json"
+    if training_config_file.is_file():
+        try:
+            tc = json.loads(training_config_file.read_text(encoding="utf-8"))
+            joint_names = tc.get("joint_names", [])
+            # Use the average of per-joint scales for scalar fallback
+            per_joint = tc.get("action_scale_per_joint", [])
+            if per_joint:
+                action_scale = sum(per_joint) / len(per_joint)
+        except Exception:
+            pass
+
+    # 3. Fall back to env_config_path import
+    if not joint_names and training_config_file.is_file():
+        try:
+            tc = json.loads(training_config_file.read_text(encoding="utf-8"))
             env_config_path = tc.get("env_config_path", "")
             if env_config_path and os.path.isfile(env_config_path):
                 from rl_training.residual_env import build_env_config_from_file
@@ -266,11 +301,21 @@ def rl_deploy_policy(
         except Exception:
             pass
 
+    # 4. Error if joint_names still unresolved
+    if not joint_names:
+        return _error_result(
+            "JOINT_NAMES_NOT_FOUND",
+            "Cannot resolve joint_names from training_config.json or env_config_path. "
+            "Ensure training was completed with isaaclab_train.py or provide a valid "
+            "env_config_path in training_config.json.",
+        )
+
     try:
         from rl_training.export_policy import export_policy
         result = export_policy(
             ckpt_dir, out,
             joint_names=joint_names,
+            action_scale=action_scale,
             alpha=alpha,
         )
         return {"ok": True, **result}

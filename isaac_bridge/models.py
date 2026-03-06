@@ -480,6 +480,15 @@ class TeleopState:
     yaw_rate_rps: float = 0.0
     body_height_m: float = 0.0
 
+    # Joint feedback from physics (populated by runtime tick_teleop)
+    joint_positions: list[float] = field(default_factory=list)
+    joint_velocities: list[float] = field(default_factory=list)
+
+    # Body state from physics (populated by runtime tick_teleop)
+    base_lin_vel: list[float] = field(default_factory=lambda: [0.0, 0.0, 0.0])
+    base_ang_vel: list[float] = field(default_factory=lambda: [0.0, 0.0, 0.0])
+    projected_gravity: list[float] = field(default_factory=lambda: [0.0, 0.0, -1.0])
+
     def to_dict(self) -> dict[str, float]:
         return {
             "vx_mps": self.vx_mps,

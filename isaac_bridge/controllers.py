@@ -748,32 +748,47 @@ class DirectPolicyController:
     to a base controller), this controller runs the policy as the sole
     source of joint commands.
 
-    Observation layout matches training (66 dims for 18-joint hexapod):
-        base_lin_vel(3), base_ang_vel(3), projected_gravity(3),
-        commands(3), joint_pos_relative(18), joint_vel(18),
-        prev_actions(18)
+    Supports two observation layouts (auto-detected from deployment config):
 
-    At teleop time, we only have the commanded velocity and the current
-    joint state from Isaac.  The full observation is built from whatever
-    the runtime provides via ``TeleopState`` + joint feedback.
+    - ``"isaaclab"`` (66 dims for 18 joints, no gait clock):
+        base_lin_vel(3), base_ang_vel(3), projected_gravity(3),
+        commands(3), joint_pos_relative(N), joint_vel(N), prev_actions(N)
+      Gravity is unit-normalized [0,0,-1].
+
+    - ``"custom"`` (68 dims for 18 joints, legacy):
+        base_lin_vel(3), base_ang_vel(3), projected_gravity(3),
+        commands(3), gait_clock(2), joint_pos_relative(N),
+        joint_vel(N), prev_actions(N)
+      Gravity is raw [0,0,-9.81].
+
+    Per-joint action scales are loaded from ``action_scale_per_joint``
+    in deployment_config.json, fixing the training/deployment scale mismatch.
     """
 
     def __init__(
         self,
         policy_path: str,
-        action_scale: float = 0.25,
+        action_scale: float = 0.5,
     ) -> None:
         self._action_scale = action_scale
+        self._action_scales: list[float] | None = None  # per-joint scales
         self._policy: Any = None
         self._joint_names: list[str] | None = None
+        self._default_joint_positions: list[float] | None = None
         self._obs_mean: Any = None
         self._obs_std: Any = None
-        self._obs_dim: int = 66
+        self._obs_dim: int = 68
+        self._obs_layout: str = "custom"  # "custom" or "isaaclab"
         self._prev_actions: dict[str, float] = {}
+        self._normalized_policy: bool = False
 
         self._filtered_vx: float = 0.0
         self._filtered_yaw: float = 0.0
         self._filtered_height: float = 0.0
+
+        # Gait phase clock (only used for "custom" obs layout)
+        self._gait_phase: float = 0.0
+        self._stride_frequency: float = 2.0
 
         self._load_policy(policy_path)
 
@@ -794,33 +809,64 @@ class DirectPolicyController:
             logger.info("Loaded direct policy from %s", policy_path)
         except ImportError:
             logger.warning("PyTorch not available — controller will output zeros")
-            return
         except Exception as exc:
             logger.warning("Failed to load policy %s: %s", policy_path, exc)
-            return
 
-        # Load deployment config
+        # Load deployment config (even if policy load failed — config is still useful)
         config_file = policy_file.parent / "deployment_config.json"
         if config_file.is_file():
             try:
                 config = json.loads(config_file.read_text(encoding="utf-8"))
                 self._joint_names = config.get("joint_names")
-                self._action_scale = config.get("action_scale", self._action_scale)
                 self._obs_dim = config.get("obs_dim", self._obs_dim)
+                self._default_joint_positions = config.get("default_joint_positions")
+                self._normalized_policy = config.get("normalized_policy", False)
+                self._stride_frequency = config.get("stride_frequency", self._stride_frequency)
+                self._obs_layout = config.get("obs_layout", "custom")
+
+                # Action scale mode: "per_joint" uses per-joint vector,
+                # "scalar" uses a single scale for all joints.
+                # Default: use per-joint if available (backward compat).
+                scale_mode = config.get("action_scale_mode", "auto")
+                per_joint = config.get("action_scale_per_joint")
+                scalar_scale = config.get("action_scale")
+
+                if scale_mode == "scalar" and scalar_scale is not None:
+                    # Explicit scalar mode — ignore per-joint even if present
+                    self._action_scale = float(scalar_scale)
+                    self._action_scales = None
+                    logger.info("Using scalar action scale: %.4f", self._action_scale)
+                elif per_joint and isinstance(per_joint, list):
+                    self._action_scales = [float(s) for s in per_joint]
+                    logger.info(
+                        "Loaded per-joint action scales (%d joints)",
+                        len(self._action_scales),
+                    )
+                elif scalar_scale is not None:
+                    self._action_scale = float(scalar_scale)
+                    logger.info("Using scalar action scale: %.4f", self._action_scale)
+
+                if self._default_joint_positions:
+                    logger.info(
+                        "Loaded default_joint_positions (%d joints)",
+                        len(self._default_joint_positions),
+                    )
+                logger.info("Obs layout: %s, obs_dim: %d", self._obs_layout, self._obs_dim)
             except Exception as exc:
                 logger.warning("Failed to load deployment config: %s", exc)
 
-        # Load normalization params
-        norm_file = policy_file.parent / "normalization_params.json"
-        if norm_file.is_file():
-            try:
-                import torch  # type: ignore[import-not-found]
-                norm = json.loads(norm_file.read_text(encoding="utf-8"))
-                self._obs_mean = torch.tensor(norm["obs_mean"], dtype=torch.float32)
-                self._obs_std = torch.tensor(norm["obs_std"], dtype=torch.float32)
-                logger.info("Loaded normalization params (%d dims)", len(norm["obs_mean"]))
-            except Exception as exc:
-                logger.warning("Failed to load normalization params: %s", exc)
+        # Load normalization params (used only if policy lacks built-in normalization)
+        if not self._normalized_policy:
+            norm_file = policy_file.parent / "normalization_params.json"
+            if norm_file.is_file():
+                try:
+                    import torch  # type: ignore[import-not-found]
+                    norm = json.loads(norm_file.read_text(encoding="utf-8"))
+                    self._obs_mean = torch.tensor(norm["obs_mean"], dtype=torch.float32)
+                    self._obs_std = torch.tensor(norm["obs_std"], dtype=torch.float32)
+                    logger.info("Loaded normalization params (%d dims)", len(norm["obs_mean"]))
+                except Exception as exc:
+                    logger.warning("Failed to load normalization params: %s", exc)
 
     @property
     def filtered_vx(self) -> float:
@@ -842,43 +888,80 @@ class DirectPolicyController:
     ) -> Any:
         """Build observation tensor matching training layout.
 
-        Layout: [base_lin_vel(3), base_ang_vel(3), projected_gravity(3),
-                 commands(3), joint_pos_rel(N), joint_vel(N), prev_actions(N)]
+        Supports two layouts (selected by ``self._obs_layout``):
 
-        During teleop we approximate:
-        - base_lin_vel ≈ [filtered_vx, 0, 0] (body frame)
-        - base_ang_vel ≈ [0, 0, filtered_yaw]
-        - projected_gravity ≈ [0, 0, -1] (upright)
-        - commands = [vx, 0, yaw_rate]
-        - joint_pos_rel = 0 (unknown without joint feedback)
-        - joint_vel = 0 (unknown)
-        - prev_actions from last step
+        ``"isaaclab"`` (no gait clock, unit gravity):
+            base_lin_vel(3), base_ang_vel(3), projected_gravity(3),
+            commands(3), joint_pos_rel(N), joint_vel(N), prev_actions(N)
+
+        ``"custom"`` (with gait clock, raw gravity):
+            base_lin_vel(3), base_ang_vel(3), projected_gravity(3),
+            commands(3), gait_clock(2), joint_pos_rel(N),
+            joint_vel(N), prev_actions(N)
         """
         import torch  # type: ignore[import-not-found]
 
         n_joints = len(config.joint_names)
         obs_list: list[float] = []
+        is_isaaclab = self._obs_layout == "isaaclab"
 
-        # base_lin_vel (3) — approximate from commands
-        obs_list.extend([self._filtered_vx * config.vx_max_mps, 0.0, 0.0])
+        # base_lin_vel (3) — use real physics feedback if available
+        if state.base_lin_vel and len(state.base_lin_vel) >= 3:
+            obs_list.extend(state.base_lin_vel[:3])
+        else:
+            obs_list.extend([self._filtered_vx * config.vx_max_mps, 0.0, 0.0])
+
         # base_ang_vel (3)
-        obs_list.extend([0.0, 0.0, self._filtered_yaw * config.yaw_max_rps])
-        # projected_gravity (3) — assume upright
-        obs_list.extend([0.0, 0.0, -1.0])
+        if state.base_ang_vel and len(state.base_ang_vel) >= 3:
+            obs_list.extend(state.base_ang_vel[:3])
+        else:
+            obs_list.extend([0.0, 0.0, self._filtered_yaw * config.yaw_max_rps])
+
+        # projected_gravity (3)
+        # Isaac Lab uses unit gravity [0, 0, -1]; custom env uses raw [0, 0, -9.81].
+        # Runtime always provides unit gravity, so scale only for "custom" layout.
+        if state.projected_gravity and len(state.projected_gravity) >= 3:
+            if is_isaaclab:
+                obs_list.extend(state.projected_gravity[:3])
+            else:
+                obs_list.extend([v * 9.81 for v in state.projected_gravity[:3]])
+        else:
+            if is_isaaclab:
+                obs_list.extend([0.0, 0.0, -1.0])
+            else:
+                obs_list.extend([0.0, 0.0, -9.81])
+
         # velocity commands (3)
         obs_list.extend([state.vx_mps, 0.0, state.yaw_rate_rps])
-        # joint_pos_relative (N) — zeros (no feedback available in teleop)
-        obs_list.extend([0.0] * n_joints)
-        # joint_vel (N) — zeros
-        obs_list.extend([0.0] * n_joints)
+
+        # gait phase clock (2) — only for "custom" layout
+        if not is_isaaclab:
+            phase_angle = self._gait_phase * _TWO_PI
+            obs_list.extend([math.sin(phase_angle), math.cos(phase_angle)])
+
+        # joint_pos_relative (N) — use real joint positions if available
+        if state.joint_positions and len(state.joint_positions) >= n_joints:
+            defaults = self._default_joint_positions or [0.0] * n_joints
+            for i in range(n_joints):
+                default_val = defaults[i] if i < len(defaults) else 0.0
+                obs_list.append(state.joint_positions[i] - default_val)
+        else:
+            obs_list.extend([0.0] * n_joints)
+
+        # joint_vel (N) — use real joint velocities if available
+        if state.joint_velocities and len(state.joint_velocities) >= n_joints:
+            obs_list.extend(state.joint_velocities[:n_joints])
+        else:
+            obs_list.extend([0.0] * n_joints)
+
         # prev_actions (N)
         for name in config.joint_names:
             obs_list.append(self._prev_actions.get(name, 0.0))
 
         obs = torch.tensor(obs_list, dtype=torch.float32).unsqueeze(0)
 
-        # Normalize
-        if self._obs_mean is not None and self._obs_std is not None:
+        # Normalize (only if policy doesn't have built-in normalization)
+        if not self._normalized_policy and self._obs_mean is not None and self._obs_std is not None:
             obs_len = obs.shape[1]
             if len(self._obs_mean) >= obs_len:
                 mean = self._obs_mean[:obs_len].unsqueeze(0)
@@ -912,6 +995,10 @@ class DirectPolicyController:
         self._filtered_yaw = _slew(self._filtered_yaw, target_yaw_norm, slew_yaw, dt_s)
         self._filtered_height = _slew(self._filtered_height, target_height_norm, slew_height, dt_s)
 
+        # Advance gait phase clock (matches training env logic)
+        cmd_speed = max(abs(state.vx_mps), abs(state.yaw_rate_rps))
+        self._gait_phase = (self._gait_phase + dt_s * self._stride_frequency * cmd_speed) % 1.0
+
         # Advance phase (for compatibility with teleop telemetry)
         speed_factor = abs(self._filtered_vx)
         new_phase = (phase + config.stride_hz * _TWO_PI * speed_factor * dt_s) % _TWO_PI
@@ -928,15 +1015,24 @@ class DirectPolicyController:
             with torch.no_grad():
                 action_raw = self._policy(obs)
 
-            # Scale actions to joint offsets
+            # Scale actions to joint offsets and add default position
+            # Training: target = default_pos + action * scale_per_joint
+            # Per-joint scales fix the training/deployment mismatch bug
             targets: dict[str, float] = {}
             joint_names = list(config.joint_names)
+            defaults = self._default_joint_positions or [0.0] * len(joint_names)
             for i, name in enumerate(joint_names):
+                default_pos = defaults[i] if i < len(defaults) else 0.0
                 if i < action_raw.shape[1]:
-                    offset = float(action_raw[0, i]) * self._action_scale
+                    scale = (
+                        self._action_scales[i]
+                        if self._action_scales and i < len(self._action_scales)
+                        else self._action_scale
+                    )
+                    offset = float(action_raw[0, i]) * scale
                 else:
                     offset = 0.0
-                targets[name] = offset
+                targets[name] = default_pos + offset
 
             # Store for next observation
             self._prev_actions = {

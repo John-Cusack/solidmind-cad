@@ -19,6 +19,24 @@ from server.tools_rl import (
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 _HEXAPOD_URDF = _PROJECT_ROOT / "hexapod_sim_pkg" / "Hexapod_v2_1DOF.urdf"
 
+_SAMPLE_JOINT_NAMES = ["coxa_lf", "femur_lf", "tibia_lf",
+                        "coxa_rf", "femur_rf", "tibia_rf"]
+_SAMPLE_ACTION_SCALES = [0.15, 0.3, 0.4, 0.15, 0.3, 0.4]
+
+
+def _write_training_config(tmpdir: str, **overrides: object) -> None:
+    """Write a training_config.json with joint_names in tmpdir."""
+    data = {
+        "pipeline": "isaaclab",
+        "joint_names": _SAMPLE_JOINT_NAMES,
+        "action_scale_per_joint": _SAMPLE_ACTION_SCALES,
+        "default_joint_positions": [0.0] * len(_SAMPLE_JOINT_NAMES),
+    }
+    data.update(overrides)
+    (Path(tmpdir) / "training_config.json").write_text(
+        json.dumps(data), encoding="utf-8",
+    )
+
 
 class TestRLConfigureEnvironment(unittest.TestCase):
     """Test rl.configure_environment tool."""
@@ -108,31 +126,65 @@ class TestRLDeployPolicy(unittest.TestCase):
         self.assertFalse(result["ok"])
         self.assertEqual(result["error"]["code"], "DIR_NOT_FOUND")
 
-    def test_no_checkpoint(self) -> None:
+    def test_no_joint_names(self) -> None:
+        """No training_config.json → JOINT_NAMES_NOT_FOUND."""
         with tempfile.TemporaryDirectory() as tmpdir:
             result = rl_deploy_policy(checkpoint_dir=tmpdir)
             self.assertFalse(result["ok"])
-            self.assertEqual(result["error"]["code"], "CHECKPOINT_NOT_FOUND")
+            self.assertEqual(result["error"]["code"], "JOINT_NAMES_NOT_FOUND")
 
-    def test_deploy_with_mock_checkpoint(self) -> None:
+    def test_deploy_reads_joint_names_from_training_config(self) -> None:
+        """training_config.json has joint_names → they flow to deployment."""
         with tempfile.TemporaryDirectory() as tmpdir:
+            _write_training_config(tmpdir)
             # Create a fake model.pt
-            model_path = Path(tmpdir) / "model.pt"
-            model_path.write_bytes(b"fake_model_data")
+            (Path(tmpdir) / "model.pt").write_bytes(b"fake_model_data")
 
-            result = rl_deploy_policy(
-                checkpoint_dir=tmpdir,
-                alpha=0.5,
-            )
+            result = rl_deploy_policy(checkpoint_dir=tmpdir, alpha=0.5)
             self.assertTrue(result["ok"])
-            self.assertIn("policy_path", result)
+            self.assertEqual(result["joint_names"], _SAMPLE_JOINT_NAMES)
             self.assertAlmostEqual(result["alpha"], 0.5)
 
             # Check deployment files exist
             deployed_dir = Path(tmpdir) / "deployed"
             self.assertTrue((deployed_dir / "policy.pt").is_file())
-            self.assertTrue((deployed_dir / "normalization_params.json").is_file())
             self.assertTrue((deployed_dir / "deployment_config.json").is_file())
+
+    def test_deploy_returns_existing_artifacts(self) -> None:
+        """When deployed/ already has policy.pt + config, skip re-export."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            deployed = Path(tmpdir) / "deployed"
+            deployed.mkdir()
+            (deployed / "policy.pt").write_bytes(b"existing_policy")
+            config = {
+                "joint_names": _SAMPLE_JOINT_NAMES,
+                "action_scale_per_joint": _SAMPLE_ACTION_SCALES,
+                "action_scale_mode": "per_joint",
+                "alpha": 1.0,
+            }
+            (deployed / "deployment_config.json").write_text(
+                json.dumps(config), encoding="utf-8",
+            )
+
+            result = rl_deploy_policy(checkpoint_dir=tmpdir)
+            self.assertTrue(result["ok"])
+            self.assertTrue(result.get("reused_existing"))
+            self.assertEqual(result["joint_names"], _SAMPLE_JOINT_NAMES)
+            self.assertEqual(
+                result["action_scale_per_joint"], _SAMPLE_ACTION_SCALES,
+            )
+
+    def test_deploy_action_scale_from_training_config(self) -> None:
+        """Per-joint action scales are averaged for scalar fallback."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            _write_training_config(tmpdir)
+            (Path(tmpdir) / "model.pt").write_bytes(b"fake")
+
+            result = rl_deploy_policy(checkpoint_dir=tmpdir)
+            self.assertTrue(result["ok"])
+            # export_policy receives the averaged scale
+            expected_avg = sum(_SAMPLE_ACTION_SCALES) / len(_SAMPLE_ACTION_SCALES)
+            self.assertAlmostEqual(result["action_scale"], expected_avg, places=4)
 
 
 if __name__ == "__main__":

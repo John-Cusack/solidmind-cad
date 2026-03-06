@@ -40,6 +40,7 @@ class SimLink:
     mass_kg: float | None = None
     inertia: tuple[float, float, float, float, float, float] | None = None  # ixx,ixy,ixz,iyy,iyz,izz
     is_root: bool = False
+    visual_origin_xyz: tuple[float, float, float] | None = None  # mesh offset from link frame (meters)
 
     def __post_init__(self) -> None:
         if not self.name:
@@ -810,6 +811,10 @@ def build_sim_model(
     joints: list[SimJoint] = []
     # Track joint names for mimic references
     joint_edge_to_name: dict[str, str] = {}
+    # Parts that are children of fixed joints (e.g. servos)
+    _fixed_joint_children: set[str] = {
+        j.child_part for j in mechanism.joints if j.joint_type == JointType.FIXED
+    }
 
     for jedge in mechanism.joints:
         joint_name = jedge.id
@@ -870,9 +875,9 @@ def build_sim_model(
                     math.radians(jedge.max_angle_deg),
                 )
             else:
-                # Default: ±60° — typical servo range.  Full rotation (±180°)
+                # Default: ±90° — typical servo range.  Full rotation (±180°)
                 # causes simulation instability and is rarely correct.
-                limits = (-math.radians(60), math.radians(60))
+                limits = (-math.radians(90), math.radians(90))
         elif jedge.joint_type == JointType.PRISMATIC:
             if jedge.min_travel_mm is not None and jedge.max_travel_mm is not None:
                 limits = (
@@ -1061,16 +1066,12 @@ def write_urdf(
             elif base_dir:
                 mesh_filename = os.path.relpath(link.mesh_path, base_dir)
 
-            # Visual — no <origin> needed: build_sim_model transforms STL
-            # meshes to link-local coordinates.  The joint <origin> element
-            # handles parent->child positioning.
             visual = ET.SubElement(link_el, "visual")
             geometry = ET.SubElement(visual, "geometry")
             mesh = ET.SubElement(geometry, "mesh")
             mesh.set("filename", mesh_filename)
             mesh.set("scale", "0.001 0.001 0.001")  # FreeCAD mm -> URDF m
 
-            # Collision (same mesh)
             collision = ET.SubElement(link_el, "collision")
             c_geometry = ET.SubElement(collision, "geometry")
             c_mesh = ET.SubElement(c_geometry, "mesh")

@@ -47,11 +47,11 @@ class PPOConfig:
     clip_param: float = 0.2
     max_grad_norm: float = 1.0
     # Network architecture
-    actor_hidden_dims: tuple[int, ...] = (512, 256, 128)
+    actor_hidden_dims: tuple[int, ...] = (256, 128, 64)
     critic_hidden_dims: tuple[int, ...] = (512, 256, 128)
     activation: str = "elu"
     # Training schedule
-    max_iterations: int = 1500
+    max_iterations: int = 3000
     num_steps_per_env: int = 24
     # Checkpointing
     save_interval: int = 100
@@ -129,10 +129,44 @@ def main(argv: list[str] | None = None) -> int:
         "--num-envs", type=int, default=None,
         help="Override number of parallel environments",
     )
+    parser.add_argument(
+        "--early-stop-fall-pct", type=float, default=95.0,
+        help="Stop if fall%% exceeds this after min iterations (default: 95)",
+    )
+    parser.add_argument(
+        "--early-stop-patience", type=int, default=200,
+        help="Stop if no reward improvement for this many iterations (default: 200)",
+    )
+    parser.add_argument(
+        "--no-early-stop", action="store_true",
+        help="Disable early stopping",
+    )
+    parser.add_argument(
+        "--no-headless", action="store_true",
+        help="Run with Isaac Sim GUI (visible rendering)",
+    )
     args = parser.parse_args(argv)
 
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
+
+    # ── Pipeline dispatch ─────────────────────────────────────────
+    # If the env config declares PIPELINE = "isaaclab", route to the
+    # Isaac Lab + RSL-RL training entry point.  Otherwise fall through
+    # to the legacy custom pipeline for backward compatibility.
+    try:
+        import importlib.util as _ilu
+        _spec = _ilu.spec_from_file_location("_env_cfg_check", args.env_config)
+        if _spec is not None and _spec.loader is not None:
+            _mod = _ilu.module_from_spec(_spec)
+            _spec.loader.exec_module(_mod)
+            _pipeline = getattr(_mod, "PIPELINE", "custom")
+            if _pipeline == "isaaclab":
+                from rl_training.isaaclab_train import run_isaaclab_training
+                log.info("Dispatching to Isaac Lab pipeline")
+                return run_isaaclab_training(args, _mod)
+    except Exception as exc:
+        log.warning("Pipeline detection failed (%s), falling back to custom", exc)
 
     ppo_config = PPOConfig(
         max_iterations=args.max_iterations or PPOConfig.max_iterations,
@@ -197,7 +231,7 @@ def main(argv: list[str] | None = None) -> int:
     simulation_app = None
     try:
         from isaacsim import SimulationApp  # type: ignore[import-not-found]
-        headless = True  # Training always headless for throughput
+        headless = not args.no_headless
         simulation_app = SimulationApp({"headless": headless})
         log.info("Isaac Sim SimulationApp initialized (headless=%s)", headless)
     except ImportError:
@@ -269,6 +303,7 @@ def main(argv: list[str] | None = None) -> int:
     # Create and initialize environment
     try:
         env = HexapodLocomotionEnv(hex_cfg)
+        env.render = not headless
         env.initialize()
     except Exception as exc:
         log.error("Failed to initialize environment: %s", exc)
@@ -313,8 +348,15 @@ def main(argv: list[str] | None = None) -> int:
         mean_reward=0.0, status="training",
     )
 
+    # ── Early stopping config ────────────────────────────────────
+    early_stop_enabled = not args.no_early_stop
+    early_stop_fall_pct = args.early_stop_fall_pct
+    early_stop_patience = args.early_stop_patience
+    early_stop_min_iterations = 100
+
     # ── Training loop ─────────────────────────────────────────────
     best_reward = float("-inf")
+    best_reward_iter = 0
     checkpoints_dir = output_dir / "checkpoints"
     checkpoints_dir.mkdir(exist_ok=True)
 
@@ -331,13 +373,22 @@ def main(argv: list[str] | None = None) -> int:
 
             elapsed = time.time() - t0
 
-            # Logging
-            if iteration % ppo_config.log_interval == 0 or iteration == 1:
+            # Episode stats from environment
+            ep_stats = env.get_episode_stats()
+            fall_pct = ep_stats["fall_pct"]
+            mean_ep_len = ep_stats["mean_episode_length"]
+
+            # Adaptive logging: every iteration for first 50, then every log_interval
+            should_log = (iteration <= 50) or (iteration % ppo_config.log_interval == 0)
+            if should_log:
                 log.info(
-                    "Iter %d/%d | reward=%.3f | policy_loss=%.4f | value_loss=%.4f | "
+                    "Iter %d/%d | reward=%.3f | fall=%.0f%% | ep_len=%.0f | "
+                    "policy_loss=%.4f | value_loss=%.4f | "
                     "entropy=%.4f | kl=%.5f | lr=%.2e | %.1fs",
                     iteration, ppo_config.max_iterations,
                     mean_reward,
+                    fall_pct,
+                    mean_ep_len,
                     update_stats["policy_loss"],
                     update_stats["value_loss"],
                     update_stats["entropy"],
@@ -353,6 +404,8 @@ def main(argv: list[str] | None = None) -> int:
                 max_iterations=ppo_config.max_iterations,
                 mean_reward=mean_reward,
                 status="training",
+                fall_pct=fall_pct,
+                mean_episode_length=mean_ep_len,
                 policy_loss=update_stats["policy_loss"],
                 value_loss=update_stats["value_loss"],
                 entropy=update_stats["entropy"],
@@ -369,7 +422,25 @@ def main(argv: list[str] | None = None) -> int:
             # Track best model
             if mean_reward > best_reward:
                 best_reward = mean_reward
+                best_reward_iter = iteration
                 trainer.save_checkpoint(str(checkpoints_dir / "model_best.pt"))
+
+            # Early stopping checks (only after min iterations)
+            if early_stop_enabled and iteration >= early_stop_min_iterations:
+                # Stop if fall rate is too high
+                if fall_pct >= early_stop_fall_pct and (ep_stats["fall_count"] + ep_stats["timeout_count"]) > 0:
+                    log.warning(
+                        "Early stop: fall rate %.0f%% >= %.0f%% at iteration %d",
+                        fall_pct, early_stop_fall_pct, iteration,
+                    )
+                    break
+                # Stop if no reward improvement for patience iterations
+                if iteration - best_reward_iter >= early_stop_patience:
+                    log.warning(
+                        "Early stop: no reward improvement for %d iterations (best at iter %d)",
+                        early_stop_patience, best_reward_iter,
+                    )
+                    break
 
     except KeyboardInterrupt:
         log.info("Training interrupted at iteration %d", trainer.current_iteration)
@@ -396,9 +467,12 @@ def main(argv: list[str] | None = None) -> int:
         deploy_config = {
             "joint_names": hex_cfg.joint_names,
             "action_scale": hex_cfg.action_scale,
+            "default_joint_positions": hex_cfg.default_joint_positions,
             "alpha": 1.0,  # Direct mode, no residual blending
             "obs_dim": hex_cfg.obs_dim,
             "action_dim": hex_cfg.action_dim,
+            "normalized_policy": True,  # Policy has built-in normalization
+            "stride_frequency": hex_cfg.stride_frequency,
         }
         (deployed_dir / "deployment_config.json").write_text(
             json.dumps(deploy_config, indent=2), encoding="utf-8",

@@ -275,11 +275,47 @@ class _IsaacWorldEngine:
             except Exception as exc:
                 logger.warning("[engine] setup_scene: ground material config failed (non-fatal): %s", exc)
 
-            # Distant light
+            # Distant light (direct illumination — key light from above-right)
             light_path = "/World/DistantLight"
             if not stage.GetPrimAtPath(light_path).IsValid():
                 light_prim = stage.DefinePrim(light_path, "DistantLight")
-                UsdLux.DistantLight(light_prim).CreateIntensityAttr(3000)
+                dlight = UsdLux.DistantLight(light_prim)
+                dlight.CreateIntensityAttr(5000)
+                dlight.CreateAngleAttr(1.0)  # soft shadows
+                from pxr import UsdGeom  # type: ignore[import-not-found]
+                UsdGeom.Xformable(light_prim).AddRotateXYZOp().Set(Gf.Vec3f(-45, 30, 0))
+
+            # Dome light (ambient/indirect illumination — essential for RTX
+            # renderer to make objects visible without an environment USD)
+            dome_path = "/World/DomeLight"
+            if not stage.GetPrimAtPath(dome_path).IsValid():
+                dome_prim = stage.DefinePrim(dome_path, "DomeLight")
+                dome = UsdLux.DomeLight(dome_prim)
+                dome.CreateIntensityAttr(3000)
+                dome.CreateColorAttr(Gf.Vec3f(0.9, 0.92, 1.0))  # neutral sky
+
+            # Ground plane visual material (grey so robot is visible against it)
+            try:
+                from pxr import UsdShade, Sdf, Vt  # type: ignore[import-not-found]
+                ground_vis_mat_path = "/World/GroundVisualMaterial"
+                if not stage.GetPrimAtPath(ground_vis_mat_path).IsValid():
+                    gvm = stage.DefinePrim(ground_vis_mat_path, "Material")
+                    gv_shader = stage.DefinePrim(f"{ground_vis_mat_path}/Shader", "Shader")
+                    gvs = UsdShade.Shader(gv_shader)
+                    gvs.CreateIdAttr("UsdPreviewSurface")
+                    gvs.CreateInput("diffuseColor", Sdf.ValueTypeNames.Color3f).Set(Gf.Vec3f(0.5, 0.5, 0.5))
+                    gvs.CreateInput("roughness", Sdf.ValueTypeNames.Float).Set(0.8)
+                    UsdShade.Material(gvm).CreateSurfaceOutput().ConnectToSource(gvs.ConnectableAPI(), "surface")
+                    # Bind to ground plane
+                    gp = stage.GetPrimAtPath("/World/GroundPlane")
+                    if gp.IsValid():
+                        UsdShade.MaterialBindingAPI.Apply(gp).Bind(
+                            UsdShade.Material(gvm),
+                            UsdShade.Tokens.weakerThanDescendants,
+                        )
+                logger.info("[engine] setup_scene: ground visual material applied")
+            except Exception as exc:
+                logger.warning("[engine] setup_scene: ground visual material failed: %s", exc)
 
             self._scene_ready = True
             logger.info("[engine] setup_scene: done")
@@ -452,6 +488,10 @@ class _IsaacWorldEngine:
         # the robot to fall through the ground plane.
         self._ensure_collision_geometry(prim_path, urdf_path=urdf_path)
 
+        # Apply a visible display color to all mesh prims (URDF importer
+        # doesn't apply material colors, making the robot invisible).
+        self._apply_display_color(prim_path)
+
         # Auto-frame the viewport camera on the imported model
         self._frame_camera_on_prim(prim_path)
 
@@ -464,6 +504,59 @@ class _IsaacWorldEngine:
             time.monotonic() - t0, prim_path, joint_count, link_count,
         )
         return prim_path, joint_count, link_count
+
+    def _apply_display_color(self, prim_path: str) -> None:
+        """Create an OmniPBR material and bind it to all Mesh prims under prim_path.
+
+        The URDF importer creates meshes without materials, making the robot
+        invisible in RTX rendering.  We create a single bright orange OmniPBR
+        material and bind it to every mesh.
+        """
+        try:
+            import omni.usd  # type: ignore[import-not-found]
+            from pxr import UsdGeom, UsdShade, Gf, Sdf, Vt  # type: ignore[import-not-found]
+
+            stage = omni.usd.get_context().get_stage()
+            root = stage.GetPrimAtPath(prim_path)
+            if not root.IsValid():
+                logger.warning("[engine] _apply_display_color: root prim invalid")
+                return
+
+            # Create a simple USD Preview Surface material
+            mat_path = f"{prim_path}/RobotMaterial"
+            mat_prim = stage.DefinePrim(mat_path, "Material")
+            material = UsdShade.Material(mat_prim)
+
+            # Create shader
+            shader_path = f"{mat_path}/Shader"
+            shader_prim = stage.DefinePrim(shader_path, "Shader")
+            shader = UsdShade.Shader(shader_prim)
+            shader.CreateIdAttr("UsdPreviewSurface")
+            shader.CreateInput("diffuseColor", Sdf.ValueTypeNames.Color3f).Set(Gf.Vec3f(1.0, 0.4, 0.0))
+            shader.CreateInput("roughness", Sdf.ValueTypeNames.Float).Set(0.4)
+            shader.CreateInput("metallic", Sdf.ValueTypeNames.Float).Set(0.0)
+
+            # Connect material output to shader
+            material.CreateSurfaceOutput().ConnectToSource(shader.ConnectableAPI(), "surface")
+
+            # Walk subtree and bind material to all meshes
+            count = 0
+            stack = [root]
+            while stack:
+                p = stack.pop()
+                if p.GetTypeName() == "Mesh":
+                    binding = UsdShade.MaterialBindingAPI.Apply(p)
+                    binding.Bind(material)
+                    # Also set displayColor as fallback
+                    gprim = UsdGeom.Gprim(p)
+                    gprim.CreateDisplayColorAttr().Set(Vt.Vec3fArray([Gf.Vec3f(1.0, 0.4, 0.0)]))
+                    count += 1
+                for child in p.GetChildren():
+                    stack.append(child)
+
+            logger.info("[engine] _apply_display_color: bound material to %d meshes under %s", count, prim_path)
+        except Exception as exc:
+            logger.warning("[engine] _apply_display_color failed (non-fatal): %s", exc)
 
     def _frame_camera_on_prim(self, prim_path: str) -> None:
         """Position the viewport camera to frame an imported prim.
@@ -2551,6 +2644,15 @@ class IsaacRuntime:
                 body_height_m=session.state.body_height_m,
             )
 
+        # Populate joint/body feedback from articulation (#6)
+        if session.articulation is not None:
+            try:
+                self._populate_physics_state(session, state_snapshot)
+            except Exception as exc:
+                logger.debug(
+                    "[runtime] _populate_physics_state failed: %s", exc,
+                )
+
         # 1. Compute targets
         targets, new_phase = controller.compute_targets(
             state_snapshot, dt_s, config, session.gait_phase,
@@ -2584,6 +2686,113 @@ class IsaacRuntime:
         session.filtered_vx = controller.filtered_vx
         session.filtered_yaw = controller.filtered_yaw
         session.filtered_height = controller.filtered_height
+
+    def _populate_physics_state(
+        self,
+        session: SimulationSession,
+        state: TeleopState,
+    ) -> None:
+        """Read joint positions/velocities and body state from the articulation.
+
+        Populates ``state.joint_positions``, ``state.joint_velocities``,
+        ``state.base_lin_vel``, ``state.base_ang_vel``, and
+        ``state.projected_gravity`` so that RL policy controllers have
+        real physics feedback instead of zeros.
+        """
+        import numpy as np  # type: ignore[import-not-found]
+
+        art = session.articulation
+        if art is None:
+            return
+
+        # Joint positions and velocities — reorder from DOF index order
+        # (Isaac Sim internal) into config.joint_names order so that
+        # controllers see obs[i] = joint_names[i] without remapping.
+        try:
+            joint_pos_raw = art.get_joint_positions()
+            joint_vel_raw = art.get_joint_velocities()
+            if joint_pos_raw is not None and joint_vel_raw is not None:
+                raw_pos = joint_pos_raw.tolist() if hasattr(joint_pos_raw, 'tolist') else list(joint_pos_raw)
+                raw_vel = joint_vel_raw.tolist() if hasattr(joint_vel_raw, 'tolist') else list(joint_vel_raw)
+
+                cfg = session.teleop_config
+                dof_map = session.dof_index_map
+                if cfg is not None and dof_map:
+                    # Reorder into joint_names order
+                    ordered_pos: list[float] = []
+                    ordered_vel: list[float] = []
+                    for name in cfg.joint_names:
+                        idx = dof_map.get(name)
+                        if idx is not None and idx < len(raw_pos):
+                            ordered_pos.append(raw_pos[idx])
+                            ordered_vel.append(raw_vel[idx])
+                        else:
+                            # Unmapped joint — use default position (not 0.0)
+                            ordered_pos.append(0.0)
+                            ordered_vel.append(0.0)
+                    n_mapped = sum(1 for n in cfg.joint_names if n in dof_map)
+                    if n_mapped < len(cfg.joint_names) and session.tick_count <= 1:
+                        logger.warning(
+                            "Joint reorder: %d/%d joints mapped (unmapped get default pos)",
+                            n_mapped, len(cfg.joint_names),
+                        )
+                    state.joint_positions = ordered_pos
+                    state.joint_velocities = ordered_vel
+                else:
+                    # No config or dof_map — pass raw (best effort)
+                    state.joint_positions = raw_pos
+                    state.joint_velocities = raw_vel
+        except Exception:
+            pass
+
+        # Root body state: position, orientation, velocities
+        try:
+            pos, quat = art.get_world_pose()  # pos (3,), quat (4,) wxyz
+            vel = art.get_linear_velocity()    # (3,) world frame
+            ang_vel = art.get_angular_velocity()  # (3,) world frame
+
+            if pos is not None and quat is not None:
+                # Convert to numpy for math
+                if hasattr(pos, 'numpy'):
+                    pos = pos.numpy() if hasattr(pos, 'numpy') else np.array(pos)
+                if hasattr(quat, 'numpy'):
+                    quat = quat.numpy() if hasattr(quat, 'numpy') else np.array(quat)
+                if hasattr(vel, 'numpy'):
+                    vel = vel.numpy() if hasattr(vel, 'numpy') else np.array(vel)
+                if hasattr(ang_vel, 'numpy'):
+                    ang_vel = ang_vel.numpy() if hasattr(ang_vel, 'numpy') else np.array(ang_vel)
+
+                pos = np.asarray(pos, dtype=np.float64)
+                quat = np.asarray(quat, dtype=np.float64)
+                vel = np.asarray(vel, dtype=np.float64) if vel is not None else np.zeros(3)
+                ang_vel = np.asarray(ang_vel, dtype=np.float64) if ang_vel is not None else np.zeros(3)
+
+                # Rotate world-frame velocities to body frame using quaternion inverse
+                # quat is wxyz
+                w, x, y, z = float(quat[0]), float(quat[1]), float(quat[2]), float(quat[3])
+                # Conjugate quaternion for inverse rotation
+                # v_body = q* . v_world . q
+                # Using the formula: v' = v + 2w(u x v) + 2(u x (u x v))
+                # where u = [-x, -y, -z] (conjugate)
+                u = np.array([-x, -y, -z])
+                def _quat_rotate_inv(v: Any) -> Any:
+                    uv = np.cross(u, v)
+                    uuv = np.cross(u, uv)
+                    return v + 2.0 * (w * uv + uuv)
+
+                body_lin_vel = _quat_rotate_inv(vel)
+                body_ang_vel = _quat_rotate_inv(ang_vel)
+
+                # Projected gravity: rotate [0, 0, -1] to body frame (unit vector).
+                # The controller scales this to match training convention.
+                gravity_world = np.array([0.0, 0.0, -1.0])
+                proj_gravity = _quat_rotate_inv(gravity_world)
+
+                state.base_lin_vel = body_lin_vel.tolist()
+                state.base_ang_vel = body_ang_vel.tolist()
+                state.projected_gravity = proj_gravity.tolist()
+        except Exception:
+            pass
 
     def _apply_and_step(
         self,

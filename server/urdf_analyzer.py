@@ -6,6 +6,7 @@ Python stdlib.
 """
 from __future__ import annotations
 
+import math
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
@@ -28,6 +29,7 @@ class URDFAnalysis:
     foot_links: tuple[str, ...]
     total_mass_kg: float
     standing_height_m: float
+    max_leg_reach_m: float
 
 
 def _parse_xyz(element: ET.Element | None) -> tuple[float, float, float]:
@@ -118,6 +120,69 @@ def _compute_standing_height(
             stack.append((child, cumulative_z + dz))
 
     return abs(max_z)
+
+
+def _compute_max_leg_reach(
+    root: ET.Element,
+    foot_links: list[str],
+    base_link: str,
+) -> float:
+    """Compute the maximum leg reach from the first revolute joint to foot tip.
+
+    Walks from each foot link back to the base, summing Euclidean distances
+    between consecutive joints.  Only counts segments from the first revolute
+    joint outward (the vertical chain from base to the first hip is part of
+    the body, not the leg).
+
+    Returns the maximum reach across all legs, or 0.0 if no legs found.
+    """
+    if not foot_links:
+        return 0.0
+
+    # Build child→parent map with origin xyz per joint
+    joint_info: dict[str, tuple[str, str, str, tuple[float, float, float]]] = {}
+    # key = child_link, value = (joint_name, joint_type, parent_link, origin_xyz)
+    for joint_el in root.findall("joint"):
+        jname = joint_el.get("name", "")
+        jtype = joint_el.get("type", "fixed")
+        parent_el = joint_el.find("parent")
+        child_el = joint_el.find("child")
+        if parent_el is None or child_el is None:
+            continue
+        parent_link = parent_el.get("link", "")
+        child_link = child_el.get("link", "")
+        origin = joint_el.find("origin")
+        xyz = _parse_xyz(origin)
+        joint_info[child_link] = (jname, jtype, parent_link, xyz)
+
+    max_reach = 0.0
+
+    for foot in foot_links:
+        # Walk from foot back to base, collecting (joint_type, distance) pairs
+        chain: list[tuple[str, float]] = []
+        link = foot
+        while link and link != base_link and link in joint_info:
+            jname, jtype, parent_link, xyz = joint_info[link]
+            dist = math.sqrt(xyz[0] ** 2 + xyz[1] ** 2 + xyz[2] ** 2)
+            chain.append((jtype, dist))
+            link = parent_link
+
+        # chain is foot→base order; reverse to base→foot
+        chain.reverse()
+
+        # Sum distances from the first revolute joint onward
+        leg_reach = 0.0
+        past_first_revolute = False
+        for jtype, dist in chain:
+            if jtype != "fixed" and not past_first_revolute:
+                past_first_revolute = True
+            if past_first_revolute:
+                leg_reach += dist
+
+        if leg_reach > max_reach:
+            max_reach = leg_reach
+
+    return max_reach
 
 
 def analyze_urdf(urdf_path: str | Path) -> URDFAnalysis:
@@ -233,6 +298,9 @@ def analyze_urdf(urdf_path: str | Path) -> URDFAnalysis:
     # Standing height
     standing_height = _compute_standing_height(root, base_link)
 
+    # Max leg reach (first revolute joint to foot tip)
+    max_leg_reach = _compute_max_leg_reach(root, foot_links, base_link)
+
     # Classify morphology
     morphology = _classify_morphology(actuated_joints, joint_types)
 
@@ -249,4 +317,5 @@ def analyze_urdf(urdf_path: str | Path) -> URDFAnalysis:
         foot_links=tuple(foot_links),
         total_mass_kg=round(total_mass, 6),
         standing_height_m=round(standing_height, 6),
+        max_leg_reach_m=round(max_leg_reach, 6),
     )
