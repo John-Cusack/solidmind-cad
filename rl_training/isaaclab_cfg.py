@@ -112,12 +112,12 @@ class ObservationsCfg:
 class RewardsCfg:
     """Additive reward composition — standard for RSL-RL."""
 
-    # Alive bonus — reduced from 2.0 to prevent free reward for lying flat
-    alive = RewardTermCfg(func=mdp.is_alive, weight=1.0)
+    # Alive bonus — strong survival incentive to escape death spiral
+    alive = RewardTermCfg(func=mdp.is_alive, weight=2.0)
 
-    # Tracking — reward matching commanded velocity (encourages walking)
+    # Tracking — primary task signal, should dominate reward
     track_lin_vel_xy_exp = RewardTermCfg(
-        func=mdp.track_lin_vel_xy_exp, weight=2.0,
+        func=mdp.track_lin_vel_xy_exp, weight=3.0,
         params={"command_name": "base_velocity", "std": math.sqrt(0.25)},
     )
     track_ang_vel_z_exp = RewardTermCfg(
@@ -130,14 +130,13 @@ class RewardsCfg:
     ang_vel_xy_l2 = RewardTermCfg(func=mdp.ang_vel_xy_l2, weight=-0.05)
     flat_orientation_l2 = RewardTermCfg(func=mdp.flat_orientation_l2, weight=-2.0)
     base_height_l2 = RewardTermCfg(
-        func=mdp.base_height_l2, weight=-30.0,  # much stronger to fight "lie flat" exploit
+        func=mdp.base_height_l2, weight=-5.0,  # squared error at 0.153m target is 4x larger than at 0.076m
         params={"target_height": 0.14},  # overridden per-robot
     )
 
-    # Joint deviation penalty — penalizes joints deviating from default stance.
-    # Directly fights the "lie flat with splayed legs" reward hack.
+    # Joint deviation penalty — reduced to allow exploration needed for gait discovery
     joint_deviation_l1 = RewardTermCfg(
-        func=mdp.joint_deviation_l1, weight=-0.5,
+        func=mdp.joint_deviation_l1, weight=-0.1,
         params={"asset_cfg": SceneEntityCfg("robot")},
     )
 
@@ -161,8 +160,8 @@ class RewardsCfg:
 
     # Regularization
     joint_torques_l2 = RewardTermCfg(func=mdp.joint_torques_l2, weight=-1e-5)
-    action_rate_l2 = RewardTermCfg(func=mdp.action_rate_l2, weight=-0.01)
-    joint_acc_l2 = RewardTermCfg(func=mdp.joint_acc_l2, weight=-2.5e-7)
+    action_rate_l2 = RewardTermCfg(func=mdp.action_rate_l2, weight=-0.01)  # match ANYmal reference
+    joint_acc_l2 = RewardTermCfg(func=mdp.joint_acc_l2, weight=-2.5e-7)  # match ANYmal reference
 
 
 # ---------------------------------------------------------------------------
@@ -182,7 +181,7 @@ class TerminationsCfg:
     )
     bad_orientation = TerminationTermCfg(
         func=mdp.bad_orientation,
-        params={"limit_angle": 0.8},  # radians (~46 deg)
+        params={"limit_angle": 1.0},  # radians (~57 deg) — hexapods can recover from larger tilts
     )
     # Terminate if body drops too low (crumpled) — overridden per-robot
     low_height = TerminationTermCfg(
@@ -232,7 +231,7 @@ class EventsCfg:
         mode="startup",
         params={
             "asset_cfg": SceneEntityCfg("robot"),
-            "static_friction_range": (0.7, 1.3),
+            "static_friction_range": (0.7, 1.3),  # friction DR — policy needs robustness for walking
             "dynamic_friction_range": (0.7, 1.3),
             "restitution_range": (0.0, 0.0),
             "num_buckets": 64,
@@ -251,13 +250,13 @@ class CommandsCfg:
     base_velocity = mdp.UniformVelocityCommandCfg(
         asset_name="robot",
         resampling_time_range=(8.0, 12.0),
-        rel_standing_envs=0.5,
+        rel_standing_envs=0.2,  # 20% standing — policy already knows how to stand
         rel_heading_envs=0.0,
         heading_command=False,
         ranges=mdp.UniformVelocityCommandCfg.Ranges(
-            lin_vel_x=(0.0, 0.3),
-            lin_vel_y=(-0.1, 0.1),
-            ang_vel_z=(-0.3, 0.3),
+            lin_vel_x=(0.0, 0.5),  # moderate walking speed; literature uses 0.5-1.0+
+            lin_vel_y=(-0.15, 0.15),  # allow lateral movement for turns
+            ang_vel_z=(-0.5, 0.5),  # allow real turns
         ),
     )
 
@@ -359,6 +358,7 @@ def make_hexapod_flat_env_cfg(
             fix_base=False,
             make_instanceable=False,
             activate_contact_sensors=True,
+            link_density=1000.0,  # fallback density for links missing inertia (e.g. chassis)
             joint_drive=UrdfConverterCfg.JointDriveCfg(
                 drive_type="force",
                 target_type="position",
@@ -403,7 +403,7 @@ def make_hexapod_flat_env_cfg(
     # Falls back to 50% of standing height if leg reach is unknown.
     cfg.rewards.base_height_l2.params["target_height"] = standing_height_m
     if max_leg_reach_m > 0:
-        cfg.terminations.low_height.params["minimum_height"] = max_leg_reach_m * 0.15
+        cfg.terminations.low_height.params["minimum_height"] = max_leg_reach_m * 0.08
     else:
         cfg.terminations.low_height.params["minimum_height"] = standing_height_m * 0.5
 

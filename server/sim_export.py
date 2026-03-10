@@ -538,9 +538,19 @@ def build_sim_model(
     rotation between parent and child links at the zero-angle configuration.
     """
     # Index manifest by body name for O(1) lookup (case-insensitive keys)
+    # Also index by label (FreeCAD Label vs internal Name) and by
+    # stripped variants: "Body_Chassis" → "chassis", "Body Chassis" → "chassis"
     manifest_by_name: dict[str, dict[str, Any]] = {}
     for entry in body_manifest:
-        manifest_by_name[entry["name"].lower()] = entry
+        key = entry["name"].lower()
+        manifest_by_name[key] = entry
+        # Also index by label if present
+        if "label" in entry:
+            manifest_by_name[entry["label"].lower()] = entry
+        # Strip common FreeCAD prefixes: "Body_", "Body ", "Body"
+        for prefix in ("body_", "body ", "body"):
+            if key.startswith(prefix) and len(key) > len(prefix):
+                manifest_by_name[key[len(prefix):]] = entry
 
     # Build links from mechanism parts
     links: list[SimLink] = []
@@ -551,8 +561,13 @@ def build_sim_model(
     for part in mechanism.parts:
         link_name = part.id
 
-        # Find mesh from manifest — match on body_name first, then part id (case-insensitive)
-        manifest_entry = manifest_by_name.get((part.body_name or "").lower()) or manifest_by_name.get(part.id.lower())
+        # Find mesh from manifest — try body_name, part id, and stripped
+        # variants (case-insensitive).  FreeCAD names like "Body_Chassis"
+        # should match mechanism part ids like "chassis".
+        manifest_entry = (
+            manifest_by_name.get((part.body_name or "").lower())
+            or manifest_by_name.get(part.id.lower())
+        )
 
         mesh_path: str | None = None
         position = (0.0, 0.0, 0.0)
@@ -601,6 +616,52 @@ def build_sim_model(
             is_root=part.is_ground,
         ))
         part_to_link[part.id] = link_name
+
+    # ── Fallback: assign unmapped manifest meshes to ground link ─────
+    # When the ground part's id/body_name doesn't match any manifest
+    # entry (common with FreeCAD body names like "Body_Chassis" vs
+    # mechanism part id "chassis"), find the unmatched mesh and attach it.
+    mapped_names = set()
+    for part in mechanism.parts:
+        key1 = (part.body_name or "").lower()
+        key2 = part.id.lower()
+        if key1 in manifest_by_name:
+            mapped_names.add(key1)
+        if key2 in manifest_by_name:
+            mapped_names.add(key2)
+    unmapped = [e for k, e in manifest_by_name.items() if k not in mapped_names]
+
+    for link in links:
+        if link.is_root and link.mesh_path is None and unmapped:
+            # Try to find the chassis/body mesh among unmapped entries
+            best = None
+            for entry in unmapped:
+                name_lower = entry["name"].lower()
+                if "chassis" in name_lower or "body" in name_lower or "base" in name_lower:
+                    best = entry
+                    break
+            if best is None:
+                best = unmapped[0]  # last resort: first unmapped mesh
+            link.mesh_path = best.get("mesh_path")
+            plc = best.get("placement", {})
+            pos = plc.get("position", [0.0, 0.0, 0.0])
+            link.position = (pos[0], pos[1], pos[2])
+            quat = plc.get("rotation_quat", [1.0, 0.0, 0.0, 0.0])
+            link.rotation_quat = (quat[0], quat[1], quat[2], quat[3])
+            link_placement[link.name] = (link.position, link.rotation_quat)
+            # Compute inertia from bbox if available
+            bbox_mm = best.get("bbox_mm")
+            volume_mm3 = best.get("volume_mm3")
+            if link.inertia is None and bbox_mm is not None and len(bbox_mm) == 3:
+                mass = link.mass_kg
+                if mass is None and volume_mm3 is not None and volume_mm3 > 0:
+                    mass = (volume_mm3 * 1e-9) * _DEFAULT_DENSITY_KG_M3
+                    link.mass_kg = mass
+                if mass is not None and mass > 0:
+                    dx_m = bbox_mm[0] / 1000.0
+                    dy_m = bbox_mm[1] / 1000.0
+                    dz_m = bbox_mm[2] / 1000.0
+                    link.inertia = _box_inertia(mass, dx_m, dy_m, dz_m)
 
     # Index drives by joint_id for O(1) lookup (Bug 3)
     drives_by_joint: dict[str, Any] = {}
@@ -890,7 +951,7 @@ def build_sim_model(
 
         # Effort/velocity/damping/friction: JointEdge → DriveCondition → defaults
         drive = drives_by_joint.get(jedge.id)
-        effort = jedge.effort_nm or (drive.torque_nm if drive and drive.torque_nm else 1.5)
+        effort = jedge.effort_nm or (drive.torque_nm if drive and drive.torque_nm else 10.0)
         velocity = jedge.velocity_rad_s or (
             (drive.speed_rpm * 2.0 * math.pi / 60.0) if drive and drive.speed_rpm else 6.28
         )

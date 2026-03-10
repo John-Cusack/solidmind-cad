@@ -216,6 +216,12 @@ def run_isaaclab_training(args: argparse.Namespace, mod: ModuleType) -> int:
     )
     log.info("RSL-RL OnPolicyRunner created (device=%s)", device)
 
+    # ── Resume from checkpoint ─────────────────────────────────────
+    resume_path = getattr(args, "resume", None)
+    if resume_path:
+        runner.load(resume_path)
+        log.info("Resumed from checkpoint: %s", resume_path)
+
     # Write training config for reproducibility
     training_config = {
         "pipeline": "isaaclab",
@@ -417,8 +423,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--max-iterations", type=int, default=None, help="Override max iterations")
     parser.add_argument("--num-envs", type=int, default=None, help="Override num envs")
     parser.add_argument("--no-headless", action="store_true", help="Run with GUI")
-    parser.add_argument("--patience", type=int, default=200,
+    parser.add_argument("--patience", type=int, default=500,
                         help="Stop if reward doesn't improve by >1.0 over this many iterations")
+    parser.add_argument("--resume", type=str, default=None,
+                        help="Path to checkpoint .pt to resume from (restores actor, critic, optimizer, normalizer)")
     args = parser.parse_args(argv)
 
     mod = _load_env_config_module(args.env_config)

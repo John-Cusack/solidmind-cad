@@ -1,22 +1,26 @@
 """Evaluate a trained Isaac Lab policy visually (non-headless).
 
-Loads the trained JIT policy, creates the Isaac Lab managed environment,
-and runs episodes with rendering so you can watch it walk.
+Loads a trained RSL-RL checkpoint or JIT policy, creates the Isaac Lab
+managed environment, and runs episodes with rendering so you can watch it.
 
 Usage::
 
     $ISAAC_PYTHON scripts/eval_policy_isaac.py \
-        --env-config training_runs/hex18_fresh_env_config.py \
-        --policy training_runs/hex18_walk_1000/deployed/policy.pt \
+        --env-config training_runs/hex18_v3_env_config.py \
+        --checkpoint training_runs/.../model_700.pt \
+        --num-steps 2000
+
+    # Or with a JIT-traced policy:
+    $ISAAC_PYTHON scripts/eval_policy_isaac.py \
+        --env-config training_runs/hex18_v3_env_config.py \
+        --policy training_runs/.../deployed/policy.pt \
         --num-steps 2000
 """
 from __future__ import annotations
 
 import argparse
 import importlib.util
-import sys
 import time
-from pathlib import Path
 from types import ModuleType
 
 
@@ -32,10 +36,18 @@ def _load_module(path: str) -> ModuleType:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Evaluate policy in Isaac Sim with GUI")
     parser.add_argument("--env-config", required=True)
-    parser.add_argument("--policy", required=True)
+    parser.add_argument("--policy", default=None, help="JIT-traced policy.pt")
+    parser.add_argument("--checkpoint", default=None, help="RSL-RL model_*.pt checkpoint")
     parser.add_argument("--num-steps", type=int, default=2000)
     parser.add_argument("--num-envs", type=int, default=1)
+    parser.add_argument("--forward-vel", type=float, default=None,
+                        help="Override velocity command with constant forward speed (m/s)")
+    parser.add_argument("--no-reset", action="store_true",
+                        help="Disable episode resets (run continuously)")
     args = parser.parse_args()
+
+    if not args.policy and not args.checkpoint:
+        parser.error("Provide either --policy (JIT) or --checkpoint (RSL-RL)")
 
     # Boot Isaac Sim with GUI
     from isaaclab.app import AppLauncher
@@ -44,8 +56,11 @@ def main() -> int:
 
     import torch
     from isaaclab.envs import ManagerBasedRLEnv
+    from isaaclab_rl.rsl_rl import RslRlVecEnvWrapper
+    from rsl_rl.runners import OnPolicyRunner
 
     from rl_training.isaaclab_cfg import make_hexapod_flat_env_cfg
+    from rl_training.rsl_rl_cfg import HexapodPPORunnerCfg
 
     # Load env config
     mod = _load_module(args.env_config)
@@ -62,6 +77,29 @@ def main() -> int:
         num_envs=args.num_envs,
     )
 
+    # For eval: disable terminations so the robot runs continuously
+    if args.no_reset:
+        env_cfg.terminations.base_contact = None  # type: ignore[assignment]
+        env_cfg.terminations.bad_orientation = None  # type: ignore[assignment]
+        env_cfg.terminations.low_height = None  # type: ignore[assignment]
+        env_cfg.episode_length_s = args.num_steps * env_cfg.sim.dt * env_cfg.decimation * 2  # long enough
+
+    # For eval: force constant forward velocity instead of random sampling
+    if args.forward_vel is not None:
+        import isaaclab.envs.mdp as mdp_mod  # type: ignore[import-not-found]
+        env_cfg.commands.base_velocity = mdp_mod.UniformVelocityCommandCfg(
+            asset_name="robot",
+            resampling_time_range=(1000.0, 1000.0),  # never resample
+            rel_standing_envs=0.0,
+            rel_heading_envs=0.0,
+            heading_command=False,
+            ranges=mdp_mod.UniformVelocityCommandCfg.Ranges(
+                lin_vel_x=(args.forward_vel, args.forward_vel),
+                lin_vel_y=(0.0, 0.0),
+                ang_vel_z=(0.0, 0.0),
+            ),
+        )
+
     # Create environment
     try:
         env = ManagerBasedRLEnv(cfg=env_cfg)
@@ -72,34 +110,82 @@ def main() -> int:
         simulation_app.close()
         return 1
 
-    # Load policy
-    policy = torch.jit.load(args.policy, map_location="cuda:0" if torch.cuda.is_available() else "cpu")
-    policy.eval()
-    print(f"Policy loaded from {args.policy}", flush=True)
-
-    # Run evaluation
+    # ── Point camera at the robot ──────────────────────────────────
     try:
+        from isaaclab.envs.ui import ViewportCameraController  # type: ignore[import-not-found]
+        _cam = ViewportCameraController(env, cfg=ViewportCameraController.cfg)
+        _cam.cfg.eye = (1.5, 1.5, 1.0)  # type: ignore[attr-defined]
+        _cam.cfg.lookat = (0.0, 0.0, 0.15)  # type: ignore[attr-defined]
+        _cam.update_view_location(_cam.cfg.eye, _cam.cfg.lookat)
+        print("Camera positioned at (1.5, 1.5, 1.0) looking at origin", flush=True)
+    except Exception as cam_exc:
+        # Fallback: set camera via USD stage
+        try:
+            import omni.kit.viewport.utility as vp_util  # type: ignore[import-not-found]
+            viewport = vp_util.get_active_viewport()
+            if viewport is not None:
+                from pxr import Gf  # type: ignore[import-not-found]
+                import omni.kit.commands  # type: ignore[import-not-found]
+                # Create a camera prim and set it as active
+                from omni.kit.viewport.utility.camera_state import ViewportCameraState  # type: ignore[import-not-found]
+                cam_state = ViewportCameraState(viewport)
+                cam_state.set_position_world(Gf.Vec3d(1.5, 1.5, 1.0), True)
+                cam_state.set_target_world(Gf.Vec3d(0.0, 0.0, 0.15), True)
+                print("Camera positioned via ViewportCameraState", flush=True)
+        except Exception as fallback_exc:
+            print(f"Could not set camera position: {cam_exc} / {fallback_exc}", flush=True)
+
+    if args.checkpoint:
+        # Load via RSL-RL runner (handles TensorDict obs init)
+        env_wrapped = RslRlVecEnvWrapper(env)
+        device = "cuda:0" if torch.cuda.is_available() else "cpu"
+        agent_cfg = HexapodPPORunnerCfg()
+        agent_cfg.device = device
+        runner = OnPolicyRunner(env_wrapped, agent_cfg.to_dict(), log_dir=None, device=device)
+        runner.load(args.checkpoint)
+        policy_obj = runner.alg.policy
+        policy_obj.eval()
+        print(f"Checkpoint loaded from {args.checkpoint}", flush=True)
+
+        # Extract actor network for direct inference (bypasses TensorDict)
+        actor_net = policy_obj.actor
+        normalizer = policy_obj.actor_obs_normalizer
+
         obs_dict, _ = env.reset()
-    except Exception as exc:
-        print(f"FATAL: env.reset() failed: {exc}", flush=True)
-        import traceback; traceback.print_exc()
-        env.close()
-        simulation_app.close()
-        return 1
-    obs = obs_dict["policy"]
-    print(f"Obs shape: {obs.shape}, running {args.num_steps} steps...", flush=True)
-
-    for step in range(args.num_steps):
-        with torch.no_grad():
-            actions = policy(obs)
-        obs_dict, rewards, terminated, truncated, info = env.step(actions)
         obs = obs_dict["policy"]
+        print(f"Obs shape: {obs.shape}, running {args.num_steps} steps...", flush=True)
 
-        if step % 200 == 0:
-            print(f"  step {step}/{args.num_steps}, reward={rewards.mean().item():.3f}", flush=True)
+        for step in range(args.num_steps):
+            with torch.no_grad():
+                actions = actor_net(normalizer(obs))
+            obs_dict, rewards, terminated, truncated, info = env.step(actions)
+            obs = obs_dict["policy"]
 
-        # Small sleep so GUI renders smoothly
-        time.sleep(0.005)
+            if step % 200 == 0:
+                print(f"  step {step}/{args.num_steps}, reward={rewards.mean().item():.3f}", flush=True)
+
+            time.sleep(0.005)
+    else:
+        # JIT policy path
+        device = "cuda:0" if torch.cuda.is_available() else "cpu"
+        policy_jit = torch.jit.load(args.policy, map_location=device)
+        policy_jit.eval()
+        print(f"JIT policy loaded from {args.policy}", flush=True)
+
+        obs_dict, _ = env.reset()
+        obs = obs_dict["policy"]
+        print(f"Obs shape: {obs.shape}, running {args.num_steps} steps...", flush=True)
+
+        for step in range(args.num_steps):
+            with torch.no_grad():
+                actions = policy_jit(obs)
+            obs_dict, rewards, terminated, truncated, info = env.step(actions)
+            obs = obs_dict["policy"]
+
+            if step % 200 == 0:
+                print(f"  step {step}/{args.num_steps}, reward={rewards.mean().item():.3f}", flush=True)
+
+            time.sleep(0.005)
 
     print("Evaluation complete.")
     env.close()

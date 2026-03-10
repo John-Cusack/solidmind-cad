@@ -45,11 +45,13 @@ def main() -> int:
                         help="Number of parallel envs (default: 4)")
     parser.add_argument("--threshold", type=float, default=0.8,
                         help="Pass if height stays above this fraction of standing_height (default: 0.8)")
+    parser.add_argument("--headless", action="store_true", default=False,
+                        help="Run without GUI (default: show Isaac Sim window)")
     args = parser.parse_args()
 
-    # Boot Isaac Sim headless
+    # Boot Isaac Sim
     from isaaclab.app import AppLauncher
-    launcher = AppLauncher(headless=True)
+    launcher = AppLauncher(headless=args.headless)
     simulation_app = launcher.app
 
     import torch

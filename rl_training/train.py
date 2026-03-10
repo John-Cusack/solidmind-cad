@@ -145,6 +145,14 @@ def main(argv: list[str] | None = None) -> int:
         "--no-headless", action="store_true",
         help="Run with Isaac Sim GUI (visible rendering)",
     )
+    parser.add_argument(
+        "--patience", type=int, default=500,
+        help="Stop if reward doesn't improve by >1.0 over this many iterations (Isaac Lab pipeline)",
+    )
+    parser.add_argument(
+        "--resume", type=str, default=None,
+        help="Path to checkpoint .pt to resume from (Isaac Lab pipeline)",
+    )
     args = parser.parse_args(argv)
 
     output_dir = Path(args.output_dir)

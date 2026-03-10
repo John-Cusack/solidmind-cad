@@ -338,7 +338,7 @@ class TestBuildSimModel(unittest.TestCase):
 
         model = build_sim_model(mech, [])
         joint = model.joints[0]
-        self.assertAlmostEqual(joint.effort, 1.5)
+        self.assertAlmostEqual(joint.effort, 10.0)
         self.assertAlmostEqual(joint.velocity, 6.28)
         self.assertAlmostEqual(joint.damping, 0.1)
         self.assertAlmostEqual(joint.friction, 0.0)
