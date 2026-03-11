@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "solidmind-cad": {
+      "command": ".venv/bin/python3",
+      "args": ["-m", "server.main"],
+      "cwd": "."
+    }
+  }
+}

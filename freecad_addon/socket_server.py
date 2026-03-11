@@ -292,14 +292,6 @@ class AddonSocketServer:
 _server: AddonSocketServer | None = None
 
 
-def get_server() -> AddonSocketServer:
-    """Get or create the global server instance."""
-    global _server
-    if _server is None:
-        _server = AddonSocketServer()
-    return _server
-
-
 def start_server(host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> AddonSocketServer:
     """Create and start the server."""
     global _server

@@ -38,7 +38,7 @@ LEGS: dict[str, tuple[float, float]] = {
     "R3": (-52, -30),  # rear-right   (210°)
 }
 
-PKG_DIR = "/home/john/repos/solidmind-cad/hexapod_full_pkg"
+PKG_DIR = str(Path(__file__).resolve().parent.parent / "hexapod_full_pkg")
 
 
 # ── Quaternion helpers ───────────────────────────────────────────────
@@ -216,6 +216,6 @@ for j in sim_model.joints:
               f"  rpy=({j.origin_rpy[0]:.4f}, {j.origin_rpy[1]:.4f}, {j.origin_rpy[2]:.4f})")
 
 # Write URDF
-output_path = "/home/john/repos/solidmind-cad/hexapod_full_pkg/hexapod_18dof_full.urdf"
+output_path = str(Path(__file__).resolve().parent.parent / "hexapod_full_pkg" / "hexapod_18dof_full.urdf")
 write_urdf(sim_model, output_path)
 print(f"\nURDF written to {output_path}")

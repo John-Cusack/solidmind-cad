@@ -5,7 +5,7 @@ control — things that mocked unit tests cannot catch.
 
 Usage (in FreeCAD's Python console)::
 
-    exec(open("/home/john/repos/solidmind-cad/freecad_addon/test_integration.py").read())
+    exec(open("<path-to-repo>/freecad_addon/test_integration.py").read())
 
 Or::
 

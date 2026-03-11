@@ -1465,7 +1465,7 @@ class TestSchemaValidation(unittest.TestCase):
         self.assertEqual(j.limits, (-1.57, 1.57))
 
     def test_build_sim_model_provides_default_limits(self) -> None:
-        """build_sim_model adds default ±60° limits for revolute joints without explicit limits."""
+        """build_sim_model adds default ±90° limits for revolute joints without explicit limits."""
         mech = Mechanism(
             name="test",
             parts=(
@@ -1486,8 +1486,8 @@ class TestSchemaValidation(unittest.TestCase):
         model = build_sim_model(mech, [])
         joint = model.joints[0]
         self.assertIsNotNone(joint.limits)
-        self.assertAlmostEqual(joint.limits[0], -math.radians(60), places=6)
-        self.assertAlmostEqual(joint.limits[1], math.radians(60), places=6)
+        self.assertAlmostEqual(joint.limits[0], -math.radians(90), places=6)
+        self.assertAlmostEqual(joint.limits[1], math.radians(90), places=6)
 
     def test_build_sim_model_prismatic_default_limits(self) -> None:
         """build_sim_model adds default limits for prismatic joints without explicit limits."""

@@ -15,6 +15,7 @@ import json
 import socket
 import sys
 import time
+from pathlib import Path
 
 
 def send_cmd(sock: socket.socket, cmd: str, args: dict | None = None) -> dict:
@@ -35,7 +36,7 @@ def send_cmd(sock: socket.socket, cmd: str, args: dict | None = None) -> dict:
 def main() -> int:
     host = "127.0.0.1"
     port = 9878
-    urdf_path = "/home/john/repos/solidmind-cad/hexapod_18dof_v2_pkg/Hexapod_18DOF.urdf"
+    urdf_path = str(Path(__file__).resolve().parent.parent / "hexapod_18dof_v2_pkg" / "Hexapod_18DOF.urdf")
 
     print(f"Connecting to Isaac bridge at {host}:{port}...")
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)

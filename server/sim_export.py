@@ -2347,15 +2347,6 @@ def validate_urdf_fk(
 # Leg geometry extraction from SimModel
 # ---------------------------------------------------------------------------
 
-@dataclass(frozen=True, slots=True)
-class LegChain:
-    """One kinematic leg chain extracted from a SimModel."""
-    joint_names: tuple[str, ...]  # ordered coxa→femur→tibia
-    segment_lengths_m: tuple[float, ...]  # joint-to-joint distances in meters
-    hip_position_m: tuple[float, float, float]  # coxa joint origin (meters)
-    hip_angle_rad: float  # atan2(y, x) of coxa joint relative to base
-
-
 def extract_leg_geometry(
     sim_model: SimModel,
 ) -> dict[str, Any]:

@@ -48,21 +48,6 @@ class ResidualEnvConfig:
     base_stride_hz: float = 1.2
 
 
-def compute_alpha(
-    current_iteration: int,
-    config: ResidualEnvConfig,
-) -> float:
-    """Compute the residual blending factor alpha.
-
-    Ramps linearly from ``alpha_start`` to ``alpha_end`` over
-    ``alpha_ramp_iterations``.
-    """
-    if config.alpha_ramp_iterations <= 0:
-        return config.alpha_end
-    t = min(1.0, current_iteration / config.alpha_ramp_iterations)
-    return config.alpha_start + t * (config.alpha_end - config.alpha_start)
-
-
 def build_env_config_from_file(config_path: str) -> ResidualEnvConfig:
     """Load a generated env config .py file and build ResidualEnvConfig.
 

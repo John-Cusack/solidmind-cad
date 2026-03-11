@@ -1,7 +1,8 @@
 """Solver adapters for parametric design studies.
 
 Each solver implements the SolverAdapter ABC and is registered in SOLVERS.
-Real BEMT+XFOIL and OpenFOAM implementations are stubs for now.
+BEMTXfoilSolver and OpenFOAMSolver require external tools (xfoil, simpleFoam,
+FreeCADCmd) and report ``available() == False`` when those are not installed.
 
 Geometry script contract
 ========================

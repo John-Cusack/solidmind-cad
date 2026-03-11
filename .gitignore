@@ -214,8 +214,48 @@ me_knowledge/corpus/index.json
 # LanceDB knowledge store (local embeddings + chunks)
 me_knowledge/lancedb/
 
+# Local knowledge content (keep placeholders only)
+me_knowledge/notes/*
+!me_knowledge/notes/.gitkeep
+!me_knowledge/notes/README.md
+me_knowledge/sim_changes/*
+!me_knowledge/sim_changes/.gitkeep
+!me_knowledge/sim_changes/README.md
+me_knowledge/sim_changes_summary.md
+
 # Parametric study outputs
 studies/
 
 # SolidMind local data (server logs, session state)
 .solidmind/
+
+# FreeCAD models and backups
+*.FCStd
+*.FCBak
+
+# Simulation packages (generated from FreeCAD)
+hexapod_*_pkg*/
+
+# Isaac Sim built-from-source install
+isaacsim/
+
+# Training runs (checkpoints, configs, logs)
+training_runs/
+
+# Compiled Rust extension
+solidmind_geometry/
+
+# Screenshots / transient images
+*.png
+
+# IDE
+.idea/
+
+# Local FreeCAD symlink
+freecad
+
+# Claude Code local settings
+.claude/
+
+# MCP config (machine-specific paths)
+.mcp.json
