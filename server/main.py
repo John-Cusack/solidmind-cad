@@ -193,6 +193,8 @@ from server.tools_geometry import (
     geometry_spur_gear,
     geometry_thread_profile,
     geometry_tooth_slot,
+    geometry_turned_profile,
+    geometry_press_fit_bore,
     geometry_worm_gear,
 )
 from server.tools_me import (
@@ -2252,6 +2254,80 @@ def _geometry_tool_list() -> list[dict[str, Any]]:
                 "additionalProperties": False,
             },
         },
+        {
+            "name": "geometry.turned_profile",
+            "description": (
+                "Generate a closed revolution profile from turned segments — "
+                "for shafts, arbors, spindles, bushings, pins, standoffs, and any "
+                "lathe-turned part. Each segment defines a cylindrical or tapered "
+                "section; junctions can have fillets or chamfers. "
+                "Returns a geometry_ref for a closed half-profile to use with "
+                "cad.revolution(axis='x', angle=360)."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "segments": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "diameter": {"type": "number", "description": "Outer diameter of this section (mm)"},
+                                "length": {"type": "number", "description": "Axial length of this section (mm)"},
+                                "taper_diameter": {"type": "number", "description": "End diameter for tapered sections (mm)"},
+                                "fillet": {"type": "number", "description": "Fillet radius at entry junction (mm)"},
+                                "chamfer": {"type": "number", "description": "45° chamfer size at entry junction (mm)"},
+                            },
+                            "required": ["diameter", "length"],
+                        },
+                        "description": (
+                            "Sequence of turned sections from left to right. "
+                            "Each has diameter + length, optionally taper_diameter, fillet, or chamfer."
+                        ),
+                    },
+                    "bore_diameter": {"type": "number", "default": 0.0, "description": "Center bore diameter (mm, 0 = solid)"},
+                    "lead_chamfer": {"type": "number", "default": 0.0, "description": "45° chamfer at left end (mm)"},
+                    "trail_chamfer": {"type": "number", "default": 0.0, "description": "45° chamfer at right end (mm)"},
+                    "center_x": {"type": "number", "default": 0.0},
+                    "center_y": {"type": "number", "default": 0.0},
+                },
+                "required": ["segments"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "geometry.press_fit_bore",
+            "description": (
+                "Compute bore dimensions for an ISO 286 fit (clearance, transition, "
+                "or interference) and generate a bore cross-section profile. "
+                "Returns bore min/max/target diameters, tolerance class, fit "
+                "characteristics (clearance/interference in μm), and optionally a "
+                "geometry_ref for a stepped bore profile (for revolution). "
+                "Use preset names or ISO pairs like H7p6."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "nominal_diameter": {"type": "number", "description": "Nominal diameter of mating shaft/pin/bearing (mm)"},
+                    "fit": {
+                        "type": "string", "default": "press",
+                        "description": (
+                            "Fit preset: clearance, close_clearance, sliding, "
+                            "transition, press, medium_press, heavy_press — "
+                            "or ISO pair like H7p6"
+                        ),
+                    },
+                    "depth": {"type": "number", "default": 10.0, "description": "Bore depth (mm). 0 = dimensions only, no profile"},
+                    "chamfer": {"type": "number", "default": 0.0, "description": "Entry chamfer at 45° (mm)"},
+                    "counterbore_diameter": {"type": "number", "default": 0.0, "description": "Counterbore outer diameter (mm). 0 = none"},
+                    "counterbore_depth": {"type": "number", "default": 0.0, "description": "Counterbore depth (mm)"},
+                    "center_x": {"type": "number", "default": 0.0},
+                    "center_y": {"type": "number", "default": 0.0},
+                },
+                "required": ["nominal_diameter"],
+                "additionalProperties": False,
+            },
+        },
     ]
 
 
@@ -3795,6 +3871,8 @@ _GEOMETRY_DISPATCH: dict[str, Any] = {
     "geometry.helical_spring": geometry_helical_spring,
     "geometry.four_bar": geometry_four_bar,
     "geometry.cam_profile": geometry_cam_profile,
+    "geometry.turned_profile": geometry_turned_profile,
+    "geometry.press_fit_bore": geometry_press_fit_bore,
 }
 
 _STUDY_DISPATCH: dict[str, Any] = {

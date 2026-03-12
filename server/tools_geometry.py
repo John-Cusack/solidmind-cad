@@ -11,6 +11,8 @@ from server.oring_data import oring_groove as _oring_groove
 from server.section_properties import compute_section as _compute_section
 from server.belt_drive import belt_drive_layout as _belt_drive_layout
 from server.four_bar import four_bar_analysis as _four_bar_analysis
+from server.turned_profile import turned_profile as _turned_profile
+from server.press_fit import press_fit_bore as _press_fit_bore
 
 log = logging.getLogger("solidmind.tools_geometry")
 
@@ -857,3 +859,88 @@ def geometry_cam_profile(
         "element_count": len(elements),
         **result,
     }
+
+
+# ---------------------------------------------------------------------------
+# Turned profile (body of revolution)
+# ---------------------------------------------------------------------------
+
+
+def geometry_turned_profile(
+    segments: list[dict[str, Any]],
+    bore_diameter: float = 0.0,
+    lead_chamfer: float = 0.0,
+    trail_chamfer: float = 0.0,
+    center_x: float = 0.0,
+    center_y: float = 0.0,
+) -> dict[str, Any]:
+    """Generate a closed revolution profile from turned segments.
+
+    Each segment defines a cylindrical or tapered section.  Junctions can
+    have fillets (stress relief) or chamfers.  Returns a ``geometry_ref``
+    for the closed half-profile, suitable for ``cad.revolution``.
+    """
+    result = _turned_profile(
+        segments=segments,
+        bore_diameter=bore_diameter,
+        lead_chamfer=lead_chamfer,
+        trail_chamfer=trail_chamfer,
+        center_x=center_x,
+        center_y=center_y,
+    )
+    elements = result.pop("elements")
+    ref = _store_geometry(
+        elements, metadata={"tool": "turned_profile"},
+    )
+    return {
+        "ok": True,
+        "geometry_ref": ref,
+        "element_count": len(elements),
+        **result,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Press-fit bore (ISO 286 tolerance lookup + profile)
+# ---------------------------------------------------------------------------
+
+
+def geometry_press_fit_bore(
+    nominal_diameter: float,
+    fit: str = "press",
+    depth: float = 10.0,
+    chamfer: float = 0.0,
+    counterbore_diameter: float = 0.0,
+    counterbore_depth: float = 0.0,
+    center_x: float = 0.0,
+    center_y: float = 0.0,
+) -> dict[str, Any]:
+    """Compute bore dimensions for an ISO fit and generate bore profile.
+
+    Looks up ISO 286 tolerances for the specified fit type and nominal
+    diameter.  Returns bore dimensions (min/max/target), fit
+    characteristics (clearance or interference in μm), and a
+    ``geometry_ref`` for the bore cross-section (half-section for
+    revolution).  Use preset names (``press``, ``sliding``,
+    ``transition``, etc.) or ISO pairs like ``H7p6``.
+    """
+    result = _press_fit_bore(
+        nominal_diameter=nominal_diameter,
+        fit=fit,
+        depth=depth,
+        chamfer=chamfer,
+        counterbore_diameter=counterbore_diameter,
+        counterbore_depth=counterbore_depth,
+        center_x=center_x,
+        center_y=center_y,
+    )
+    elements = result.pop("elements")
+    out: dict[str, Any] = {"ok": True}
+    if elements:
+        ref = _store_geometry(
+            elements, metadata={"tool": "press_fit_bore"},
+        )
+        out["geometry_ref"] = ref
+        out["element_count"] = len(elements)
+    out.update(result)
+    return out
