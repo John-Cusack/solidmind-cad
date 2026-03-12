@@ -122,6 +122,18 @@ Claude Code CLI ──stdio──▶ MCP Bridge Server ──TCP socket──▶
 | `design.*` | save_brief, get_brief, update_brief, add_part, update_part, get_part, add_interface, list_briefs, verify_build | Design brief pipeline — phased assembly design with parts decomposition, interface tracking, and build verification |
 | `geometry.*` | spur_gear, tooth_slot, gear_params, planetary_layout, involute_points, propeller_blade, epicycloidal_tooth_slot, spiral, spoke_pattern, ratchet_tooth, gear_train_solver, keyway_profile, oring_groove, section_properties, belt_drive, bevel_gear, worm_gear, thread_profile, helical_spring, cam_profile, four_bar | Parametric geometry generators — involute/bevel/worm gears, epicycloidal gears, planetary layouts, propeller blades, spirals, spoke patterns, ratchets, gear train solving, keyways, O-ring grooves, section properties, belt/chain drives, threads, springs, cams, four-bar linkages (Rust + Python) |
 
+### Extension packs
+
+SolidMind CAD supports **extension packs** — separate pip packages that add tools and/or curated knowledge at runtime. No core code changes needed.
+
+- **Tool packs** expose `TOOLS` (list of MCP tool schemas) and `DISPATCH` (dict mapping tool name → handler function). Discovered via `solidmind.tool_packs` entry point group at server startup.
+- **Knowledge packs** expose `KNOWLEDGE_DIR` (Path), `DOMAIN` (str), `VERSION` (str). Discovered via `solidmind.knowledge_packs` entry point group. Auto-ingested into LanceDB on first `knowledge.search`; version marker prevents re-ingestion until `VERSION` bumps.
+- **Combined packs** expose all five attributes.
+
+Core tools always take priority over pack tools. Broken packs log errors but don't crash the server.
+
+See `docs/creating-packs.md` for the developer guide and `examples/solidmind-example-pack/` for a working example.
+
 ### Sketch element types
 
 `cad.sketch` supports **all** element types: `rect`, `circle`, `line`, `arc`, **`spline`** (B-spline curves from control points with degree/weights/periodic options), `external_ref` (project edges from existing features), `sketch_fillet` (round sketch vertices), and `sketch_chamfer` (chamfer sketch vertices). Splines are fully implemented and must be used for smooth contours, airfoils, blade profiles, and organic shapes — never approximate with line segments. Any element can have `"construction": true` to make it a reference line/circle. Constraints use partial recovery — a single failed constraint won't abort the sketch.

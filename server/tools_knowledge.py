@@ -13,7 +13,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from server.knowledge_store import get_knowledge_store
+from server.knowledge_store import _discover_knowledge_packs, get_knowledge_store
 
 logger = logging.getLogger("solidmind.tools_knowledge")
 
@@ -25,10 +25,13 @@ _NOTES_DIR = Path(__file__).resolve().parent.parent / "me_knowledge" / "notes"
 # ---------------------------------------------------------------------------
 
 def _local_note_listing() -> list[str]:
-    """List markdown files in me_knowledge/notes/ as a fallback."""
-    if not _NOTES_DIR.is_dir():
-        return []
-    return sorted(p.name for p in _NOTES_DIR.glob("*.md"))
+    """List markdown files in me_knowledge/notes/ + installed knowledge packs."""
+    files: list[str] = []
+    if _NOTES_DIR.is_dir():
+        files.extend(sorted(p.name for p in _NOTES_DIR.glob("*.md")))
+    for domain, _version, kdir in _discover_knowledge_packs():
+        files.extend(f"[{domain}] {p.name}" for p in sorted(kdir.glob("*.md")))
+    return files
 
 
 # ---------------------------------------------------------------------------
@@ -189,6 +192,11 @@ def knowledge_search(
             "local_notes": local_notes,
             "results": [],
         }
+
+    try:
+        store.ensure_packs_ingested()
+    except Exception:
+        logger.debug("Pack ingestion check failed, continuing with search", exc_info=True)
 
     try:
         results = store.search(query, top_k=top_k, filters=filters)

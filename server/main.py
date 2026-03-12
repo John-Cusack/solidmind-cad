@@ -27,6 +27,42 @@ logging.basicConfig(
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 _LOG_DIR = _PROJECT_ROOT / ".solidmind" / "logs"
 
+
+# ---------------------------------------------------------------------------
+# Extension pack discovery
+# ---------------------------------------------------------------------------
+
+def _discover_tool_packs() -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Discover installed tool packs via entry points."""
+    import importlib.metadata
+
+    extra_tools: list[dict[str, Any]] = []
+    extra_dispatch: dict[str, Any] = {}
+    for ep in importlib.metadata.entry_points(group="solidmind.tool_packs"):
+        try:
+            mod = ep.load()
+            tools = getattr(mod, "TOOLS", [])
+            dispatch = getattr(mod, "DISPATCH", {})
+            for name in dispatch:
+                if name in extra_dispatch:
+                    logging.getLogger("solidmind.packs").warning(
+                        "Pack %s: duplicate tool %r, skipping", ep.name, name,
+                    )
+                    continue
+            extra_tools.extend(tools)
+            extra_dispatch.update(dispatch)
+            logging.getLogger("solidmind.packs").info(
+                "Loaded tool pack %r: %d tools", ep.name, len(tools),
+            )
+        except Exception:
+            logging.getLogger("solidmind.packs").exception(
+                "Failed to load tool pack %r", ep.name,
+            )
+    return extra_tools, extra_dispatch
+
+
+_PACK_TOOLS, _PACK_DISPATCH = _discover_tool_packs()
+
 # Current document-specific file handler (swapped on cad.new_document)
 _doc_handler: logging.FileHandler | None = None
 
@@ -3644,6 +3680,7 @@ def _tool_list() -> list[dict[str, Any]]:
         + _rl_tool_list()
         + _design_tool_list()
         + _fastener_tool_list()
+        + _PACK_TOOLS
     )
 
 
@@ -3834,6 +3871,7 @@ def _call_tool(name: str, arguments: dict[str, Any]) -> Any:
         or _RL_DISPATCH.get(name)
         or _DESIGN_DISPATCH.get(name)
         or _FASTENER_DISPATCH.get(name)
+        or _PACK_DISPATCH.get(name)
     )
     if handler is None:
         raise KeyError(f"Unknown tool: {name}")

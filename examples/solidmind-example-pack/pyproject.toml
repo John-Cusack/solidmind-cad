@@ -1,0 +1,15 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "solidmind-example-pack"
+version = "0.1.0"
+description = "Example extension pack for SolidMind CAD (sheet metal bend allowance)"
+requires-python = ">=3.12"
+
+[project.entry-points."solidmind.tool_packs"]
+example = "solidmind_example_pack.pack"
+
+[project.entry-points."solidmind.knowledge_packs"]
+example = "solidmind_example_pack.pack"

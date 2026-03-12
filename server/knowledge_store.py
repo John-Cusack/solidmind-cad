@@ -230,6 +230,28 @@ def _extract_with_docling(file_path: Path) -> ExtractResult:
 # KnowledgeStore
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Knowledge pack discovery
+# ---------------------------------------------------------------------------
+
+def _discover_knowledge_packs() -> list[tuple[str, str, Path]]:
+    """Return (domain, version, knowledge_dir) for installed knowledge packs."""
+    import importlib.metadata
+
+    packs: list[tuple[str, str, Path]] = []
+    for ep in importlib.metadata.entry_points(group="solidmind.knowledge_packs"):
+        try:
+            mod = ep.load()
+            kdir = getattr(mod, "KNOWLEDGE_DIR", None)
+            domain = getattr(mod, "DOMAIN", ep.name)
+            version = getattr(mod, "VERSION", "0.0.0")
+            if kdir and Path(kdir).is_dir():
+                packs.append((domain, version, Path(kdir)))
+        except Exception:
+            logger.exception("Failed to load knowledge pack %r", ep.name)
+    return packs
+
+
 class KnowledgeStore:
     """In-process knowledge store backed by LanceDB."""
 
@@ -514,6 +536,27 @@ class KnowledgeStore:
             table.delete(f"source = '{escaped_source}'")
         except Exception:
             pass
+
+    def ensure_packs_ingested(self) -> None:
+        """Ingest knowledge packs not yet ingested at current version."""
+        import json as _json
+
+        marker_path = Path(self._db_path) / ".pack_versions.json"
+        existing: dict[str, str] = {}
+        if marker_path.exists():
+            existing = _json.loads(marker_path.read_text())
+        changed = False
+        for domain, version, kdir in _discover_knowledge_packs():
+            if existing.get(domain) == version:
+                continue
+            logger.info("Ingesting knowledge pack %s v%s", domain, version)
+            for md_file in sorted(kdir.glob("*.md")):
+                self.ingest_file(md_file)
+            existing[domain] = version
+            changed = True
+        if changed:
+            marker_path.parent.mkdir(parents=True, exist_ok=True)
+            marker_path.write_text(_json.dumps(existing, indent=2))
 
     def close(self) -> None:
         """No-op for API compatibility."""
