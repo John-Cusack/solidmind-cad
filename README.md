@@ -196,6 +196,50 @@ The MCP server exposes **121 tools** across 11 groups:
 | `knowledge.*` (5) | Knowledge extraction, ingestion, and hybrid search |
 | `fastener (cad.*)` (4) | Fastener dimension lookup and bolt/nut building |
 
+## Extension Packs
+
+SolidMind CAD has a plugin system that lets you add new tools and engineering knowledge without modifying core code. A pack is a standard pip package with a couple of module attributes — no base classes, no config files.
+
+### Installing a pack
+
+```bash
+pip install solidmind-sheetmetal
+# Restart the MCP server — new tools appear automatically
+```
+
+### Two kinds of packs
+
+**Tool packs** add MCP tools (geometry calculators, analysis functions). The pack module exposes a `TOOLS` list (MCP schemas) and a `DISPATCH` dict (tool name → handler). Core tools always take priority — packs can't override built-ins.
+
+**Knowledge packs** ship curated markdown files (design rules, material tables, worked examples). They auto-ingest into the LanceDB knowledge store on first `knowledge.search`, with version tracking so bumping the version triggers re-ingestion.
+
+A single pack can be both.
+
+### Creating a pack
+
+Minimal pack = 4 files:
+
+```
+solidmind-sheetmetal/
+├── pyproject.toml              # entry point registration
+├── solidmind_sheetmetal/
+│   ├── __init__.py
+│   ├── pack.py                 # TOOLS + DISPATCH (+ optional KNOWLEDGE_DIR/DOMAIN/VERSION)
+│   └── tools.py                # your tool functions
+```
+
+Register via standard entry points in `pyproject.toml`:
+
+```toml
+[project.entry-points."solidmind.tool_packs"]
+sheetmetal = "solidmind_sheetmetal.pack"
+
+[project.entry-points."solidmind.knowledge_packs"]
+sheetmetal = "solidmind_sheetmetal.pack"
+```
+
+See [`docs/creating-packs.md`](docs/creating-packs.md) for the full developer guide and [`examples/solidmind-example-pack/`](examples/solidmind-example-pack/) for a working example.
+
 ## Requirements
 
 - **[FreeCAD 1.0.2](https://github.com/FreeCAD/FreeCAD/releases/tag/1.0.2)** AppImage — the foundation; all CAD modeling, Tier 2 kinematic simulation, and visual verification run inside FreeCAD (0.21 is **not** supported)
@@ -217,6 +261,7 @@ See [`docs/simulation-and-rl.md`](docs/simulation-and-rl.md) for simulation back
 ## Documentation
 
 - [`docs/simulation-and-rl.md`](docs/simulation-and-rl.md) — simulation backends, RL training, validation tests
+- [`docs/creating-packs.md`](docs/creating-packs.md) — creating tool and knowledge extension packs
 - [`ARCHITECTURE.md`](ARCHITECTURE.md) — architecture and protocol surface
 - [`docs/freecad_to_isaac_pipeline.md`](docs/freecad_to_isaac_pipeline.md) — FreeCAD → Isaac pipeline
 - [`docs/gazebo_integration.md`](docs/gazebo_integration.md) — Gazebo backend design
