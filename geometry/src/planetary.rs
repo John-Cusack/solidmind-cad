@@ -6,9 +6,10 @@
 use std::f64::consts::PI;
 
 use crate::gears::{
-    compute_gear_params, compute_internal_gear_params, internal_gear_profile, spur_gear_profile,
+    compute_gear_params, compute_internal_gear_params, internal_gear_profile,
+    single_internal_tooth_slot, spur_gear_profile,
 };
-use crate::types::{GearParams, PlanetaryLayout};
+use crate::types::{GearParams, PlanetaryLayout, SketchElement, SketchResult};
 
 /// Error type for planetary layout validation.
 #[derive(Debug)]
@@ -145,10 +146,31 @@ pub fn planetary_layout(
     // Generate ring gear at center
     let ring = internal_gear_profile(&ring_params, center, num_involute_pts);
 
+    // Ring blank: circle at rf + 1.5*module (standard ring gear wall thickness)
+    let ring_rf = ring_params.root_diameter / 2.0;
+    let ring_blank_r = ring_rf + 1.5 * module;
+    let ring_blank = SketchResult {
+        elements: vec![SketchElement::Circle {
+            cx: center[0],
+            cy: center[1],
+            r: ring_blank_r,
+        }],
+        metadata: {
+            let mut m = ring_params.to_metadata();
+            m.insert("blank_outer_radius".into(), ring_blank_r);
+            m
+        },
+    };
+
+    // Ring tooth slot: single internal tooth slot for pocket + polar pattern
+    let ring_tooth_slot = single_internal_tooth_slot(&ring_params, center, num_involute_pts);
+
     Ok(PlanetaryLayout {
         sun,
         planet,
         ring,
+        ring_blank,
+        ring_tooth_slot,
         planet_positions: positions,
         sun_params,
         planet_params,
@@ -264,5 +286,41 @@ mod tests {
                 ((pos[0] - 50.0).powi(2) + (pos[1] - 50.0).powi(2)).sqrt();
             assert!(r_from_center > 1.0, "planets should be away from center");
         }
+    }
+
+    #[test]
+    fn test_layout_ring_blank_radius() {
+        let module = 2.0;
+        let layout =
+            planetary_layout(module, 18, 9, 3, 20.0, 0.25, 0.0, 0.0, [0.0, 0.0], 20).unwrap();
+
+        let ring_rf = layout.ring_params.root_diameter / 2.0;
+        let expected_outer = ring_rf + 1.5 * module;
+
+        // The blank should have exactly one Circle element
+        assert_eq!(layout.ring_blank.elements.len(), 1);
+        match &layout.ring_blank.elements[0] {
+            crate::types::SketchElement::Circle { r, .. } => {
+                assert!(
+                    (r - expected_outer).abs() < 1e-10,
+                    "ring blank radius {:.3} != expected {:.3}",
+                    r, expected_outer
+                );
+            }
+            _ => panic!("ring_blank should contain a Circle element"),
+        }
+    }
+
+    #[test]
+    fn test_layout_ring_tooth_slot_nonempty() {
+        let layout =
+            planetary_layout(1.0, 18, 9, 3, 20.0, 0.25, 0.0, 0.0, [0.0, 0.0], 20).unwrap();
+        assert!(
+            !layout.ring_tooth_slot.elements.is_empty(),
+            "ring_tooth_slot should have elements"
+        );
+        // Should have 4 or 6 elements depending on whether radial lines are needed
+        let n = layout.ring_tooth_slot.elements.len();
+        assert!(n == 4 || n == 6, "expected 4 or 6 elements, got {}", n);
     }
 }

@@ -137,12 +137,27 @@ from server.tools_knowledge import (
     knowledge_status,
 )
 from server.tools_geometry import (
+    geometry_belt_drive,
+    geometry_bevel_gear,
+    geometry_cam_profile,
+    geometry_epicycloidal_tooth_slot,
+    geometry_four_bar,
     geometry_gear_params,
+    geometry_gear_train_solver,
+    geometry_helical_spring,
     geometry_involute_points,
+    geometry_keyway_profile,
+    geometry_oring_groove,
     geometry_planetary_layout,
     geometry_propeller_blade,
+    geometry_ratchet_tooth,
+    geometry_section_properties,
+    geometry_spiral,
+    geometry_spoke_pattern,
     geometry_spur_gear,
+    geometry_thread_profile,
     geometry_tooth_slot,
+    geometry_worm_gear,
 )
 from server.tools_me import (
     me_apply_risk_gates,
@@ -1830,6 +1845,377 @@ def _geometry_tool_list() -> list[dict[str, Any]]:
                 "additionalProperties": False,
             },
         },
+        {
+            "name": "geometry.epicycloidal_tooth_slot",
+            "description": (
+                "Generate an epicycloidal gear tooth slot for pocket + polar_pattern workflow. "
+                "Preferred over standard involute for low tooth counts (< ~20) where involute undercuts. "
+                "Supports epicycloidal, modified_involute, and ogival profile types. "
+                "Returns geometry_ref handle."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "module": {"type": "number", "description": "Gear module in mm"},
+                    "teeth": {"type": "integer", "description": "Number of teeth (>= 4)"},
+                    "mating_teeth": {"type": "integer", "description": "Mating gear tooth count (for generating circle radius)"},
+                    "profile_type": {"type": "string", "default": "epicycloidal", "enum": ["epicycloidal", "modified_involute", "ogival"]},
+                    "pressure_angle_deg": {"type": "number", "default": 15.0},
+                    "addendum_coeff": {"type": "number", "default": 0.75},
+                    "dedendum_coeff": {"type": "number", "default": 0.85},
+                    "backlash": {"type": "number", "default": 0.0},
+                    "tip_rounding_r": {"type": "number", "default": 0.0},
+                    "root_fillet_r": {"type": "number", "default": 0.0},
+                    "center_x": {"type": "number", "default": 0.0},
+                    "center_y": {"type": "number", "default": 0.0},
+                    "num_points": {"type": "integer", "default": 20},
+                },
+                "required": ["module", "teeth", "mating_teeth"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "geometry.spiral",
+            "description": (
+                "Generate an Archimedean spiral (flat spring, scroll, cam, decorative). "
+                "Optional spring analysis: provide strip_thickness_mm + strip_height_mm + material_e_gpa. "
+                "Optional terminal curve: provide overcoil_angle_deg + overcoil_style. "
+                "Returns spiral_ref (and overcoil_ref if terminal curve requested)."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "inner_radius": {"type": "number", "description": "Inner radius in mm"},
+                    "outer_radius": {"type": "number", "description": "Outer radius in mm"},
+                    "num_turns": {"type": "number", "description": "Number of turns (>= 0.5)"},
+                    "num_points_per_turn": {"type": "integer", "default": 20},
+                    "center_x": {"type": "number", "default": 0.0},
+                    "center_y": {"type": "number", "default": 0.0},
+                    "strip_thickness_mm": {"type": "number", "description": "Strip thickness for spring analysis"},
+                    "strip_height_mm": {"type": "number", "description": "Strip height for spring analysis"},
+                    "material_e_gpa": {"type": "number", "description": "Young's modulus in GPa"},
+                    "material_yield_mpa": {"type": "number", "description": "Yield stress in MPa (for stress check)"},
+                    "overcoil_angle_deg": {"type": "number", "description": "Terminal curve angle in degrees"},
+                    "overcoil_style": {"type": "string", "enum": ["simple", "phillips"], "description": "Terminal curve style"},
+                },
+                "required": ["inner_radius", "outer_radius", "num_turns"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "geometry.spoke_pattern",
+            "description": (
+                "Generate a spoke pocket profile for wheels, pulleys, flywheels, or turbine discs. "
+                "Returns geometry_ref for one inter-spoke pocket. Use pocket + polar_pattern to cut all gaps."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "hub_diameter": {"type": "number", "description": "Hub diameter in mm"},
+                    "rim_inner_diameter": {"type": "number", "description": "Inner rim diameter in mm"},
+                    "rim_outer_diameter": {"type": "number", "description": "Outer rim diameter in mm"},
+                    "num_spokes": {"type": "integer", "default": 4, "description": "Number of spokes (2-12)"},
+                    "spoke_style": {"type": "string", "default": "straight", "enum": ["straight", "tapered", "curved_s", "curved_c"]},
+                    "spoke_width_hub": {"type": "number", "default": 0.8},
+                    "spoke_width_rim": {"type": "number", "default": 0.6},
+                    "fillet_radius_hub": {"type": "number", "default": 0.1},
+                    "fillet_radius_rim": {"type": "number", "default": 0.1},
+                    "center_x": {"type": "number", "default": 0.0},
+                    "center_y": {"type": "number", "default": 0.0},
+                    "num_points": {"type": "integer", "default": 10},
+                },
+                "required": ["hub_diameter", "rim_inner_diameter", "rim_outer_diameter"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "geometry.ratchet_tooth",
+            "description": (
+                "Generate a ratchet tooth slot for pocket + polar_pattern workflow. "
+                "Asymmetric teeth: steep locking face (< friction angle) + gradual driving face. "
+                "Returns geometry_ref handle. Pure Python — no Rust dependency."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "pitch_diameter": {"type": "number", "description": "Pitch circle diameter in mm"},
+                    "teeth": {"type": "integer", "description": "Number of teeth (>= 4)"},
+                    "locking_face_angle_deg": {"type": "number", "default": 5.0, "description": "Locking face angle (steep, < friction angle)"},
+                    "drive_face_angle_deg": {"type": "number", "default": 45.0, "description": "Driving face angle (gradual)"},
+                    "tooth_height": {"type": "number", "description": "Tooth height in mm (auto ~4% of pitch_diameter)"},
+                    "tip_radius": {"type": "number", "default": 0.0},
+                    "root_radius": {"type": "number", "default": 0.0},
+                    "center_x": {"type": "number", "default": 0.0},
+                    "center_y": {"type": "number", "default": 0.0},
+                },
+                "required": ["pitch_diameter", "teeth"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "geometry.gear_train_solver",
+            "description": (
+                "Solve for gear train tooth counts achieving a target ratio. "
+                "Finds combinations for a multi-stage gear train within module and spatial constraints. "
+                "Returns stages with tooth counts, modules, pitch diameters, center distances, and bore positions. "
+                "Pure Python — no Rust dependency."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "total_ratio": {"type": "number", "description": "Target overall gear ratio"},
+                    "num_stages": {"type": "integer", "default": 3, "description": "Number of stages (2-4)"},
+                    "module_range": {"type": "array", "items": {"type": "number"}, "description": "[min_module, max_module] in mm"},
+                    "max_diameter": {"type": "number", "default": 0.0, "description": "Max wheel pitch diameter (0 = no limit)"},
+                    "min_pinion_teeth": {"type": "integer", "default": 7},
+                    "max_pinion_teeth": {"type": "integer", "default": 15},
+                    "min_wheel_teeth": {"type": "integer", "default": 20},
+                    "max_wheel_teeth": {"type": "integer", "default": 120},
+                    "tolerance": {"type": "number", "default": 0.001, "description": "Acceptable ratio error fraction"},
+                },
+                "required": ["total_ratio"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "geometry.keyway_profile",
+            "description": (
+                "Generate a keyway pocket profile for a given shaft diameter. "
+                "Looks up standard key dimensions (DIN 6885, ANSI B17.1, Woodruff). "
+                "Returns geometry_ref for pocket profile."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "shaft_diameter": {"type": "number", "description": "Shaft diameter in mm"},
+                    "standard": {"type": "string", "default": "din6885", "enum": ["din6885", "ansi", "woodruff"]},
+                    "key_length": {"type": "number", "description": "Key length in mm (auto-sized ~1.5× shaft diameter if omitted)"},
+                },
+                "required": ["shaft_diameter"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "geometry.oring_groove",
+            "description": (
+                "Generate an O-ring groove cross-section profile. "
+                "Looks up AS568 dash numbers or accepts explicit dimensions. "
+                "Computes groove geometry per Parker O-Ring Handbook. "
+                "Returns geometry_ref for groove cross-section."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "oring_id_mm": {"type": "number", "description": "O-ring inner diameter in mm"},
+                    "cross_section_mm": {"type": "number", "description": "O-ring cross-section diameter in mm"},
+                    "dash_number": {"type": "integer", "description": "AS568 dash number (alternative to id+cs)"},
+                    "application": {"type": "string", "default": "static_radial", "enum": ["static_radial", "static_face", "dynamic_reciprocating", "dynamic_rotary"]},
+                    "groove_type": {"type": "string", "default": "bore", "enum": ["bore", "face"]},
+                },
+                "required": [],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "geometry.section_properties",
+            "description": (
+                "Compute structural cross-section properties (area, Ixx, Iyy, section modulus, etc.). "
+                "Supports rectangle, circle, hollow_circle, i_beam, c_channel, angle, t_section, polygon. "
+                "Pure computation — no geometry output."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "shape": {"type": "string", "enum": ["rectangle", "circle", "hollow_circle", "i_beam", "c_channel", "angle", "t_section", "polygon"]},
+                    "width": {"type": "number", "description": "Width (rectangle, i_beam flange, c_channel flange, t_section flange)"},
+                    "height": {"type": "number", "description": "Height (rectangle)"},
+                    "diameter": {"type": "number", "description": "Diameter (circle)"},
+                    "outer_diameter": {"type": "number", "description": "Outer diameter (hollow_circle)"},
+                    "inner_diameter": {"type": "number", "description": "Inner diameter (hollow_circle)"},
+                    "flange_width": {"type": "number", "description": "Flange width (i_beam, c_channel, t_section)"},
+                    "flange_thickness": {"type": "number", "description": "Flange thickness (i_beam, c_channel, t_section)"},
+                    "web_height": {"type": "number", "description": "Web height (i_beam, c_channel, t_section)"},
+                    "web_thickness": {"type": "number", "description": "Web thickness (i_beam, c_channel, t_section)"},
+                    "leg1_length": {"type": "number", "description": "First leg length (angle section)"},
+                    "leg2_length": {"type": "number", "description": "Second leg length (angle section)"},
+                    "thickness": {"type": "number", "description": "Thickness (angle section)"},
+                    "vertices": {"type": "array", "items": {"type": "array", "items": {"type": "number"}}, "description": "Polygon vertices [[x,y], ...]"},
+                },
+                "required": ["shape"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "geometry.belt_drive",
+            "description": (
+                "Compute belt/chain drive layout: belt length, wrap angles, speed ratio. "
+                "Supports V-belt (A/B/C/D/E), timing belt (MXL/XL/L/H/T5/T10/HTD), and flat belt. "
+                "Returns layout params and optionally geometry_ref for pulley groove profile."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "driver_diameter": {"type": "number", "description": "Driver pulley pitch diameter in mm"},
+                    "driven_diameter": {"type": "number", "description": "Driven pulley pitch diameter in mm"},
+                    "center_distance": {"type": "number", "description": "Center-to-center distance in mm"},
+                    "belt_type": {"type": "string", "default": "timing", "enum": ["timing", "vbelt"]},
+                    "belt_profile": {"type": "string", "description": "Belt profile (e.g. 'A', 'B', 'HTD-5M', 'T10')"},
+                },
+                "required": ["driver_diameter", "driven_diameter", "center_distance"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "geometry.bevel_gear",
+            "description": (
+                "Generate a bevel gear tooth slot profile using Tredgold's approximation. "
+                "Projects teeth onto back cone and generates involute profile with virtual tooth count. "
+                "Returns geometry_ref for one tooth slot on back cone."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "module": {"type": "number", "description": "Gear module in mm"},
+                    "teeth": {"type": "integer", "description": "Number of teeth"},
+                    "mate_teeth": {"type": "integer", "description": "Mating gear tooth count"},
+                    "pressure_angle_deg": {"type": "number", "default": 20.0},
+                    "shaft_angle_deg": {"type": "number", "default": 90.0, "description": "Shaft angle in degrees"},
+                    "face_width": {"type": "number", "description": "Face width in mm (auto-sized if omitted)"},
+                    "center_x": {"type": "number", "default": 0.0},
+                    "center_y": {"type": "number", "default": 0.0},
+                    "num_involute_pts": {"type": "integer", "default": 20},
+                },
+                "required": ["module", "teeth", "mate_teeth"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "geometry.worm_gear",
+            "description": (
+                "Generate worm gear pair geometry. "
+                "Returns worm_thread_ref (trapezoidal cross-section for helix sweep) and "
+                "wheel_ref (tooth profile for standard gear build). "
+                "Includes efficiency, self-locking analysis, center distance."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "axial_module": {"type": "number", "description": "Axial module in mm"},
+                    "worm_starts": {"type": "integer", "description": "Number of worm starts (threads)"},
+                    "wheel_teeth": {"type": "integer", "description": "Wheel tooth count"},
+                    "pressure_angle_deg": {"type": "number", "default": 20.0},
+                    "worm_pitch_diameter": {"type": "number", "description": "Worm pitch diameter in mm (auto-sized if omitted)"},
+                    "center_x": {"type": "number", "default": 0.0},
+                    "center_y": {"type": "number", "default": 0.0},
+                    "num_points": {"type": "integer", "default": 20},
+                },
+                "required": ["axial_module", "worm_starts", "wheel_teeth"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "geometry.thread_profile",
+            "description": (
+                "Generate a thread profile cross-section for one period (for cad.helix sweep). "
+                "Parses standard designations: M8, M8x1, 3/8-16, 1/2-10 ACME, etc. "
+                "Returns geometry_ref + pitch, major/minor/pitch diameters."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "designation": {"type": "string", "description": "Thread designation (e.g. 'M8', 'M8x1', '3/8-16', '1/2-10 ACME')"},
+                    "thread_type": {"type": "string", "description": "Explicit type override (iso_metric, unc, unf, acme, buttress)"},
+                    "external": {"type": "boolean", "default": True, "description": "External (bolt) or internal (nut) thread"},
+                    "num_points": {"type": "integer", "default": 20},
+                },
+                "required": ["designation"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "geometry.helical_spring",
+            "description": (
+                "Compute helical spring design parameters and generate wire cross-section. "
+                "Returns helix_params (for cad.helix), wire_ref (circle for cad.sweep), "
+                "and analysis (spring_rate, stress, buckling, natural frequency)."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "spring_type": {"type": "string", "default": "compression", "enum": ["compression", "extension", "torsion"]},
+                    "wire_diameter": {"type": "number", "description": "Wire diameter in mm"},
+                    "coil_diameter": {"type": "number", "description": "Mean coil diameter D in mm"},
+                    "active_coils": {"type": "number", "description": "Number of active coils"},
+                    "free_length": {"type": "number", "description": "Free length in mm (compression springs)"},
+                    "material_g_gpa": {"type": "number", "default": 79.3, "description": "Shear modulus G in GPa (79.3 for steel)"},
+                    "material_yield_mpa": {"type": "number", "description": "Yield stress in MPa (for stress check)"},
+                    "end_type": {"type": "string", "default": "closed_ground", "enum": ["closed_ground", "closed", "open", "open_ground"]},
+                    "design_load": {"type": "number", "description": "Design load in N (for stress computation)"},
+                },
+                "required": ["wire_diameter", "coil_diameter", "active_coils", "free_length"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "geometry.four_bar",
+            "description": (
+                "Analyze a four-bar linkage: Grashof classification, coupler curve, "
+                "transmission angle range, dead points, mechanical advantage. "
+                "Returns geometry_ref for coupler curve spline. Pure Python."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "ground_length": {"type": "number", "description": "Ground link length in mm"},
+                    "input_length": {"type": "number", "description": "Input (crank) link length in mm"},
+                    "coupler_length": {"type": "number", "description": "Coupler link length in mm"},
+                    "output_length": {"type": "number", "description": "Output (rocker) link length in mm"},
+                    "coupler_point_x": {"type": "number", "default": 0.0, "description": "Coupler point X (local frame)"},
+                    "coupler_point_y": {"type": "number", "default": 0.0, "description": "Coupler point Y (local frame)"},
+                    "input_angle_start": {"type": "number", "default": 0.0, "description": "Start angle in degrees"},
+                    "input_angle_end": {"type": "number", "default": 360.0, "description": "End angle in degrees"},
+                    "num_points": {"type": "integer", "default": 100},
+                },
+                "required": ["ground_length", "input_length", "coupler_length", "output_length"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "geometry.cam_profile",
+            "description": (
+                "Generate a cam profile from motion law segments. "
+                "Supports dwell, simple_harmonic, cycloidal, polynomial345, polynomial4567, constant_velocity. "
+                "Returns geometry_ref for closed cam outline + max pressure angle + acceleration analysis."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "base_radius": {"type": "number", "description": "Base circle radius in mm"},
+                    "segments": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "start_angle_deg": {"type": "number"},
+                                "end_angle_deg": {"type": "number"},
+                                "rise_mm": {"type": "number"},
+                                "motion_law": {"type": "string", "enum": ["dwell", "simple_harmonic", "cycloidal", "polynomial345", "polynomial4567", "constant_velocity"]},
+                            },
+                            "required": ["start_angle_deg", "end_angle_deg", "rise_mm", "motion_law"],
+                        },
+                        "description": "List of cam segments covering 360°",
+                    },
+                    "follower_type": {"type": "string", "default": "knife_edge", "enum": ["knife_edge", "roller", "flat_face"]},
+                    "follower_radius": {"type": "number", "default": 0.0, "description": "Roller radius in mm (for roller follower)"},
+                    "rotation": {"type": "string", "default": "ccw", "enum": ["cw", "ccw"]},
+                    "center_x": {"type": "number", "default": 0.0},
+                    "center_y": {"type": "number", "default": 0.0},
+                    "num_points_per_segment": {"type": "integer", "default": 50},
+                },
+                "required": ["base_radius", "segments"],
+                "additionalProperties": False,
+            },
+        },
     ]
 
 
@@ -3357,6 +3743,21 @@ _GEOMETRY_DISPATCH: dict[str, Any] = {
     "geometry.planetary_layout": geometry_planetary_layout,
     "geometry.involute_points": geometry_involute_points,
     "geometry.propeller_blade": geometry_propeller_blade,
+    "geometry.epicycloidal_tooth_slot": geometry_epicycloidal_tooth_slot,
+    "geometry.spiral": geometry_spiral,
+    "geometry.spoke_pattern": geometry_spoke_pattern,
+    "geometry.ratchet_tooth": geometry_ratchet_tooth,
+    "geometry.gear_train_solver": geometry_gear_train_solver,
+    "geometry.keyway_profile": geometry_keyway_profile,
+    "geometry.oring_groove": geometry_oring_groove,
+    "geometry.section_properties": geometry_section_properties,
+    "geometry.belt_drive": geometry_belt_drive,
+    "geometry.bevel_gear": geometry_bevel_gear,
+    "geometry.worm_gear": geometry_worm_gear,
+    "geometry.thread_profile": geometry_thread_profile,
+    "geometry.helical_spring": geometry_helical_spring,
+    "geometry.four_bar": geometry_four_bar,
+    "geometry.cam_profile": geometry_cam_profile,
 }
 
 _STUDY_DISPATCH: dict[str, Any] = {
