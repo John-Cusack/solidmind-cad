@@ -48,6 +48,24 @@ def new_document(name: str = "Unnamed") -> dict[str, Any]:
     return {"name": doc.Name, "label": doc.Label}
 
 
+def save_document(doc: str | None = None, path: str | None = None) -> dict[str, Any]:
+    """Save the FreeCAD document. If *path* is given, saves to that location
+    (saveAs). Otherwise saves in place if the document already has a file path,
+    or saves to /tmp/<DocName>.FCStd as a fallback."""
+    d = _get_doc(doc)
+    if path is not None:
+        d.saveAs(path)
+        return {"saved": True, "path": path}
+    # Try save in place
+    if d.FileName:
+        d.save()
+        return {"saved": True, "path": d.FileName}
+    # First save — use a default path
+    default_path = str(Path(tempfile.gettempdir()) / f"{d.Name}.FCStd")
+    d.saveAs(default_path)
+    return {"saved": True, "path": default_path}
+
+
 def new_body(doc: str | None = None, name: str = "Body") -> dict[str, Any]:
     """Create a PartDesign Body in the given document."""
     logger.info("new_body: name=%s", name)
@@ -3050,6 +3068,7 @@ def _apply_placements(
     assembly: str,
     placements: dict[str, dict[str, Any]],
     doc_name: str | None = None,
+    skip_recompute: bool = False,
 ) -> list[str]:
     """Apply placement specs to assembly links. Returns list of applied link names.
 
@@ -3104,7 +3123,8 @@ def _apply_placements(
 
         applied.append(link_name)
 
-    d.recompute()
+    if not skip_recompute:
+        d.recompute()
     return applied
 
 
@@ -3162,7 +3182,7 @@ def _animation_tick() -> None:
 
     frames = state["frames"]
     idx = state["frame_index"] % len(frames)
-    _apply_placements(state["assembly"], frames[idx], state["doc_name"])
+    _apply_placements(state["assembly"], frames[idx], state["doc_name"], skip_recompute=True)
     _process_qt_events()
     state["frame_index"] += 1
 
@@ -4862,4 +4882,5 @@ COMMAND_HANDLERS: dict[str, Any] = {
     "register_placement_plan": register_placement_plan,
     "clear_placement_plan": clear_placement_plan,
     "assembly_audit": assembly_audit,
+    "save_document": save_document,
 }

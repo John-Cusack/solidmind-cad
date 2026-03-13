@@ -259,3 +259,7 @@ freecad
 
 # MCP config (machine-specific paths)
 .mcp.json
+
+# Docker build artifact (copied by build.sh)
+docker/FreeCAD.AppImage
+/isaacsim/

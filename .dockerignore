@@ -1,0 +1,20 @@
+# Keep the Docker build context small
+isaacsim/
+.venv/
+.git/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.mypy_cache/
+.pytest_cache/
+runs/
+training_runs/
+me_knowledge/lancedb/
+docs/
+tests/
+*.mp4
+watch_*.json
+geometry/target/
+# The root-level AppImage is a symlink; docker/ has the real copy
+FreeCAD_*.AppImage
