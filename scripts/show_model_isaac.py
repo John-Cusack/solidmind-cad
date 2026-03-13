@@ -3,7 +3,7 @@
 
 Usage (run with regular Python — connects to Isaac bridge via TCP):
     # Terminal 1: start bridge non-headless
-    ISAAC_PYTHON=./isaacsim/_build/linux-x86_64/release/python.sh \
+    ISAAC_PYTHON=../isaacsim/_build/linux-x86_64/release/python.sh \
         scripts/run_isaac_bridge.sh
 
     # Terminal 2: send import command
@@ -46,7 +46,7 @@ def main() -> int:
         print(
             "ERROR: Cannot connect to Isaac bridge.\n"
             "Start it first with:\n"
-            "  ISAAC_PYTHON=./isaacsim/_build/linux-x86_64/release/python.sh "
+            "  ISAAC_PYTHON=../isaacsim/_build/linux-x86_64/release/python.sh "
             "scripts/run_isaac_bridge.sh"
         )
         return 1

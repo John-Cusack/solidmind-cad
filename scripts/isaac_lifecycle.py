@@ -6,7 +6,7 @@ Wraps ``IsaacLifecycle`` with argparse for interactive and scripted use.
 Examples::
 
     # Start non-headless, import URDF, take screenshot, stay alive for inspection
-    ISAAC_PYTHON=./isaacsim/_build/.../python.sh \\
+    ISAAC_PYTHON=../isaacsim/_build/.../python.sh \\
         python3 scripts/isaac_lifecycle.py \\
         --no-headless --urdf hexapod_sim_pkg/Hexapod_v2_1DOF.urdf --screenshot
 

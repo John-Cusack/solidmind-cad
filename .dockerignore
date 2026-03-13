@@ -1,5 +1,5 @@
 # Keep the Docker build context small
-isaacsim/
+# isaacsim/ (moved to ../isaacsim/)
 .venv/
 .git/
 __pycache__/

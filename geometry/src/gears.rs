@@ -508,8 +508,9 @@ pub fn single_internal_tooth_slot(
     let right_inner = &right_pts[0];
     let right_inner_angle = (right_inner[1] - cy).atan2(right_inner[0] - cx);
 
-    let tip_start = left_inner_angle.to_degrees();
-    let mut tip_end = right_inner_angle.to_degrees();
+    // Go from right → left (CCW, the SHORT way through the gap)
+    let tip_start = right_inner_angle.to_degrees();
+    let mut tip_end = left_inner_angle.to_degrees();
     if tip_end < tip_start {
         tip_end += 360.0;
     }

@@ -236,8 +236,8 @@ studies/
 # Simulation packages (generated from FreeCAD)
 hexapod_*_pkg*/
 
-# Isaac Sim built-from-source install
-isaacsim/
+# Isaac Sim built-from-source install (lives at ../isaacsim/)
+# isaacsim/
 
 # Training runs (checkpoints, configs, logs)
 training_runs/
@@ -262,4 +262,4 @@ freecad
 
 # Docker build artifact (copied by build.sh)
 docker/FreeCAD.AppImage
-/isaacsim/
+# /isaacsim/

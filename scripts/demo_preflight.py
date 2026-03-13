@@ -170,7 +170,7 @@ def check_hexapod_assets() -> bool:
 
 def check_isaac_python() -> str | None:
     isaac_py = os.environ.get("ISAAC_PYTHON",
-                              str(REPO / "isaacsim/_build/linux-x86_64/release/python.sh"))
+                              str(REPO.parent / "isaacsim/_build/linux-x86_64/release/python.sh"))
     exists = Path(isaac_py).exists()
     _status("ISAAC_PYTHON", exists, isaac_py if exists else f"not found: {isaac_py}")
     return isaac_py if exists else None

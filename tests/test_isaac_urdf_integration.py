@@ -10,7 +10,7 @@ individual tests to reset the World.
 Run with::
 
     SOLIDMIND_RUN_ISAAC_E2E=1 \\
-    ISAAC_PYTHON=./isaacsim/_build/linux-x86_64/release/python.sh \\
+    ISAAC_PYTHON=../isaacsim/_build/linux-x86_64/release/python.sh \\
     python3 -m unittest tests.test_isaac_urdf_integration -v
 """
 from __future__ import annotations
