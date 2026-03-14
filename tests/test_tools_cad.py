@@ -339,7 +339,7 @@ class TestCadPolarPattern(unittest.TestCase):
         self.assertTrue(result["ok"])
         self.assertEqual(result["name"], "PolarPattern")
         client.send_command.assert_called_once_with(
-            "polar_pattern", features=["Pocket"], axis="Base_Z",
+            "polar_pattern", timeout=120.0, features=["Pocket"], axis="Base_Z",
             occurrences=6, angle=360.0, reversed=False, verify=True,
         )
 
@@ -358,7 +358,7 @@ class TestCadPolarPattern(unittest.TestCase):
         )
         self.assertTrue(result["ok"])
         client.send_command.assert_called_once_with(
-            "polar_pattern", features=["Pocket", "Pocket001"],
+            "polar_pattern", timeout=120.0, features=["Pocket", "Pocket001"],
             axis="Base_X", occurrences=11, angle=360.0, reversed=False,
             verify=True, body="Body", doc="MyDoc",
         )

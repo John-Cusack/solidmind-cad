@@ -447,7 +447,33 @@ pub fn single_internal_tooth_slot(
         })
         .collect();
 
+    // Compute endpoint angles for both flanks
+    let right_inner = right_pts[0];
+    let right_outer = *right_pts.last().unwrap();
+    let left_inner = left_pts[0];
+    let left_outer = *left_pts.last().unwrap();
+
+    let right_inner_angle = (right_inner[1] - cy).atan2(right_inner[0] - cx);
+    let right_outer_angle = (right_outer[1] - cy).atan2(right_outer[0] - cx);
+    let left_inner_angle = (left_inner[1] - cy).atan2(left_inner[0] - cx);
+    let left_outer_angle = (left_outer[1] - cy).atan2(left_outer[0] - cx);
+
+    // Clone right_inner before moving right_pts
+    let right_inner_pt = right_inner;
+    let left_inner_pt = left_inner;
+
     let mut elements = Vec::new();
+
+    // Wire traversal: right-inner → right-outer → (root arc, SHORT CCW) →
+    //   left-outer → left-inner → (straight line closing chord) → right-inner
+    //
+    // The tip closure uses a straight LINE instead of an arc.  A CCW arc from
+    // left-inner back to right-inner would sweep ~336° (the long way around),
+    // causing FreeCAD's pocket to cut the entire disc interior.  A straight
+    // line chord avoids this — the enclosed face is just the narrow tooth slot.
+    // The polar pattern's overlapping pockets still produce the correct involute
+    // tooth profile at the tip; the chord only affects material that adjacent
+    // pockets remove anyway.
 
     // 1. Right flank spline (inner → outer)
     elements.push(SketchElement::Spline {
@@ -457,12 +483,7 @@ pub fn single_internal_tooth_slot(
         weights: None,
     });
 
-    // 2. Root arc (rf, outer): right_outer → left_outer (CCW across the tooth land)
-    let right_outer = right_pts.last().unwrap();
-    let left_outer = left_pts.last().unwrap();
-    let right_outer_angle = (right_outer[1] - cy).atan2(right_outer[0] - cx);
-    let left_outer_angle = (left_outer[1] - cy).atan2(left_outer[0] - cx);
-
+    // 2. Root arc (rf, outer): right_outer → left_outer (CCW, the SHORT way)
     let root_start = right_outer_angle.to_degrees();
     let mut root_end = left_outer_angle.to_degrees();
     if root_end < root_start {
@@ -480,59 +501,52 @@ pub fn single_internal_tooth_slot(
     let mut left_reversed = left_pts;
     left_reversed.reverse();
     elements.push(SketchElement::Spline {
-        points: left_reversed.clone(),
+        points: left_reversed,
         degree: 3,
         periodic: false,
         weights: None,
     });
 
-    // Bridge from left involute inner end to tip circle (if needed)
-    let left_inner = left_reversed.last().unwrap();
-    let left_inner_angle = (left_inner[1] - cy).atan2(left_inner[0] - cx);
-
+    // 4. Straight line closing the slot at the tip (left_inner → right_inner).
+    //    If radial lines are needed (ra < rb), go via the tip circle points;
+    //    otherwise connect the involute endpoints directly.
     if needs_radial_lines {
         let left_tip_on_ra = [
             cx + ra * left_inner_angle.cos(),
             cy + ra * left_inner_angle.sin(),
         ];
-        elements.push(SketchElement::Line {
-            x1: left_inner[0],
-            y1: left_inner[1],
-            x2: left_tip_on_ra[0],
-            y2: left_tip_on_ra[1],
-        });
-    }
-
-    // 4. Tip arc (ra, inner): left_inner → right_inner (CCW, the long way around
-    //    through the gap between teeth)
-    let right_inner = &right_pts[0];
-    let right_inner_angle = (right_inner[1] - cy).atan2(right_inner[0] - cx);
-
-    // Go from right → left (CCW, the SHORT way through the gap)
-    let tip_start = right_inner_angle.to_degrees();
-    let mut tip_end = left_inner_angle.to_degrees();
-    if tip_end < tip_start {
-        tip_end += 360.0;
-    }
-    elements.push(SketchElement::Arc {
-        cx,
-        cy,
-        r: ra,
-        start_angle: tip_start,
-        end_angle: tip_end,
-    });
-
-    // Bridge from tip circle back up to right involute inner end (if needed)
-    if needs_radial_lines {
         let right_tip_on_ra = [
             cx + ra * right_inner_angle.cos(),
             cy + ra * right_inner_angle.sin(),
         ];
+        // Radial line from left involute base to tip circle
+        elements.push(SketchElement::Line {
+            x1: left_inner_pt[0],
+            y1: left_inner_pt[1],
+            x2: left_tip_on_ra[0],
+            y2: left_tip_on_ra[1],
+        });
+        // Straight chord across the tip (short distance)
+        elements.push(SketchElement::Line {
+            x1: left_tip_on_ra[0],
+            y1: left_tip_on_ra[1],
+            x2: right_tip_on_ra[0],
+            y2: right_tip_on_ra[1],
+        });
+        // Radial line from tip circle back to right involute base
         elements.push(SketchElement::Line {
             x1: right_tip_on_ra[0],
             y1: right_tip_on_ra[1],
-            x2: right_inner[0],
-            y2: right_inner[1],
+            x2: right_inner_pt[0],
+            y2: right_inner_pt[1],
+        });
+    } else {
+        // Direct line from left inner to right inner
+        elements.push(SketchElement::Line {
+            x1: left_inner_pt[0],
+            y1: left_inner_pt[1],
+            x2: right_inner_pt[0],
+            y2: right_inner_pt[1],
         });
     }
 
