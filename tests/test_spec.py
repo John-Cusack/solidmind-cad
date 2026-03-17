@@ -13,9 +13,11 @@ from orchestrator.spec import (
     FailureCode,
     Interface,
     KnowledgeConfig,
+    ManufacturingSpec,
     MasterSpec,
     Objective,
     ProvenanceManifest,
+    ReleaseRequirements,
     SpecStatus,
     Subsystem,
     SubsystemKind,
@@ -273,6 +275,147 @@ cost_policy:
             self.assertEqual(gear.supplier_part, "")
             self.assertIsInstance(loaded.skeleton, AssemblySkeleton)
             self.assertEqual(loaded.skeleton.datums, {})
+        finally:
+            path.unlink(missing_ok=True)
+
+
+class TestNewSchemaFields(unittest.TestCase):
+    """Test Phase A schema extensions."""
+
+    def test_release_requirements_defaults(self) -> None:
+        r = ReleaseRequirements()
+        self.assertFalse(r.drawing_required)
+        self.assertFalse(r.inspection_required)
+        self.assertEqual(r.bom_line_type, "")
+        self.assertFalse(r.revision_controlled)
+
+    def test_manufacturing_spec_new_fields(self) -> None:
+        m = ManufacturingSpec(
+            tolerance_general="ISO 2768-m",
+            tolerance_critical="±0.01 mm",
+            surface_finish_ra_um=1.6,
+            coating="anodize",
+        )
+        self.assertEqual(m.tolerance_general, "ISO 2768-m")
+        self.assertEqual(m.surface_finish_ra_um, 1.6)
+        self.assertEqual(m.coating, "anodize")
+
+    def test_manufacturing_spec_defaults(self) -> None:
+        m = ManufacturingSpec()
+        self.assertEqual(m.tolerance_general, "")
+        self.assertIsNone(m.surface_finish_ra_um)
+        self.assertEqual(m.coating, "")
+
+    def test_subsystem_quantity_default(self) -> None:
+        s = Subsystem(name="gear")
+        self.assertEqual(s.quantity, 1)
+
+    def test_subsystem_release_default(self) -> None:
+        s = Subsystem(name="gear")
+        self.assertIsInstance(s.release, ReleaseRequirements)
+
+    def test_interface_extended_fields_default(self) -> None:
+        ifc = Interface(name="test")
+        self.assertIsNone(ifc.runout_or_concentricity)
+        self.assertEqual(ifc.preload, {})
+        self.assertEqual(ifc.backlash, {})
+        self.assertEqual(ifc.surface_requirements, {})
+        self.assertEqual(ifc.retention, "")
+        self.assertEqual(ifc.lubrication, "")
+        self.assertEqual(ifc.service_requirements, {})
+        self.assertEqual(ifc.thermal_allowance, {})
+
+    def test_worker_result_release_artifacts(self) -> None:
+        wr = WorkerResult(subsystem_name="gear", release_artifacts={"drawing": "gear.pdf"})
+        self.assertEqual(wr.release_artifacts["drawing"], "gear.pdf")
+
+    def test_extended_fields_yaml_round_trip(self) -> None:
+        """New fields persist through YAML round-trip."""
+        import tempfile
+        spec = MasterSpec(id="ext_test", name="Extended Test")
+        spec.subsystems.append(Subsystem(
+            id="s1", name="gear",
+            kind=SubsystemKind.GENERATED,
+            quantity=4,
+            release=ReleaseRequirements(
+                drawing_required=True,
+                bom_line_type="manufactured",
+                revision_controlled=True,
+            ),
+            manufacturing=ManufacturingSpec(
+                process="CNC_milling",
+                tolerance_general="ISO 2768-m",
+                surface_finish_ra_um=0.8,
+                coating="nickel",
+            ),
+        ))
+        spec.interfaces.append(Interface(
+            id="ifc1", name="mesh",
+            backlash={"min_mm": 0.05},
+            runout_or_concentricity=0.01,
+            lubrication="grease",
+            retention="snap_ring",
+        ))
+        with tempfile.NamedTemporaryFile(suffix=".yaml", delete=False) as f:
+            path = Path(f.name)
+        try:
+            spec.save(path)
+            loaded = MasterSpec.load(path)
+            gear = loaded.get_subsystem("gear")
+            self.assertEqual(gear.quantity, 4)
+            self.assertTrue(gear.release.drawing_required)
+            self.assertEqual(gear.release.bom_line_type, "manufactured")
+            self.assertEqual(gear.manufacturing.tolerance_general, "ISO 2768-m")
+            self.assertEqual(gear.manufacturing.surface_finish_ra_um, 0.8)
+            self.assertEqual(gear.manufacturing.coating, "nickel")
+            ifc = loaded.get_interface("ifc1")
+            self.assertEqual(ifc.backlash, {"min_mm": 0.05})
+            self.assertEqual(ifc.runout_or_concentricity, 0.01)
+            self.assertEqual(ifc.lubrication, "grease")
+            self.assertEqual(ifc.retention, "snap_ring")
+        finally:
+            path.unlink(missing_ok=True)
+
+    def test_backward_compat_no_new_fields(self) -> None:
+        """Old YAML without new fields loads with defaults."""
+        import tempfile
+        old_yaml = """\
+id: compat
+name: Compat
+status: draft
+worker_mode: claude_code
+global_constraints: {}
+objectives: []
+subsystems:
+  - id: s1
+    name: part
+    description: ""
+    envelope_mm: []
+    interfaces: []
+    specs: {}
+    worker_count: 1
+    complexity_class: M
+    manufacturing:
+      process: ""
+      min_feature_size_mm: 0.5
+      min_wall_mm: 1.0
+      notes: ""
+    kind: generated
+    standard: ""
+    supplier_part: ""
+    assembly_constraints: {}
+interfaces: []
+"""
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+            f.write(old_yaml)
+            path = Path(f.name)
+        try:
+            loaded = MasterSpec.load(path)
+            part = loaded.get_subsystem("part")
+            self.assertEqual(part.quantity, 1)
+            self.assertFalse(part.release.drawing_required)
+            self.assertEqual(part.manufacturing.tolerance_general, "")
+            self.assertIsNone(part.manufacturing.surface_finish_ra_um)
         finally:
             path.unlink(missing_ok=True)
 

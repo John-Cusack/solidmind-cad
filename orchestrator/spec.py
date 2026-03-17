@@ -184,6 +184,16 @@ class Interface:
     ctqs: list[str] = field(default_factory=list)
     inspection: dict[str, Any] = field(default_factory=dict)
 
+    # Extended interface fields
+    runout_or_concentricity: float | None = None  # mm
+    preload: dict[str, Any] = field(default_factory=dict)
+    backlash: dict[str, Any] = field(default_factory=dict)
+    surface_requirements: dict[str, Any] = field(default_factory=dict)
+    retention: str = ""
+    lubrication: str = ""
+    service_requirements: dict[str, Any] = field(default_factory=dict)
+    thermal_allowance: dict[str, Any] = field(default_factory=dict)
+
     def is_complete(self) -> bool:
         """Check if interface has all required fields for freeze."""
         has_frames = (
@@ -200,6 +210,16 @@ class Interface:
 # ---------------------------------------------------------------------------
 
 @dataclass(slots=True)
+class ReleaseRequirements:
+    """Release documentation requirements for a subsystem."""
+
+    drawing_required: bool = False
+    inspection_required: bool = False
+    bom_line_type: str = ""  # "manufactured" | "purchased" | "standard"
+    revision_controlled: bool = False
+
+
+@dataclass(slots=True)
 class ManufacturingSpec:
     """Manufacturing constraints for a subsystem."""
 
@@ -207,6 +227,10 @@ class ManufacturingSpec:
     min_feature_size_mm: float = 0.5
     min_wall_mm: float = 1.0
     notes: str = ""
+    tolerance_general: str = ""  # e.g. "ISO 2768-m"
+    tolerance_critical: str = ""  # e.g. "±0.01 mm"
+    surface_finish_ra_um: float | None = None
+    coating: str = ""
 
 
 @dataclass(slots=True)
@@ -247,6 +271,8 @@ class Subsystem:
     standard: str = ""            # e.g. "ISO 4762 M5x20" for standard parts
     supplier_part: str = ""       # e.g. "SKF 6201-2Z" for catalog parts
     assembly_constraints: dict[str, Any] = field(default_factory=dict)
+    quantity: int = 1
+    release: ReleaseRequirements = field(default_factory=ReleaseRequirements)
 
     def effective_runtime_policy(self) -> RuntimePolicy:
         return self.runtime_policy or RuntimePolicy.from_complexity(self.complexity_class)
@@ -329,6 +355,8 @@ class WorkerResult:
 
     # Scores (filled by scorer)
     scores: dict[str, float] = field(default_factory=dict)
+
+    release_artifacts: dict[str, Any] = field(default_factory=dict)
 
     provenance: ProvenanceManifest = field(default_factory=ProvenanceManifest)
     artifact_manifest: list[ArtifactEntry] = field(default_factory=list)
@@ -483,11 +511,22 @@ class MasterSpec:
             "min_feature_size_mm": s.manufacturing.min_feature_size_mm,
             "min_wall_mm": s.manufacturing.min_wall_mm,
             "notes": s.manufacturing.notes,
+            "tolerance_general": s.manufacturing.tolerance_general,
+            "tolerance_critical": s.manufacturing.tolerance_critical,
+            "surface_finish_ra_um": s.manufacturing.surface_finish_ra_um,
+            "coating": s.manufacturing.coating,
         }
         d["kind"] = s.kind.value
         d["standard"] = s.standard
         d["supplier_part"] = s.supplier_part
         d["assembly_constraints"] = s.assembly_constraints
+        d["quantity"] = s.quantity
+        d["release"] = {
+            "drawing_required": s.release.drawing_required,
+            "inspection_required": s.release.inspection_required,
+            "bom_line_type": s.release.bom_line_type,
+            "revision_controlled": s.release.revision_controlled,
+        }
         return d
 
     @staticmethod
@@ -538,6 +577,14 @@ class MasterSpec:
             "datum_scheme": i.datum_scheme,
             "ctqs": i.ctqs,
             "inspection": i.inspection,
+            "runout_or_concentricity": i.runout_or_concentricity,
+            "preload": i.preload,
+            "backlash": i.backlash,
+            "surface_requirements": i.surface_requirements,
+            "retention": i.retention,
+            "lubrication": i.lubrication,
+            "service_requirements": i.service_requirements,
+            "thermal_allowance": i.thermal_allowance,
         }
 
     @classmethod
@@ -585,6 +632,19 @@ class MasterSpec:
                     min_feature_size_mm=mfg.get("min_feature_size_mm", 0.5),
                     min_wall_mm=mfg.get("min_wall_mm", 1.0),
                     notes=mfg.get("notes", ""),
+                    tolerance_general=mfg.get("tolerance_general", ""),
+                    tolerance_critical=mfg.get("tolerance_critical", ""),
+                    surface_finish_ra_um=mfg.get("surface_finish_ra_um"),
+                    coating=mfg.get("coating", ""),
+                )
+            sub.quantity = sd.get("quantity", 1)
+            rel = sd.get("release", {})
+            if rel:
+                sub.release = ReleaseRequirements(
+                    drawing_required=rel.get("drawing_required", False),
+                    inspection_required=rel.get("inspection_required", False),
+                    bom_line_type=rel.get("bom_line_type", ""),
+                    revision_controlled=rel.get("revision_controlled", False),
                 )
             spec.subsystems.append(sub)
 
@@ -644,6 +704,14 @@ class MasterSpec:
             ifc.datum_scheme = ifd.get("datum_scheme", "")
             ifc.ctqs = ifd.get("ctqs", [])
             ifc.inspection = ifd.get("inspection", {})
+            ifc.runout_or_concentricity = ifd.get("runout_or_concentricity")
+            ifc.preload = ifd.get("preload", {})
+            ifc.backlash = ifd.get("backlash", {})
+            ifc.surface_requirements = ifd.get("surface_requirements", {})
+            ifc.retention = ifd.get("retention", "")
+            ifc.lubrication = ifd.get("lubrication", "")
+            ifc.service_requirements = ifd.get("service_requirements", {})
+            ifc.thermal_allowance = ifd.get("thermal_allowance", {})
             spec.interfaces.append(ifc)
 
         kn = d.get("knowledge", {})

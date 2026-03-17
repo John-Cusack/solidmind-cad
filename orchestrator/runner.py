@@ -326,6 +326,12 @@ def check_gate_g1(spec: MasterSpec) -> tuple[bool, list[str]]:
     return len(issues) == 0, issues
 
 
+def check_gate_g2(spec: MasterSpec) -> tuple[bool, list[str]]:
+    """G2: Skeleton completeness — datums, volumes, keepouts."""
+    from orchestrator.skeleton import check_gate_g2 as _g2
+    return _g2(spec)
+
+
 def check_gate_g3(spec: MasterSpec) -> tuple[bool, list[str]]:
     """G3: ICD completeness — all interfaces specified."""
     ok, incomplete = spec.check_interfaces_complete()
@@ -346,6 +352,117 @@ def check_gate_g4(run: OrchestratorRun) -> tuple[bool, list[str]]:
                 f"status={r['status']}"
             )
     return len(issues) == 0, issues
+
+
+def check_gate_g5(
+    spec: MasterSpec,
+    validation_reports: list,
+) -> tuple[bool, list[str]]:
+    """G5: Geometry + assembly validation — all subsystems compliant."""
+    from orchestrator.validator import check_gate_g5 as _g5
+    return _g5(spec, validation_reports)
+
+
+def check_gate_g6(
+    spec: MasterSpec,
+    scoring_report: object,
+) -> tuple[bool, list[str]]:
+    """G6: Verification + SBCE — at least one candidate meets thresholds."""
+    from orchestrator.scorer import check_gate_g6 as _g6
+    return _g6(spec, scoring_report)
+
+
+def check_gate_g7(release_package: object) -> tuple[bool, list[str]]:
+    """G7: Release package completeness."""
+    from orchestrator.release import check_gate_g7 as _g7
+    return _g7(release_package)
+
+
+# ---------------------------------------------------------------------------
+# Stage 5-7 wrappers (convenience for Claude Code / CLI callers)
+# ---------------------------------------------------------------------------
+
+
+def validate_results(
+    run: OrchestratorRun,
+    measurements: dict[str, dict[str, dict[str, float]]] | None = None,
+) -> list:
+    """Stage 5: Validate worker results against frozen contracts.
+
+    Args:
+        run: The orchestrator run.
+        measurements: Optional dict of {worker_id: {ifc_id: {feature: mm}}}.
+            If None, reads from metadata.json files in output dirs.
+
+    Returns:
+        List of ValidationReport objects.
+    """
+    from orchestrator.validator import validate_worker_result, ValidationReport
+
+    reports: list[ValidationReport] = []
+    results_data = collect_worker_results(run)
+
+    for rd in results_data:
+        if rd["status"] != "complete":
+            continue
+        from orchestrator.spec import WorkerResult
+        worker_id = f"{rd['subsystem']}_{rd['variant_index']}"
+        wr = WorkerResult(
+            subsystem_name=rd["subsystem"],
+            worker_id=worker_id,
+            status="success",
+        )
+        worker_measurements = (measurements or {}).get(worker_id, {})
+
+        # Try loading measurements from metadata.json
+        metadata = rd.get("metadata", {})
+        if not worker_measurements and metadata:
+            worker_measurements = metadata.get("interface_actuals", {})
+
+        actual_bbox = metadata.get("claimed_bounding_box_mm") if metadata else None
+        actual_mass = metadata.get("claimed_mass_kg") if metadata else None
+
+        report = validate_worker_result(
+            run.spec, wr,
+            measurements=worker_measurements,
+            actual_bbox_mm=actual_bbox,
+            actual_mass_kg=actual_mass,
+        )
+        reports.append(report)
+
+    return reports
+
+
+def score_results(
+    run: OrchestratorRun,
+    validation_reports: list,
+    *,
+    beam_width: int = 5,
+) -> object:
+    """Stage 6: Score variants and rank assembly candidates via SBCE.
+
+    Returns a ScoringReport with ranked candidates and Pareto frontier.
+    """
+    from orchestrator.scorer import score_run
+    return score_run(run.spec, validation_reports, beam_width=beam_width, run_dir=run.run_dir)
+
+
+def build_release(
+    run: OrchestratorRun,
+    *,
+    scoring_report: object | None = None,
+    validation_reports: list | None = None,
+) -> object:
+    """Stage 7: Build the release package.
+
+    Returns a ReleasePackage.
+    """
+    from orchestrator.release import build_release_package
+    return build_release_package(
+        run.spec, run.run_dir,
+        scoring_report=scoring_report,
+        validation_reports=validation_reports,
+    )
 
 
 # ---------------------------------------------------------------------------

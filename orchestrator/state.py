@@ -25,8 +25,8 @@ _TRANSITIONS: dict[SpecStatus, set[SpecStatus]] = {
     SpecStatus.BUILDING:             {SpecStatus.GEOMETRY_VALIDATING, SpecStatus.BUILDING, SpecStatus.FAILED},
     SpecStatus.GEOMETRY_VALIDATING:  {SpecStatus.SCORING, SpecStatus.BUILDING, SpecStatus.COUNCIL_REVIEW, SpecStatus.FAILED},
     SpecStatus.SCORING:              {SpecStatus.RELEASE_PACKAGING, SpecStatus.COUNCIL_REVIEW, SpecStatus.BUILDING, SpecStatus.FAILED},
-    SpecStatus.RELEASE_PACKAGING:    {SpecStatus.AWAITING_HUMAN, SpecStatus.FAILED},
-    SpecStatus.AWAITING_HUMAN:       {SpecStatus.DONE, SpecStatus.COUNCIL_REVIEW, SpecStatus.BUILDING, SpecStatus.FAILED},
+    SpecStatus.RELEASE_PACKAGING:    {SpecStatus.AWAITING_HUMAN, SpecStatus.INTERFACES_FROZEN, SpecStatus.GEOMETRY_VALIDATING, SpecStatus.SCORING, SpecStatus.FAILED},
+    SpecStatus.AWAITING_HUMAN:       {SpecStatus.DONE, SpecStatus.COUNCIL_REVIEW, SpecStatus.FAILED},
     SpecStatus.DONE:                 set(),
     SpecStatus.FAILED:               set(),
 }
