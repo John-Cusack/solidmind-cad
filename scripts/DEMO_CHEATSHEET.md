@@ -9,7 +9,7 @@
 import freecad_addon; freecad_addon.start()
 
 # Terminal 2: Start Isaac bridge (~60s to init)
-ISAAC_PYTHON=./isaacsim/_build/linux-x86_64/release/python.sh scripts/run_isaac_bridge.sh
+ISAAC_PYTHON=../isaacsim/_build/linux-x86_64/release/python.sh scripts/run_isaac_bridge.sh
 
 # Terminal 3: Preflight
 python3 scripts/demo_preflight.py --no-isaac   # FreeCAD-only check
@@ -224,7 +224,7 @@ Positions from FK math (same as `scripts/add_hexapod_servos.py`).
 import freecad_addon; freecad_addon.start()
 
 # Isaac bridge
-ISAAC_PYTHON=./isaacsim/_build/linux-x86_64/release/python.sh scripts/run_isaac_bridge.sh
+ISAAC_PYTHON=../isaacsim/_build/linux-x86_64/release/python.sh scripts/run_isaac_bridge.sh
 
 # Pre-demo verification
 python3 scripts/demo_preflight.py --full

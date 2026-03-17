@@ -5,11 +5,12 @@ running inside the FreeCAD GUI process over a TCP socket.
 """
 from __future__ import annotations
 
-import json
 import logging
 import socket
 import time
 from typing import Any
+
+from server.jsonutil import dumps as json_dumps, loads as json_loads
 
 logger = logging.getLogger("solidmind.freecad_client")
 
@@ -133,9 +134,9 @@ class FreeCADClient:
         assert self._sock is not None
 
         # Encode and send
-        message = json.dumps({"cmd": cmd, "args": args}, separators=(",", ":")) + "\n"
+        message = json_dumps({"cmd": cmd, "args": args}) + b"\n"
         try:
-            self._sock.sendall(message.encode("utf-8"))
+            self._sock.sendall(message)
         except (BrokenPipeError, ConnectionResetError, OSError) as e:
             self._sock = None
             raise FreeCADConnectionError(f"Connection lost while sending: {e}") from e
@@ -179,7 +180,7 @@ class FreeCADClient:
             self._buffer += data
 
         line, self._buffer = self._buffer.split(b"\n", 1)
-        return json.loads(line.decode("utf-8"))
+        return json_loads(line)
 
 
 # Module-level singleton

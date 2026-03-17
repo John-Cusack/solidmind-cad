@@ -83,6 +83,20 @@ def _wrap(fn: Any) -> Any:
 
 
 @_wrap
+def cad_save(doc: str | None = None, path: str | None = None) -> dict[str, Any]:
+    """Save the current FreeCAD document. If *path* is given, saves to that
+    location (Save As). Otherwise saves in place."""
+    client = get_client()
+    kwargs: dict[str, Any] = {}
+    if doc is not None:
+        kwargs["doc"] = doc
+    if path is not None:
+        kwargs["path"] = path
+    result = client.send_command("save_document", **kwargs)
+    return {"ok": True, **result}
+
+
+@_wrap
 def cad_new_document(name: str = "Unnamed") -> dict[str, Any]:
     """Create a new FreeCAD document."""
     from server.main import switch_document_log
@@ -93,6 +107,9 @@ def cad_new_document(name: str = "Unnamed") -> dict[str, Any]:
     return {"ok": True, **result}
 
 
+_PIPELINE_WARNING_THRESHOLD = 3
+
+
 @_wrap
 def cad_new_body(name: str = "Body", doc: str | None = None) -> dict[str, Any]:
     """Create a PartDesign Body in the document."""
@@ -101,7 +118,24 @@ def cad_new_body(name: str = "Body", doc: str | None = None) -> dict[str, Any]:
     if doc is not None:
         kwargs["doc"] = doc
     result = client.send_command("new_body", **kwargs)
-    return {"ok": True, **result}
+
+    # Soft guardrail: warn when body count reaches threshold without a design brief
+    response: dict[str, Any] = {"ok": True, **result}
+    try:
+        tree = client.send_command("get_model_tree", detail="bodies", **({"doc": doc} if doc else {}))
+        body_count = tree.get("body_count", 0)
+        if body_count >= _PIPELINE_WARNING_THRESHOLD:
+            from server.design_store import _briefs  # noqa: PLC0415
+            if not _briefs:
+                response["pipeline_warning"] = (
+                    f"You now have {body_count} bodies but no design brief. "
+                    f"For multi-body designs, use design.save_brief + design.add_part + "
+                    f"design.add_interface to plan the layout BEFORE building more parts. "
+                    f"This prevents spatial conflicts and missing connections."
+                )
+    except Exception:
+        pass  # Don't let guardrail errors break body creation
+    return response
 
 
 @_wrap
@@ -272,7 +306,8 @@ def cad_polar_pattern(
         kwargs["body"] = body
     if doc is not None:
         kwargs["doc"] = doc
-    result = client.send_command("polar_pattern", **kwargs)
+    cmd_timeout = max(120.0, occurrences * 5.0)
+    result = client.send_command("polar_pattern", timeout=cmd_timeout, **kwargs)
     return {"ok": True, **result}
 
 

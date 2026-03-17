@@ -8,7 +8,7 @@ set -euo pipefail
 #   scripts/run_hexapod_teleop.sh --keyboard   # also launch keyboard control
 #
 # Prerequisites:
-#   - Isaac Sim built from source in isaacsim/
+#   - Isaac Sim built from source in ../isaacsim/
 #   - URDF + STLs in hexapod_sim_pkg/
 #
 # To stop: Ctrl-C (kills bridge), or send teleop_stop via TCP.
@@ -16,7 +16,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 CONFIG="$REPO_DIR/hexapod_sim_pkg/teleop_config.json"
-ISAAC_PYTHON="${ISAAC_PYTHON:-$REPO_DIR/isaacsim/_build/linux-x86_64/release/python.sh}"
+ISAAC_PYTHON="${ISAAC_PYTHON:-$REPO_DIR/../isaacsim/_build/linux-x86_64/release/python.sh}"
 BRIDGE_PORT=9878
 KEYBOARD="${1:-}"
 

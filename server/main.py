@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 import logging
 import os
 import sys
@@ -97,6 +96,7 @@ def switch_document_log(doc_name: str) -> Path:
     return log_file
 
 from server.jsonutil import dumps as json_dumps
+from server.jsonutil import dumps_str as json_dumps_str
 from server.jsonutil import loads as json_loads
 from server.prompts import get_prompt, list_prompts
 from server.tools import (
@@ -146,6 +146,7 @@ from server.tools_cad import (
     cad_mirror,
     cad_new_body,
     cad_new_document,
+    cad_save,
     cad_pad,
     cad_pocket,
     cad_polar_pattern,
@@ -334,6 +335,18 @@ _VERIFY_PROP: dict[str, Any] = {
 def _cad_tool_list() -> list[dict[str, Any]]:
     """CAD geometry tools — drive FreeCAD PartDesign directly."""
     return [
+        {
+            "name": "cad.save",
+            "description": "Save the current FreeCAD document. Saves in place if already saved, or to a specified path.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "doc": {"type": "string", "description": "Document name (optional)"},
+                    "path": {"type": "string", "description": "File path to save to (optional, saves in place if omitted)"},
+                },
+                "additionalProperties": False,
+            },
+        },
         {
             "name": "cad.new_document",
             "description": "Create a new FreeCAD document.",
@@ -3765,6 +3778,7 @@ def _tool_list() -> list[dict[str, Any]]:
 # ---------------------------------------------------------------------------
 
 _CAD_DISPATCH: dict[str, Any] = {
+    "cad.save": cad_save,
     "cad.new_document": cad_new_document,
     "cad.new_body": cad_new_body,
     "cad.sketch": cad_sketch,
@@ -4017,7 +4031,7 @@ def serve() -> int:
                     })
 
                 # Always include text result (remaining metadata)
-                content.append({"type": "text", "text": json.dumps(out)})
+                content.append({"type": "text", "text": json_dumps_str(out)})
 
                 _send(_rpc_result(rpc_id, {"isError": False, "content": content}))
                 continue

@@ -3,7 +3,7 @@
 Runs RSL-RL PPO training with residual locomotion environment.
 Designed to be spawned as a subprocess in Isaac Lab's Python:
 
-    ISAAC_PYTHON=./isaacsim/_build/.../python.sh
+    ISAAC_PYTHON=../isaacsim/_build/.../python.sh
     $ISAAC_PYTHON -m rl_training.train \\
         --env-config /path/to/env_config.py \\
         --output-dir training_runs/<run_id>/

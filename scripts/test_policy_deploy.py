@@ -7,7 +7,7 @@ and monitors joint positions to verify the hexapod is moving.
 
 Usage:
     # First, start the bridge non-headless:
-    ISAAC_PYTHON=./isaacsim/_build/linux-x86_64/release/python.sh \
+    ISAAC_PYTHON=../isaacsim/_build/linux-x86_64/release/python.sh \
         scripts/run_isaac_bridge.sh
 
     # Then run this test:
@@ -71,7 +71,7 @@ def main() -> int:
     except ConnectionRefusedError:
         print(f"ERROR: Cannot connect to {HOST}:{PORT}")
         print("Start the bridge first:")
-        print("  ISAAC_PYTHON=./isaacsim/_build/linux-x86_64/release/python.sh \\")
+        print("  ISAAC_PYTHON=../isaacsim/_build/linux-x86_64/release/python.sh \\")
         print("    scripts/run_isaac_bridge.sh")
         return 1
 

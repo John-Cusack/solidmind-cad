@@ -70,7 +70,7 @@ def _filter_kwargs(handler: Callable[..., Any], args: dict[str, Any]) -> dict[st
 
 
 _DEFAULT_TIMEOUT = 30.0
-_LONG_TIMEOUT_COMMANDS = frozenset({"export", "sketch_populate"})
+_LONG_TIMEOUT_COMMANDS = frozenset({"export", "sketch_populate", "polar_pattern", "linear_pattern"})
 
 
 def _command_timeout(cmd: str, args: dict[str, Any]) -> float:
@@ -87,6 +87,10 @@ def _command_timeout(cmd: str, args: dict[str, Any]) -> float:
         return max(_DEFAULT_TIMEOUT, 30.0 + (n_elements + n_constraints) * 0.1)
     if cmd == "export":
         return 120.0
+    if cmd == "polar_pattern":
+        n = args.get("occurrences", 6)
+        # 5s per occurrence for complex boolean ops
+        return max(120.0, n * 5.0)
     if cmd in _LONG_TIMEOUT_COMMANDS:
         return 120.0
     return _DEFAULT_TIMEOUT
@@ -149,6 +153,13 @@ class AddonSocketServer:
 
     def _start_main_thread_timer(self) -> None:
         """Set up a QTimer to process jobs on the main GUI thread."""
+        import os
+        if os.environ.get("SOLIDMIND_HEADLESS", "").lower() in ("1", "true", "yes"):
+            _fc_log(
+                "SOLIDMIND_HEADLESS=1 — commands will run on background thread",
+            )
+            return
+
         try:
             from freecad_addon.qt_compat import QTimer
         except ImportError:

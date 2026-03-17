@@ -429,6 +429,7 @@ class TestPropellerFreeCADBuild(unittest.TestCase):
         self.assertTrue(pattern_result["ok"])
         client.send_command.assert_called_once_with(
             "polar_pattern",
+            timeout=120.0,
             features=["Loft"],
             axis="Base_Z",
             occurrences=3,

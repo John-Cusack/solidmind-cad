@@ -5,7 +5,7 @@ Usage (regular Python — connects to running bridge):
     python3 scripts/demo_rl_walk.py
 
 Or start the bridge first:
-    ISAAC_PYTHON=./isaacsim/_build/linux-x86_64/release/python.sh \
+    ISAAC_PYTHON=../isaacsim/_build/linux-x86_64/release/python.sh \
         scripts/run_isaac_bridge.sh &
     python3 scripts/demo_rl_walk.py
 """
@@ -57,7 +57,7 @@ def main() -> int:
         return 1
     if not os.path.isfile(policy_pt):
         print(f"ERROR: Policy not found: {policy_pt}")
-        print("Run training first: ./isaacsim/...python.sh -m rl_training.train ...")
+        print("Run training first: ../isaacsim/...python.sh -m rl_training.train ...")
         return 1
 
     print(f"URDF: {urdf_path}")
@@ -71,7 +71,7 @@ def main() -> int:
     except (ConnectionRefusedError, OSError) as exc:
         print(f"ERROR: Cannot connect — {exc}")
         print("Start the bridge first:")
-        print("  ISAAC_PYTHON=./isaacsim/_build/linux-x86_64/release/python.sh \\")
+        print("  ISAAC_PYTHON=../isaacsim/_build/linux-x86_64/release/python.sh \\")
         print("    scripts/run_isaac_bridge.sh")
         return 1
 

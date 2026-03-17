@@ -119,7 +119,7 @@ def rl_start_training(
     isaac_python = os.environ.get("ISAAC_PYTHON")
     if not isaac_python:
         # Auto-detect Isaac Sim Python from source build
-        candidate = _PROJECT_ROOT / "isaacsim" / "_build" / "linux-x86_64" / "release" / "python.sh"
+        candidate = _PROJECT_ROOT.parent / "isaacsim" / "_build" / "linux-x86_64" / "release" / "python.sh"
         if candidate.is_file():
             isaac_python = str(candidate)
     if isaac_python and os.path.isfile(isaac_python):
