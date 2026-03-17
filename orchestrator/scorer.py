@@ -85,9 +85,16 @@ def build_variants(
         # Copy measured values
         if report.mass_kg is not None:
             variant.measured["mass_kg"] = report.mass_kg
+            variant.scores["mass"] = report.mass_kg
         for dc in report.dimension_checks:
             if dc.measured_mm is not None:
                 variant.measured[f"{dc.interface_id}/{dc.feature}"] = dc.measured_mm
+        if report.envelope_check and report.envelope_check.actual_bbox_mm:
+            bbox = report.envelope_check.actual_bbox_mm
+            if len(bbox) >= 3:
+                vol = bbox[0] * bbox[1] * bbox[2]
+                variant.measured["volume_mm3"] = vol
+                variant.scores["volume_mm3"] = vol
 
         if not report.overall_pass:
             codes = ", ".join(fc.value for fc in report.failure_codes)
@@ -404,8 +411,11 @@ def check_gate_g6(
         for candidate in scoring_report.frontier:
             values: list[float] = []
             for v in candidate.variants.values():
-                if obj.name in v.scores:
-                    values.append(v.scores[obj.name])
+                score = v.scores.get(obj.name)
+                if score is None:
+                    score = v.measured.get(obj.name)
+                if score is not None:
+                    values.append(score)
             if values:
                 avg = sum(values) / len(values)
                 if obj.direction == "minimize" and avg <= obj.threshold:
@@ -414,9 +424,9 @@ def check_gate_g6(
                 elif obj.direction == "maximize" and avg >= obj.threshold:
                     any_passes = True
                     break
-        # If no variant has scores for this objective, skip the check
+        # If no variant has data for this objective, skip the check
         if not any_passes and any(
-            obj.name in v.scores
+            obj.name in v.scores or obj.name in v.measured
             for c in scoring_report.frontier
             for v in c.variants.values()
         ):

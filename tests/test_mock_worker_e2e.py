@@ -225,6 +225,7 @@ def _make_e2e_spec() -> MasterSpec:
         frame_a=CoordinateFrame(origin_mm=[0, 0, 10]),
         frame_b=CoordinateFrame(origin_mm=[0, 0, 10]),
         mating=MatingSemantic(type="cylindrical_fit", engagement_length_mm=5),
+        runout_or_concentricity=0.01,
         tolerances=ToleranceSchema(
             fit_class="H7/h6",
             dimensional={"diameter_mm": {"nominal": 10, "upper": 0.015, "lower": 0}},

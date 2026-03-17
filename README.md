@@ -164,6 +164,27 @@ For multi-body assemblies, robots, or designs that need research before building
 
 Each phase has a user gate — the LLM presents its work, you confirm before it moves on.
 
+### Orchestrator (Complex Assemblies)
+
+For assemblies with 3+ subsystems, mechanisms, or multi-worker builds, the orchestrator automates the design brief pipeline with parallel workers, deterministic gates, and SBCE (Set-Based Concurrent Engineering) ranking.
+
+The orchestrator runs a 7-stage pipeline:
+
+| Stage | What | Gate |
+|-------|------|------|
+| 0. Requirements | Normalize goals into objectives with units + thresholds | G0 — objectives complete |
+| 1. Council | Decompose into subsystems, feasibility check | G1 — budgets coherent (human approval) |
+| 2. Skeleton | Freeze datums, axes, reserved volumes | G2 — skeleton complete (human approval) |
+| 3. ICD Freeze | Lock interfaces + purchased parts | G3 — ICDs complete (human approval) |
+| 4. Worker Dispatch | Parallel workers build generated parts | G4 — all artifacts present |
+| 5. Validation | Geometry + assembly checks against frozen contracts | G5 — dimensionally compliant (human approval) |
+| 6. Scoring | SBCE ranking, Pareto frontier | G6 — at least one candidate meets thresholds |
+| 7. Release | BOM, ICDs, provenance, decision report | G7 — release package complete (human approval) |
+
+In interactive sessions, Claude Code **is** the orchestrator — it calls `orchestrator.runner` for deterministic logic and dispatches workers as parallel Agent subagents. For headless/CI use: `python -m orchestrator`.
+
+See [`docs/orchestrator-plan-cad-rewrite.md`](docs/orchestrator-plan-cad-rewrite.md) for the full pipeline spec and [`orchestrator/README.md`](orchestrator/README.md) for the module guide.
+
 ## Architecture
 
 ```mermaid
@@ -267,6 +288,8 @@ See [`docs/simulation-and-rl.md`](docs/simulation-and-rl.md) for simulation back
 - [`docs/gazebo_integration.md`](docs/gazebo_integration.md) — Gazebo backend design
 - [`docs/tool-design-cad-create-primitive.md`](docs/tool-design-cad-create-primitive.md) — primitive tool contract
 - [`docs/fix-urdf-export-coordinates.md`](docs/fix-urdf-export-coordinates.md) — URDF coordinate fixes
+- [`docs/orchestrator-plan-cad-rewrite.md`](docs/orchestrator-plan-cad-rewrite.md) — orchestrator pipeline spec (authoritative)
+- [`docs/orchestrator-7-arch-fixes.md`](docs/orchestrator-7-arch-fixes.md) — orchestrator architecture review and fixes
 
 <details>
 <summary>Developer reference</summary>

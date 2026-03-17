@@ -83,6 +83,7 @@ def _golden_spec() -> MasterSpec:
             engagement_length_mm=5.0,
             orientation_rule="axis_z aligned",
         ),
+        runout_or_concentricity=0.01,
         tolerances=ToleranceSchema(
             fit_class="H7/h6",
             dimensional={

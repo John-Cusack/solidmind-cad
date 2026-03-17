@@ -70,6 +70,7 @@ def _make_two_cube_spec() -> MasterSpec:
         ),
         datum_scheme="A-B",
         ctqs=["boss_diameter", "boss_height"],
+        runout_or_concentricity=0.02,
     )
     spec.interfaces.append(ifc)
 
@@ -352,7 +353,7 @@ class TestGateG3(unittest.TestCase):
         spec.interfaces.append(Interface(id="ifc_bare", name="bare"))
         ok, issues = check_gate_g3(spec)
         self.assertFalse(ok)
-        self.assertTrue(any("Incomplete" in i for i in issues))
+        self.assertTrue(any("baseline" in i or "Incomplete" in i for i in issues))
 
 
 class TestGateG4(unittest.TestCase):
@@ -456,6 +457,106 @@ class TestDryRun(unittest.TestCase):
                 continue
             self.assertGreater(f.stat().st_size, 100,
                                f"{f.name} is suspiciously small")
+
+
+class TestGateG3Extended(unittest.TestCase):
+    """Phase 1: G3 uses freeze_interfaces with extended ICD checks."""
+
+    def test_g3_rejects_gear_mesh_missing_backlash(self) -> None:
+        spec = MasterSpec(name="test", global_constraints={"x": 1})
+        spec.interfaces.append(Interface(
+            id="ifc_gear", name="gear_mesh_ifc",
+            subsystem_a="sun", subsystem_b="planet",
+            geometry={"module": 0.3},
+            frame_a=CoordinateFrame(origin_mm=[0, 0, 5]),
+            mating=MatingSemantic(type="gear_mesh"),
+            validation=ValidationMethod(check_points=[
+                ValidationCheckPoint(feature="center_distance", expected_mm=15, tolerance_mm=0.05),
+            ]),
+            # No backlash specified
+        ))
+        ok, issues = check_gate_g3(spec)
+        self.assertFalse(ok)
+        self.assertTrue(any("backlash" in i for i in issues))
+
+    def test_g3_passes_gear_mesh_with_backlash(self) -> None:
+        spec = MasterSpec(name="test", global_constraints={"x": 1})
+        spec.interfaces.append(Interface(
+            id="ifc_gear", name="gear_mesh_ifc",
+            subsystem_a="sun", subsystem_b="planet",
+            geometry={"module": 0.3},
+            frame_a=CoordinateFrame(origin_mm=[0, 0, 5]),
+            mating=MatingSemantic(type="gear_mesh"),
+            validation=ValidationMethod(check_points=[
+                ValidationCheckPoint(feature="center_distance", expected_mm=15, tolerance_mm=0.05),
+            ]),
+            backlash={"min_mm": 0.05, "max_mm": 0.10},
+        ))
+        ok, issues = check_gate_g3(spec)
+        self.assertTrue(ok, issues)
+
+    def test_g3_rejects_catalog_missing_supplier_part(self) -> None:
+        spec = MasterSpec(name="test")
+        spec.subsystems.append(Subsystem(
+            name="bearing", kind=SubsystemKind.CATALOG,
+            # No supplier_part
+        ))
+        ok, issues = check_gate_g3(spec)
+        self.assertFalse(ok)
+        self.assertTrue(any("supplier_part" in i for i in issues))
+
+
+class TestWorkerPromptSkeleton(unittest.TestCase):
+    """Phase 4: Worker prompts include skeleton context."""
+
+    def setUp(self) -> None:
+        from orchestrator.spec import AssemblySkeleton
+        self.td = tempfile.mkdtemp()
+        self.run = init_run("Test", run_dir=Path(self.td) / "run")
+        spec = _make_two_cube_spec()
+        spec.skeleton = AssemblySkeleton(
+            datums={"A": [0, 0, 0], "main_shaft": [10, 0, 0]},
+            reserved_volumes={
+                "cube_a": {"origin": [0, 0, 0], "size": [20, 20, 15]},
+            },
+            keepout_zones=[
+                {"name": "cable_run", "origin": [100, 0, 0], "size": [5, 5, 50]},
+            ],
+        )
+        spec.subsystems[0].assembly_constraints = {"coaxial_with": "main_shaft"}
+        self.run.spec = spec
+        save_spec(self.run)
+
+    def tearDown(self) -> None:
+        import shutil
+        shutil.rmtree(self.td, ignore_errors=True)
+
+    def test_prompt_contains_reserved_volume(self) -> None:
+        prompts = build_worker_prompts(self.run)
+        cube_a_prompt = next(
+            p for p in prompts
+            if p["subsystem"] == "cube_a" and p["variant_index"] == 0
+        )
+        self.assertIn("Spatial Constraints", cube_a_prompt["prompt"])
+        self.assertIn("Reserved volume", cube_a_prompt["prompt"])
+
+    def test_prompt_contains_datums(self) -> None:
+        prompts = build_worker_prompts(self.run)
+        cube_a_prompt = next(
+            p for p in prompts
+            if p["subsystem"] == "cube_a" and p["variant_index"] == 0
+        )
+        self.assertIn("main_shaft", cube_a_prompt["prompt"])
+
+    def test_prompt_no_skeleton_when_empty(self) -> None:
+        from orchestrator.spec import AssemblySkeleton
+        self.run.spec.skeleton = AssemblySkeleton()
+        self.run.spec.subsystems[0].assembly_constraints = {}
+        prompts = build_worker_prompts(self.run)
+        cube_b_prompt = next(
+            p for p in prompts if p["subsystem"] == "cube_b"
+        )
+        self.assertNotIn("Spatial Constraints", cube_b_prompt["prompt"])
 
 
 if __name__ == "__main__":

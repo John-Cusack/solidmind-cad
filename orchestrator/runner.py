@@ -163,7 +163,7 @@ Process: {mfg_process} | Min feature: {mfg_min_feature} mm | Min wall: {mfg_min_
 
 These dimensions are contractual. If you cannot meet a spec, report the deviation — do NOT deviate silently.
 
-## Steps
+{skeleton_section}## Steps
 1. Create a new document: `cad_new_document(name="{part_name}")`
 2. Create a body: `cad_new_body(label="{part_name}")`
 3. Build the geometry using sketch → pad/pocket → detail features
@@ -238,6 +238,10 @@ def _format_worker_prompt(
             )
         ifc_lines.append("")
 
+    from orchestrator.worker_subprocess import _build_skeleton_section
+
+    skeleton_section = _build_skeleton_section(spec, sub)
+
     return _WORKER_PROMPT.format(
         part_name=sub.name,
         assembly_name=spec.name,
@@ -251,6 +255,7 @@ def _format_worker_prompt(
         mfg_min_wall=sub.manufacturing.min_wall_mm,
         interfaces_text="\n".join(ifc_lines) if ifc_lines else "(no interfaces)",
         output_dir=output_dir,
+        skeleton_section=skeleton_section,
     )
 
 
@@ -333,12 +338,9 @@ def check_gate_g2(spec: MasterSpec) -> tuple[bool, list[str]]:
 
 
 def check_gate_g3(spec: MasterSpec) -> tuple[bool, list[str]]:
-    """G3: ICD completeness — all interfaces specified."""
-    ok, incomplete = spec.check_interfaces_complete()
-    issues = []
-    if not ok:
-        issues.append(f"Incomplete interfaces: {incomplete}")
-    return len(issues) == 0, issues
+    """G3: ICD completeness — extended checks + purchased-part lock."""
+    from orchestrator.interface_freeze import freeze_interfaces
+    return freeze_interfaces(spec)
 
 
 def check_gate_g4(run: OrchestratorRun) -> tuple[bool, list[str]]:
@@ -372,10 +374,13 @@ def check_gate_g6(
     return _g6(spec, scoring_report)
 
 
-def check_gate_g7(release_package: object) -> tuple[bool, list[str]]:
+def check_gate_g7(
+    release_package: object,
+    spec: MasterSpec | None = None,
+) -> tuple[bool, list[str]]:
     """G7: Release package completeness."""
     from orchestrator.release import check_gate_g7 as _g7
-    return _g7(release_package)
+    return _g7(release_package, spec=spec)
 
 
 # ---------------------------------------------------------------------------
@@ -413,11 +418,14 @@ def validate_results(
             status="success",
         )
         worker_measurements = (measurements or {}).get(worker_id, {})
+        measurement_source = "orchestrator" if worker_measurements else "unknown"
 
         # Try loading measurements from metadata.json
         metadata = rd.get("metadata", {})
         if not worker_measurements and metadata:
             worker_measurements = metadata.get("interface_actuals", {})
+            if worker_measurements:
+                measurement_source = "claimed"
 
         actual_bbox = metadata.get("claimed_bounding_box_mm") if metadata else None
         actual_mass = metadata.get("claimed_mass_kg") if metadata else None
@@ -427,6 +435,7 @@ def validate_results(
             measurements=worker_measurements,
             actual_bbox_mm=actual_bbox,
             actual_mass_kg=actual_mass,
+            measurement_source=measurement_source,
         )
         reports.append(report)
 
