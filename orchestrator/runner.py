@@ -35,14 +35,17 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from orchestrator.interface_freeze import freeze_interfaces as check_gate_g3
+from orchestrator.release import check_gate_g7
+from orchestrator.scorer import check_gate_g6
+from orchestrator.skeleton import check_gate_g2
 from orchestrator.spec import (
-    Interface,
     MasterSpec,
     SpecStatus,
-    Subsystem,
     SubsystemKind,
 )
 from orchestrator.state import StateMachine
+from orchestrator.validator import check_gate_g5
 
 log = logging.getLogger(__name__)
 
@@ -136,44 +139,6 @@ def transition(run: OrchestratorRun, to: SpecStatus, *, reason: str = "") -> Non
 # 3. Worker prompt generation
 # ---------------------------------------------------------------------------
 
-_WORKER_PROMPT = """\
-You are a CAD worker building **{part_name}** for the **{assembly_name}** assembly.
-Other workers are building mating parts to the same interface specs.
-
-## Your Assignment
-{description}
-
-## Specifications
-{specs_text}
-
-## Material
-{material}
-
-## Envelope Constraint
-{envelope_text}
-
-## Mass Budget
-{mass_text}
-
-## Manufacturing
-Process: {mfg_process} | Min feature: {mfg_min_feature} mm | Min wall: {mfg_min_wall} mm
-
-## Interfaces (FROZEN — match exactly)
-{interfaces_text}
-
-These dimensions are contractual. If you cannot meet a spec, report the deviation — do NOT deviate silently.
-
-{skeleton_section}## Steps
-1. Create a new document: `cad_new_document(name="{part_name}")`
-2. Create a body: `cad_new_body(label="{part_name}")`
-3. Build the geometry using sketch → pad/pocket → detail features
-4. Export STEP: `cad_export(path="{output_dir}/{part_name}.step", format="step")`
-5. Export STL: `cad_export(path="{output_dir}/{part_name}.stl", format="stl")`
-6. Screenshot: `cad_screenshot(path="{output_dir}/{part_name}.png")`
-7. Measure each interface dimension using `cad_measure_between` or `cad_get_dimensions`
-8. Report your measurements and any deviations
-"""
-
 
 def build_worker_prompts(run: OrchestratorRun) -> list[dict[str, Any]]:
     """Generate prompts for all GENERATED subsystems.
@@ -188,6 +153,8 @@ def build_worker_prompts(run: OrchestratorRun) -> list[dict[str, Any]]:
     Claude Code should dispatch each as an Agent() tool call.
     Multiple prompts can be dispatched in parallel.
     """
+    from orchestrator.worker_subprocess import build_worker_prompt
+
     prompts = []
     for sub in run.spec.subsystems:
         if sub.kind != SubsystemKind.GENERATED:
@@ -197,7 +164,7 @@ def build_worker_prompts(run: OrchestratorRun) -> list[dict[str, Any]]:
             output_dir = run.run_dir / f"{sub.name}_{variant_idx}" / "output"
             output_dir.mkdir(parents=True, exist_ok=True)
 
-            prompt = _format_worker_prompt(run.spec, sub, interfaces, str(output_dir))
+            prompt = build_worker_prompt(run.spec, sub, interfaces, str(output_dir))
             prompts.append({
                 "subsystem": sub.name,
                 "variant_index": variant_idx,
@@ -206,57 +173,6 @@ def build_worker_prompts(run: OrchestratorRun) -> list[dict[str, Any]]:
                 "output_dir": str(output_dir),
             })
     return prompts
-
-
-def _format_worker_prompt(
-    spec: MasterSpec,
-    sub: Subsystem,
-    interfaces: list[Interface],
-    output_dir: str,
-) -> str:
-    """Format a single worker prompt."""
-    import yaml
-
-    specs_text = yaml.dump(sub.specs, default_flow_style=False) if sub.specs else "(none)"
-
-    ifc_lines = []
-    for ifc in interfaces:
-        ifc_lines.append(f"### {ifc.name} (id: {ifc.id})")
-        if ifc.mating.type:
-            ifc_lines.append(f"  Mating: {ifc.mating.type}")
-        if ifc.geometry:
-            ifc_lines.append(f"  Geometry: {json.dumps(ifc.geometry)}")
-        if ifc.tolerances.fit_class:
-            ifc_lines.append(f"  Fit: {ifc.tolerances.fit_class}")
-        if ifc.tolerances.dimensional:
-            ifc_lines.append(f"  Dims: {json.dumps(ifc.tolerances.dimensional)}")
-        if ifc.datum_scheme:
-            ifc_lines.append(f"  Datum: {ifc.datum_scheme}")
-        for cp in ifc.validation.check_points:
-            ifc_lines.append(
-                f"  Check: {cp.feature} = {cp.expected_mm} ±{cp.tolerance_mm} mm"
-            )
-        ifc_lines.append("")
-
-    from orchestrator.worker_subprocess import _build_skeleton_section
-
-    skeleton_section = _build_skeleton_section(spec, sub)
-
-    return _WORKER_PROMPT.format(
-        part_name=sub.name,
-        assembly_name=spec.name,
-        description=sub.description or sub.name,
-        specs_text=specs_text,
-        material=sub.material or "(not specified)",
-        envelope_text=f"{sub.envelope_mm} mm" if sub.envelope_mm else "(unconstrained)",
-        mass_text=f"{sub.mass_budget_kg} kg" if sub.mass_budget_kg else "(unconstrained)",
-        mfg_process=sub.manufacturing.process or "(any)",
-        mfg_min_feature=sub.manufacturing.min_feature_size_mm,
-        mfg_min_wall=sub.manufacturing.min_wall_mm,
-        interfaces_text="\n".join(ifc_lines) if ifc_lines else "(no interfaces)",
-        output_dir=output_dir,
-        skeleton_section=skeleton_section,
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -331,18 +247,6 @@ def check_gate_g1(spec: MasterSpec) -> tuple[bool, list[str]]:
     return len(issues) == 0, issues
 
 
-def check_gate_g2(spec: MasterSpec) -> tuple[bool, list[str]]:
-    """G2: Skeleton completeness — datums, volumes, keepouts."""
-    from orchestrator.skeleton import check_gate_g2 as _g2
-    return _g2(spec)
-
-
-def check_gate_g3(spec: MasterSpec) -> tuple[bool, list[str]]:
-    """G3: ICD completeness — extended checks + purchased-part lock."""
-    from orchestrator.interface_freeze import freeze_interfaces
-    return freeze_interfaces(spec)
-
-
 def check_gate_g4(run: OrchestratorRun) -> tuple[bool, list[str]]:
     """G4: Artifacts exist — STEP files present for all generated subsystems."""
     issues = []
@@ -354,33 +258,6 @@ def check_gate_g4(run: OrchestratorRun) -> tuple[bool, list[str]]:
                 f"status={r['status']}"
             )
     return len(issues) == 0, issues
-
-
-def check_gate_g5(
-    spec: MasterSpec,
-    validation_reports: list,
-) -> tuple[bool, list[str]]:
-    """G5: Geometry + assembly validation — all subsystems compliant."""
-    from orchestrator.validator import check_gate_g5 as _g5
-    return _g5(spec, validation_reports)
-
-
-def check_gate_g6(
-    spec: MasterSpec,
-    scoring_report: object,
-) -> tuple[bool, list[str]]:
-    """G6: Verification + SBCE — at least one candidate meets thresholds."""
-    from orchestrator.scorer import check_gate_g6 as _g6
-    return _g6(spec, scoring_report)
-
-
-def check_gate_g7(
-    release_package: object,
-    spec: MasterSpec | None = None,
-) -> tuple[bool, list[str]]:
-    """G7: Release package completeness."""
-    from orchestrator.release import check_gate_g7 as _g7
-    return _g7(release_package, spec=spec)
 
 
 # ---------------------------------------------------------------------------
@@ -417,8 +294,10 @@ def validate_results(
             worker_id=worker_id,
             status="success",
         )
-        worker_measurements = (measurements or {}).get(worker_id, {})
-        measurement_source = "orchestrator" if worker_measurements else "unknown"
+        worker_measurements = (measurements or {}).get(worker_id)
+        measurement_source = "orchestrator" if worker_measurements is not None else "unknown"
+        if worker_measurements is None:
+            worker_measurements = {}
 
         # Try loading measurements from metadata.json
         metadata = rd.get("metadata", {})

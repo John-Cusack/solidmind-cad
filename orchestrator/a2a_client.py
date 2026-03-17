@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import json
 import logging
 from dataclasses import dataclass, field
@@ -231,9 +230,9 @@ class A2AClient:
     ) -> A2ATask:
         """Poll until task reaches a terminal state or timeout."""
         timeout = timeout_sec or self._timeout
-        deadline = asyncio.get_event_loop().time() + timeout
+        deadline = asyncio.get_running_loop().time() + timeout
         while task.status not in TERMINAL_STATES:
-            remaining = deadline - asyncio.get_event_loop().time()
+            remaining = deadline - asyncio.get_running_loop().time()
             if remaining <= 0:
                 await self.cancel_task(task)
                 task.status = "canceled"
@@ -257,7 +256,7 @@ class A2AClient:
             resp = await client.post(task.worker_url, json=body)
             resp.raise_for_status()
             task.status = "canceled"
-        except httpx.HTTPError as exc:
+        except Exception as exc:
             log.warning("Cancel failed for task %s: %s", task.task_id, exc)
 
     # -- Artifact collection ------------------------------------------------

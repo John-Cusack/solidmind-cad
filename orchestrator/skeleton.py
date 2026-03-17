@@ -1,9 +1,10 @@
 """Skeleton validation — datums, reserved volumes, keepout zones, and G2 gate."""
 from __future__ import annotations
 
+import json
 from typing import Any
 
-from orchestrator.spec import MasterSpec
+from orchestrator.spec import MasterSpec, Subsystem
 
 
 def validate_datum_attachment(spec: MasterSpec) -> tuple[bool, list[str]]:
@@ -71,13 +72,13 @@ def check_gate_g2(spec: MasterSpec) -> tuple[bool, list[str]]:
     if not spec.skeleton.datums:
         all_issues.append("No datums defined in skeleton")
 
-    ok_datum, datum_issues = validate_datum_attachment(spec)
+    _, datum_issues = validate_datum_attachment(spec)
     all_issues.extend(datum_issues)
 
-    ok_vols, vol_issues = validate_reserved_volumes(spec)
+    _, vol_issues = validate_reserved_volumes(spec)
     all_issues.extend(vol_issues)
 
-    ok_keepout, keepout_issues = validate_keepout_zones(spec)
+    _, keepout_issues = validate_keepout_zones(spec)
     all_issues.extend(keepout_issues)
 
     return len(all_issues) == 0, all_issues
@@ -147,3 +148,55 @@ def aabb_bounds(vol: dict[str, Any]) -> tuple[list[float] | None, list[float] | 
 # Backward-compatible aliases
 _aabb_overlap = aabb_overlap
 _aabb_bounds = aabb_bounds
+
+
+# ---------------------------------------------------------------------------
+# Skeleton prompt section builder (used by worker prompt generation)
+# ---------------------------------------------------------------------------
+
+
+def build_skeleton_section(spec: MasterSpec, subsystem: Subsystem) -> str:
+    """Build a ``## Spatial Constraints`` section from skeleton data."""
+    sk = spec.skeleton
+    lines: list[str] = []
+
+    # Reserved volume for this subsystem
+    reserved = sk.reserved_volumes.get(subsystem.name)
+    if reserved:
+        lines.append(f"Reserved volume: {json.dumps(reserved)}")
+
+    # Relevant datums
+    ac = subsystem.assembly_constraints
+    datum_refs: set[str] = set()
+    for key in ("datum", "datums", "coaxial_with", "mounted_on"):
+        val = ac.get(key)
+        if val:
+            if isinstance(val, list):
+                datum_refs.update(val)
+            else:
+                datum_refs.add(val)
+    if subsystem.name in sk.datums:
+        datum_refs.add(subsystem.name)
+    if datum_refs:
+        relevant_datums = {
+            k: v for k, v in sk.datums.items() if k in datum_refs
+        }
+        if relevant_datums:
+            lines.append(f"Datums: {json.dumps(relevant_datums)}")
+
+    # Keepout zones that overlap this subsystem's reserved volume
+    if reserved and sk.keepout_zones:
+        overlapping = []
+        for ki, kz in enumerate(sk.keepout_zones):
+            if aabb_overlap(reserved, kz):
+                overlapping.append(kz.get("name", f"keepout_{ki}"))
+        if overlapping:
+            lines.append(f"Nearby keepout zones (avoid): {overlapping}")
+
+    if not lines:
+        return ""
+    return "## Spatial Constraints\n" + "\n".join(lines) + "\n\n"
+
+
+# Backward-compatible alias
+_build_skeleton_section = build_skeleton_section

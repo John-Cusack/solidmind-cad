@@ -26,3 +26,8 @@ except ModuleNotFoundError:
             return json.loads(bytes(data).decode("utf-8"))
         return json.loads(data)
 
+
+def dumps_str(obj: Any) -> str:
+    """Return compact JSON as a ``str`` (convenience for text content fields)."""
+    return dumps(obj).decode("utf-8")
+

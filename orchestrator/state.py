@@ -39,6 +39,7 @@ _FAILURE_RETRY_TARGET: dict[FailureCode, SpecStatus] = {
     FailureCode.MANIFEST_HASH_MISMATCH: SpecStatus.BUILDING,
     FailureCode.INTERFACE_DIM_MISMATCH: SpecStatus.BUILDING,
     FailureCode.CLEARANCE_COLLISION:    SpecStatus.BUILDING,
+    FailureCode.MASS_OVER_BUDGET:       SpecStatus.BUILDING,
     FailureCode.ENVELOPE_VIOLATION:     SpecStatus.COUNCIL_REVIEW,
     FailureCode.ME_CHECK_FAIL:          SpecStatus.BUILDING,
     FailureCode.OBJECTIVE_THRESHOLD:    SpecStatus.COUNCIL_REVIEW,

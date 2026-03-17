@@ -6,11 +6,12 @@ and runs multibody dynamics simulations via Project Chrono.
 """
 from __future__ import annotations
 
-import json
 import logging
 import socket
 import time
 from typing import Any
+
+from server.jsonutil import dumps as json_dumps, loads as json_loads
 
 logger = logging.getLogger("solidmind.chrono_client")
 
@@ -130,10 +131,10 @@ class ChronoClient:
         self._ensure_connected()
         assert self._sock is not None
 
-        message = json.dumps({"cmd": cmd, "args": args}, separators=(",", ":")) + "\n"
-        logger.debug("Sending command: %s (payload %d bytes)", cmd, len(message))
+        raw = json_dumps({"cmd": cmd, "args": args}) + b"\n"
+        logger.debug("Sending command: %s (payload %d bytes)", cmd, len(raw))
         try:
-            self._sock.sendall(message.encode("utf-8"))
+            self._sock.sendall(raw)
         except (BrokenPipeError, ConnectionResetError, OSError) as e:
             logger.error("Connection lost while sending '%s': %s", cmd, e)
             self._sock = None
@@ -231,7 +232,7 @@ class ChronoClient:
             logger.debug("Received %d bytes (buffer total: %d)", len(data), len(self._buffer))
 
         line, self._buffer = self._buffer.split(b"\n", 1)
-        return json.loads(line.decode("utf-8"))
+        return json_loads(line)
 
 
 # Module-level singleton

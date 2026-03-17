@@ -17,7 +17,6 @@ from orchestrator.spec import (
     Interface,
     MasterSpec,
     Subsystem,
-    SubsystemKind,
     WorkerResult,
 )
 
@@ -54,7 +53,7 @@ class EnvelopeCheck:
     error: str = ""
 
 
-@dataclass(slots=True)
+@dataclass(frozen=True, slots=True)
 class ClearanceCheck:
     """Result of a clearance/collision check between two parts."""
 
@@ -66,7 +65,7 @@ class ClearanceCheck:
     error: str = ""
 
 
-@dataclass(slots=True)
+@dataclass(frozen=True, slots=True)
 class SkeletonCheck:
     """Result of a skeleton constraint check (reserved volume or keepout)."""
 
@@ -278,6 +277,8 @@ def _compute_overall(report: ValidationReport) -> None:
 
     if not report.mass_ok:
         report.overall_pass = False
+        if FailureCode.MASS_OVER_BUDGET not in report.failure_codes:
+            report.failure_codes.append(FailureCode.MASS_OVER_BUDGET)
 
     for cc in report.clearance_checks:
         if not cc.passed:
@@ -388,57 +389,8 @@ def check_gate_g5(
 
 def report_to_dict(report: ValidationReport) -> dict[str, Any]:
     """Serialize a ValidationReport to a JSON-compatible dict."""
-    return {
-        "subsystem_name": report.subsystem_name,
-        "worker_id": report.worker_id,
-        "overall_pass": report.overall_pass,
-        "measurement_source": report.measurement_source,
-        "mass_kg": report.mass_kg,
-        "mass_budget_kg": report.mass_budget_kg,
-        "mass_ok": report.mass_ok,
-        "failure_codes": [fc.value for fc in report.failure_codes],
-        "dimension_checks": [
-            {
-                "interface_id": dc.interface_id,
-                "feature": dc.feature,
-                "expected_mm": dc.expected_mm,
-                "measured_mm": dc.measured_mm,
-                "tolerance_mm": dc.tolerance_mm,
-                "passed": dc.passed,
-                "error": dc.error,
-                "source": dc.source,
-            }
-            for dc in report.dimension_checks
-        ],
-        "envelope_check": {
-            "subsystem_name": report.envelope_check.subsystem_name,
-            "spec_envelope_mm": report.envelope_check.spec_envelope_mm,
-            "actual_bbox_mm": report.envelope_check.actual_bbox_mm,
-            "passed": report.envelope_check.passed,
-            "error": report.envelope_check.error,
-        } if report.envelope_check else None,
-        "clearance_checks": [
-            {
-                "part_a": cc.part_a,
-                "part_b": cc.part_b,
-                "min_clearance_mm": cc.min_clearance_mm,
-                "required_clearance_mm": cc.required_clearance_mm,
-                "passed": cc.passed,
-            }
-            for cc in report.clearance_checks
-        ],
-        "notes": report.notes,
-        "skeleton_checks": [
-            {
-                "check": sc.check,
-                "subsystem": sc.subsystem,
-                "passed": sc.passed,
-                "error": sc.error,
-                "keepout": sc.keepout,
-            }
-            for sc in report.skeleton_checks
-        ],
-    }
+    from orchestrator._serde import dc_to_dict
+    return dc_to_dict(report)
 
 
 def save_validation_report(

@@ -5,12 +5,13 @@ requests to an Isaac sidecar when available.
 """
 from __future__ import annotations
 
-import json
 import logging
 import os
 import socket
 import time
 from typing import Any
+
+from server.jsonutil import dumps as json_dumps, dumps_str as json_dumps_str, loads as json_loads
 
 logger = logging.getLogger("solidmind.isaac_client")
 
@@ -179,10 +180,10 @@ class IsaacClient:
         assert self._sock is not None
         effective_timeout = self._read_timeout if timeout is None else timeout
 
-        message = json.dumps({"cmd": cmd, "args": args}, separators=(",", ":")) + "\n"
-        logger.debug("Sending command: %s (payload %d bytes)", cmd, len(message))
+        raw = json_dumps({"cmd": cmd, "args": args}) + b"\n"
+        logger.debug("Sending command: %s (payload %d bytes)", cmd, len(raw))
         try:
-            self._sock.sendall(message.encode("utf-8"))
+            self._sock.sendall(raw)
         except (BrokenPipeError, ConnectionResetError, OSError) as exc:
             logger.error("Connection lost while sending '%s': %s", cmd, exc)
             self._sock = None
@@ -212,7 +213,7 @@ class IsaacClient:
                 if isinstance(msg_val, str) and msg_val.strip():
                     error_msg = msg_val.strip()
                 else:
-                    error_msg = json.dumps(err, sort_keys=True)
+                    error_msg = json_dumps_str(err)
             elif isinstance(err, str):
                 error_msg = err
             else:
@@ -389,7 +390,7 @@ class IsaacClient:
             self._buffer += data
 
         line, self._buffer = self._buffer.split(b"\n", 1)
-        return json.loads(line.decode("utf-8"))
+        return json_loads(line)
 
 
 _client: IsaacClient | None = None

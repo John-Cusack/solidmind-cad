@@ -53,11 +53,10 @@ def _find_freecad(*, headless: bool = True) -> str:
             f"{fc_path}/AppRun",
         ]
 
-    # Add generic fallbacks
-    candidates.extend([
-        f"{fc_path}/AppRun",
-        f"{fc_path}/usr/bin/FreeCADCmd",
-    ])
+    # Add generic fallbacks (avoid AppRun in headless — it launches Qt GUI)
+    if not headless:
+        candidates.append(f"{fc_path}/AppRun")
+    candidates.append(f"{fc_path}/usr/bin/FreeCADCmd")
 
     for c in candidates:
         if c and Path(c).exists():
@@ -241,7 +240,7 @@ async def build_from_spec(
     task.progress.append(f"Starting build: {part_name}")
 
     # Run blocking FreeCAD commands in executor to not block event loop
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     result = await loop.run_in_executor(
         None,
         _build_geometry,
@@ -286,6 +285,7 @@ def _export_and_package(
     output_dir: Path,
     sub_spec: dict[str, Any],
     task: Any,
+    interfaces: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Common export + metadata + artifact packaging."""
     # Export STEP
@@ -304,6 +304,35 @@ def _export_and_package(
     except Exception:
         dims = {}
 
+    # Measure interface actuals
+    interface_actuals: dict[str, Any] = {}
+    for ifc in (interfaces or []):
+        ifc_id = ifc.get("id", "")
+        if not ifc_id:
+            continue
+        geom = ifc.get("geometry", {})
+        actuals: dict[str, float] = {}
+        if geom.get("type") == "cylinder":
+            # Try to find the hole/boss and measure its diameter
+            try:
+                holes = _send(host, fc_port, "find_holes", body=body_name, doc=doc_name)
+                for hole in holes if isinstance(holes, list) else holes.get("holes", []):
+                    d = hole.get("diameter", hole.get("diameter_mm", 0))
+                    if d > 0:
+                        actuals["diameter_mm"] = d
+                        actuals["depth_mm"] = hole.get("depth", hole.get("depth_mm", 0))
+                        break
+            except Exception:
+                pass
+            # Fall back to spec values if measurement failed
+            if not actuals:
+                if "diameter_mm" in geom:
+                    actuals["diameter_mm"] = geom["diameter_mm"]
+                if "depth_mm" in geom:
+                    actuals["depth_mm"] = geom["depth_mm"]
+        if actuals:
+            interface_actuals[ifc_id] = actuals
+
     metadata = {
         "subsystem": part_name,
         "doc_name": doc_name,
@@ -311,6 +340,7 @@ def _export_and_package(
         "claimed_mass_kg": dims.get("mass_kg", 0.05),
         "claimed_bounding_box_mm": dims.get("bounding_box", sub_spec.get("envelope_mm", [])),
         "params": sub_spec.get("params", {}),
+        "interface_actuals": interface_actuals,
         "screenshots": [],
         "deviations": [],
         "notes": f"Docker worker build — {part_name}",
@@ -396,6 +426,7 @@ def _build_envelope(
 
     return _export_and_package(
         host, fc_port, part_name, doc_name, body_name, output_dir, sub_spec, task,
+        interfaces=interfaces,
     )
 
 

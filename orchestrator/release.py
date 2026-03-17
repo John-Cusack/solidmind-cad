@@ -17,7 +17,7 @@ from orchestrator.spec import (
     SubsystemKind,
     WorkerResult,
 )
-from orchestrator.scorer import ScoringReport
+from orchestrator.scorer import ScoringReport, _extract_variant_index
 from orchestrator.validator import ValidationReport
 
 log = logging.getLogger(__name__)
@@ -68,7 +68,7 @@ def generate_bom(
             if report.mass_kg is not None:
                 # If we have a winner, only use that variant's mass
                 if winner_variants:
-                    variant_idx = _extract_variant_index_from_worker_id(report.worker_id)
+                    variant_idx = _extract_variant_index(report.worker_id)
                     if report.subsystem_name in winner_variants:
                         if variant_idx != winner_variants[report.subsystem_name]:
                             continue
@@ -96,12 +96,6 @@ def generate_bom(
         )
         lines.append(line)
     return lines
-
-
-def _extract_variant_index_from_worker_id(worker_id: str) -> int:
-    """Extract variant index from worker_id like 'sun_gear_0'."""
-    from orchestrator.scorer import _extract_variant_index
-    return _extract_variant_index(worker_id)
 
 
 # ---------------------------------------------------------------------------

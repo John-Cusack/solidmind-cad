@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 import logging
 import os
 import sys
@@ -97,6 +96,7 @@ def switch_document_log(doc_name: str) -> Path:
     return log_file
 
 from server.jsonutil import dumps as json_dumps
+from server.jsonutil import dumps_str as json_dumps_str
 from server.jsonutil import loads as json_loads
 from server.prompts import get_prompt, list_prompts
 from server.tools import (
@@ -4031,7 +4031,7 @@ def serve() -> int:
                     })
 
                 # Always include text result (remaining metadata)
-                content.append({"type": "text", "text": json.dumps(out)})
+                content.append({"type": "text", "text": json_dumps_str(out)})
 
                 _send(_rpc_result(rpc_id, {"isError": False, "content": content}))
                 continue

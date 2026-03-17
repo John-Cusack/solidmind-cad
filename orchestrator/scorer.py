@@ -256,7 +256,7 @@ def _needs_fea(spec: MasterSpec) -> bool:
                 + abs(lc.radial_force_n)
                 + abs(lc.bending_moment_nm)
             )
-            if total > 0:
+            if total > 1e-9:
                 return True
     return False
 

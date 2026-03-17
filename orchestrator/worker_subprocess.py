@@ -13,7 +13,7 @@ import logging
 import shutil
 import subprocess
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -93,6 +93,7 @@ def build_worker_prompt(
 ) -> str:
     """Construct the prompt for a worker's Claude Code session."""
     import yaml
+    from orchestrator.skeleton import build_skeleton_section
 
     specs_yaml = yaml.dump(subsystem.specs, default_flow_style=False) if subsystem.specs else "(none)"
 
@@ -109,7 +110,7 @@ def build_worker_prompt(
             ifc_parts.append(f"Datum scheme: {ifc.datum_scheme}")
         ifc_parts.append("")
 
-    skeleton_section = _build_skeleton_section(spec, subsystem)
+    skeleton_section = build_skeleton_section(spec, subsystem)
 
     return _WORKER_PROMPT_TEMPLATE.format(
         part_name=subsystem.name,
@@ -127,49 +128,6 @@ def build_worker_prompt(
         skeleton_section=skeleton_section,
     )
 
-
-def _build_skeleton_section(spec: MasterSpec, subsystem: Subsystem) -> str:
-    """Build a ## Spatial Constraints section from skeleton data."""
-    sk = spec.skeleton
-    lines: list[str] = []
-
-    # Reserved volume for this subsystem
-    reserved = sk.reserved_volumes.get(subsystem.name)
-    if reserved:
-        lines.append(f"Reserved volume: {json.dumps(reserved)}")
-
-    # Relevant datums
-    ac = subsystem.assembly_constraints
-    datum_refs = set()
-    for key in ("datum", "datums", "coaxial_with", "mounted_on"):
-        val = ac.get(key)
-        if val:
-            if isinstance(val, list):
-                datum_refs.update(val)
-            else:
-                datum_refs.add(val)
-    if subsystem.name in sk.datums:
-        datum_refs.add(subsystem.name)
-    if datum_refs:
-        relevant_datums = {
-            k: v for k, v in sk.datums.items() if k in datum_refs
-        }
-        if relevant_datums:
-            lines.append(f"Datums: {json.dumps(relevant_datums)}")
-
-    # Keepout zones that overlap this subsystem's reserved volume
-    if reserved and sk.keepout_zones:
-        from orchestrator.skeleton import aabb_overlap
-        overlapping = []
-        for ki, kz in enumerate(sk.keepout_zones):
-            if aabb_overlap(reserved, kz):
-                overlapping.append(kz.get("name", f"keepout_{ki}"))
-        if overlapping:
-            lines.append(f"Nearby keepout zones (avoid): {overlapping}")
-
-    if not lines:
-        return ""
-    return "## Spatial Constraints\n" + "\n".join(lines) + "\n\n"
 
 
 # ---------------------------------------------------------------------------
@@ -298,8 +256,6 @@ async def dispatch_workers(
     log.info("Dispatching %d worker(s) (max_parallel=%d)", len(tasks), max_parallel)
 
     sem = asyncio.Semaphore(max_parallel)
-    results: list[SubprocessResult] = []
-
     async def _run(sub: Subsystem, ifcs: list[Interface], idx: int) -> SubprocessResult:
         async with sem:
             return await launch_worker(

@@ -57,6 +57,7 @@ class FailureCode(str, Enum):
     BUDGET_EXCEEDED = "BUDGET_EXCEEDED"
     SKELETON_CONFLICT = "SKELETON_CONFLICT"
     ICD_INCOMPLETE = "ICD_INCOMPLETE"
+    MASS_OVER_BUDGET = "MASS_OVER_BUDGET"
     ASSEMBLY_ACCESS_FAIL = "ASSEMBLY_ACCESS_FAIL"
 
 
@@ -75,7 +76,7 @@ _COMPLEXITY_DEFAULTS: dict[ComplexityClass, dict[str, Any]] = {
 # Objective
 # ---------------------------------------------------------------------------
 
-@dataclass(slots=True)
+@dataclass(frozen=True, slots=True)
 class Objective:
     """A single optimization objective."""
 
@@ -90,7 +91,7 @@ class Objective:
 # Interface (enriched with frames, mating, tolerances, validation)
 # ---------------------------------------------------------------------------
 
-@dataclass(slots=True)
+@dataclass(frozen=True, slots=True)
 class CoordinateFrame:
     """Local coordinate frame at an interface boundary."""
 
@@ -100,7 +101,7 @@ class CoordinateFrame:
     axis_z: list[float] = field(default_factory=lambda: [0.0, 0.0, 1.0])
 
 
-@dataclass(slots=True)
+@dataclass(frozen=True, slots=True)
 class MatingSemantic:
     """How two parts physically connect at an interface."""
 
@@ -109,7 +110,7 @@ class MatingSemantic:
     orientation_rule: str = ""  # e.g. "axis_z aligned, axis_x clocked"
 
 
-@dataclass(slots=True)
+@dataclass(frozen=True, slots=True)
 class ToleranceSchema:
     """Dimensional and geometric tolerances at an interface."""
 
@@ -120,7 +121,7 @@ class ToleranceSchema:
     # e.g. {"concentricity_mm": 0.01, "perpendicularity_mm": 0.02}
 
 
-@dataclass(slots=True)
+@dataclass(frozen=True, slots=True)
 class LoadCase:
     """A named load condition at an interface."""
 
@@ -131,7 +132,7 @@ class LoadCase:
     bending_moment_nm: float = 0.0
 
 
-@dataclass(slots=True)
+@dataclass(frozen=True, slots=True)
 class ValidationCheckPoint:
     """A single measurement the orchestrator performs to verify an interface."""
 
@@ -140,7 +141,7 @@ class ValidationCheckPoint:
     tolerance_mm: float = 0.01
 
 
-@dataclass(slots=True)
+@dataclass(frozen=True, slots=True)
 class ValidationMethod:
     """How the orchestrator verifies an interface after build."""
 
@@ -149,7 +150,7 @@ class ValidationMethod:
     pass_rule: str = "all checks within tolerance"
 
 
-@dataclass(slots=True)
+@dataclass(frozen=True, slots=True)
 class Interface:
     """A dimensional contract between two subsystems — immutable after freeze."""
 
@@ -209,7 +210,7 @@ class Interface:
 # Manufacturing and runtime policy
 # ---------------------------------------------------------------------------
 
-@dataclass(slots=True)
+@dataclass(frozen=True, slots=True)
 class ReleaseRequirements:
     """Release documentation requirements for a subsystem."""
 
@@ -219,7 +220,7 @@ class ReleaseRequirements:
     revision_controlled: bool = False
 
 
-@dataclass(slots=True)
+@dataclass(frozen=True, slots=True)
 class ManufacturingSpec:
     """Manufacturing constraints for a subsystem."""
 
@@ -233,7 +234,7 @@ class ManufacturingSpec:
     coating: str = ""
 
 
-@dataclass(slots=True)
+@dataclass(frozen=True, slots=True)
 class RuntimePolicy:
     """Timeout and retry budget for a worker."""
 
@@ -282,7 +283,7 @@ class Subsystem:
 # Knowledge config
 # ---------------------------------------------------------------------------
 
-@dataclass(slots=True)
+@dataclass(frozen=True, slots=True)
 class KnowledgeConfig:
     """How knowledge is distributed to workers."""
 
@@ -295,7 +296,7 @@ class KnowledgeConfig:
 # Cost policy
 # ---------------------------------------------------------------------------
 
-@dataclass(slots=True)
+@dataclass(frozen=True, slots=True)
 class CostPolicy:
     """Budget caps for the entire run."""
 
@@ -308,7 +309,7 @@ class CostPolicy:
 # Provenance and artifacts
 # ---------------------------------------------------------------------------
 
-@dataclass(slots=True)
+@dataclass(frozen=True, slots=True)
 class ProvenanceManifest:
     """Tracks origin and reproducibility of a worker run."""
 
@@ -320,7 +321,7 @@ class ProvenanceManifest:
     tool_versions: dict[str, str] = field(default_factory=dict)
 
 
-@dataclass(slots=True)
+@dataclass(frozen=True, slots=True)
 class ArtifactEntry:
     """A single output artifact with integrity metadata."""
 
@@ -366,7 +367,7 @@ class WorkerResult:
 # Assembly skeleton
 # ---------------------------------------------------------------------------
 
-@dataclass(slots=True)
+@dataclass(frozen=True, slots=True)
 class AssemblySkeleton:
     """Assembly-level spatial truth — datums, axes, reserved volumes."""
 
@@ -425,14 +426,6 @@ class MasterSpec:
         msg = f"subsystem mass total {total:.3f} kg vs budget {max_mass:.3f} kg"
         return ok, msg
 
-    def check_interfaces_complete(self) -> tuple[bool, list[str]]:
-        """Verify all interfaces have required fields for freeze."""
-        incomplete = []
-        for ifc in self.interfaces:
-            if not ifc.is_complete():
-                incomplete.append(ifc.id)
-        return len(incomplete) == 0, incomplete
-
     def check_dangling_refs(self) -> tuple[bool, list[str]]:
         """Verify all subsystem interface refs point to existing interfaces."""
         ifc_ids = {i.id for i in self.interfaces}
@@ -458,286 +451,20 @@ class MasterSpec:
         return cls._from_dict(data)
 
     def _to_dict(self) -> dict[str, Any]:
-        return {
-            "id": self.id,
-            "name": self.name,
-            "description": self.description,
-            "status": self.status.value,
-            "worker_mode": self.worker_mode.value,
-            "global_constraints": self.global_constraints,
-            "objectives": [
-                {"name": o.name, "direction": o.direction, "unit": o.unit,
-                 "weight": o.weight, "threshold": o.threshold}
-                for o in self.objectives
-            ],
-            "subsystems": [self._sub_to_dict(s) for s in self.subsystems],
-            "interfaces": [self._ifc_to_dict(i) for i in self.interfaces],
-            "knowledge": {
-                "global_paths": self.knowledge.global_paths,
-                "project_path": self.knowledge.project_path,
-                "share_mode": self.knowledge.share_mode,
-            },
-            "cost_policy": {
-                "max_run_cost_usd": self.cost_policy.max_run_cost_usd,
-                "max_stage_cost_usd": self.cost_policy.max_stage_cost_usd,
-                "warn_at_pct": self.cost_policy.warn_at_pct,
-            },
-            "skeleton": {
-                "datums": self.skeleton.datums,
-                "shaft_axes": self.skeleton.shaft_axes,
-                "bearing_spans": self.skeleton.bearing_spans,
-                "reserved_volumes": self.skeleton.reserved_volumes,
-                "keepout_zones": self.skeleton.keepout_zones,
-            },
-        }
+        from orchestrator._serde import dc_to_dict
+        return dc_to_dict(self)
 
     @staticmethod
     def _sub_to_dict(s: Subsystem) -> dict[str, Any]:
-        d: dict[str, Any] = {
-            "id": s.id, "name": s.name, "description": s.description,
-            "envelope_mm": s.envelope_mm, "mass_budget_kg": s.mass_budget_kg,
-            "material": s.material, "interfaces": s.interfaces,
-            "specs": s.specs, "worker_count": s.worker_count,
-            "complexity_class": s.complexity_class.value,
-        }
-        if s.runtime_policy:
-            d["runtime_policy"] = {
-                "timeout_sec": s.runtime_policy.timeout_sec,
-                "max_retries": s.runtime_policy.max_retries,
-                "max_cost_usd": s.runtime_policy.max_cost_usd,
-            }
-        d["manufacturing"] = {
-            "process": s.manufacturing.process,
-            "min_feature_size_mm": s.manufacturing.min_feature_size_mm,
-            "min_wall_mm": s.manufacturing.min_wall_mm,
-            "notes": s.manufacturing.notes,
-            "tolerance_general": s.manufacturing.tolerance_general,
-            "tolerance_critical": s.manufacturing.tolerance_critical,
-            "surface_finish_ra_um": s.manufacturing.surface_finish_ra_um,
-            "coating": s.manufacturing.coating,
-        }
-        d["kind"] = s.kind.value
-        d["standard"] = s.standard
-        d["supplier_part"] = s.supplier_part
-        d["assembly_constraints"] = s.assembly_constraints
-        d["quantity"] = s.quantity
-        d["release"] = {
-            "drawing_required": s.release.drawing_required,
-            "inspection_required": s.release.inspection_required,
-            "bom_line_type": s.release.bom_line_type,
-            "revision_controlled": s.release.revision_controlled,
-        }
-        return d
+        from orchestrator._serde import dc_to_dict
+        return dc_to_dict(s)
 
     @staticmethod
     def _ifc_to_dict(i: Interface) -> dict[str, Any]:
-        return {
-            "id": i.id, "name": i.name,
-            "subsystem_a": i.subsystem_a, "port_a": i.port_a,
-            "subsystem_b": i.subsystem_b, "port_b": i.port_b,
-            "geometry": i.geometry,
-            "frame_a": {
-                "origin_mm": i.frame_a.origin_mm,
-                "axis_x": i.frame_a.axis_x,
-                "axis_y": i.frame_a.axis_y,
-                "axis_z": i.frame_a.axis_z,
-            },
-            "frame_b": {
-                "origin_mm": i.frame_b.origin_mm,
-                "axis_x": i.frame_b.axis_x,
-                "axis_y": i.frame_b.axis_y,
-                "axis_z": i.frame_b.axis_z,
-            },
-            "mating": {
-                "type": i.mating.type,
-                "engagement_length_mm": i.mating.engagement_length_mm,
-                "orientation_rule": i.mating.orientation_rule,
-            },
-            "tolerances": {
-                "fit_class": i.tolerances.fit_class,
-                "dimensional": i.tolerances.dimensional,
-                "geometric": i.tolerances.geometric,
-            },
-            "loads": [
-                {"name": lc.name, "torque_nm": lc.torque_nm,
-                 "axial_force_n": lc.axial_force_n,
-                 "radial_force_n": lc.radial_force_n,
-                 "bending_moment_nm": lc.bending_moment_nm}
-                for lc in i.loads
-            ],
-            "validation": {
-                "measurement_tool": i.validation.measurement_tool,
-                "check_points": [
-                    {"feature": cp.feature, "expected_mm": cp.expected_mm,
-                     "tolerance_mm": cp.tolerance_mm}
-                    for cp in i.validation.check_points
-                ],
-                "pass_rule": i.validation.pass_rule,
-            },
-            "datum_scheme": i.datum_scheme,
-            "ctqs": i.ctqs,
-            "inspection": i.inspection,
-            "runout_or_concentricity": i.runout_or_concentricity,
-            "preload": i.preload,
-            "backlash": i.backlash,
-            "surface_requirements": i.surface_requirements,
-            "retention": i.retention,
-            "lubrication": i.lubrication,
-            "service_requirements": i.service_requirements,
-            "thermal_allowance": i.thermal_allowance,
-        }
+        from orchestrator._serde import dc_to_dict
+        return dc_to_dict(i)
 
     @classmethod
     def _from_dict(cls, d: dict[str, Any]) -> MasterSpec:
-        spec = cls(
-            id=d.get("id", ""),
-            name=d.get("name", ""),
-            description=d.get("description", ""),
-            status=SpecStatus(d.get("status", "draft")),
-            worker_mode=WorkerMode(d.get("worker_mode", "claude_code")),
-            global_constraints=d.get("global_constraints", {}),
-        )
-
-        for o in d.get("objectives", []):
-            spec.objectives.append(Objective(**o))
-
-        for sd in d.get("subsystems", []):
-            sub = Subsystem(
-                id=sd.get("id", ""),
-                name=sd.get("name", ""),
-                description=sd.get("description", ""),
-                envelope_mm=sd.get("envelope_mm", []),
-                mass_budget_kg=sd.get("mass_budget_kg"),
-                material=sd.get("material", ""),
-                interfaces=sd.get("interfaces", []),
-                specs=sd.get("specs", {}),
-                worker_count=sd.get("worker_count", 1),
-                complexity_class=ComplexityClass(sd.get("complexity_class", "M")),
-                kind=SubsystemKind(sd.get("kind", "generated")),
-                standard=sd.get("standard", ""),
-                supplier_part=sd.get("supplier_part", ""),
-                assembly_constraints=sd.get("assembly_constraints", {}),
-            )
-            rp = sd.get("runtime_policy")
-            if rp:
-                sub.runtime_policy = RuntimePolicy(
-                    timeout_sec=rp.get("timeout_sec", 600),
-                    max_retries=rp.get("max_retries", 2),
-                    max_cost_usd=rp.get("max_cost_usd", 5.0),
-                )
-            mfg = sd.get("manufacturing", {})
-            if mfg:
-                sub.manufacturing = ManufacturingSpec(
-                    process=mfg.get("process", ""),
-                    min_feature_size_mm=mfg.get("min_feature_size_mm", 0.5),
-                    min_wall_mm=mfg.get("min_wall_mm", 1.0),
-                    notes=mfg.get("notes", ""),
-                    tolerance_general=mfg.get("tolerance_general", ""),
-                    tolerance_critical=mfg.get("tolerance_critical", ""),
-                    surface_finish_ra_um=mfg.get("surface_finish_ra_um"),
-                    coating=mfg.get("coating", ""),
-                )
-            sub.quantity = sd.get("quantity", 1)
-            rel = sd.get("release", {})
-            if rel:
-                sub.release = ReleaseRequirements(
-                    drawing_required=rel.get("drawing_required", False),
-                    inspection_required=rel.get("inspection_required", False),
-                    bom_line_type=rel.get("bom_line_type", ""),
-                    revision_controlled=rel.get("revision_controlled", False),
-                )
-            spec.subsystems.append(sub)
-
-        for ifd in d.get("interfaces", []):
-            ifc = Interface(
-                id=ifd.get("id", ""),
-                name=ifd.get("name", ""),
-                subsystem_a=ifd.get("subsystem_a", ""),
-                port_a=ifd.get("port_a", ""),
-                subsystem_b=ifd.get("subsystem_b", ""),
-                port_b=ifd.get("port_b", ""),
-                geometry=ifd.get("geometry", {}),
-            )
-            for key, attr in [("frame_a", "frame_a"), ("frame_b", "frame_b")]:
-                fd = ifd.get(key, {})
-                if fd:
-                    setattr(ifc, attr, CoordinateFrame(
-                        origin_mm=fd.get("origin_mm", [0, 0, 0]),
-                        axis_x=fd.get("axis_x", [1, 0, 0]),
-                        axis_y=fd.get("axis_y", [0, 1, 0]),
-                        axis_z=fd.get("axis_z", [0, 0, 1]),
-                    ))
-            md = ifd.get("mating", {})
-            if md:
-                ifc.mating = MatingSemantic(
-                    type=md.get("type", ""),
-                    engagement_length_mm=md.get("engagement_length_mm"),
-                    orientation_rule=md.get("orientation_rule", ""),
-                )
-            td = ifd.get("tolerances", {})
-            if td:
-                ifc.tolerances = ToleranceSchema(
-                    fit_class=td.get("fit_class", ""),
-                    dimensional=td.get("dimensional", {}),
-                    geometric=td.get("geometric", {}),
-                )
-            for ld in ifd.get("loads", []):
-                ifc.loads.append(LoadCase(
-                    name=ld.get("name", "operating"),
-                    torque_nm=ld.get("torque_nm", 0),
-                    axial_force_n=ld.get("axial_force_n", 0),
-                    radial_force_n=ld.get("radial_force_n", 0),
-                    bending_moment_nm=ld.get("bending_moment_nm", 0),
-                ))
-            vd = ifd.get("validation", {})
-            if vd:
-                ifc.validation = ValidationMethod(
-                    measurement_tool=vd.get("measurement_tool", "cad_measure_between"),
-                    pass_rule=vd.get("pass_rule", "all checks within tolerance"),
-                )
-                for cpd in vd.get("check_points", []):
-                    ifc.validation.check_points.append(ValidationCheckPoint(
-                        feature=cpd.get("feature", ""),
-                        expected_mm=cpd.get("expected_mm", 0),
-                        tolerance_mm=cpd.get("tolerance_mm", 0.01),
-                    ))
-            ifc.datum_scheme = ifd.get("datum_scheme", "")
-            ifc.ctqs = ifd.get("ctqs", [])
-            ifc.inspection = ifd.get("inspection", {})
-            ifc.runout_or_concentricity = ifd.get("runout_or_concentricity")
-            ifc.preload = ifd.get("preload", {})
-            ifc.backlash = ifd.get("backlash", {})
-            ifc.surface_requirements = ifd.get("surface_requirements", {})
-            ifc.retention = ifd.get("retention", "")
-            ifc.lubrication = ifd.get("lubrication", "")
-            ifc.service_requirements = ifd.get("service_requirements", {})
-            ifc.thermal_allowance = ifd.get("thermal_allowance", {})
-            spec.interfaces.append(ifc)
-
-        kn = d.get("knowledge", {})
-        if kn:
-            spec.knowledge = KnowledgeConfig(
-                global_paths=kn.get("global_paths", []),
-                project_path=kn.get("project_path", ""),
-                share_mode=kn.get("share_mode", "project_slice"),
-            )
-
-        cp = d.get("cost_policy", {})
-        if cp:
-            spec.cost_policy = CostPolicy(
-                max_run_cost_usd=cp.get("max_run_cost_usd", 50.0),
-                max_stage_cost_usd=cp.get("max_stage_cost_usd", 20.0),
-                warn_at_pct=cp.get("warn_at_pct", 80),
-            )
-
-        sk = d.get("skeleton", {})
-        if sk:
-            spec.skeleton = AssemblySkeleton(
-                datums=sk.get("datums", {}),
-                shaft_axes=sk.get("shaft_axes", {}),
-                bearing_spans=sk.get("bearing_spans", {}),
-                reserved_volumes=sk.get("reserved_volumes", {}),
-                keepout_zones=sk.get("keepout_zones", []),
-            )
-
-        return spec
+        from orchestrator._serde import dc_from_dict
+        return dc_from_dict(cls, d)

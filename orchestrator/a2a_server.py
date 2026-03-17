@@ -15,6 +15,9 @@ from typing import Any
 
 log = logging.getLogger(__name__)
 
+# Background tasks must be kept alive to prevent GC before completion.
+_background_tasks: set[asyncio.Task] = set()  # type: ignore[type-arg]
+
 # ---------------------------------------------------------------------------
 # Task store (in-memory, single worker per container)
 # ---------------------------------------------------------------------------
@@ -142,7 +145,9 @@ async def _handle_message_send(
 
     # Launch build in background if build_fn provided
     if build_fn is not None:
-        asyncio.create_task(_run_build(task, build_fn))
+        bg = asyncio.create_task(_run_build(task, build_fn))
+        _background_tasks.add(bg)
+        bg.add_done_callback(_background_tasks.discard)
 
     return _rpc_success(rpc_id, {
         "taskId": task.task_id,
