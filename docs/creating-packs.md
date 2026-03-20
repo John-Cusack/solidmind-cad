@@ -130,12 +130,47 @@ sheetmetal = "solidmind_sheetmetal.pack"
 
 Knowledge files auto-ingest into LanceDB on first `knowledge.search`. Bumping `VERSION` triggers re-ingestion.
 
+## Solver packs
+
+Solver packs add field-problem solvers (FEA, thermal, EM, CFD) to `analysis.*` tools. Implement the `FieldSolver` ABC from `server.analysis_solvers`.
+
+```python
+# solidmind_openfoam/pack.py
+from server.analysis_solvers import FieldSolver
+
+class OpenFOAMSolver(FieldSolver):
+    def name(self) -> str: return "openfoam"
+    def analysis_types(self):
+        from server.analysis_models import AnalysisType
+        return [AnalysisType.STRUCTURAL]
+    def available(self) -> tuple[bool, str]:
+        import shutil
+        if shutil.which("simpleFoam"):
+            return True, "simpleFoam found"
+        return False, "simpleFoam not found. Install OpenFOAM."
+    def write_input(self, spec, mesh_info, work_dir): ...
+    def run(self, input_path, work_dir): ...
+    def parse_results(self, work_dir, spec): ...
+
+SOLVERS: list[FieldSolver] = [OpenFOAMSolver()]
+```
+
+Register the entry point:
+
+```toml
+[project.entry-points."solidmind.solver_packs"]
+openfoam = "solidmind_openfoam.pack"
+```
+
+A single pack can register in all three entry point groups (tool + knowledge + solver).
+
 ## Entry point groups
 
 | Group | Purpose |
 |-------|---------|
 | `solidmind.tool_packs` | Discovered at server startup, tools added to MCP tool list |
 | `solidmind.knowledge_packs` | Lazily ingested on first search, version-tracked |
+| `solidmind.solver_packs` | Discovered at startup, solvers added to field analysis registry |
 
 ## Conventions
 

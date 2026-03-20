@@ -4380,7 +4380,9 @@ def measure_between(
     shape_a = _resolve_measure_ref(d, ref_a)
     shape_b = _resolve_measure_ref(d, ref_b)
 
-    dist, solutions, _info_a, _info_b = shape_a.distToShape(shape_b)
+    dts_result = shape_a.distToShape(shape_b)
+    dist = dts_result[0]
+    solutions = dts_result[1] if len(dts_result) > 1 else []
     # solutions is a list of (point_a, point_b) tuples
     pt_a = list(solutions[0][0]) if solutions else []
     pt_b = list(solutions[0][1]) if solutions else []
@@ -4515,7 +4517,22 @@ def check_clearance(
             name_b, shape_b = valid[j]
             pairs_checked += 1
 
-            dist, solutions, _info_a, _info_b = shape_a.distToShape(shape_b)
+            try:
+                dts_result = shape_a.distToShape(shape_b)
+            except Exception:
+                # distToShape can fail on complex/intersecting geometry
+                violations.append({
+                    "body_a": name_a,
+                    "body_b": name_b,
+                    "distance_mm": 0.0,
+                    "intersecting": True,
+                    "point_a": [],
+                    "point_b": [],
+                    "error": "distToShape failed (likely intersecting)",
+                })
+                continue
+            dist = dts_result[0]
+            solutions = dts_result[1] if len(dts_result) > 1 else []
             intersecting = dist < 1e-6
 
             if dist < threshold_mm:
@@ -4615,7 +4632,19 @@ def check_swept_clearance(
         shape_copy.Placement = FreeCAD.Placement(new_base, rot)
 
         for other_name, other_shape in other_shapes:
-            dist, solutions, _info_a, _info_b = shape_copy.distToShape(other_shape)
+            try:
+                dts_result = shape_copy.distToShape(other_shape)
+            except Exception:
+                pair_best[other_name] = {
+                    "min_distance_mm": 0.0,
+                    "worst_angle_deg": round(angle, 4),
+                    "intersecting": True,
+                    "point_a": [],
+                    "point_b": [],
+                }
+                continue
+            dist = dts_result[0]
+            solutions = dts_result[1] if len(dts_result) > 1 else []
             if dist < pair_best[other_name]["min_distance_mm"]:
                 pt_a = list(solutions[0][0]) if solutions else []
                 pt_b = list(solutions[0][1]) if solutions else []

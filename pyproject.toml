@@ -26,11 +26,31 @@ fea = [
   "gmsh>=4.12,<5",
   "meshio>=5.3,<6",
 ]
+fea-cpu = [
+  "scipy>=1.11,<2",
+  "scikit-sparse>=0.4,<1",
+]
+fea-gpu = [
+  "scipy>=1.11,<2",
+  "nvidia-cudss-cu12>=0.4,<1",
+  "nvmath-python>=0.8,<1",
+  "cupy-cuda12x>=14,<15",
+]
 schemas = ["pydantic>=2.6,<3"]
 dev = ["maturin>=1.7,<2"]
 
 [project.scripts]
 solidmind-cad = "server.main:main"
+
+[tool.pytest.ini_options]
+markers = [
+    "requires_gazebo_real: needs Gazebo Harmonic installed",
+    "requires_isaac_real: needs Isaac Sim installed",
+    "requires_chrono_real: needs Chrono daemon built",
+    "slow: tests that take >5s",
+    "subprocess: spawns real subprocesses",
+]
+testpaths = ["tests"]
 
 [tool.maturin]
 manifest-path = "geometry/Cargo.toml"

@@ -205,7 +205,7 @@ class TestPropagateMotion(TestMotionToolsBase):
         self.assertTrue(prop["ok"])
         self.assertIn("states", prop)
         self.assertAlmostEqual(prop["states"]["gear_a"]["rpm"], 1000.0)
-        self.assertAlmostEqual(prop["states"]["gear_b"]["rpm"], 2000.0)
+        self.assertAlmostEqual(prop["states"]["gear_b"]["rpm"], 500.0)
         self.assertAlmostEqual(prop["states"]["gear_a"]["torque_nm"], 5.0)
 
     def test_propagate_not_found(self):
@@ -1567,6 +1567,1084 @@ class TestBuildProfileFromMechanism(unittest.TestCase):
         self.assertAlmostEqual(merged["l_coxa"], 0.1)
         # Auto values preserved for unset fields
         self.assertEqual(merged["dofs_per_leg"], 3)
+
+
+class TestGearMeshPhasing(TestMotionToolsBase):
+    """Tests for compute_gear_mesh_phases() and the mesh_phasing validator."""
+
+    def _simple_pair_mech(
+        self,
+        z_a: int = 16,
+        z_b: int = 32,
+        origin_a: tuple[float, float, float] = (0.0, 0.0, 0.0),
+        origin_b: tuple[float, float, float] = (24.0, 0.0, 0.0),
+        internal: bool = False,
+    ) -> Mechanism:
+        """Create a simple 2-gear mechanism with revolute joints at given origins."""
+        return Mechanism(
+            name="phase_test",
+            parts=(
+                PartNode(id="gear_a"),
+                PartNode(id="gear_b"),
+                PartNode(id="frame", is_ground=True),
+            ),
+            joints=(
+                JointEdge(
+                    id="mesh_ab",
+                    joint_type=JointType.GEAR_MESH,
+                    parent_part="gear_a",
+                    child_part="gear_b",
+                    teeth_parent=z_a,
+                    teeth_child=z_b,
+                    internal=internal,
+                ),
+                JointEdge(
+                    id="rev_a",
+                    joint_type=JointType.REVOLUTE,
+                    parent_part="frame",
+                    child_part="gear_a",
+                    origin=origin_a,
+                ),
+                JointEdge(
+                    id="rev_b",
+                    joint_type=JointType.REVOLUTE,
+                    parent_part="frame",
+                    child_part="gear_b",
+                    origin=origin_b,
+                ),
+            ),
+            drives=(
+                DriveCondition(joint_id="mesh_ab", speed_rpm=100),
+            ),
+        )
+
+    def test_compute_gear_mesh_phases_simple_pair(self):
+        """16T + 32T along X axis: phase reduced mod angular pitch."""
+        from server.motion_validators import compute_gear_mesh_phases
+
+        mech = self._simple_pair_mech(z_a=16, z_b=32)
+        phases = compute_gear_mesh_phases(mech)
+
+        self.assertIn("gear_a", phases)
+        self.assertIn("gear_b", phases)
+        self.assertAlmostEqual(phases["gear_a"], 0.0)
+        # p_B = 11.25°. raw = 0 + 180 - 5.625 + 0 = 174.375.
+        # Reduced: 174.375 % 11.25 = 5.625°
+        self.assertAlmostEqual(phases["gear_b"], 5.625, places=3)
+
+    def test_compute_gear_mesh_phases_angled(self):
+        """Gears at 45° angle: contact_angle = 45°."""
+        from server.motion_validators import compute_gear_mesh_phases
+
+        d = 24.0
+        ox = d * math.cos(math.radians(45))
+        oy = d * math.sin(math.radians(45))
+        mech = self._simple_pair_mech(
+            z_a=16, z_b=32,
+            origin_b=(ox, oy, 0.0),
+        )
+        phases = compute_gear_mesh_phases(mech)
+
+        # raw = 45 + 180 - 5.625 + 11.25*(45-0)/22.5 = 219.375 + 22.5 = 241.875
+        # Reduced: 241.875 % 11.25 = 241.875 - 21*11.25 = 5.625
+        self.assertAlmostEqual(phases["gear_b"], 5.625, places=3)
+
+    def test_compute_gear_mesh_phases_three_gear_train(self):
+        """A→B→C chain: all phases consistent with cross-coupling."""
+        from server.motion_validators import compute_gear_mesh_phases
+
+        mech = Mechanism(
+            name="three_gear",
+            parts=(
+                PartNode(id="ga"),
+                PartNode(id="gb"),
+                PartNode(id="gc"),
+                PartNode(id="frame", is_ground=True),
+            ),
+            joints=(
+                JointEdge(
+                    id="mesh_ab", joint_type=JointType.GEAR_MESH,
+                    parent_part="ga", child_part="gb",
+                    teeth_parent=16, teeth_child=32,
+                ),
+                JointEdge(
+                    id="mesh_bc", joint_type=JointType.GEAR_MESH,
+                    parent_part="gb", child_part="gc",
+                    teeth_parent=32, teeth_child=24,
+                ),
+                JointEdge(
+                    id="rev_a", joint_type=JointType.REVOLUTE,
+                    parent_part="frame", child_part="ga",
+                    origin=(0.0, 0.0, 0.0),
+                ),
+                JointEdge(
+                    id="rev_b", joint_type=JointType.REVOLUTE,
+                    parent_part="frame", child_part="gb",
+                    origin=(24.0, 0.0, 0.0),
+                ),
+                JointEdge(
+                    id="rev_c", joint_type=JointType.REVOLUTE,
+                    parent_part="frame", child_part="gc",
+                    origin=(52.0, 0.0, 0.0),
+                ),
+            ),
+            drives=(
+                DriveCondition(joint_id="mesh_ab", speed_rpm=100),
+            ),
+        )
+        phases = compute_gear_mesh_phases(mech)
+
+        self.assertAlmostEqual(phases["ga"], 0.0)
+        # B: 5.625° (same as simple pair)
+        self.assertAlmostEqual(phases["gb"], 5.625, places=3)
+        # C: raw = 0 + 180 - 7.5 + 15*(0 - 5.625)/11.25 = 172.5 - 7.5 = 165
+        # Reduced: 165 % 15 = 0°
+        self.assertAlmostEqual(phases["gc"], 0.0, places=3)
+
+    def test_mesh_phasing_validator(self):
+        """Run the mesh_phasing validator, check measured data."""
+        mech = self._simple_pair_mech()
+        result = motion_define_mechanism({
+            "name": mech.name,
+            "parts": [p.to_dict() for p in mech.parts],
+            "joints": [
+                {
+                    "id": j.id,
+                    "joint_type": j.joint_type.value,
+                    "parent_part": j.parent_part,
+                    "child_part": j.child_part,
+                    "teeth_parent": j.teeth_parent,
+                    "teeth_child": j.teeth_child,
+                    "origin": list(j.origin),
+                }
+                for j in mech.joints
+            ],
+            "drives": [{"joint_id": d.joint_id, "speed_rpm": d.speed_rpm} for d in mech.drives],
+        })
+        self.assertTrue(result["ok"])
+        mech_id = result["mechanism_id"]
+
+        val_result = motion_validate(mechanism_id=mech_id)
+        self.assertTrue(val_result["ok"])
+
+        phasing_results = [
+            r for r in val_result["results"]
+            if r["name"] == "mesh_phasing"
+        ]
+        self.assertEqual(len(phasing_results), 1)
+        pr = phasing_results[0]
+        self.assertEqual(pr["status"], "pass")
+        self.assertIn("phase_offsets_deg", pr["measured"])
+        self.assertAlmostEqual(pr["measured"]["phase_offsets_deg"]["gear_b"], 5.625, places=3)
+
+    def test_check_gear_train_includes_phases(self):
+        """motion.check_gear_train should include phase_offsets_deg."""
+        mech = self._simple_pair_mech()
+        result = motion_define_mechanism({
+            "name": mech.name,
+            "parts": [p.to_dict() for p in mech.parts],
+            "joints": [
+                {
+                    "id": j.id,
+                    "joint_type": j.joint_type.value,
+                    "parent_part": j.parent_part,
+                    "child_part": j.child_part,
+                    "teeth_parent": j.teeth_parent,
+                    "teeth_child": j.teeth_child,
+                    "origin": list(j.origin),
+                }
+                for j in mech.joints
+            ],
+            "drives": [{"joint_id": d.joint_id, "speed_rpm": d.speed_rpm} for d in mech.drives],
+        })
+        self.assertTrue(result["ok"])
+        mech_id = result["mechanism_id"]
+
+        gt_result = motion_check_gear_train(mechanism_id=mech_id)
+        self.assertTrue(gt_result["ok"])
+        self.assertIn("phase_offsets_deg", gt_result)
+        self.assertAlmostEqual(
+            gt_result["phase_offsets_deg"]["gear_b"], 5.625, places=3,
+        )
+        # Geometric interference check should be included
+        self.assertIn("tooth_interference", gt_result)
+        self.assertTrue(all(r["ok"] for r in gt_result["tooth_interference"]))
+        self.assertNotIn("tooth_interference_warning", gt_result)
+
+    def test_no_gear_meshes_returns_empty(self):
+        """Mechanism with no gear meshes returns empty phases."""
+        from server.motion_validators import compute_gear_mesh_phases
+
+        mech = Mechanism(
+            name="no_gears",
+            parts=(
+                PartNode(id="a"),
+                PartNode(id="frame", is_ground=True),
+            ),
+            joints=(
+                JointEdge(
+                    id="rev_a", joint_type=JointType.REVOLUTE,
+                    parent_part="frame", child_part="a",
+                ),
+            ),
+            drives=(
+                DriveCondition(joint_id="rev_a", speed_rpm=100),
+            ),
+        )
+        phases = compute_gear_mesh_phases(mech)
+        self.assertEqual(phases, {})
+
+    def test_internal_gear_phase(self):
+        """Internal (ring) gear: no 180° flip, reduced mod pitch."""
+        from server.motion_validators import compute_gear_mesh_phases
+
+        mech = self._simple_pair_mech(z_a=16, z_b=48, internal=True)
+        phases = compute_gear_mesh_phases(mech)
+
+        # p_B = 7.5°. raw = 0 - 3.75 + 7.5*(0-0)/22.5 = -3.75
+        # Reduced: -3.75 % 7.5 = 3.75
+        self.assertAlmostEqual(phases["gear_b"], 3.75, places=3)
+
+    def test_animation_ratios_simple_pair(self):
+        """Animation ratios: external gear reverses direction, correct magnitude."""
+        from server.motion_validators import compute_gear_animation_ratios
+
+        mech = self._simple_pair_mech(z_a=16, z_b=32)
+        ratios = compute_gear_animation_ratios(mech)
+
+        self.assertAlmostEqual(ratios["gear_a"], 1.0)
+        # External: -Z_a/Z_b = -16/32 = -0.5
+        self.assertAlmostEqual(ratios["gear_b"], -0.5)
+
+    def test_animation_ratios_three_gear_train(self):
+        """Three-gear train: A→B reverses, B→C reverses again (same as A)."""
+        from server.motion_validators import compute_gear_animation_ratios
+
+        mech = Mechanism(
+            name="three_gear",
+            parts=(
+                PartNode(id="ga"),
+                PartNode(id="gb"),
+                PartNode(id="gc"),
+                PartNode(id="frame", is_ground=True),
+            ),
+            joints=(
+                JointEdge(
+                    id="mesh_ab", joint_type=JointType.GEAR_MESH,
+                    parent_part="ga", child_part="gb",
+                    teeth_parent=16, teeth_child=32,
+                ),
+                JointEdge(
+                    id="mesh_bc", joint_type=JointType.GEAR_MESH,
+                    parent_part="gb", child_part="gc",
+                    teeth_parent=32, teeth_child=24,
+                ),
+                JointEdge(
+                    id="rev_a", joint_type=JointType.REVOLUTE,
+                    parent_part="frame", child_part="ga",
+                    origin=(0.0, 0.0, 0.0),
+                ),
+                JointEdge(
+                    id="rev_b", joint_type=JointType.REVOLUTE,
+                    parent_part="frame", child_part="gb",
+                    origin=(24.0, 0.0, 0.0),
+                ),
+                JointEdge(
+                    id="rev_c", joint_type=JointType.REVOLUTE,
+                    parent_part="frame", child_part="gc",
+                    origin=(52.0, 0.0, 0.0),
+                ),
+            ),
+            drives=(
+                DriveCondition(joint_id="mesh_ab", speed_rpm=100),
+            ),
+        )
+        ratios = compute_gear_animation_ratios(mech)
+
+        self.assertAlmostEqual(ratios["ga"], 1.0)
+        # A→B: -16/32 = -0.5
+        self.assertAlmostEqual(ratios["gb"], -0.5)
+        # B→C: -(-0.5) * 32/24 = +0.5 * 4/3 = +2/3
+        self.assertAlmostEqual(ratios["gc"], 2.0 / 3.0)
+
+    def test_animation_ratios_internal_gear(self):
+        """Internal gear preserves direction."""
+        from server.motion_validators import compute_gear_animation_ratios
+
+        mech = self._simple_pair_mech(z_a=16, z_b=48, internal=True)
+        ratios = compute_gear_animation_ratios(mech)
+
+        self.assertAlmostEqual(ratios["gear_a"], 1.0)
+        # Internal: +Z_a/Z_b = +16/48 = +1/3
+        self.assertAlmostEqual(ratios["gear_b"], 1.0 / 3.0)
+
+
+class TestToothInterference(TestMotionToolsBase):
+    """Tests for check_tooth_interference() geometric validation."""
+
+    def _simple_pair_mech(
+        self,
+        z_a: int = 16,
+        z_b: int = 32,
+        origin_a: tuple[float, float, float] = (0.0, 0.0, 0.0),
+        origin_b: tuple[float, float, float] = (24.0, 0.0, 0.0),
+        internal: bool = False,
+    ) -> Mechanism:
+        return Mechanism(
+            name="interference_test",
+            parts=(
+                PartNode(id="gear_a"),
+                PartNode(id="gear_b"),
+                PartNode(id="frame", is_ground=True),
+            ),
+            joints=(
+                JointEdge(
+                    id="mesh_ab",
+                    joint_type=JointType.GEAR_MESH,
+                    parent_part="gear_a",
+                    child_part="gear_b",
+                    teeth_parent=z_a,
+                    teeth_child=z_b,
+                    internal=internal,
+                ),
+                JointEdge(
+                    id="rev_a",
+                    joint_type=JointType.REVOLUTE,
+                    parent_part="frame",
+                    child_part="gear_a",
+                    origin=origin_a,
+                ),
+                JointEdge(
+                    id="rev_b",
+                    joint_type=JointType.REVOLUTE,
+                    parent_part="frame",
+                    child_part="gear_b",
+                    origin=origin_b,
+                ),
+            ),
+            drives=(
+                DriveCondition(joint_id="mesh_ab", speed_rpm=100),
+            ),
+        )
+
+    def test_computed_phases_pass_interference_check(self):
+        """Phases from compute_gear_mesh_phases should pass interference check."""
+        from server.motion_validators import check_tooth_interference, compute_gear_mesh_phases
+
+        mech = self._simple_pair_mech(z_a=16, z_b=32)
+        phases = compute_gear_mesh_phases(mech)
+        results = check_tooth_interference(mech, phases)
+
+        self.assertEqual(len(results), 1)
+        r = results[0]
+        self.assertTrue(r["ok"], f"Interference detected: {r['detail']}")
+        self.assertGreater(r["clearance_deg"], 0.0)
+
+    def test_zero_phase_causes_interference(self):
+        """Zero phase offset for both gears should cause interference (teeth collide)."""
+        from server.motion_validators import check_tooth_interference
+
+        mech = self._simple_pair_mech(z_a=16, z_b=32)
+        # Force both phases to zero — teeth aligned, should collide
+        phases = {"gear_a": 0.0, "gear_b": 0.0}
+        results = check_tooth_interference(mech, phases)
+
+        self.assertEqual(len(results), 1)
+        r = results[0]
+        self.assertFalse(r["ok"], f"Expected interference but got: {r['detail']}")
+        self.assertLess(r["clearance_deg"], 0.0)
+
+    def test_half_pitch_offset_correct_meshing(self):
+        """Half-pitch offset should give correct tooth-gap interlocking."""
+        from server.motion_validators import check_tooth_interference
+
+        mech = self._simple_pair_mech(z_a=20, z_b=20)
+        # For equal gears along X: half-pitch = 360/(20*2) = 9°
+        # Gear B at contact (180° from B) should have gap when A has tooth
+        half_pitch = 360.0 / (20 * 2)
+        phases = {"gear_a": 0.0, "gear_b": half_pitch}
+        results = check_tooth_interference(mech, phases)
+
+        self.assertEqual(len(results), 1)
+        r = results[0]
+        self.assertTrue(r["ok"], f"Expected correct meshing but got: {r['detail']}")
+
+    def test_angled_gears_pass(self):
+        """Gears at 45° should still pass with computed phases."""
+        from server.motion_validators import check_tooth_interference, compute_gear_mesh_phases
+
+        d = 24.0
+        ox = d * math.cos(math.radians(45))
+        oy = d * math.sin(math.radians(45))
+        mech = self._simple_pair_mech(z_a=16, z_b=32, origin_b=(ox, oy, 0.0))
+        phases = compute_gear_mesh_phases(mech)
+        results = check_tooth_interference(mech, phases)
+
+        self.assertEqual(len(results), 1)
+        self.assertTrue(results[0]["ok"], f"Interference: {results[0]['detail']}")
+
+    def test_internal_gear_pass(self):
+        """Internal gear with computed phases should pass."""
+        from server.motion_validators import check_tooth_interference, compute_gear_mesh_phases
+
+        mech = self._simple_pair_mech(z_a=16, z_b=48, internal=True)
+        phases = compute_gear_mesh_phases(mech)
+        results = check_tooth_interference(mech, phases)
+
+        self.assertEqual(len(results), 1)
+        self.assertTrue(results[0]["ok"], f"Interference: {results[0]['detail']}")
+
+    def test_three_gear_train_all_pass(self):
+        """Three-gear chain: all meshes should pass interference check."""
+        from server.motion_validators import check_tooth_interference, compute_gear_mesh_phases
+
+        mech = Mechanism(
+            name="three_gear_interf",
+            parts=(
+                PartNode(id="ga"),
+                PartNode(id="gb"),
+                PartNode(id="gc"),
+                PartNode(id="frame", is_ground=True),
+            ),
+            joints=(
+                JointEdge(
+                    id="mesh_ab", joint_type=JointType.GEAR_MESH,
+                    parent_part="ga", child_part="gb",
+                    teeth_parent=16, teeth_child=32,
+                ),
+                JointEdge(
+                    id="mesh_bc", joint_type=JointType.GEAR_MESH,
+                    parent_part="gb", child_part="gc",
+                    teeth_parent=32, teeth_child=24,
+                ),
+                JointEdge(
+                    id="rev_a", joint_type=JointType.REVOLUTE,
+                    parent_part="frame", child_part="ga",
+                    origin=(0.0, 0.0, 0.0),
+                ),
+                JointEdge(
+                    id="rev_b", joint_type=JointType.REVOLUTE,
+                    parent_part="frame", child_part="gb",
+                    origin=(24.0, 0.0, 0.0),
+                ),
+                JointEdge(
+                    id="rev_c", joint_type=JointType.REVOLUTE,
+                    parent_part="frame", child_part="gc",
+                    origin=(52.0, 0.0, 0.0),
+                ),
+            ),
+            drives=(
+                DriveCondition(joint_id="mesh_ab", speed_rpm=100),
+            ),
+        )
+        phases = compute_gear_mesh_phases(mech)
+        results = check_tooth_interference(mech, phases)
+
+        self.assertEqual(len(results), 2)
+        for r in results:
+            self.assertTrue(r["ok"], f"Interference at {r['joint_id']}: {r['detail']}")
+
+    def test_validator_reports_interference_info(self):
+        """mesh_phasing validator should include tooth_interference in measured."""
+        mech = self._simple_pair_mech()
+        result = motion_define_mechanism({
+            "name": mech.name,
+            "parts": [p.to_dict() for p in mech.parts],
+            "joints": [
+                {
+                    "id": j.id,
+                    "joint_type": j.joint_type.value,
+                    "parent_part": j.parent_part,
+                    "child_part": j.child_part,
+                    "teeth_parent": j.teeth_parent,
+                    "teeth_child": j.teeth_child,
+                    "origin": list(j.origin),
+                }
+                for j in mech.joints
+            ],
+            "drives": [{"joint_id": d.joint_id, "speed_rpm": d.speed_rpm} for d in mech.drives],
+        })
+        self.assertTrue(result["ok"])
+
+        val_result = motion_validate(mechanism_id=result["mechanism_id"])
+        self.assertTrue(val_result["ok"])
+
+        phasing_results = [
+            r for r in val_result["results"]
+            if r["name"] == "mesh_phasing"
+        ]
+        self.assertEqual(len(phasing_results), 1)
+        pr = phasing_results[0]
+        self.assertEqual(pr["status"], "pass")
+        self.assertIn("tooth_interference", pr["measured"])
+        self.assertTrue(all(r["ok"] for r in pr["measured"]["tooth_interference"]))
+
+    def test_sweep_finds_non_interfering_offset(self):
+        """Sweep phase offsets and verify at least one gives no interference."""
+        from server.motion_validators import check_tooth_interference
+
+        mech = self._simple_pair_mech(z_a=16, z_b=32)
+        p_b = 360.0 / 32  # 11.25°
+        found_ok = False
+
+        for i in range(32):
+            offset = i * p_b / 32  # sweep from 0 to one angular pitch
+            phases = {"gear_a": 0.0, "gear_b": offset}
+            results = check_tooth_interference(mech, phases)
+            if results[0]["ok"]:
+                found_ok = True
+                break
+
+        self.assertTrue(found_ok, "No non-interfering offset found in sweep")
+
+
+class TestDriveJointCheckCollisions(TestMotionToolsBase):
+    """Tests for the check_collisions parameter on motion_drive_joint."""
+
+    def _make_gear_pair(self) -> str:
+        result = motion_define_mechanism({
+            "name": "collision_test",
+            "parts": [
+                {"id": "frame", "body_name": "Body_Frame", "is_ground": True},
+                {"id": "gear_a", "body_name": "Body_A"},
+                {"id": "gear_b", "body_name": "Body_B"},
+            ],
+            "joints": [
+                {
+                    "id": "rev_a",
+                    "joint_type": "revolute",
+                    "parent_part": "frame",
+                    "child_part": "gear_a",
+                    "origin": [0.0, 0.0, 0.0],
+                    "axis": [0.0, 0.0, 1.0],
+                },
+                {
+                    "id": "mesh_ab",
+                    "joint_type": "gear_mesh",
+                    "parent_part": "gear_a",
+                    "child_part": "gear_b",
+                    "teeth_parent": 16,
+                    "teeth_child": 32,
+                    "origin": [24.0, 0.0, 0.0],
+                    "axis": [0.0, 0.0, 1.0],
+                },
+            ],
+            "drives": [{"joint_id": "rev_a", "speed_rpm": 60}],
+        })
+        return result["mechanism_id"]
+
+    def test_check_collisions_no_collisions(self):
+        """check_collisions=True reports collision_free when clearance is ok."""
+        from unittest.mock import patch, MagicMock
+        from server.tools_motion import _assembly_link_maps
+
+        mid = self._make_gear_pair()
+        _assembly_link_maps[mid] = {
+            "gear_a": "Link_A",
+            "gear_b": "Link_B",
+        }
+        mock_client = MagicMock()
+
+        def fake_send(cmd, **kw):
+            if cmd == "check_clearance":
+                return {"violations": [], "all_clear": True}
+            return {"applied": ["Link_A", "Link_B"]}
+
+        mock_client.send_command.side_effect = fake_send
+
+        with patch("server.freecad_client.get_client", return_value=mock_client):
+            result = motion_drive_joint(mid, "rev_a", 90.0, steps=2, check_collisions=True)
+
+        self.assertTrue(result["ok"])
+        self.assertTrue(result["collision_free"])
+        self.assertEqual(result["collisions"], [])
+        self.assertNotIn("collision_summary", result)
+
+        del _assembly_link_maps[mid]
+
+    def test_check_collisions_with_intersections(self):
+        """check_collisions=True reports collisions when bodies intersect."""
+        from unittest.mock import patch, MagicMock
+        from server.tools_motion import _assembly_link_maps
+
+        mid = self._make_gear_pair()
+        _assembly_link_maps[mid] = {
+            "gear_a": "Link_A",
+            "gear_b": "Link_B",
+        }
+        mock_client = MagicMock()
+        call_count = 0
+
+        def fake_send(cmd, **kw):
+            nonlocal call_count
+            if cmd == "check_clearance":
+                call_count += 1
+                # Simulate collision on every step
+                return {
+                    "violations": [{
+                        "body_a": "Body_A",
+                        "body_b": "Body_B",
+                        "distance_mm": 0.0,
+                        "intersecting": True,
+                    }],
+                    "all_clear": False,
+                }
+            return {"applied": ["Link_A", "Link_B"]}
+
+        mock_client.send_command.side_effect = fake_send
+
+        with patch("server.freecad_client.get_client", return_value=mock_client):
+            result = motion_drive_joint(mid, "rev_a", 90.0, steps=2, check_collisions=True)
+
+        self.assertTrue(result["ok"])
+        self.assertFalse(result["collision_free"])
+        # 3 steps (0, 1, 2), each with 1 collision = 3 collisions
+        self.assertEqual(len(result["collisions"]), 3)
+        self.assertIn("collision_summary", result)
+        self.assertIn("1 pair(s)", result["collision_summary"])
+
+        del _assembly_link_maps[mid]
+
+    def test_check_collisions_false_omits_fields(self):
+        """When check_collisions=False (default), no collision fields in response."""
+        from unittest.mock import patch, MagicMock
+        from server.tools_motion import _assembly_link_maps
+
+        mid = self._make_gear_pair()
+        _assembly_link_maps[mid] = {
+            "gear_a": "Link_A",
+            "gear_b": "Link_B",
+        }
+        mock_client = MagicMock()
+        mock_client.send_command.return_value = {"applied": ["Link_A", "Link_B"]}
+
+        with patch("server.freecad_client.get_client", return_value=mock_client):
+            result = motion_drive_joint(mid, "rev_a", 90.0, steps=1)
+
+        self.assertTrue(result["ok"])
+        self.assertNotIn("collisions", result)
+        self.assertNotIn("collision_free", result)
+
+        del _assembly_link_maps[mid]
+
+    def test_check_collisions_clearance_error_does_not_abort(self):
+        """If check_clearance raises, animation continues without crashing."""
+        from unittest.mock import patch, MagicMock
+        from server.tools_motion import _assembly_link_maps
+
+        mid = self._make_gear_pair()
+        _assembly_link_maps[mid] = {
+            "gear_a": "Link_A",
+            "gear_b": "Link_B",
+        }
+        mock_client = MagicMock()
+
+        def fake_send(cmd, **kw):
+            if cmd == "check_clearance":
+                raise RuntimeError("FreeCAD crashed")
+            return {"applied": ["Link_A", "Link_B"]}
+
+        mock_client.send_command.side_effect = fake_send
+
+        with patch("server.freecad_client.get_client", return_value=mock_client):
+            result = motion_drive_joint(mid, "rev_a", 90.0, steps=1, check_collisions=True)
+
+        self.assertTrue(result["ok"])
+        self.assertTrue(result["collision_free"])
+        self.assertEqual(result["collisions"], [])
+
+        del _assembly_link_maps[mid]
+
+
+class TestCreateAssemblyEmptyWarning(TestMotionToolsBase):
+    """Test that motion_create_assembly warns when assembly is empty."""
+
+    def test_no_warning_when_parts_lack_body_name(self):
+        """Parts without body_name → link_map empty but no warning (expected_parts=0)."""
+        from unittest.mock import patch, MagicMock
+
+        result = motion_define_mechanism({
+            "name": "no_bodies",
+            "parts": [
+                {"id": "frame", "is_ground": True},
+                {"id": "gear_a"},  # no body_name
+                {"id": "gear_b"},  # no body_name
+            ],
+            "joints": [],
+            "drives": [],
+        })
+        mid = result["mechanism_id"]
+
+        mock_client = MagicMock()
+
+        def fake_send(cmd, **kw):
+            if cmd == "assembly_create":
+                return {"name": "Asm_no_bodies"}
+            if cmd == "assembly_solve":
+                return {}
+            return {}
+
+        mock_client.send_command.side_effect = fake_send
+
+        with patch("server.freecad_client.get_client", return_value=mock_client):
+            asm_result = motion_create_assembly(mid)
+
+        self.assertTrue(asm_result["ok"])
+        self.assertEqual(asm_result["link_map"], {})
+        # No warning because no non-ground parts have body_name
+        empty_warnings = [w for w in asm_result["warnings"] if "empty" in w.lower()]
+        self.assertEqual(len(empty_warnings), 0)
+
+    def test_warning_when_only_ground_has_body_name(self):
+        """Non-ground parts have body_name but only ground part does → no warning.
+
+        Actually: ground parts are not counted by expected_parts (is_ground filter).
+        Non-ground parts without body_name → expected_parts=0 → no warning.
+        """
+        from unittest.mock import patch, MagicMock
+
+        result = motion_define_mechanism({
+            "name": "ground_only",
+            "parts": [
+                {"id": "frame", "body_name": "Body_Frame", "is_ground": True},
+                {"id": "gear_a"},  # no body_name, not ground
+            ],
+            "joints": [],
+            "drives": [],
+        })
+        mid = result["mechanism_id"]
+
+        mock_client = MagicMock()
+
+        def fake_send(cmd, **kw):
+            if cmd == "assembly_create":
+                return {"name": "Asm_ground_only"}
+            if cmd == "assembly_add_part":
+                return {"link_name": "Link_Frame"}
+            if cmd == "assembly_solve":
+                return {}
+            return {}
+
+        mock_client.send_command.side_effect = fake_send
+
+        with patch("server.freecad_client.get_client", return_value=mock_client):
+            asm_result = motion_create_assembly(mid)
+
+        self.assertTrue(asm_result["ok"])
+        # expected_parts = 0 (gear_a has no body_name), so no empty warning
+        empty_warnings = [w for w in asm_result["warnings"] if "empty" in w.lower()]
+        self.assertEqual(len(empty_warnings), 0)
+
+    def test_successful_link_no_warning(self):
+        """Parts successfully linked → no empty assembly warning."""
+        from unittest.mock import patch, MagicMock
+
+        result = motion_define_mechanism({
+            "name": "linked_ok",
+            "parts": [
+                {"id": "frame", "is_ground": True},
+                {"id": "gear_a", "body_name": "Body_A"},
+            ],
+            "joints": [],
+            "drives": [],
+        })
+        mid = result["mechanism_id"]
+
+        mock_client = MagicMock()
+
+        def fake_send(cmd, **kw):
+            if cmd == "assembly_create":
+                return {"name": "Asm_linked_ok"}
+            if cmd == "assembly_add_part":
+                return {"link_name": "Link_A"}
+            if cmd == "assembly_solve":
+                return {}
+            return {}
+
+        mock_client.send_command.side_effect = fake_send
+
+        with patch("server.freecad_client.get_client", return_value=mock_client):
+            asm_result = motion_create_assembly(mid)
+
+        self.assertTrue(asm_result["ok"])
+        self.assertEqual(len(asm_result["link_map"]), 1)
+        empty_warnings = [w for w in asm_result["warnings"] if "empty" in w.lower()]
+        self.assertEqual(len(empty_warnings), 0)
+
+
+class TestGearAnimationRatiosWithGround(TestMotionToolsBase):
+    """Verify gear ratios are correct when drive joint is frame→gear (ground parent)."""
+
+    def _make_16_32_mech(self) -> str:
+        """16T/32T gear pair with drive on frame→gear_16t revolute."""
+        result = motion_define_mechanism({
+            "name": "gear_16_32",
+            "parts": [
+                {"id": "frame", "is_ground": True},
+                {"id": "gear_16t", "body_name": "Gear_16T"},
+                {"id": "gear_32t", "body_name": "Gear_32T"},
+            ],
+            "joints": [
+                {
+                    "id": "rev_16t",
+                    "joint_type": "revolute",
+                    "parent_part": "frame",
+                    "child_part": "gear_16t",
+                    "origin": [0.0, 0.0, 0.0],
+                    "axis": [0.0, 0.0, 1.0],
+                },
+                {
+                    "id": "rev_32t",
+                    "joint_type": "revolute",
+                    "parent_part": "frame",
+                    "child_part": "gear_32t",
+                    "origin": [24.0, 0.0, 0.0],
+                    "axis": [0.0, 0.0, 1.0],
+                },
+                {
+                    "id": "mesh_16_32",
+                    "joint_type": "gear_mesh",
+                    "parent_part": "gear_16t",
+                    "child_part": "gear_32t",
+                    "teeth_parent": 16,
+                    "teeth_child": 32,
+                    "origin": [13.5, 0.0, 0.0],
+                    "axis": [0.0, 0.0, 1.0],
+                },
+            ],
+            "drives": [{"joint_id": "rev_16t", "speed_rpm": 60}],
+        })
+        self.assertTrue(result["ok"])
+        return result["mechanism_id"]
+
+    def test_gear_seed_returns_driven_gear_not_ground(self):
+        """_find_gear_seed must return the gear part, not the ground frame."""
+        from server.motion_validators import _find_gear_seed
+
+        mid = self._make_16_32_mech()
+        mech = motion_store.get(mid)
+        seed = _find_gear_seed(mech)
+        self.assertEqual(seed, "gear_16t")
+
+    def test_animation_ratios_16t_32t(self):
+        """16T drives 32T: ratios must be 1.0 and -0.5 (counter-rotate, half speed)."""
+        from server.motion_validators import compute_gear_animation_ratios
+
+        mid = self._make_16_32_mech()
+        mech = motion_store.get(mid)
+        ratios = compute_gear_animation_ratios(mech)
+
+        self.assertAlmostEqual(ratios["gear_16t"], 1.0)
+        self.assertAlmostEqual(ratios["gear_32t"], -0.5)
+
+    def test_drive_joint_uses_revolute_origin_not_mesh(self):
+        """Rotation center for gear_32t must be its revolute origin (24,0,0),
+        not the gear mesh contact point (13.5,0,0)."""
+        from unittest.mock import patch, MagicMock
+        from server.motion_validators import compute_gear_animation_ratios, compute_gear_mesh_phases
+
+        mid = self._make_16_32_mech()
+        mech = motion_store.get(mid)
+
+        # Compute expected ratio and phase
+        ratios = compute_gear_animation_ratios(mech)
+        phases = compute_gear_mesh_phases(mech)
+        ratio_32t = ratios["gear_32t"]  # should be -0.5
+        phase_32t = phases.get("gear_32t", 0.0)
+
+        mock_client = MagicMock()
+        set_placement_calls = []
+
+        def fake_send(cmd, **kw):
+            if cmd == "set_placement":
+                set_placement_calls.append(kw)
+                return {}
+            if cmd == "screenshot":
+                return {}
+            return {}
+
+        mock_client.send_command.side_effect = fake_send
+
+        with patch("server.freecad_client.get_client", return_value=mock_client):
+            result = motion_drive_joint(mid, "rev_16t", 360.0, steps=1)
+
+        self.assertTrue(result["ok"])
+        gear_32t_calls = [c for c in set_placement_calls if c.get("object_name") == "Gear_32T"]
+        self.assertGreater(len(gear_32t_calls), 0)
+        last_call = gear_32t_calls[-1]
+        expected_angle = ratio_32t * 360.0 + phase_32t
+        self.assertAlmostEqual(last_call["rotation_angle_deg"], expected_angle, places=3)
+
+    def test_body_placement_position_stays_at_joint_origin(self):
+        """Body placement fallback must keep position at joint origin.
+
+        For a gear at revolute origin (24,0,0) with body initially placed
+        at (24,0,0), the position must stay constant at (24,0,0) while
+        only the rotation angle changes.
+        """
+        from unittest.mock import patch, MagicMock
+
+        # Use a mechanism WITHOUT mesh phases for cleaner math:
+        # single revolute, single part, no gear_mesh
+        result = motion_define_mechanism({
+            "name": "rotation_center_test",
+            "parts": [
+                {"id": "frame", "is_ground": True},
+                {"id": "wheel", "body_name": "Body_Wheel"},
+            ],
+            "joints": [
+                {
+                    "id": "rev_wheel",
+                    "joint_type": "revolute",
+                    "parent_part": "frame",
+                    "child_part": "wheel",
+                    "origin": [24.0, 0.0, 0.0],
+                    "axis": [0.0, 0.0, 1.0],
+                },
+            ],
+            "drives": [{"joint_id": "rev_wheel", "speed_rpm": 60}],
+        })
+        mid = result["mechanism_id"]
+
+        mock_client = MagicMock()
+        set_placement_calls = []
+
+        def fake_send(cmd, **kw):
+            if cmd == "set_placement":
+                set_placement_calls.append(kw)
+                return {}
+            if cmd == "screenshot":
+                return {}
+            return {}
+
+        mock_client.send_command.side_effect = fake_send
+
+        # Mock model tree: body placed at joint origin (24, 0, 0)
+        fake_tree = {"ok": True, "bodies": [
+            {"label": "Body_Wheel", "position": [24.0, 0.0, 0.0]},
+        ]}
+
+        # Drive 90°
+        with patch("server.freecad_client.get_client", return_value=mock_client), \
+             patch("server.tools_motion.cad_get_model_tree", return_value=fake_tree, create=True), \
+             patch("server.tools_cad.cad_get_model_tree", return_value=fake_tree):
+            result = motion_drive_joint(mid, "rev_wheel", 90.0, steps=1)
+
+        self.assertTrue(result["ok"])
+        wheel_calls = [c for c in set_placement_calls if c.get("object_name") == "Body_Wheel"]
+        self.assertGreater(len(wheel_calls), 0)
+        last_call = wheel_calls[-1]
+        pos = last_call["position"]
+        # Position must stay at joint origin (24, 0, 0) — only rotation changes
+        self.assertAlmostEqual(pos[0], 24.0, places=3)
+        self.assertAlmostEqual(pos[1], 0.0, places=3)
+        self.assertAlmostEqual(pos[2], 0.0, places=3)
+        self.assertAlmostEqual(last_call["rotation_angle_deg"], 90.0, places=3)
+
+    def test_body_placement_offset_body_orbits_correctly(self):
+        """Body at (30,0,0) with joint origin at (24,0,0) driven 90° about Z.
+
+        Offset = (6,0,0), rotated 90° about Z → (0,6,0).
+        New position = center + rotated_offset = (24,6,0).
+        """
+        from unittest.mock import patch, MagicMock
+
+        result = motion_define_mechanism({
+            "name": "offset_orbit_test",
+            "parts": [
+                {"id": "frame", "is_ground": True},
+                {"id": "wheel", "body_name": "Body_Wheel"},
+            ],
+            "joints": [
+                {
+                    "id": "rev_wheel",
+                    "joint_type": "revolute",
+                    "parent_part": "frame",
+                    "child_part": "wheel",
+                    "origin": [24.0, 0.0, 0.0],
+                    "axis": [0.0, 0.0, 1.0],
+                },
+            ],
+            "drives": [{"joint_id": "rev_wheel", "speed_rpm": 60}],
+        })
+        mid = result["mechanism_id"]
+
+        mock_client = MagicMock()
+        set_placement_calls = []
+
+        def fake_send(cmd, **kw):
+            if cmd == "set_placement":
+                set_placement_calls.append(kw)
+                return {}
+            if cmd == "screenshot":
+                return {}
+            return {}
+
+        mock_client.send_command.side_effect = fake_send
+
+        # Body initially at (30, 0, 0) — offset 6mm from joint origin
+        fake_tree = {"ok": True, "bodies": [
+            {"label": "Body_Wheel", "position": [30.0, 0.0, 0.0]},
+        ]}
+
+        with patch("server.freecad_client.get_client", return_value=mock_client), \
+             patch("server.tools_motion.cad_get_model_tree", return_value=fake_tree, create=True), \
+             patch("server.tools_cad.cad_get_model_tree", return_value=fake_tree):
+            result = motion_drive_joint(mid, "rev_wheel", 90.0, steps=1)
+
+        self.assertTrue(result["ok"])
+        wheel_calls = [c for c in set_placement_calls if c.get("object_name") == "Body_Wheel"]
+        self.assertGreater(len(wheel_calls), 0)
+        last_call = wheel_calls[-1]
+        pos = last_call["position"]
+        # Offset (6,0,0) rotated 90° about Z → (0,6,0), plus center (24,0,0) → (24,6,0)
+        self.assertAlmostEqual(pos[0], 24.0, places=3)
+        self.assertAlmostEqual(pos[1], 6.0, places=3)
+        self.assertAlmostEqual(pos[2], 0.0, places=3)
+        self.assertAlmostEqual(last_call["rotation_angle_deg"], 90.0, places=3)
+
+
+class TestRotatePointAroundCenter(unittest.TestCase):
+    """Unit tests for the _rotate_point_around_center helper."""
+
+    def test_identity_rotation(self):
+        from server.tools_motion import _rotate_point_around_center
+        p = (10.0, 5.0, 3.0)
+        result = _rotate_point_around_center(p, (0.0, 0.0, 0.0), (0.0, 0.0, 1.0), 0.0)
+        for i in range(3):
+            self.assertAlmostEqual(result[i], p[i], places=10)
+
+    def test_center_equals_point(self):
+        from server.tools_motion import _rotate_point_around_center
+        p = (5.0, 5.0, 5.0)
+        result = _rotate_point_around_center(p, p, (0.0, 0.0, 1.0), 90.0)
+        for i in range(3):
+            self.assertAlmostEqual(result[i], p[i], places=10)
+
+    def test_90_deg_z_rotation(self):
+        from server.tools_motion import _rotate_point_around_center
+        # (1,0,0) rotated 90° about Z around origin → (0,1,0)
+        result = _rotate_point_around_center((1.0, 0.0, 0.0), (0.0, 0.0, 0.0), (0.0, 0.0, 1.0), 90.0)
+        self.assertAlmostEqual(result[0], 0.0, places=10)
+        self.assertAlmostEqual(result[1], 1.0, places=10)
+        self.assertAlmostEqual(result[2], 0.0, places=10)
+
+    def test_off_center_rotation(self):
+        from server.tools_motion import _rotate_point_around_center
+        # Point (30,0,0) around center (24,0,0), 90° about Z
+        # offset (6,0,0) → rotated (0,6,0) → result (24,6,0)
+        result = _rotate_point_around_center((30.0, 0.0, 0.0), (24.0, 0.0, 0.0), (0.0, 0.0, 1.0), 90.0)
+        self.assertAlmostEqual(result[0], 24.0, places=10)
+        self.assertAlmostEqual(result[1], 6.0, places=10)
+        self.assertAlmostEqual(result[2], 0.0, places=10)
+
+    def test_360_deg_returns_to_start(self):
+        from server.tools_motion import _rotate_point_around_center
+        p = (7.0, 3.0, -2.0)
+        c = (1.0, 1.0, 1.0)
+        result = _rotate_point_around_center(p, c, (0.0, 0.0, 1.0), 360.0)
+        for i in range(3):
+            self.assertAlmostEqual(result[i], p[i], places=8)
 
 
 if __name__ == "__main__":

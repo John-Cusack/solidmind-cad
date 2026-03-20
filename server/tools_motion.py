@@ -26,6 +26,8 @@ from server.motion_store import store as store_put
 from server.motion_planetary import PlanetarySet, detect_planetary_sets
 from server.motion_validators import (
     analyze_gear_train,
+    compute_gear_animation_ratios,
+    compute_gear_mesh_phases,
     propagate_speeds,
     propagate_torques,
     run_validators,
@@ -56,6 +58,51 @@ _GAZEBO_CONTROLLER_TYPES = {"multirotor_direct", "px4_offboard"}
 
 def _error_result(code: str, message: str) -> dict[str, Any]:
     return {"ok": False, "error": {"code": code, "message": message}}
+
+
+def _rotate_point_around_center(
+    point: tuple[float, float, float],
+    center: tuple[float, float, float],
+    axis: tuple[float, float, float],
+    angle_deg: float,
+) -> tuple[float, float, float]:
+    """Rodrigues rotation of *point* around *center* by *angle_deg* about *axis*."""
+    angle_rad = math.radians(angle_deg)
+    cos_a = math.cos(angle_rad)
+    sin_a = math.sin(angle_rad)
+    dx, dy, dz = point[0] - center[0], point[1] - center[1], point[2] - center[2]
+    dot = axis[0] * dx + axis[1] * dy + axis[2] * dz
+    cx = axis[1] * dz - axis[2] * dy
+    cy = axis[2] * dx - axis[0] * dz
+    cz = axis[0] * dy - axis[1] * dx
+    rx = dx * cos_a + cx * sin_a + axis[0] * dot * (1 - cos_a)
+    ry = dy * cos_a + cy * sin_a + axis[1] * dot * (1 - cos_a)
+    rz = dz * cos_a + cz * sin_a + axis[2] * dot * (1 - cos_a)
+    return (center[0] + rx, center[1] + ry, center[2] + rz)
+
+
+def _extract_peak_joint_forces(
+    samples: list[dict[str, Any]],
+) -> dict[str, float]:
+    """Extract peak absolute joint efforts from a time series.
+
+    Returns a dict mapping joint index (as string) to peak absolute effort.
+    If the time series contains ``joint_efforts`` arrays, we track the maximum
+    absolute value per joint across all timesteps.  Returns empty dict if no
+    effort data is present.
+    """
+    peak: dict[int, float] = {}
+    for sample in samples:
+        efforts = sample.get("joint_efforts")
+        if not efforts:
+            continue
+        for i, e in enumerate(efforts):
+            val = abs(float(e))
+            if i not in peak or val > peak[i]:
+                peak[i] = val
+    if not peak:
+        return {}
+    return {f"joint_{i}": round(v, 4) for i, v in sorted(peak.items())}
 
 
 def _normalize_backend(backend: str | None) -> str:
@@ -297,12 +344,26 @@ def motion_propagate_motion(mechanism_id: str) -> dict[str, Any]:
 
     efficiency = total_p_out / total_p_in if total_p_in > 0 else 0.0
 
+    # Build per-joint force summary for FEA coupling
+    joint_forces: dict[str, dict[str, float]] = {}
+    for joint in mech.joints:
+        parent_torque = torques.get(joint.parent_part, 0.0)
+        child_torque = torques.get(joint.child_part, 0.0)
+        # Reaction torque at the joint is the torque transmitted
+        reaction_torque = max(abs(parent_torque), abs(child_torque))
+        joint_forces[joint.id] = {
+            "reaction_torque_nm": round(reaction_torque, 4),
+            "parent_part": joint.parent_part,
+            "child_part": joint.child_part,
+        }
+
     if _TOOL_LOG:
         log.info("OK   motion_propagate_motion %.3fs parts=%d", time.monotonic() - t0, len(states))
 
     return {
         "ok": True,
         "states": states,
+        "joint_forces": joint_forces,
         "efficiency": round(efficiency, 4),
         "total_input_power_w": round(total_p_in, 4),
         "total_output_power_w": round(total_p_out, 4),
@@ -461,6 +522,16 @@ def motion_create_assembly(
                 time.monotonic() - t0, asm_name, len(link_map), len(joint_names),
             )
 
+        # Warn if no bodies were linked despite parts having body_name
+        expected_parts = sum(
+            1 for p in mech.parts if p.body_name and not p.is_ground
+        )
+        if expected_parts > 0 and not link_map:
+            warnings.append(
+                f"Assembly is empty: {expected_parts} part(s) have body_name "
+                f"but 0 were linked. motion_drive_joint will use body_placement fallback."
+            )
+
         return {
             "ok": True,
             "assembly_name": asm_name,
@@ -519,6 +590,7 @@ def motion_drive_joint(
     joint_id: str,
     value: float,
     steps: int = 10,
+    check_collisions: bool = False,
     doc: str | None = None,
 ) -> dict[str, Any]:
     """Drive a mechanism analytically and animate in FreeCAD.
@@ -578,28 +650,62 @@ def motion_drive_joint(
                     planet_initial_pos[pid] = j.origin
                     break
 
-    # Build part_id -> (speed_ratio, rotation_origin, rotation_axis)
-    # Speed ratio = part_rpm / ref_rpm  →  angle = ratio * value
-    part_kinematics: dict[str, tuple[float, tuple[float, ...], tuple[float, ...]]] = {}
+    # Compute gear mesh phase offsets for tooth interlocking
+    mesh_phases = compute_gear_mesh_phases(mech)
+
+    # Run geometric interference check on the computed phases
+    from server.motion_validators import check_tooth_interference
+
+    phase_interference = check_tooth_interference(mech, mesh_phases)
+    phase_warnings = [r for r in phase_interference if r.get("ok") is False]
+
+    # Compute physically correct signed animation ratios for gears.
+    # These give correct direction (external gears counter-rotate) and
+    # correct magnitude (Z_driver / Z_driven), unlike propagate_speeds
+    # which is used for validation but has inverted gear ratios.
+    anim_ratios = compute_gear_animation_ratios(mech)
+
+    # Build part_id -> (signed_ratio, rotation_origin, rotation_axis, phase_offset)
+    # angle = signed_ratio * driven_angle + phase
+    _ROTATION_JOINT_TYPES = {JointType.REVOLUTE, JointType.CONTINUOUS}
+    part_kinematics: dict[str, tuple[float, tuple[float, ...], tuple[float, ...], float]] = {}
     for part in mech.parts:
         if part.is_ground:
             continue
         # Skip planets — they use compound placement
         if part.id in planet_part_ids:
             continue
-        part_rpm = speeds.get(part.id, 0.0)
-        ratio = part_rpm / ref_rpm if ref_rpm != 0.0 else 0.0
 
-        # Find the joint that connects this part to determine rotation center
+        # Use animation ratio if available (gear-connected parts),
+        # otherwise fall back to propagate_speeds ratio
+        if part.id in anim_ratios:
+            ratio = anim_ratios[part.id]
+        else:
+            part_rpm = speeds.get(part.id, 0.0)
+            ratio = part_rpm / ref_rpm if ref_rpm != 0.0 else 0.0
+
+        # Find the REVOLUTE/CONTINUOUS joint for this part's rotation center.
+        # Gear-mesh or belt-chain origins are at the contact point, not the
+        # rotation axis — prefer revolute joints.
         rot_origin = (0.0, 0.0, 0.0)
         rot_axis = (0.0, 0.0, 1.0)
         for j in mech.joints:
-            if j.child_part == part.id or j.parent_part == part.id:
+            if j.joint_type in _ROTATION_JOINT_TYPES and (
+                j.child_part == part.id or j.parent_part == part.id
+            ):
                 rot_origin = j.origin
                 rot_axis = j.axis
                 break
+        else:
+            # Fallback: any joint if no revolute found
+            for j in mech.joints:
+                if j.child_part == part.id or j.parent_part == part.id:
+                    rot_origin = j.origin
+                    rot_axis = j.axis
+                    break
 
-        part_kinematics[part.id] = (ratio, rot_origin, rot_axis)
+        phase = mesh_phases.get(part.id, 0.0)
+        part_kinematics[part.id] = (ratio, rot_origin, rot_axis, phase)
 
     from server.freecad_client import FreeCADCommandError, FreeCADConnectionError, get_client
 
@@ -619,17 +725,46 @@ def motion_drive_joint(
             carrier_rpm = speeds.get(ps.carrier, 0.0)
             carrier_ratios[ps.carrier] = carrier_rpm / ref_rpm if ref_rpm != 0.0 else 0.0
 
+        # Capture initial body positions for the body_placement fallback.
+        # When P0 == origin this is a no-op (standard workflow).
+        initial_positions: dict[str, tuple[float, float, float]] = {}
+        if not link_map:
+            try:
+                from server.tools_cad import cad_get_model_tree
+                tree_kw: dict[str, Any] = {"detail": "bodies"}
+                if doc is not None:
+                    tree_kw["doc"] = doc
+                tree_result = cad_get_model_tree(**tree_kw)
+                if tree_result.get("ok"):
+                    for body in tree_result.get("bodies", []):
+                        pos = body.get("position")
+                        label = body.get("label")
+                        if label and pos and len(pos) >= 3:
+                            initial_positions[label] = (pos[0], pos[1], pos[2])
+            except Exception as exc:
+                log.debug("Could not capture initial body positions: %s", exc)
+
+        step_collisions: list[dict[str, Any]] = []
+
+        # Collect body names for collision checking
+        collision_body_names: list[str] = []
+        if check_collisions:
+            collision_body_names = [
+                p.body_name for p in mech.parts
+                if p.body_name and not p.is_ground
+            ]
+
         for i in range(steps + 1):
             fraction = i / steps
             driven_angle = value * fraction
 
             # Build placements for all non-ground, non-planet parts
             placements: dict[str, dict[str, Any]] = {}
-            for part_id, (ratio, origin, axis) in part_kinematics.items():
+            for part_id, (ratio, origin, axis, phase) in part_kinematics.items():
                 link_name = link_map.get(part_id)
                 if link_name is None:
                     continue
-                angle = ratio * driven_angle
+                angle = ratio * driven_angle + phase
                 placements[link_name] = {
                     "angle_deg": angle,
                     "axis": list(axis),
@@ -671,20 +806,82 @@ def motion_drive_joint(
                         "rotation_angle_deg": planet_world_deg,
                     }
 
-            set_kwargs: dict[str, Any] = {
-                "assembly": asm_name,
-                "placements": placements,
-                "screenshot": (i == steps),  # screenshot on last step
-            }
-            if doc is not None:
-                set_kwargs["doc"] = doc
+            # --- Fallback: set body placements directly when assembly has no links ---
+            # Rotate each body's initial position around the joint origin using
+            # Rodrigues.  When P0 == origin (standard workflow where body is
+            # placed at the joint origin), this reduces to the previous behaviour.
+            if not link_map:
+                for part_id, (ratio, origin, axis, phase) in part_kinematics.items():
+                    part = mech.get_part(part_id)
+                    body_label = part.body_name if part else None
+                    if not body_label:
+                        continue
+                    angle = ratio * driven_angle + phase
+                    p0 = initial_positions.get(body_label, origin)
+                    new_base = _rotate_point_around_center(p0, origin, axis, angle)
+                    sp_kwargs: dict[str, Any] = {
+                        "object_name": body_label,
+                        "position": list(new_base),
+                        "rotation_axis": list(axis),
+                        "rotation_angle_deg": angle,
+                    }
+                    if doc is not None:
+                        sp_kwargs["doc"] = doc
+                    client.send_command("set_placement", **sp_kwargs)
 
-            result = client.send_command("assembly_set_placements", **set_kwargs)
+                # Screenshot on last step
+                if i == steps:
+                    sc_kwargs: dict[str, Any] = {}
+                    if doc is not None:
+                        sc_kwargs["doc"] = doc
+                    try:
+                        sc_result = client.send_command("screenshot", **sc_kwargs)
+                        if sc_result.get("screenshot"):
+                            screenshots.append(sc_result["screenshot"])
+                    except Exception:
+                        pass
+            else:
+                set_kwargs: dict[str, Any] = {
+                    "assembly": asm_name,
+                    "placements": placements,
+                    "screenshot": (i == steps),  # screenshot on last step
+                }
+                if doc is not None:
+                    set_kwargs["doc"] = doc
+
+                result = client.send_command("assembly_set_placements", **set_kwargs)
+
+                if result.get("screenshot"):
+                    screenshots.append(result["screenshot"])
+
+            # Collision check at this step
+            if check_collisions and len(collision_body_names) >= 2:
+                try:
+                    clr_kwargs: dict[str, Any] = {
+                        "bodies": collision_body_names,
+                        "threshold_mm": 0.0,
+                    }
+                    if doc is not None:
+                        clr_kwargs["doc"] = doc
+                    clr_result = client.send_command(
+                        "check_clearance", **clr_kwargs,
+                    )
+                    for v in clr_result.get("violations", []):
+                        if v.get("intersecting"):
+                            step_collisions.append({
+                                "step": i,
+                                "driven_angle": driven_angle,
+                                "body_a": v["body_a"],
+                                "body_b": v["body_b"],
+                                "distance_mm": v.get("distance_mm", 0.0),
+                            })
+                except Exception:
+                    pass  # clearance check failure shouldn't abort animation
 
             # Collect all part angles for step_positions
             all_part_angles: dict[str, float] = {
-                pid: round(ratio * driven_angle, 4)
-                for pid, (ratio, _, _) in part_kinematics.items()
+                pid: round(ratio * driven_angle + phase, 4)
+                for pid, (ratio, _, _, phase) in part_kinematics.items()
             }
             for ps in p_sets:
                 c_ratio = carrier_ratios.get(ps.carrier, 0.0)
@@ -702,16 +899,13 @@ def motion_drive_joint(
                 "part_angles": all_part_angles,
             })
 
-            if result.get("screenshot"):
-                screenshots.append(result["screenshot"])
-
         if _TOOL_LOG:
             log.info(
                 "OK   motion_drive_joint %.3fs steps=%d screenshots=%d",
                 time.monotonic() - t0, steps, len(screenshots),
             )
 
-        return {
+        resp: dict[str, Any] = {
             "ok": True,
             "assembly": asm_name,
             "joint": joint_id,
@@ -721,6 +915,23 @@ def motion_drive_joint(
             "screenshots": screenshots,
             "method": "analytical",
         }
+        if not link_map:
+            resp["fallback"] = "body_placement"
+        if phase_warnings:
+            resp["tooth_interference"] = phase_warnings
+            resp["tooth_interference_warning"] = (
+                f"Tooth interference detected at {len(phase_warnings)} "
+                f"mesh(es) — animation may show colliding teeth"
+            )
+        if check_collisions:
+            resp["collisions"] = step_collisions
+            resp["collision_free"] = len(step_collisions) == 0
+            if step_collisions:
+                resp["collision_summary"] = (
+                    f"{len(step_collisions)} collision(s) detected across "
+                    f"{len(set((c['body_a'], c['body_b']) for c in step_collisions))} pair(s)"
+                )
+        return resp
 
     except FreeCADConnectionError as exc:
         return _error_result("CONNECTION_ERROR", str(exc))
@@ -914,6 +1125,17 @@ def _simulate_with_chrono(
         response["build_warnings"] = build_warnings
     if diagnostics:
         response["diagnostics"] = diagnostics
+
+    # Extract peak joint forces from Chrono time series if present
+    ts = result.get("time_series", [])
+    peak_forces = _extract_peak_joint_forces(ts)
+    if peak_forces:
+        response.setdefault("summary", {})["peak_joint_forces"] = peak_forces
+    # Also check if Chrono daemon returned peak_joint_forces directly
+    chrono_peaks = result.get("summary", {}).get("peak_joint_forces")
+    if chrono_peaks and isinstance(chrono_peaks, dict):
+        response.setdefault("summary", {})["peak_joint_forces"] = chrono_peaks
+
     return response
 
 
@@ -967,6 +1189,13 @@ def _simulate_with_gazebo(
     result["mode_used"] = "batch"
     if preflight:
         result["urdf_validation" if not _has_sim_path(sdf_path) else "sdf_validation"] = preflight
+
+    # Extract peak joint forces from Gazebo time series if present
+    ts = result.get("time_series", [])
+    peak_forces = _extract_peak_joint_forces(ts)
+    if peak_forces:
+        result.setdefault("summary", {})["peak_joint_forces"] = peak_forces
+
     return result
 
 
@@ -1174,6 +1403,9 @@ def _simulate_with_isaac(
     samples = stop_result.get("samples", [])
     speeds = start_result.get("steady_state_speeds", {})
 
+    # Extract peak joint efforts from time series
+    peak_joint_forces = _extract_peak_joint_forces(samples)
+
     result: dict[str, Any] = {
         "ok": True,
         "time_series": samples,
@@ -1188,6 +1420,8 @@ def _simulate_with_isaac(
         "backend_used": "isaac",
         "mode_used": "batch",
     }
+    if peak_joint_forces:
+        result["summary"]["peak_joint_forces"] = peak_joint_forces
     if start_result.get("prim_path"):
         result["summary"]["prim_path"] = start_result["prim_path"]
         result["summary"]["joint_count"] = start_result.get("joint_count", 0)

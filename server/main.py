@@ -254,8 +254,24 @@ from server.tools_design import (
     design_update_part,
     design_verify_build,
 )
+from server.preflight import preflight_check
 from server.tools_fastener import cad_fastener_spec
 from server.tools_fastener_build import cad_bolt, cad_find_holes, cad_nut
+from server.tools_analysis import (
+    analysis_aero_check,
+    analysis_conjugate_thermal_check,
+    analysis_list_materials,
+    analysis_list_solvers,
+    analysis_stress_check,
+    analysis_stress_from_simulation,
+    analysis_thermal_check,
+    analysis_torque_sweep,
+)
+from server.tools_sim import (
+    sim_engine_status,
+    sim_start_engine,
+    sim_stop_engine,
+)
 
 
 def _json_dumps(obj: Any) -> bytes:
@@ -2610,6 +2626,14 @@ def _motion_tool_list() -> list[dict[str, Any]]:
                     "joint_id": {"type": "string", "description": "Joint ID within the mechanism"},
                     "value": {"type": "number", "description": "Total range to drive (degrees for revolute, mm for prismatic)"},
                     "steps": {"type": "integer", "default": 10, "description": "Number of steps to divide the motion into"},
+                    "check_collisions": {
+                        "type": "boolean",
+                        "default": False,
+                        "description": (
+                            "If true, run distToShape clearance check between all "
+                            "mechanism bodies at each animation step and report collisions."
+                        ),
+                    },
                     "doc": {"type": "string", "description": "Document name (optional)"},
                 },
                 "required": ["mechanism_id", "joint_id", "value"],
@@ -3287,6 +3311,22 @@ def _design_tool_list() -> list[dict[str, Any]]:
                             "Default 0.5. Only used when check_clearance is true."
                         ),
                     },
+                    "tolerance_pct": {
+                        "type": "number",
+                        "default": 10.0,
+                        "description": (
+                            "Percentage tolerance for dimension checks. "
+                            "Default 10.0. Use lower values (e.g. 2.0) for precision parts."
+                        ),
+                    },
+                    "tolerance_mm": {
+                        "type": "number",
+                        "default": 1.0,
+                        "description": (
+                            "Absolute tolerance in mm for dimension checks. "
+                            "Default 1.0. The effective tolerance is max(pct, mm)."
+                        ),
+                    },
                 },
                 "required": ["brief_id"],
                 "additionalProperties": False,
@@ -3755,6 +3795,436 @@ def _fastener_tool_list() -> list[dict[str, Any]]:
     ]
 
 
+def _analysis_tool_list() -> list[dict[str, Any]]:
+    """Field-problem analysis tools (structural FEA, thermal, EM)."""
+    return [
+        {
+            "name": "analysis.stress_check",
+            "description": (
+                "Run structural stress analysis on a body. Exports STEP, meshes with "
+                "Gmsh, solves with CalculiX (or selected solver), returns pass/fail "
+                "with safety factor, stress/displacement fields, and remediation suggestions."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "body": {
+                        "type": "string",
+                        "description": "Body label in the active document",
+                    },
+                    "material": {
+                        "description": (
+                            "Material key (e.g. 'aluminum_6061_t6', 'steel', 'pla') "
+                            "or inline dict with name, youngs_modulus_mpa, poissons_ratio, "
+                            "density_kg_m3, yield_strength_mpa"
+                        ),
+                    },
+                    "boundary_conditions": {
+                        "type": "array",
+                        "description": "List of boundary conditions",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "bc_type": {
+                                    "type": "string",
+                                    "enum": ["fixed", "force", "pressure", "displacement"],
+                                    "description": "Boundary condition type",
+                                },
+                                "faces": {
+                                    "type": "array",
+                                    "items": {"type": "string"},
+                                    "description": "Face references (e.g. ['Face1', 'Face3'])",
+                                },
+                                "value": {
+                                    "type": "object",
+                                    "description": (
+                                        "BC values. Force: {fx, fy, fz} in N. "
+                                        "Pressure: {pressure_mpa}. Fixed: {} or omit."
+                                    ),
+                                },
+                            },
+                            "required": ["bc_type", "faces"],
+                        },
+                    },
+                    "mesh_size": {
+                        "type": "number",
+                        "description": "Target mesh element size in mm (0 = auto)",
+                        "default": 0,
+                    },
+                    "solver": {
+                        "type": "string",
+                        "description": "Solver name (default: auto-select first available)",
+                        "default": "",
+                    },
+                    "doc": {
+                        "type": "string",
+                        "description": "Document name (default: active document)",
+                    },
+                },
+                "required": ["body", "material", "boundary_conditions"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "analysis.stress_from_simulation",
+            "description": (
+                "Run stress analysis using forces extracted from simulation results. "
+                "Accepts output from motion.simulate (dynamic, any backend: Isaac/Gazebo/Chrono) "
+                "or motion.propagate_motion (analytical). Automatically converts joint forces/torques "
+                "to FEA boundary conditions and runs the solver."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "body": {
+                        "type": "string",
+                        "description": "Body label in the active document",
+                    },
+                    "material": {
+                        "description": "Material key or inline dict (same as analysis.stress_check)",
+                    },
+                    "fixed_faces": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Face references for fixed supports (e.g. ['Face1'])",
+                    },
+                    "load_faces": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Face references where simulation forces are applied",
+                    },
+                    "simulation_result": {
+                        "type": "object",
+                        "description": "Result from motion.simulate (contains time_series, summary with peak_joint_forces)",
+                    },
+                    "propagation_result": {
+                        "type": "object",
+                        "description": "Result from motion.propagate_motion (contains states with torque_nm per part)",
+                    },
+                    "load_direction": {
+                        "type": "array",
+                        "items": {"type": "number"},
+                        "description": "Unit vector for load direction [x,y,z] (default: [0,0,-1])",
+                    },
+                    "joint_index": {
+                        "type": "integer",
+                        "description": "Specific joint index to use for force extraction (default: max across all joints)",
+                    },
+                    "safety_factor": {
+                        "type": "number",
+                        "description": "Multiply peak force by this factor (default: 1.5)",
+                        "default": 1.5,
+                    },
+                    "mesh_size": {
+                        "type": "number",
+                        "description": "Target mesh element size in mm (0 = auto)",
+                        "default": 0,
+                    },
+                    "solver": {
+                        "type": "string",
+                        "description": "Solver name (default: auto-select)",
+                        "default": "",
+                    },
+                    "doc": {
+                        "type": "string",
+                        "description": "Document name (default: active document)",
+                    },
+                },
+                "required": ["body", "material", "fixed_faces", "load_faces"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "analysis.aero_check",
+            "description": (
+                "Run aerodynamic or hydrodynamic CFD analysis on a body. Works with any fluid — "
+                "air (drone aero), water (marine/underwater), etc. For single-body external flow "
+                "uses SU2 (RANS CFD). For multi-rotor analysis uses DUST (vortex particle method). "
+                "Returns CL, CD, L/D ratio, and per-rotor thrust/torque/figure-of-merit."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "body": {
+                        "type": "string",
+                        "description": "Body label in the active document",
+                    },
+                    "flow_conditions": {
+                        "type": "object",
+                        "description": "Freestream conditions",
+                        "properties": {
+                            "velocity_m_s": {"type": "number", "description": "Freestream velocity (m/s)"},
+                            "density_kg_m3": {"type": "number", "default": 1.225, "description": "Fluid density (default: air at sea level)"},
+                            "viscosity_pa_s": {"type": "number", "default": 1.789e-5},
+                            "angle_of_attack_deg": {"type": "number", "default": 0},
+                            "sideslip_deg": {"type": "number", "default": 0},
+                            "mach": {"type": "number", "default": 0, "description": "Mach number (0 = auto from velocity)"},
+                        },
+                        "required": ["velocity_m_s"],
+                    },
+                    "fluid": {
+                        "type": "string",
+                        "description": "Fluid preset: 'air', 'freshwater', 'seawater', 'oil_sae30'. Sets density/viscosity defaults.",
+                    },
+                    "reference": {
+                        "type": "object",
+                        "description": "Reference values for non-dimensionalization",
+                        "properties": {
+                            "area_m2": {"type": "number", "description": "Reference area (m²)"},
+                            "chord_m": {"type": "number", "description": "Reference chord (m)"},
+                            "span_m": {"type": "number", "description": "Reference span (m)"},
+                        },
+                        "required": ["area_m2"],
+                    },
+                    "rotors": {
+                        "type": "array",
+                        "description": "Rotor definitions for multi-rotor analysis (triggers DUST solver)",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "rotor_id": {"type": "string"},
+                                "center_xyz": {"type": "array", "items": {"type": "number"}},
+                                "axis": {"type": "array", "items": {"type": "number"}, "description": "Rotation axis [x,y,z]"},
+                                "radius_m": {"type": "number"},
+                                "rpm": {"type": "number"},
+                                "num_blades": {"type": "integer", "default": 2},
+                                "chord_m": {"type": "number", "default": 0},
+                                "collective_deg": {"type": "number", "default": 10},
+                            },
+                            "required": ["rotor_id", "center_xyz", "axis", "radius_m", "rpm"],
+                        },
+                    },
+                    "mesh_size": {"type": "number", "default": 0, "description": "Target mesh size in mm (0 = auto)"},
+                    "solver": {"type": "string", "default": "", "description": "Solver name: 'su2', 'dust', or auto-select"},
+                    "doc": {"type": "string", "description": "Document name"},
+                },
+                "required": ["body", "flow_conditions"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "analysis.thermal_check",
+            "description": (
+                "Run steady-state thermal analysis on a body. Exports STEP, meshes with "
+                "Gmsh, solves with Elmer (or selected solver), returns temperature field, "
+                "heat flux, and thermal safety checks."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "body": {
+                        "type": "string",
+                        "description": "Body label in the active document",
+                    },
+                    "material": {
+                        "description": (
+                            "Material key (e.g. 'copper', 'aluminum', 'steel') "
+                            "or inline dict. Must have thermal_conductivity_w_mk > 0."
+                        ),
+                    },
+                    "boundary_conditions": {
+                        "type": "array",
+                        "description": "List of thermal boundary conditions",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "bc_type": {
+                                    "type": "string",
+                                    "enum": ["temperature", "heat_flux", "convection"],
+                                    "description": "Thermal BC type",
+                                },
+                                "faces": {
+                                    "type": "array",
+                                    "items": {"type": "string"},
+                                    "description": "Face references (e.g. ['Face1', 'Face3'])",
+                                },
+                                "value": {
+                                    "type": "object",
+                                    "description": (
+                                        "BC values. Temperature: {temperature_k}. "
+                                        "Heat flux: {flux_w_m2}. "
+                                        "Convection: {htc_w_m2k, t_ambient_k}."
+                                    ),
+                                },
+                            },
+                            "required": ["bc_type", "faces"],
+                        },
+                    },
+                    "mesh_size": {
+                        "type": "number",
+                        "description": "Target mesh element size in mm (0 = auto)",
+                        "default": 0,
+                    },
+                    "solver": {
+                        "type": "string",
+                        "description": "Solver name (default: auto-select thermal solver)",
+                        "default": "",
+                    },
+                    "max_temperature_k": {
+                        "type": "number",
+                        "description": "Maximum allowable temperature in K (0 = no limit check)",
+                        "default": 0,
+                    },
+                    "doc": {
+                        "type": "string",
+                        "description": "Document name (default: active document)",
+                    },
+                },
+                "required": ["body", "material", "boundary_conditions"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "analysis.list_materials",
+            "description": "List available materials for analysis, optionally filtered by category (metal, plastic).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "category": {
+                        "type": "string",
+                        "description": "Filter by category: 'metal' or 'plastic'. Omit for all.",
+                    },
+                },
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "analysis.list_solvers",
+            "description": "List installed field solvers, their supported analysis types, and availability status.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "analysis.torque_sweep",
+            "description": (
+                "Sweep torque values across materials to find the failure envelope of a gear or loaded part. "
+                "Meshes the body once, runs FEA at a reference load, then scales linearly to compute "
+                "safety factors at each torque level. Returns per-material results and the breaking torque "
+                "(SF=1.0 crossover) for each material."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "body": {"type": "string", "description": "Body label in the active document"},
+                    "materials": {
+                        "type": "array",
+                        "items": {},
+                        "description": "Material keys (e.g. ['pla', 'aluminum_6061_t6', 'steel_4140']) or inline dicts",
+                    },
+                    "fixed_faces": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Face references for fixed supports (e.g. ['Face97'])",
+                    },
+                    "load_face": {
+                        "type": "string",
+                        "description": "Face where tangential tooth force is applied (e.g. 'Face1')",
+                    },
+                    "load_direction": {
+                        "type": "array",
+                        "items": {"type": "number"},
+                        "description": "Unit vector for tangential force direction (default [0,1,0])",
+                    },
+                    "pitch_radius_mm": {
+                        "type": "number",
+                        "description": "Pitch radius in mm — force = torque / pitch_radius",
+                    },
+                    "torques_nmm": {
+                        "type": "array",
+                        "items": {"type": "number"},
+                        "description": "Torque values to sweep in N·mm (e.g. [25, 50, 100, 200, 300])",
+                    },
+                    "mesh_size": {
+                        "type": "number",
+                        "default": 0,
+                        "description": "Target mesh element size in mm (0 = auto)",
+                    },
+                    "solver": {
+                        "type": "string",
+                        "default": "",
+                        "description": "Solver name (default: auto-select)",
+                    },
+                    "doc": {"type": "string", "description": "Document name (optional)"},
+                },
+                "required": ["body", "materials", "fixed_faces", "load_face", "pitch_radius_mm", "torques_nmm"],
+                "additionalProperties": False,
+            },
+        },
+    ]
+
+
+def _sim_tool_list() -> list[dict[str, Any]]:
+    """Simulation engine lifecycle tools."""
+    return [
+        {
+            "name": "sim.start_engine",
+            "description": (
+                "Start a simulation backend. Backends: 'chrono' (gear trains, linkages), "
+                "'gazebo' (drones, wheeled — use runtime='stub' if Gazebo not installed), "
+                "'isaac' (legged robots, GPU physics). Checks if already running first."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "backend": {
+                        "type": "string",
+                        "enum": ["chrono", "gazebo", "isaac"],
+                        "description": "Which simulation backend to start",
+                    },
+                    "port": {
+                        "type": "integer",
+                        "description": "Override default port (chrono=9877, gazebo=9879, isaac=9878)",
+                    },
+                    "headless": {
+                        "type": "boolean",
+                        "default": True,
+                        "description": "Run without GUI (default true)",
+                    },
+                    "timeout_s": {
+                        "type": "number",
+                        "default": 30,
+                        "description": "Seconds to wait for backend to be ready",
+                    },
+                    "runtime": {
+                        "type": "string",
+                        "default": "stub",
+                        "description": "Gazebo runtime mode: 'stub' (no Gazebo needed) or 'real'",
+                    },
+                },
+                "required": ["backend"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "sim.stop_engine",
+            "description": "Stop a running simulation backend subprocess.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "backend": {
+                        "type": "string",
+                        "enum": ["chrono", "gazebo", "isaac"],
+                    },
+                },
+                "required": ["backend"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "sim.engine_status",
+            "description": "Check which simulation backends are running, their ports, and install hints for missing ones.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": False,
+            },
+        },
+    ]
+
+
 def _tool_list() -> list[dict[str, Any]]:
     return (
         _cad_tool_list()
@@ -3769,6 +4239,8 @@ def _tool_list() -> list[dict[str, Any]]:
         + _rl_tool_list()
         + _design_tool_list()
         + _fastener_tool_list()
+        + _analysis_tool_list()
+        + _sim_tool_list()
         + _PACK_TOOLS
     )
 
@@ -3940,6 +4412,7 @@ _DESIGN_DISPATCH: dict[str, Any] = {
     "design.list_briefs": design_list_briefs,
     "design.verify_build": design_verify_build,
     "design.generate_mechanism": design_generate_mechanism,
+    "design.preflight_check": preflight_check,
 }
 
 _FASTENER_DISPATCH: dict[str, Any] = {
@@ -3947,6 +4420,23 @@ _FASTENER_DISPATCH: dict[str, Any] = {
     "cad.bolt": cad_bolt,
     "cad.nut": cad_nut,
     "cad.find_holes": cad_find_holes,
+}
+
+_ANALYSIS_DISPATCH: dict[str, Any] = {
+    "analysis.stress_check": analysis_stress_check,
+    "analysis.stress_from_simulation": analysis_stress_from_simulation,
+    "analysis.thermal_check": analysis_thermal_check,
+    "analysis.conjugate_thermal_check": analysis_conjugate_thermal_check,
+    "analysis.aero_check": analysis_aero_check,
+    "analysis.torque_sweep": analysis_torque_sweep,
+    "analysis.list_materials": analysis_list_materials,
+    "analysis.list_solvers": analysis_list_solvers,
+}
+
+_SIM_DISPATCH: dict[str, Any] = {
+    "sim.start_engine": sim_start_engine,
+    "sim.stop_engine": sim_stop_engine,
+    "sim.engine_status": sim_engine_status,
 }
 
 
@@ -3963,6 +4453,8 @@ def _call_tool(name: str, arguments: dict[str, Any]) -> Any:
         or _RL_DISPATCH.get(name)
         or _DESIGN_DISPATCH.get(name)
         or _FASTENER_DISPATCH.get(name)
+        or _ANALYSIS_DISPATCH.get(name)
+        or _SIM_DISPATCH.get(name)
         or _PACK_DISPATCH.get(name)
     )
     if handler is None:

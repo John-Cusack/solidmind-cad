@@ -19,6 +19,10 @@ Claude Code CLI ──stdio──▶ MCP Bridge Server ──TCP socket──▶
                                ├─ TCP :9877 ──▶ Chrono Daemon (optional, C++ MBS)
                                ├─ TCP :9878 ──▶ Isaac Bridge  (optional, GPU sim)
                                ├─ TCP :9879 ──▶ Gazebo Bridge (optional, CPU sim)
+                               ├─ Field solvers  ──▶ CalculiX (structural FEA, subprocess)
+                               │                    SU2 (RANS CFD, subprocess)
+                               │                    DUST (vortex particle, subprocess)
+                               │                    + solver packs (pip-installable)
                                ├─ LanceDB (in-process knowledge store)
                                └─ Docling (PDF/DOCX extraction)
 ```
@@ -51,6 +55,8 @@ See @.claude/rules/design-pipeline.md for the full phased process.
 | `study.*` | Parametric design optimization (sweep, solve, rank) |
 | `geometry.*` | Parametric generators (gears, springs, cams, linkages) |
 | `knowledge.*` | Knowledge base (hybrid search, PDF extraction, ingestion) |
+| `analysis.*` | Field-problem solvers (structural FEA, CFD aero/hydro, simulation coupling) |
+| `sim.*` | Simulation engine lifecycle (start/stop/status for Chrono, Gazebo, Isaac) |
 
 ## Interaction Flow
 
@@ -60,6 +66,8 @@ See @.claude/rules/design-pipeline.md for the full phased process.
 4. Each step returns verification images — examine them to confirm geometry.
 5. User clicks in FreeCAD → `cad.get_selection` → use references in follow-up commands.
 6. User provides PDF → `knowledge.extract` → `knowledge.ingest` to index.
+7. For structural validation: `analysis.stress_check` or `analysis.stress_from_simulation` (feeds forces from motion.* into FEA).
+8. For aerodynamic/hydrodynamic validation: `analysis.aero_check` with flow conditions and optional rotors.
 
 ## Sketch Elements
 
@@ -81,3 +89,5 @@ All types supported: `rect`, `circle`, `line`, `arc`, `spline`, `external_ref`, 
 - **Motion validation**: User-initiated, human-gated. @.claude/rules/motion-validation.md
 - **Parametric studies**: Only when user asks to optimize/explore. @.claude/rules/study-policy.md
 - **Self-assessment**: Critically examine screenshots. Acknowledge uncertainty. @.claude/rules/self-assessment.md
+- **Analysis (FEA/CFD)**: Skip for simple geometry. Trigger for load-bearing or aero-critical parts. @.claude/rules/analysis-policy.md
+- **Sim engines**: Start on demand, persist across validation runs. @.claude/rules/sim-engine-policy.md

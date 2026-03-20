@@ -1155,7 +1155,15 @@ def cad_check_clearance(
     if doc is not None:
         kwargs["doc"] = doc
     result = client.send_command("check_clearance", **kwargs)
-    return {"ok": True, **result}
+    violations = result.get("violations", [])
+    pair_errors = [v for v in violations if v.get("error")]
+    clean_violations = [v for v in violations if not v.get("error")]
+    return {
+        "ok": True,
+        "violations": clean_violations,
+        "pair_errors": pair_errors,
+        **{k: v for k, v in result.items() if k != "violations"},
+    }
 
 
 @_wrap

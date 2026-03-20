@@ -124,13 +124,26 @@ class StubGazeboRuntime:
         world_name = _normalize_world_name(args, self._world_name)
         part_ids = [p.get("id") for p in mechanism.get("parts", []) if isinstance(p, dict) and p.get("id")]
 
+        # Extract joint info for force/torque estimation
+        joints = mechanism.get("joints", []) if isinstance(mechanism.get("joints"), list) else []
+        joint_ids = [j.get("id", "") for j in joints if isinstance(j, dict)]
+
         samples_count = max(2, int(duration_s / max(output_interval, dt_s)) + 1)
         time_series: list[dict[str, Any]] = []
         for idx in range(samples_count):
             t = min(duration_s, idx * output_interval)
             scale = 0.0 if duration_s <= 0 else min(1.0, t / duration_s)
             part_state = {pid: {"omega_rpm": round(120.0 * scale, 6)} for pid in part_ids}
-            time_series.append({"t": round(t, 6), "parts": part_state})
+            entry: dict[str, Any] = {"t": round(t, 6), "parts": part_state}
+            # Stub joint efforts — deterministic ramp for testing
+            if joint_ids:
+                entry["joint_efforts"] = [round(5.0 * scale, 6) for _ in joint_ids]
+            time_series.append(entry)
+
+        # Build peak joint forces from final sample
+        peak_joint_forces: dict[str, float] = {}
+        for i, jid in enumerate(joint_ids):
+            peak_joint_forces[jid] = 5.0  # stub steady-state effort
 
         return {
             "time_series": time_series,
@@ -139,6 +152,7 @@ class StubGazeboRuntime:
                 "dt_s": dt_s,
                 "output_interval": output_interval,
                 "steady_state_speeds": {pid: 120.0 for pid in part_ids},
+                "peak_joint_forces": peak_joint_forces,
                 "engine_mode": "stub",
                 "world_name": world_name,
             },

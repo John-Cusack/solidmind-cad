@@ -752,6 +752,65 @@ class TestVerifyBuild(unittest.TestCase):
         self.assertIn("random_extra", result["unmatched_bodies"])
 
 
+class TestVerifyBuildTolerance(unittest.TestCase):
+    """Tests for configurable tolerance_pct / tolerance_mm on design_verify_build."""
+
+    def setUp(self) -> None:
+        clear_briefs()
+
+    def tearDown(self) -> None:
+        clear_briefs()
+
+    def _make_brief_with_part(self, spec_diameter: float) -> str:
+        result = design_save_brief(name="ToleranceTest", parameters={}, status="building")
+        bid = result["brief"]["brief_id"]
+        design_add_part(
+            bid, name="gear", kind="custom",
+            specs={"diameter_mm": spec_diameter},
+        )
+        design_update_part(bid, name="gear", body_label="gear")
+        return bid
+
+    @patch("server.tools_cad.cad_get_model_tree")
+    def test_default_tolerance_passes(self, mock_tree_fn: Any) -> None:
+        """Default 10%/1mm tolerance accepts 9% deviation."""
+        bid = self._make_brief_with_part(24.0)
+        # Actual diameter ~26.1 (8.75% off from 24) — within 10%
+        mock_tree_fn.return_value = _mock_tree([_body("gear", [26.1, 26.1, 5.0])])
+
+        result = design_verify_build(bid)
+        self.assertTrue(result["ok"])
+        gear_report = result["parts"][0]
+        self.assertEqual(gear_report["dimension_warnings"], [])
+
+    @patch("server.tools_cad.cad_get_model_tree")
+    def test_tight_tolerance_catches_deviation(self, mock_tree_fn: Any) -> None:
+        """2%/0.1mm tolerance catches the same 8.75% deviation."""
+        bid = self._make_brief_with_part(24.0)
+        mock_tree_fn.return_value = _mock_tree([_body("gear", [26.1, 26.1, 5.0])])
+
+        result = design_verify_build(bid, tolerance_pct=2.0, tolerance_mm=0.1)
+        self.assertTrue(result["ok"])
+        gear_report = result["parts"][0]
+        self.assertGreater(len(gear_report["dimension_warnings"]), 0)
+        self.assertIn("diameter_mm", gear_report["dimension_warnings"][0])
+
+    @patch("server.tools_cad.cad_get_model_tree")
+    def test_absolute_tolerance_floor(self, mock_tree_fn: Any) -> None:
+        """Absolute tolerance_mm sets the floor for small values."""
+        bid = self._make_brief_with_part(2.0)
+        # 2.0mm spec, actual 2.8mm → delta 0.8mm
+        # With 10%/1.0mm: tol = max(0.2, 1.0) = 1.0 → 0.8 < 1.0 → pass
+        # With 10%/0.5mm: tol = max(0.2, 0.5) = 0.5 → 0.8 > 0.5 → fail
+        mock_tree_fn.return_value = _mock_tree([_body("gear", [2.8, 2.8, 1.0])])
+
+        result_default = design_verify_build(bid)
+        self.assertEqual(result_default["parts"][0]["dimension_warnings"], [])
+
+        result_tight = design_verify_build(bid, tolerance_mm=0.5)
+        self.assertGreater(len(result_tight["parts"][0]["dimension_warnings"]), 0)
+
+
 class TestDesignUpdateBriefAutoRegistersPlan(unittest.TestCase):
     """Auto-register placement plan when brief transitions to 'building'."""
 

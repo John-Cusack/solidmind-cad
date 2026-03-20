@@ -174,6 +174,26 @@ def design_update_brief(
         except Exception:
             log.debug("Failed to auto-register placement plan", exc_info=True)
 
+    # Auto-run design_verify_build on transition to "done"
+    if (
+        status == "done"
+        and old_brief is not None
+        and old_brief.status != "done"
+    ):
+        try:
+            custom_count = sum(1 for p in updated.parts if p.kind == "custom")
+            verify_result = design_verify_build(
+                brief_id,
+                check_clearance=(custom_count >= 3),
+            )
+            if verify_result.get("ok"):
+                result["verify_summary"] = verify_result.get("summary", {})
+                result["verify_action_items"] = verify_result.get("action_items", [])
+                if verify_result.get("clearance_violations"):
+                    result["clearance_violations"] = verify_result["clearance_violations"]
+        except Exception:
+            log.debug("Failed to auto-verify on done transition", exc_info=True)
+
     return result
 
 
@@ -524,11 +544,13 @@ def _check_dimension(
     spec_key: str,
     spec_val: float,
     body_size: list[float],
+    tolerance_pct: float = 10.0,
+    tolerance_mm: float = 1.0,
 ) -> str | None:
     """Compare a single spec dimension against body bounding box size.
 
     Returns a warning string if the dimension is outside tolerance, else None.
-    Tolerance: 10% or 1mm, whichever is larger.
+    Tolerance: *tolerance_pct*% or *tolerance_mm*, whichever is larger.
     """
     if not isinstance(spec_val, (int, float)) or not body_size:
         return None
@@ -550,7 +572,7 @@ def _check_dimension(
     else:
         return None
 
-    tol = max(abs(spec_val) * 0.10, 1.0)
+    tol = max(abs(spec_val) * tolerance_pct / 100.0, tolerance_mm)
     if abs(actual - spec_val) > tol:
         return (
             f"{spec_key}: expected {spec_val:.1f}mm, "
@@ -565,6 +587,8 @@ def design_verify_build(
     mechanism_id: str | None = None,
     check_clearance: bool = False,
     clearance_threshold_mm: float = 0.5,
+    tolerance_pct: float = 10.0,
+    tolerance_mm: float = 1.0,
 ) -> dict[str, Any]:
     """Verify that all planned parts from a design brief exist in FreeCAD.
 
@@ -677,7 +701,11 @@ def design_verify_build(
                 continue
             for sk, sv in part.specs.items():
                 if sk in dim_keys:
-                    warning = _check_dimension(sk, sv, body_size)
+                    warning = _check_dimension(
+                        sk, sv, body_size,
+                        tolerance_pct=tolerance_pct,
+                        tolerance_mm=tolerance_mm,
+                    )
                     if warning:
                         dim_warnings.append(f"{bl}: {warning}")
 

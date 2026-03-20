@@ -1169,6 +1169,7 @@ class _IsaacWorldEngine:
         """Step world and sample joint states at intervals.
 
         Dispatched to the main thread in non-headless mode.
+        Collects positions, velocities, and measured joint efforts (forces/torques).
         """
         logger.info("[engine] step_and_sample: %d steps, sample_every=%d", n_steps, sample_every)
         t0 = time.monotonic()
@@ -1192,6 +1193,13 @@ class _IsaacWorldEngine:
                             sample["joint_positions"] = [float(p) for p in positions]
                         if velocities is not None:
                             sample["joint_velocities"] = [float(v) for v in velocities]
+                        # Extract measured joint efforts (forces/torques)
+                        try:
+                            efforts = articulation.get_measured_joint_efforts()
+                            if efforts is not None:
+                                sample["joint_efforts"] = [float(e) for e in efforts]
+                        except Exception:
+                            pass  # API may not be available in all Isaac versions
                         results.append(sample)
                     except Exception:
                         pass  # Non-fatal — skip this sample
@@ -2126,6 +2134,8 @@ class IsaacRuntime:
                         entry["joint_positions"] = sample["joint_positions"]
                     if "joint_velocities" in sample:
                         entry["joint_velocities"] = sample["joint_velocities"]
+                    if "joint_efforts" in sample:
+                        entry["joint_efforts"] = sample["joint_efforts"]
                     entry["parts"] = {
                         pid: {"omega_rpm": float(speeds.get(pid, 0.0))} for pid in part_ids
                     }

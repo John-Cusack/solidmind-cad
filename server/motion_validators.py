@@ -49,6 +49,213 @@ def _build_adjacency(mech: Mechanism) -> dict[str, list[tuple[str, Any]]]:
     return adj
 
 
+def _revolute_origin_map(mech: Mechanism) -> dict[str, tuple[float, float, float]]:
+    """Map part_id -> rotation center from the first revolute joint referencing that part."""
+    origins: dict[str, tuple[float, float, float]] = {}
+    for j in mech.joints:
+        if j.joint_type in (JointType.REVOLUTE, JointType.CONTINUOUS):
+            for pid in (j.parent_part, j.child_part):
+                if pid not in origins:
+                    origins[pid] = j.origin
+    return origins
+
+
+# ---------------------------------------------------------------------------
+# Gear mesh phase computation
+# ---------------------------------------------------------------------------
+
+def _find_gear_seed(mech: Mechanism) -> str | None:
+    """Find the driven part to use as BFS seed for gear computations.
+
+    Returns the non-ground part attached to the drive joint so that BFS
+    traverses gear meshes instead of short-circuiting through revolute
+    joints connected to the ground frame.
+    """
+    gear_joints = _gear_joints(mech)
+    ground_ids = {p.id for p in mech.parts if p.is_ground}
+    for drive in mech.drives:
+        jt = mech.get_joint(drive.joint_id)
+        if jt is not None:
+            # Prefer the non-ground side of the drive joint
+            if jt.parent_part not in ground_ids:
+                return jt.parent_part
+            return jt.child_part
+    if gear_joints:
+        return gear_joints[0].parent_part
+    return None
+
+
+def _gear_mesh_origins_and_adj(
+    mech: Mechanism,
+) -> tuple[
+    dict[str, tuple[float, float, float]],
+    dict[str, list[tuple[str, Any]]],
+]:
+    """Build rotation-center map and gear-mesh adjacency."""
+    gear_joints = _gear_joints(mech)
+    origins = _revolute_origin_map(mech)
+    for j in gear_joints:
+        for pid in (j.parent_part, j.child_part):
+            if pid not in origins:
+                origins[pid] = j.origin
+    gear_adj: dict[str, list[tuple[str, Any]]] = defaultdict(list)
+    for j in gear_joints:
+        gear_adj[j.parent_part].append((j.child_part, j))
+        gear_adj[j.child_part].append((j.parent_part, j))
+    return origins, gear_adj
+
+
+def compute_gear_mesh_phases(mech: Mechanism) -> dict[str, float]:
+    """BFS from the driven gear to compute phase offset (deg) for each part.
+
+    The phase offset ensures that gear teeth interlock rather than overlap
+    during animation.  The formula accounts for the current gear's tooth
+    position at the contact point (cross-coupling term) and reduces modulo
+    the neighbor's angular pitch for minimal rotation:
+
+        p_cur = 360 / Z_current
+        p_nbr = 360 / Z_neighbor
+        contact_angle = atan2(dy, dx)
+
+        # External gear:
+        raw = contact_angle + 180 - p_nbr/2 + p_nbr * (contact_angle - phase_cur) / p_cur
+        phase_nbr = raw % p_nbr
+
+    Returns {part_id: phase_offset_deg}.  Parts without gear meshes get 0.
+    """
+    gear_joints = _gear_joints(mech)
+    if not gear_joints:
+        return {}
+
+    origins, gear_adj = _gear_mesh_origins_and_adj(mech)
+    seed = _find_gear_seed(mech)
+    if seed is None:
+        return {}
+
+    phases: dict[str, float] = {seed: 0.0}
+    queue = [seed]
+    visited = {seed}
+
+    while queue:
+        current = queue.pop(0)
+        current_phase = phases[current]
+        o_a = origins.get(current)
+        if o_a is None:
+            continue
+
+        for neighbor, joint in gear_adj.get(current, []):
+            if neighbor in visited:
+                continue
+
+            o_b = origins.get(neighbor)
+            if o_b is None:
+                visited.add(neighbor)
+                phases[neighbor] = 0.0
+                queue.append(neighbor)
+                continue
+
+            if current == joint.parent_part:
+                z_current = joint.teeth_parent
+                z_neighbor = joint.teeth_child
+            else:
+                z_current = joint.teeth_child
+                z_neighbor = joint.teeth_parent
+
+            if (
+                z_neighbor is None or z_neighbor <= 0
+                or z_current is None or z_current <= 0
+            ):
+                visited.add(neighbor)
+                phases[neighbor] = 0.0
+                queue.append(neighbor)
+                continue
+
+            dx = o_b[0] - o_a[0]
+            dy = o_b[1] - o_a[1]
+            contact_angle = math.degrees(math.atan2(dy, dx))
+
+            p_cur = 360.0 / z_current
+            p_nbr = 360.0 / z_neighbor
+
+            # Cross-coupling: where current gear's teeth actually are
+            # at the contact direction, accounting for current_phase.
+            coupling = p_nbr * (contact_angle - current_phase) / p_cur
+
+            if joint.internal:
+                raw = contact_angle - p_nbr / 2 + coupling
+            else:
+                raw = contact_angle + 180.0 - p_nbr / 2 + coupling
+
+            # Reduce modulo angular pitch for minimal rotation
+            neighbor_phase = raw % p_nbr
+
+            phases[neighbor] = neighbor_phase
+            visited.add(neighbor)
+            queue.append(neighbor)
+
+    return phases
+
+
+def compute_gear_animation_ratios(mech: Mechanism) -> dict[str, float]:
+    """BFS from the driven gear to compute signed animation speed ratios.
+
+    Returns {part_id: signed_ratio} where:
+    - Driver part: +1.0
+    - External gear mesh: direction flips, magnitude = Z_current / Z_neighbor
+    - Internal gear mesh: direction preserved
+    - Fixed / revolute: ratio inherited (co-axial parts)
+
+    These ratios give physically correct animation: external gears
+    counter-rotate, ratio magnitude = teeth_driver / teeth_driven.
+    """
+    gear_joints = _gear_joints(mech)
+    if not gear_joints:
+        return {}
+
+    seed = _find_gear_seed(mech)
+    if seed is None:
+        return {}
+
+    adj = _build_adjacency(mech)
+    ratios: dict[str, float] = {seed: 1.0}
+    queue = [seed]
+    visited = {seed}
+
+    while queue:
+        current = queue.pop(0)
+        cur_ratio = ratios[current]
+
+        for neighbor, joint in adj.get(current, []):
+            if neighbor in visited:
+                continue
+
+            if joint.joint_type in (JointType.GEAR_MESH, JointType.BELT_CHAIN):
+                if current == joint.parent_part:
+                    z_cur = joint.teeth_parent
+                    z_nbr = joint.teeth_child
+                else:
+                    z_cur = joint.teeth_child
+                    z_nbr = joint.teeth_parent
+
+                if z_cur and z_nbr and z_nbr > 0:
+                    mag = z_cur / z_nbr
+                else:
+                    mag = 1.0
+
+                if joint.joint_type == JointType.GEAR_MESH and not joint.internal:
+                    nbr_ratio = -cur_ratio * mag
+                else:
+                    nbr_ratio = cur_ratio * mag
+            else:
+                nbr_ratio = cur_ratio
+
+            ratios[neighbor] = nbr_ratio
+            visited.add(neighbor)
+            queue.append(neighbor)
+
+    return ratios
+
+
 # ---------------------------------------------------------------------------
 # Speed propagation (BFS from driven joints)
 # ---------------------------------------------------------------------------
@@ -185,9 +392,9 @@ def propagate_speeds(mech: Mechanism) -> dict[str, float]:
                 # Convention: ratio = teeth_parent / teeth_child
                 # parent speed / child speed = teeth_child / teeth_parent = 1/ratio
                 if current == joint.parent_part:
-                    neighbor_rpm = current_rpm / ratio
-                else:
                     neighbor_rpm = current_rpm * ratio
+                else:
+                    neighbor_rpm = current_rpm / ratio
             elif joint.joint_type == JointType.FIXED:
                 neighbor_rpm = current_rpm
             elif joint.joint_type == JointType.REVOLUTE:
@@ -257,12 +464,12 @@ def propagate_torques(mech: Mechanism) -> dict[str, float]:
                 JointType.GEAR_MESH, JointType.BELT_CHAIN,
             ):
                 if current == joint.parent_part:
-                    neighbor_torque = current_torque * ratio * eff
+                    neighbor_torque = current_torque / ratio * eff
                 else:
                     if ratio == 0:
                         neighbor_torque = 0.0
                     else:
-                        neighbor_torque = current_torque / ratio * eff
+                        neighbor_torque = current_torque * ratio * eff
             elif joint.joint_type == JointType.FIXED:
                 neighbor_torque = current_torque
             else:
@@ -304,6 +511,207 @@ def _check_gear_ratio_consistency(mech: Mechanism) -> ValidatorResult:
         message=f"All {gear_count} gear/belt joints have consistent ratios",
         measured={"gear_joint_count": gear_count},
         priority=100,
+    )
+
+
+def check_tooth_interference(
+    mech: Mechanism,
+    phases: dict[str, float] | None = None,
+    pressure_angle_deg: float = 20.0,
+) -> list[dict[str, Any]]:
+    """Check for tooth-level interference at each gear mesh contact zone.
+
+    For each gear_mesh joint, computes where each gear's teeth fall at the
+    contact point (on the line of centers) and checks whether both gears
+    present a tooth simultaneously (interference) or one presents a tooth
+    while the other presents a gap (correct meshing).
+
+    Returns a list of per-joint results:
+      {"joint_id", "parent", "child", "ok", "residual_parent_deg",
+       "residual_child_deg", "clearance_deg", "detail"}
+
+    ``clearance_deg`` is how far the nearest tooth edges are from overlapping.
+    Negative means overlap (interference).
+    """
+    if phases is None:
+        phases = compute_gear_mesh_phases(mech)
+    gear_joints = _gear_joints(mech)
+    origins, _ = _gear_mesh_origins_and_adj(mech)
+
+    results: list[dict[str, Any]] = []
+
+    for j in gear_joints:
+        o_parent = origins.get(j.parent_part)
+        o_child = origins.get(j.child_part)
+        z_p = j.teeth_parent
+        z_c = j.teeth_child
+
+        if (
+            o_parent is None or o_child is None
+            or z_p is None or z_p <= 0
+            or z_c is None or z_c <= 0
+        ):
+            results.append({
+                "joint_id": j.id,
+                "parent": j.parent_part,
+                "child": j.child_part,
+                "ok": None,
+                "detail": "missing origins or teeth data",
+            })
+            continue
+
+        dx = o_child[0] - o_parent[0]
+        dy = o_child[1] - o_parent[1]
+        contact_angle = math.degrees(math.atan2(dy, dx))
+
+        p_parent = 360.0 / z_p  # angular pitch of parent
+        p_child = 360.0 / z_c
+
+        phase_p = phases.get(j.parent_part, 0.0)
+        phase_c = phases.get(j.child_part, 0.0)
+
+        # Tooth half-width at pitch circle = half the angular pitch / 2
+        # (tooth occupies half of one angular pitch)
+        tooth_half_p = p_parent / 4.0
+        tooth_half_c = p_child / 4.0
+
+        # Parent: contact direction is toward child = contact_angle
+        # Residual within one pitch period: how far from nearest tooth center
+        residual_p = (contact_angle - phase_p) % p_parent
+        dist_to_tooth_p = min(residual_p, p_parent - residual_p)
+
+        # Child: contact direction is toward parent
+        if j.internal:
+            # Internal gear: same direction (teeth face inward)
+            child_contact = contact_angle
+        else:
+            # External gear: opposite direction
+            child_contact = contact_angle + 180.0
+
+        residual_c = (child_contact - phase_c) % p_child
+        dist_to_tooth_c = min(residual_c, p_child - residual_c)
+
+        # Both gears present a tooth at contact if dist < tooth_half
+        # Clearance = how much gap remains (positive = no interference)
+        # For proper meshing, when parent has a tooth, child should have a gap
+        parent_in_tooth = dist_to_tooth_p < tooth_half_p
+        child_in_tooth = dist_to_tooth_c < tooth_half_c
+
+        if parent_in_tooth and child_in_tooth:
+            # Both teeth at contact — interference
+            # Clearance is negative: how much they overlap
+            gap_p = tooth_half_p - dist_to_tooth_p  # how deep into parent tooth
+            gap_c = tooth_half_c - dist_to_tooth_c  # how deep into child tooth
+            clearance = -(gap_p + gap_c)
+            ok = False
+            detail = (
+                f"INTERFERENCE: both gears have teeth at contact zone "
+                f"(overlap {abs(clearance):.2f}°)"
+            )
+        elif not parent_in_tooth and not child_in_tooth:
+            # Both in gaps — teeth don't interlock (backlash issue)
+            gap_margin_p = dist_to_tooth_p - tooth_half_p
+            gap_margin_c = dist_to_tooth_c - tooth_half_c
+            clearance = gap_margin_p + gap_margin_c
+            ok = True
+            detail = (
+                f"Both gears in gap at contact zone "
+                f"(clearance {clearance:.2f}°, may indicate excessive backlash)"
+            )
+        else:
+            # One tooth, one gap — correct meshing
+            if parent_in_tooth:
+                margin = dist_to_tooth_c - tooth_half_c
+            else:
+                margin = dist_to_tooth_p - tooth_half_p
+            clearance = margin
+            ok = True
+            detail = f"Correct tooth-gap interlocking (clearance {clearance:.2f}°)"
+
+        results.append({
+            "joint_id": j.id,
+            "parent": j.parent_part,
+            "child": j.child_part,
+            "ok": ok,
+            "residual_parent_deg": round(dist_to_tooth_p, 4),
+            "residual_child_deg": round(dist_to_tooth_c, 4),
+            "clearance_deg": round(clearance, 4),
+            "detail": detail,
+        })
+
+    return results
+
+
+def _check_mesh_phasing(mech: Mechanism) -> ValidatorResult:
+    """Compute gear mesh phase offsets and verify geometric tooth interlocking."""
+    gear_joints = _gear_joints(mech)
+    if not gear_joints:
+        return ValidatorResult(
+            name="mesh_phasing",
+            status="note",
+            message="No gear meshes — phasing not applicable",
+            measured={},
+            priority=150,
+        )
+
+    phases = compute_gear_mesh_phases(mech)
+    if not phases:
+        return ValidatorResult(
+            name="mesh_phasing",
+            status="warn",
+            message="Could not compute gear mesh phases (missing origins or teeth data)",
+            measured={},
+            priority=150,
+        )
+
+    # Check if any phases could not be computed (parts with 0 that are in gear meshes)
+    origins = _revolute_origin_map(mech)
+    missing_data: list[str] = []
+    for j in gear_joints:
+        for pid in (j.parent_part, j.child_part):
+            if pid not in origins and pid not in missing_data:
+                missing_data.append(pid)
+
+    if missing_data:
+        return ValidatorResult(
+            name="mesh_phasing",
+            status="warn",
+            message=f"Phase computed but missing rotation origins for: {missing_data}",
+            measured={"phase_offsets_deg": {k: round(v, 4) for k, v in phases.items()}},
+            priority=150,
+        )
+
+    # Geometric interference check at each contact zone
+    interference_results = check_tooth_interference(mech, phases)
+    interference_issues = [r for r in interference_results if r.get("ok") is False]
+
+    measured: dict[str, Any] = {
+        "phase_offsets_deg": {k: round(v, 4) for k, v in phases.items()},
+        "tooth_interference": interference_results,
+    }
+
+    if interference_issues:
+        joint_ids = [r["joint_id"] for r in interference_issues]
+        return ValidatorResult(
+            name="mesh_phasing",
+            status="fail",
+            message=(
+                f"Tooth interference detected at {len(interference_issues)} "
+                f"mesh(es): {joint_ids}. Phase offsets may be incorrect."
+            ),
+            measured=measured,
+            priority=150,
+        )
+
+    return ValidatorResult(
+        name="mesh_phasing",
+        status="pass",
+        message=(
+            f"Mesh phases computed for {len(phases)} parts — "
+            f"geometric tooth interlocking verified at {len(interference_results)} mesh(es)"
+        ),
+        measured=measured,
+        priority=150,
     )
 
 
@@ -687,10 +1095,21 @@ def analyze_gear_train(mech: Mechanism) -> dict[str, Any]:
         if ratio is not None:
             overall_ratio *= ratio
 
-    return {
+    phases = compute_gear_mesh_phases(mech)
+    interference = check_tooth_interference(mech, phases)
+    interference_issues = [r for r in interference if r.get("ok") is False]
+    result: dict[str, Any] = {
         "overall_ratio": round(overall_ratio, 6),
         "stages": stages,
+        "phase_offsets_deg": {k: round(v, 4) for k, v in phases.items()},
+        "tooth_interference": interference,
     }
+    if interference_issues:
+        result["tooth_interference_warning"] = (
+            f"Tooth interference detected at {len(interference_issues)} "
+            f"mesh(es): {[r['joint_id'] for r in interference_issues]}"
+        )
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -701,6 +1120,7 @@ ValidatorFn = Callable[[Mechanism], ValidatorResult]
 
 VALIDATORS: dict[str, ValidatorFn] = {
     "gear_ratio_consistency": _check_gear_ratio_consistency,
+    "mesh_phasing": _check_mesh_phasing,
     "speed_propagation": _check_speed_propagation,
     "torque_balance": _check_torque_balance,
     "power_conservation": _check_power_conservation,

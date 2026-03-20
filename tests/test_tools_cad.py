@@ -2668,6 +2668,59 @@ class TestCheckClearance(unittest.TestCase):
         self.assertTrue(result["violations"][0]["intersecting"])
         self.assertAlmostEqual(result["violations"][0]["distance_mm"], 0.0)
 
+    @patch("server.tools_cad.get_client")
+    def test_pair_errors_separated(self, mock_get: MagicMock) -> None:
+        """Violations with 'error' field are split into pair_errors."""
+        client = _mock_client()
+        mock_get.return_value = client
+        client.send_command.return_value = {
+            "pairs_checked": 3,
+            "threshold_mm": 0.5,
+            "violation_count": 2,
+            "violations": [
+                {
+                    "body_a": "Body",
+                    "body_b": "Body001",
+                    "distance_mm": 0.2,
+                    "intersecting": False,
+                },
+                {
+                    "body_a": "Body",
+                    "body_b": "Body002",
+                    "error": "distToShape failed: shape is null",
+                    "intersecting": True,
+                    "distance_mm": 0.0,
+                },
+            ],
+            "all_clear": False,
+        }
+        result = cad_check_clearance()
+        self.assertTrue(result["ok"])
+        # Clean violation (no error field)
+        self.assertEqual(len(result["violations"]), 1)
+        self.assertEqual(result["violations"][0]["body_b"], "Body001")
+        # Pair error (has error field)
+        self.assertEqual(len(result["pair_errors"]), 1)
+        self.assertEqual(result["pair_errors"][0]["body_b"], "Body002")
+        self.assertIn("distToShape", result["pair_errors"][0]["error"])
+
+    @patch("server.tools_cad.get_client")
+    def test_no_pair_errors_when_all_clean(self, mock_get: MagicMock) -> None:
+        """When no violations have error field, pair_errors is empty."""
+        client = _mock_client()
+        mock_get.return_value = client
+        client.send_command.return_value = {
+            "pairs_checked": 1,
+            "threshold_mm": 0.5,
+            "violation_count": 0,
+            "violations": [],
+            "all_clear": True,
+        }
+        result = cad_check_clearance()
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["violations"], [])
+        self.assertEqual(result["pair_errors"], [])
+
 
 class TestCheckSweptClearance(unittest.TestCase):
     @patch("server.tools_cad.get_client")

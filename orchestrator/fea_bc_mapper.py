@@ -82,6 +82,11 @@ def map_interface_bcs(
     - If only one interface: cantilever — one end fixed, other loaded
     - If interface loads are all zero: treat as fixed support
     - Otherwise: apply loads from LoadCase
+
+    Load contract:
+    - Interface loads are interpreted as total loads at the interface.
+    - For nodal BC export, total force/moment-equivalent force is distributed
+      across the selected interface node set.
     """
     bcs: list[FEABoundaryCondition] = []
 

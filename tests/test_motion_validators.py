@@ -26,7 +26,7 @@ def _simple_gear_pair(
     input_torque: float = 5.0,
     efficiency: float = 1.0,
 ) -> Mechanism:
-    """20T driving 40T: ratio=0.5, output spins at 2× input, torque halved."""
+    """20T driving 40T: ratio=0.5, output spins at 0.5× input, torque doubled."""
     return Mechanism(
         name="gear_pair",
         parts=(
@@ -148,31 +148,31 @@ class TestSpeedPropagation(unittest.TestCase):
     def test_simple_gear_pair(self):
         mech = _simple_gear_pair(teeth_a=20, teeth_b=40, input_rpm=1000)
         speeds = propagate_speeds(mech)
-        # ratio = 20/40 = 0.5, output = input / 0.5 = 2000
+        # ratio = 20/40 = 0.5, output = input * 0.5 = 500
         self.assertAlmostEqual(speeds["gear_a"], 1000)
-        self.assertAlmostEqual(speeds["gear_b"], 2000)
+        self.assertAlmostEqual(speeds["gear_b"], 500)
         self.assertAlmostEqual(speeds["frame"], 0.0)
 
     def test_2to1_reduction(self):
         mech = _simple_gear_pair(teeth_a=40, teeth_b=20, input_rpm=1000)
         speeds = propagate_speeds(mech)
-        # ratio = 40/20 = 2, output = 1000 / 2 = 500
+        # ratio = 40/20 = 2, output = 1000 * 2 = 2000
         self.assertAlmostEqual(speeds["gear_a"], 1000)
-        self.assertAlmostEqual(speeds["gear_b"], 500)
+        self.assertAlmostEqual(speeds["gear_b"], 2000)
 
 
 class TestTorquePropagation(unittest.TestCase):
     def test_simple_gear_pair(self):
         mech = _simple_gear_pair(teeth_a=20, teeth_b=40, input_rpm=1000, input_torque=5.0)
         torques = propagate_torques(mech)
-        # ratio = 0.5, torque output = 5 * 0.5 = 2.5
+        # ratio = 0.5, torque output = 5 / 0.5 = 10
         self.assertAlmostEqual(torques["gear_a"], 5.0)
-        self.assertAlmostEqual(torques["gear_b"], 2.5)
+        self.assertAlmostEqual(torques["gear_b"], 10.0)
 
     def test_with_efficiency(self):
         mech = _simple_gear_pair(teeth_a=20, teeth_b=40, input_torque=10.0, efficiency=0.95)
         torques = propagate_torques(mech)
-        self.assertAlmostEqual(torques["gear_b"], 10.0 * 0.5 * 0.95)
+        self.assertAlmostEqual(torques["gear_b"], 10.0 / 0.5 * 0.95)
 
 
 class TestValidators(unittest.TestCase):
@@ -242,8 +242,8 @@ class TestValidators(unittest.TestCase):
             joints=mech.joints,
             drives=mech.drives,
             expected_outputs={
-                "gear_b_speed_rpm": 2000.0,
-                "gear_b_torque_nm": 2.5,
+                "gear_b_speed_rpm": 500.0,
+                "gear_b_torque_nm": 10.0,
             },
         )
         results = run_validators(mech, ["expected_output_check"])
@@ -257,7 +257,7 @@ class TestValidators(unittest.TestCase):
             joints=mech.joints,
             drives=mech.drives,
             expected_outputs={
-                "gear_b_speed_rpm": 500.0,  # wrong — should be 2000
+                "gear_b_speed_rpm": 2000.0,  # wrong — should be 500
             },
         )
         results = run_validators(mech, ["expected_output_check"])
