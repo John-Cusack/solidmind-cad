@@ -1,0 +1,19 @@
+# Keep the worker image small
+# isaacsim/ (moved to ../isaacsim/)
+.venv/
+.git/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.mypy_cache/
+.pytest_cache/
+runs/
+training_runs/
+me_knowledge/lancedb/
+docs/
+tests/
+*.mp4
+*.AppImage
+watch_*.json
+geometry/target/

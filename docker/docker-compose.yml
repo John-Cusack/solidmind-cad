@@ -1,0 +1,71 @@
+# Multi-worker orchestrator stack
+#
+# Usage:
+#   docker compose -f docker/docker-compose.yml up -d --build
+#   docker compose -f docker/docker-compose.yml down -v
+#
+# Workers build in parallel, each with its own FreeCAD instance.
+# The orchestrator submits tasks via A2A JSON-RPC to each worker.
+
+services:
+  worker-1:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.worker
+    ports:
+      - "8081:8080"
+    volumes:
+      - worker1-output:/output
+    environment:
+      - WORKER_NAME=worker-1
+      - WORKER_PORT=8080
+      - FREECAD_PORT=9876
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 90s
+
+  worker-2:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.worker
+    ports:
+      - "8082:8080"
+    volumes:
+      - worker2-output:/output
+    environment:
+      - WORKER_NAME=worker-2
+      - WORKER_PORT=8080
+      - FREECAD_PORT=9876
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 90s
+
+  worker-3:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.worker
+    ports:
+      - "8083:8080"
+    volumes:
+      - worker3-output:/output
+    environment:
+      - WORKER_NAME=worker-3
+      - WORKER_PORT=8080
+      - FREECAD_PORT=9876
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 90s
+
+volumes:
+  worker1-output:
+  worker2-output:
+  worker3-output:

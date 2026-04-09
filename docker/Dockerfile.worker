@@ -1,0 +1,88 @@
+# solidmind-cad worker container
+#
+# Each worker runs:
+#   1. FreeCAD headless (socket server on port 9876)
+#   2. A2A HTTP server (port 8080) that receives build tasks
+#
+# Build:
+#   # Copy AppImage into build context first (symlinks don't work with COPY)
+#   cp /path/to/FreeCAD_1.0.2-*.AppImage docker/FreeCAD.AppImage
+#   docker build -t solidmind-worker -f docker/Dockerfile.worker .
+#
+# Or use the build script:
+#   ./docker/build.sh
+#
+# Run:
+#   docker run -p 8080:8080 solidmind-worker
+
+FROM ubuntu:24.04 AS base
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV LANG=C.UTF-8
+ENV LC_ALL=C.UTF-8
+
+# System dependencies for FreeCAD + Python
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3.12 \
+    python3.12-venv \
+    python3-pip \
+    libgl1 \
+    libglib2.0-0 \
+    libxkbcommon0 \
+    libfontconfig1 \
+    libx11-6 \
+    libxext6 \
+    libxrender1 \
+    libsm6 \
+    libice6 \
+    libdbus-1-3 \
+    libxcb-xinerama0 \
+    libxcb-cursor0 \
+    xvfb \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# --- FreeCAD AppImage extraction ---
+# The AppImage must be copied into docker/ before building (see build.sh)
+COPY docker/FreeCAD.AppImage /tmp/freecad.AppImage
+RUN chmod +x /tmp/freecad.AppImage && \
+    cd /opt && \
+    /tmp/freecad.AppImage --appimage-extract && \
+    mv squashfs-root freecad && \
+    rm /tmp/freecad.AppImage
+
+# --- Python dependencies ---
+# Copy only the Python packages needed for workers
+COPY server/ /app/server/
+COPY orchestrator/ /app/orchestrator/
+COPY freecad_addon/ /app/freecad_addon/
+COPY docker/ /app/docker/
+
+# Install dependencies directly (skip maturin build of Rust geometry module)
+# The geometry module is optional — workers don't need it
+RUN python3.12 -m pip install --break-system-packages --no-cache-dir \
+    jsonschema "orjson>=3.9,<4" PyYAML \
+    starlette "uvicorn[standard]" httpx
+
+# Add app to Python path (instead of pip install -e which triggers maturin)
+ENV PYTHONPATH=/app
+
+# --- Configuration ---
+ENV FREECAD_PATH=/opt/freecad
+ENV FREECAD_HOST=0.0.0.0
+ENV FREECAD_PORT=9876
+ENV WORKER_PORT=8080
+ENV WORKER_NAME=solidmind-worker
+ENV QT_QPA_PLATFORM=offscreen
+# Prevent FreeCAD from trying to access user home
+ENV FREECAD_USER_DATA=/tmp/freecad_user
+ENV HOME=/tmp/freecad_home
+
+EXPOSE 8080
+
+HEALTHCHECK --interval=10s --timeout=5s --retries=12 --start-period=90s \
+    CMD curl -f http://localhost:8080/health || exit 1
+
+ENTRYPOINT ["python3.12", "-m", "orchestrator.worker_entry"]
