@@ -257,8 +257,13 @@ solidmind_geometry/
 # Local FreeCAD symlink
 freecad
 
-# Claude Code local settings
-.claude/
+# Claude Code local settings (machine-specific) — but keep the shared
+# project rules and agent definitions, since CLAUDE.md references them
+# and they document user-facing policies (design pipeline, motion tiers,
+# analysis rules, etc.).
+.claude/*
+!.claude/rules/
+!.claude/agents/
 
 # MCP config (machine-specific paths)
 .mcp.json

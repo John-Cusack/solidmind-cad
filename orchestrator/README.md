@@ -60,6 +60,6 @@ python -m orchestrator --dry-run --spec runs/001/spec.yaml  # preview prompts
 
 ## Further Reading
 
-- [`.claude/rules/orchestrator-protocol.md`](../.claude/rules/orchestrator-protocol.md) — how Claude Code uses this module
+- [`.claude/rules/orchestrator-protocol.md`](../.claude/rules/orchestrator-protocol.md) — how Claude Code drives this module (dispatches workers via the `Agent` tool)
 - [`docs/orchestrator-plan-cad-rewrite.md`](../docs/orchestrator-plan-cad-rewrite.md) — authoritative pipeline spec
 - [`docs/orchestrator-7-arch-fixes.md`](../docs/orchestrator-7-arch-fixes.md) — architecture review

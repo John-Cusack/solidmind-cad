@@ -13,12 +13,17 @@ SolidMind CAD makes this concrete: describe what you want in plain language, and
 
 > "Design an 18-DOF hexapod robot"
 
-<!-- TODO: replace with actual screenshots
-![FreeCAD showing the hexapod CAD model](docs/images/demo-hexapod-cad.png)
-![Isaac Sim showing the hexapod walking](docs/images/demo-hexapod-isaac.png)
--->
+From that single prompt the LLM drives the entire pipeline:
 
-The LLM designs the kinematic structure, builds each leg segment with servo pockets in FreeCAD, exports a URDF sim package, and runs physics simulation in Isaac Sim — all from a single conversation. No manual feature trees, no URDF hand-editing, no context switching between tools.
+1. **Design** — lays out the kinematic structure (6 legs × 3 DOF each), sizes the servos, and picks arbor paths clear of collisions.
+2. **Build** — creates each leg segment as a composite body in FreeCAD's PartDesign workbench, pockets in the servo mounts, and verifies geometry with screenshots after every feature.
+3. **Assemble** — attaches joints via the FreeCAD 1.1 Assembly workbench, runs kinematic interference checks over the full range of motion.
+4. **Simulate** — exports a URDF sim package, launches Isaac Sim over the bridge, and drops the robot into a physics world with contacts, gravity, and motor torques.
+5. **Teleop / train** — drive it around with `motion.teleop_command`, or hand it to `rl.start_training` to learn a walking policy.
+
+All of this happens in a single conversation. No manual feature trees, no URDF hand-editing, no context switching between tools.
+
+> _Screenshots and a video walkthrough will land in `docs/images/` and on the GitHub release page — the `.gitignore` already has the exception so illustrations can be committed under `docs/images/`._
 
 ## Getting Started
 
