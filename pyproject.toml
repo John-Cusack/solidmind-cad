@@ -51,7 +51,7 @@ Changelog = "https://github.com/John-Cusack/solidmind-cad/blob/main/CHANGELOG.md
 gpu = ["onnxruntime-gpu"]
 knowledge = [
   "lancedb>=0.15,<1",
-  "sentence-transformers>=3.0,<4",
+  "sentence-transformers>=3.0,<6",
   "docling>=2.0,<3",
 ]
 fea = [
