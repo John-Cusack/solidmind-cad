@@ -268,17 +268,37 @@ def check_gate_g4(run: OrchestratorRun) -> tuple[bool, list[str]]:
 def validate_results(
     run: OrchestratorRun,
     measurements: dict[str, dict[str, dict[str, float]]] | None = None,
+    *,
+    verify_measurements: bool = True,
 ) -> list:
     """Stage 5: Validate worker results against frozen contracts.
 
     Args:
         run: The orchestrator run.
-        measurements: Optional dict of {worker_id: {ifc_id: {feature: mm}}}.
-            If None, reads from metadata.json files in output dirs.
+        measurements: Optional dict of ``{worker_id: {ifc_id: {feature: mm}}}``.
+            If provided, used as the authoritative measurements and
+            ``verify_measurements`` is effectively bypassed for those
+            workers.  Takes precedence over everything else.
+        verify_measurements: If True (default), the orchestrator
+            independently re-imports each worker's STEP file via
+            ``orchestrator.measure.measure_worker_step`` and uses the
+            re-measured values as authoritative.  Requires a running
+            FreeCAD addon socket.  Set to False for trust-mode /
+            fake-STEP tests that don't have FreeCAD available (see
+            ``tests/test_orchestrator_e2e.py``).
 
     Returns:
         List of ValidationReport objects.
+
+    Priority order for the measurements passed to
+    ``validate_worker_result``:
+        1. Explicit ``measurements`` argument if provided
+        2. Independent re-measurement via ``measure.measure_worker_step``
+           if ``verify_measurements`` is True
+        3. ``interface_actuals`` from the worker's metadata.json
+           (trust mode — labelled ``measurement_source="claimed"``)
     """
+    from orchestrator.spec import FailureCode, WorkerResult
     from orchestrator.validator import validate_worker_result, ValidationReport
 
     reports: list[ValidationReport] = []
@@ -287,27 +307,89 @@ def validate_results(
     for rd in results_data:
         if rd["status"] != "complete":
             continue
-        from orchestrator.spec import WorkerResult
         worker_id = f"{rd['subsystem']}_{rd['variant_index']}"
         wr = WorkerResult(
             subsystem_name=rd["subsystem"],
             worker_id=worker_id,
             status="success",
         )
-        worker_measurements = (measurements or {}).get(worker_id)
-        measurement_source = "orchestrator" if worker_measurements is not None else "unknown"
-        if worker_measurements is None:
-            worker_measurements = {}
 
-        # Try loading measurements from metadata.json
+        # Find the subsystem and its interfaces once — needed for both
+        # verification and validation.
+        subsystem = None
+        for s in run.spec.subsystems:
+            if s.name == rd["subsystem"]:
+                subsystem = s
+                break
+        if subsystem is None:
+            log.warning("validate_results: no subsystem named %s in spec", rd["subsystem"])
+            continue
+        ifcs = list(run.spec.interfaces_for(subsystem.name))
+
         metadata = rd.get("metadata", {})
-        if not worker_measurements and metadata:
-            worker_measurements = metadata.get("interface_actuals", {})
-            if worker_measurements:
-                measurement_source = "claimed"
-
+        claimed_actuals = metadata.get("interface_actuals", {}) if metadata else {}
         actual_bbox = metadata.get("claimed_bounding_box_mm") if metadata else None
         actual_mass = metadata.get("claimed_mass_kg") if metadata else None
+
+        worker_measurements: dict[str, dict[str, float]] = {}
+        measurement_source = "unknown"
+        drift_failure = False
+
+        # 1. Explicit measurements arg — used when a caller has already
+        #    measured externally (e.g. unit-test harnesses).
+        explicit = (measurements or {}).get(worker_id)
+        if explicit is not None:
+            worker_measurements = explicit
+            measurement_source = "orchestrator"
+
+        # 2. Independent re-measurement via orchestrator/measure.py.
+        elif verify_measurements:
+            step_files = rd.get("step_files") or []
+            if not step_files:
+                log.warning(
+                    "verify_measurements=True but no STEP file for %s",
+                    worker_id,
+                )
+            else:
+                from orchestrator.measure import (
+                    format_verification_report,
+                    verify_worker_measurements,
+                )
+                verification = verify_worker_measurements(
+                    step_path=Path(step_files[0]),
+                    claimed=claimed_actuals,
+                    subsystem=subsystem,
+                    interfaces=ifcs,
+                )
+                log.info("%s", format_verification_report(verification, subsystem.name))
+                if not verification.step_load_ok:
+                    log.error(
+                        "STEP load failed for %s: %s",
+                        worker_id, verification.error,
+                    )
+                    measurement_source = "claimed"
+                    worker_measurements = claimed_actuals
+                else:
+                    # Use the orchestrator-measured values as authoritative.
+                    # Strip None entries so validate_dimensions treats them
+                    # as "missing" rather than "measured as 0".
+                    worker_measurements = {
+                        ifc_id: {
+                            f: v for f, v in features.items() if v is not None
+                        }
+                        for ifc_id, features in verification.interface_actuals_measured.items()
+                    }
+                    measurement_source = "orchestrator"
+                    if verification.drift_exceeds_tolerance:
+                        drift_failure = True
+                    # Prefer the measured bbox if available.
+                    if verification.bbox_measured_mm:
+                        actual_bbox = verification.bbox_measured_mm
+
+        # 3. Trust mode — fall back to the worker's own claims.
+        if not worker_measurements and claimed_actuals:
+            worker_measurements = claimed_actuals
+            measurement_source = "claimed"
 
         report = validate_worker_result(
             run.spec, wr,
@@ -316,6 +398,19 @@ def validate_results(
             actual_mass_kg=actual_mass,
             measurement_source=measurement_source,
         )
+
+        # Tag drift failures on top of whatever validate_worker_result
+        # produced. INTERFACE_DIM_MISMATCH is about claimed-vs-spec
+        # mismatch; MEASUREMENT_DRIFT is about claimed-vs-measured.
+        if drift_failure:
+            if FailureCode.MEASUREMENT_DRIFT not in report.failure_codes:
+                report.failure_codes.append(FailureCode.MEASUREMENT_DRIFT)
+            report.overall_pass = False
+            report.notes.append(
+                "MEASUREMENT_DRIFT: one or more claimed interface values "
+                "disagreed with the orchestrator's independent measurement."
+            )
+
         reports.append(report)
 
     return reports

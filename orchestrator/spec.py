@@ -50,6 +50,11 @@ class FailureCode(str, Enum):
     MISSING_ARTIFACT = "MISSING_ARTIFACT"
     MANIFEST_HASH_MISMATCH = "MANIFEST_HASH_MISMATCH"
     INTERFACE_DIM_MISMATCH = "INTERFACE_DIM_MISMATCH"
+    # MEASUREMENT_DRIFT: the worker's claimed measurements disagree
+    # with what the orchestrator measures by re-importing the STEP
+    # file.  INTERFACE_DIM_MISMATCH is claimed-vs-spec; this one is
+    # claimed-vs-measured.  Raised by orchestrator/measure.py.
+    MEASUREMENT_DRIFT = "MEASUREMENT_DRIFT"
     CLEARANCE_COLLISION = "CLEARANCE_COLLISION"
     ENVELOPE_VIOLATION = "ENVELOPE_VIOLATION"
     ME_CHECK_FAIL = "ME_CHECK_FAIL"

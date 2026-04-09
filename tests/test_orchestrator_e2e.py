@@ -128,7 +128,12 @@ class TestFullPipeline(unittest.TestCase):
             self.assertEqual(len(prompts), 1)  # only sun_gear is GENERATED
 
             output_dir = Path(prompts[0]["output_dir"])
-            # Write a fake STEP file
+            # Write a fake STEP file.  This test runs in trust mode —
+            # it exercises the G0 → G7 gate-walker against fabricated
+            # worker output without requiring a running FreeCAD addon.
+            # See tests/test_orchestrator_real_worker_e2e.py for the
+            # verify-mode counterpart that drives a real cad.* build
+            # and re-measures the STEP file independently.
             (output_dir / "sun_gear.step").write_text("FAKE STEP DATA")
             (output_dir / "sun_gear.stl").write_bytes(b"FAKE STL")
             (output_dir / "sun_gear.png").write_bytes(b"FAKE PNG")
@@ -150,7 +155,11 @@ class TestFullPipeline(unittest.TestCase):
             transition(run, SpecStatus.GEOMETRY_VALIDATING, reason="G4 pass")
 
             # --- Stage 5: Validation ---
-            reports = validate_results(run)
+            # verify_measurements=False keeps the trust-mode path —
+            # the validator reads claimed values from metadata.json
+            # rather than re-importing the (fake) STEP file via the
+            # FreeCAD addon socket.
+            reports = validate_results(run, verify_measurements=False)
             self.assertEqual(len(reports), 1)
 
             # The bore_dia check should pass (8.005 within ±0.015 of 8.0)

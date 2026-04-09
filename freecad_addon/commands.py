@@ -4469,16 +4469,40 @@ def find_holes(
     min_diameter: float = 0.0,
     max_diameter: float = 200.0,
 ) -> dict[str, Any]:
-    """Find cylindrical holes in a body.
+    """Find cylindrical holes in a body or any shape-bearing object.
 
     Returns structured info for each cylindrical face: face name, diameter,
     axis direction, center position, and depth along the axis.  The caller
     can group co-axial cylinders and match diameters to bolt sizes.
+
+    Accepts both ``PartDesign::Body`` objects (resolved via ``_resolve_body``
+    and ``_get_tip``) and non-Body shape holders like ``Part::Feature``
+    (used by the orchestrator's self-verifying validator after importing
+    a worker's STEP file via ``import_step``).  When ``body`` is a
+    non-Body object name, the object's ``Shape`` is used directly.
     """
     d = _get_doc(doc)
-    body_obj = _resolve_body(d, body)
-    tip = _get_tip(body_obj)
-    shape = tip.Shape
+
+    # Try body-resolution first for backward compat. If body is an
+    # imported Part::Feature or similar shape holder, fall through to
+    # direct shape access.
+    shape = None
+    resolved_name = None
+    try:
+        body_obj = _resolve_body(d, body)
+        tip = _get_tip(body_obj)
+        shape = tip.Shape
+        resolved_name = body_obj.Name
+    except ValueError:
+        if body is None:
+            raise
+        obj = d.getObject(body)
+        if obj is None:
+            raise ValueError(f"Object '{body}' not found in document '{d.Name}'")
+        if not hasattr(obj, "Shape") or obj.Shape is None:
+            raise ValueError(f"Object '{body}' has no Shape attribute")
+        shape = obj.Shape
+        resolved_name = obj.Name
 
     holes: list[dict[str, Any]] = []
     for i, face in enumerate(shape.Faces):
@@ -4527,7 +4551,7 @@ def find_holes(
         })
 
     return {
-        "body": body_obj.Name,
+        "body": resolved_name,
         "hole_count": len(holes),
         "holes": holes,
     }
