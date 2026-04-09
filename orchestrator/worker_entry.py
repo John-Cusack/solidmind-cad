@@ -264,11 +264,17 @@ def _build_geometry(
     # Route to specialized builder if sub_spec has a build_type
     build_type = sub_spec.get("build_type", "envelope")
     if build_type == "gear":
-        return _build_gear(host, fc_port, part_name, output_dir, sub_spec, task)
+        return _build_gear(
+            host, fc_port, part_name, output_dir, sub_spec, task, interfaces,
+        )
     elif build_type == "ring_gear":
-        return _build_ring_gear(host, fc_port, part_name, output_dir, sub_spec, task)
+        return _build_ring_gear(
+            host, fc_port, part_name, output_dir, sub_spec, task, interfaces,
+        )
     elif build_type == "carrier":
-        return _build_carrier(host, fc_port, part_name, output_dir, sub_spec, task)
+        return _build_carrier(
+            host, fc_port, part_name, output_dir, sub_spec, task, interfaces,
+        )
 
     # Default: envelope box + interface features
     return _build_envelope(
@@ -437,6 +443,7 @@ def _build_gear(
     output_dir: Path,
     sub_spec: dict[str, Any],
     task: Any,
+    interfaces: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Build an external gear from pre-computed sketch elements.
 
@@ -445,6 +452,11 @@ def _build_gear(
       - thickness_mm: gear face width
       - bore_diameter_mm: central bore (optional)
       - params: gear parameters for metadata
+
+    ``interfaces`` is forwarded to ``_export_and_package`` so cylindrical
+    interfaces (e.g. the central bore) get measured into
+    ``interface_actuals``.  None / empty yields an empty
+    ``interface_actuals`` dict.
     """
     thickness = sub_spec.get("thickness_mm", 8)
     bore_dia = sub_spec.get("bore_diameter_mm", 0)
@@ -481,6 +493,7 @@ def _build_gear(
 
     return _export_and_package(
         host, fc_port, part_name, doc_name, body_name, output_dir, sub_spec, task,
+        interfaces=interfaces,
     )
 
 
@@ -491,6 +504,7 @@ def _build_ring_gear(
     output_dir: Path,
     sub_spec: dict[str, Any],
     task: Any,
+    interfaces: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Build a ring gear: blank disc → pocket tooth slot → polar pattern.
 
@@ -539,6 +553,7 @@ def _build_ring_gear(
 
     return _export_and_package(
         host, fc_port, part_name, doc_name, body_name, output_dir, sub_spec, task,
+        interfaces=interfaces,
     )
 
 
@@ -549,6 +564,7 @@ def _build_carrier(
     output_dir: Path,
     sub_spec: dict[str, Any],
     task: Any,
+    interfaces: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Build a carrier plate: disc with planet pin bosses.
 
@@ -559,6 +575,9 @@ def _build_carrier(
       - pin_positions: list of [x, y] for planet pin centers
       - pin_diameter_mm: planet pin diameter
       - pin_height_mm: pin boss height above plate
+
+    ``interfaces`` is forwarded to ``_export_and_package`` so the
+    central bore gets measured into ``interface_actuals``.
     """
     outer_r = sub_spec.get("outer_radius_mm", 25)
     thickness = sub_spec.get("thickness_mm", 4)
@@ -604,6 +623,7 @@ def _build_carrier(
 
     return _export_and_package(
         host, fc_port, part_name, doc_name, body_name, output_dir, sub_spec, task,
+        interfaces=interfaces,
     )
 
 
