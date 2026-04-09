@@ -68,6 +68,72 @@ textbooks don't teach them as discrete actions. Codifying them in tools
 and data structures — so the LLM is *forced* to do them instead of
 skipping them — is the main architectural bet of this roadmap.
 
+## Two loops, not one
+
+This repo has **two design loops**, and they operate at different scales.
+Both are needed for the thesis to hold.
+
+**The outer loop — orchestrator / SBCE / gate flow** — parallelizes
+*across* subsystems and ranks *whole designs* against objectives. It's
+implemented under `orchestrator/`:
+
+- `orchestrator/spec.py`, `orchestrator/state.py`, `orchestrator/runner.py` —
+  data model, state machine, and top-level API for a multi-worker run
+- `orchestrator/normalizer.py`, `orchestrator/council.py`,
+  `orchestrator/skeleton.py`, `orchestrator/interface_freeze.py` —
+  Stages 0–3 (normalize goals → decompose → layout → freeze interfaces)
+- `orchestrator/worker.py`, `orchestrator/worker_subprocess.py`,
+  `orchestrator/worker_entry.py` — parallel worker dispatch via
+  Claude Code's `Agent` tool, `claude --print` subprocess, or Docker
+  containers (three execution modes)
+- `orchestrator/validator.py`, `orchestrator/scorer.py`,
+  `orchestrator/sbce.py` — Stages 5–6 (validate against frozen contracts,
+  score candidates, run Set-Based Concurrent Engineering beam search)
+- `orchestrator/release.py` — Stage 7 release packaging (BOM, ICDs,
+  provenance)
+- Gate flow **G0 → G7** with human approval between major transitions
+
+Test coverage is substantial — ~170 tests across 11 orchestrator-
+focused test files: `test_runner.py` (41), `test_preflight.py` (24),
+`test_sbce.py` (19), `test_council.py` (16), `test_interface_freeze.py` (15),
+`test_skeleton.py` (14), `test_release.py` (14), `test_normalizer.py` (10),
+`test_dsm.py` (9), `test_worker.py` (5), `test_orchestrator_cli.py` (3),
+plus `test_orchestrator_e2e.py` for end-to-end gate walking.
+
+**Status — outer loop: ◐ well-built but workers are stubbed.** The
+state machine, gate checkers, SBCE scorer, DSM dependency analysis,
+release packaging, and preflight validation are all real code with
+real tests. What's missing: `test_orchestrator_e2e.py:131` writes a
+*fake STEP file* where a real worker build should go. The outer loop
+can walk G0→G7 on mocked worker output; it hasn't been wired to a real
+per-worker `cad.*` build yet. Closing that gap is one of the top
+priorities (see §Priority stack below).
+
+**The inner loop — the nine steps described in this document** —
+happens *inside* a single worker. Each worker is responsible for
+building one subsystem against its frozen interface contract. The
+inner loop is how that worker would iterate if it were autonomous:
+Specify → Synthesize → Reflect → Screen → Simulate → Interpret →
+Decide → Act → Learn.
+
+**These loops are complementary, not competing.** A fully autonomous
+system needs both:
+
+| | Outer loop | Inner loop |
+|---|---|---|
+| Scale | Multi-subsystem, whole-design | Single part, iterative refinement |
+| Concurrency | Parallel workers | Sequential iterations |
+| Decide surface | "Which of these N candidate designs wins?" (SBCE) | "Which repair do I try first for this failing part?" (empty) |
+| State | G0 → G7 gate walk | 9-step cycle |
+| Status | ◐ well-built but workers stubbed | ✗ mostly missing (what this roadmap describes) |
+| Tests | ~170 tests across 11 files | 1 skipped placeholder |
+
+The rest of this roadmap focuses on the **inner loop** because that's
+the less-built half. But the priority stack (bottom of the document)
+calls out the one change needed on the outer side — wiring a real
+worker build into `test_orchestrator_e2e.py` — because it's
+comparable in leverage to the inner-loop changes.
+
 ## The loop, step by step
 
 ### 1. Specify ✓
@@ -92,8 +158,19 @@ this step first and treat it as the foundation everything else rests on.
 `tests/test_tools_spec.py`, `tests/test_interface_freeze.py` covering
 phase transitions and interface locking.
 
-**What would move this forward:** nothing urgent. Specify is well-served
-today.
+**The one latent gap.** The brief stores requirements, constraints,
+and interfaces — but **not a `part_class` field** that the Reflect
+step can dispatch on (hexapod_leg, planetary_gearbox_housing,
+quadrotor_arm, rc_car_chassis, …). Right now the LLM has to infer the
+part class from the brief name and description, which is exactly the
+kind of informal step that gets skipped under context pressure. Small
+fix: add an optional `part_class: str` to `design.save_brief` and
+`design.add_part`, and make it required for parts that Reflect will
+look up in the failure-mode taxonomy. Without this, the Reflect → Learn
+feedback loop can't retrieve part-class-specific findings cleanly.
+
+**What would move this forward:** just the `part_class` field. Specify
+is otherwise well-served today.
 
 ### 2. Synthesize ✓
 
@@ -190,54 +267,110 @@ but FMEA is a heavyweight deliverable, not a pre-check habit.
    (trivial bracket, nominal stress << yield), assert that the guard
    skips the solver and returns the analytical result.
 
-### 4. Screen ◐
+### 4. Screen ◐ — the motion/analysis asymmetry
 
-**Status: primitive.** Some static constraint checks exist; no
-systematic analytical screen.
+**Status: half-covered. Motion has a real tier ladder; analysis
+doesn't.** This is the most important structural observation in the
+roadmap and the first item on the priority stack below.
 
 A *screen* is a cheap analytical check that resolves a design question
 without running a solver. Examples: bending-moment hand calc, stress
 concentration factor lookup from a handbook, first-principles
 thermal-rise estimate, Euler buckling bound. They're fast, cheap, and
-correct on routine problems — which is most problems.
+correct on routine problems — which is most problems. Running full
+FEA on a spacer block is cargo-cult engineering.
 
-Today:
+**`motion.*` has the Screen step built as a first-class tier.**
 
-- `me.validate_constraints` — static constraint checks against a
-  declared constraint dict. Closer to a spec validator than an
-  analytical screen.
-- `me.design_loop` — orchestrates validation and risk gates but again
-  against a constraint dict.
-- `study.*` can be used as a bounded screen, but it's oriented at
-  optimization sweeps, not one-shot analytical checks.
+- Tier 1 (analytical) — `motion.validate`,
+  `motion.check_gear_train`, `motion.propagate_motion`,
+  `motion.check_joint_connectivity`. Hand-calc-equivalent, runs in
+  milliseconds, no solver required. Covers gear ratios, DOF count,
+  Grashof criteria, speed/torque propagation, joint connectivity,
+  power conservation.
+- Tier 2 (kinematic) — `motion.create_assembly`,
+  `motion.drive_joint`, `motion.check_interference`. Quasi-static in
+  FreeCAD's Assembly workbench.
+- Tier 3 (dynamic) — `motion.simulate` with `backend={isaac,gazebo,
+  chrono}`.
+- Tier 3.5 (coupled) — `analysis.stress_from_simulation`.
+
+Plus the rule file (`.claude/rules/motion-validation.md`) that
+specifies when to escalate each tier. This is a *proven in-repo
+pattern* for how Screen → Simulate should look.
+
+**`analysis.*` has no tier ladder at all.**
+
+- `analysis.stress_check` goes straight to CalculiX FEA.
+- `analysis.thermal_check` goes straight to the thermal solver.
+- `analysis.aero_check` goes straight to SU2 or DUST.
+- There is no `analysis.screen_stress` that says "for this beam with
+  this load, σ = Mc/I = 42 MPa, handbook SCF at the fillet is ~2.3,
+  expected peak around 97 MPa, comfortably under yield, no FEA
+  needed."
+
+So Screen is ◐ because **one half of it is ✓ strong and the other
+half is ✗ missing.** The fix isn't "invent a Screen tool group" — it's
+**"copy motion.*'s tier pattern into analysis.*."** The template is
+in-repo and proven to work.
 
 **Textbook anchor:** Shigley treats analytical methods as a subset of
 "Analysis & Optimization" (Shigley, chapter sections on load analysis,
 stress analysis, deflection) but doesn't separate "hand calc first,
 solver if needed." Dieter Ch. 8 (Embodiment Design) discusses analysis
-at this level but in prose, not as a discrete workflow step.
+at this level but in prose, not as a discrete workflow step. The
+textbooks implicitly assume engineers screen before simulating; they
+don't model the escalation explicitly. Motion's tier ladder makes it
+explicit.
 
-**Tool source:** `server/tools_me.py`, `server/me_orchestrator.py`.
+**Tool source:** `server/tools_motion.py` (Tier 1 tools already done),
+`server/motion_validators.py`, `server/tools_me.py`,
+`server/me_orchestrator.py`.
 
-**Test coverage:** `tests/test_tools_me.py` (~20 tests, static
-constraint validation).
+**Test coverage:** `tests/test_tools_motion.py`,
+`tests/test_motion_validators.py` on the motion side;
+`tests/test_tools_me.py` (~20 tests of static constraint validation)
+on the generic side. **No test coverage for analytical screens of
+stress, thermal, or aero** because the tools don't exist.
 
 **What would move this from ◐ to ✓:**
 
-1. **A `screen.*` tool group** that exposes cheap analytical checks as
-   first-class MCP tools. Starting set: beam bending (rectangular /
-   circular cross-section), stress concentration lookup for common
-   features (fillet, hole, notch), deflection bound via beam theory,
-   critical buckling load for columns, fastener preload and pullout
-   estimates.
-2. **Screen results that feed directly into the Reflect expectations
-   schema.** When Screen says "nominal stress is 40 MPa, expected SCF
-   at fillet is 2.3, so peak around 92 MPa" the Interpret step can
-   compare that prediction against the FEA output and flag the
-   solver setup if they disagree by more than the expected tolerance.
-3. **Tests.** Known-good hand-calc reference cases (bending of a
-   cantilever, Hertzian contact, thermal expansion of a rod) with
-   assertions against textbook values.
+1. **Bring `analysis.*` up to `motion.*`'s tier structure.** Add:
+   - `analysis.screen_stress` — beam bending (rectangular / circular
+     cross-section), stress concentration lookup for common features
+     (fillet, hole, notch), deflection bound via beam theory, Euler
+     critical buckling load for columns, fastener preload and pullout
+     estimates. Uses `geometry.section_properties` (already in-repo)
+     for I, J, c.
+   - `analysis.screen_thermal` — first-principles thermal bound (lumped
+     capacitance, Biot number, basic conduction/convection resistance
+     networks).
+   - `analysis.screen_aero` — first-principles aero coefficient
+     estimates (BEMT for rotors, basic lift curve slope for wings).
+2. **Gate Tier 3 behind Tier 1.** `analysis.stress_check` calls
+   `analysis.screen_stress` first; if the screen resolves the question
+   with clear margin (Reflect-step expected bounds satisfied by a
+   wide factor), return the screen result and skip FEA. Mirror the
+   escalation rule already documented in `.claude/rules/analysis-policy.md`.
+3. **Return the same `AnalysisCheck` shape from both Screen and
+   Simulate** so the Interpret step can compare Screen predictions
+   against FEA results consistently — if they disagree by more than
+   expected tolerance, the solver setup is probably wrong (mesh, BCs,
+   load case).
+4. **Tests.** Known-good hand-calc reference cases (cantilever bending,
+   Hertzian contact, thermal expansion of a rod, lumped-capacitance
+   cooling) with assertions against textbook values. These are the
+   same reference cases used in intro ME courses, so they're
+   well-documented.
+
+This single change — analysis tiering — is arguably the highest-
+leverage move in the whole roadmap because it **(a) makes Screen a
+first-class step**, **(b) unblocks the Reflect step's "do I even
+need to simulate?" decision**, **(c) dramatically speeds up
+iteration** by keeping the solver out of obvious cases, **(d) gives
+Interpret a second data point to compare against FEA output**, and
+**(e) copies a proven in-repo pattern instead of inventing a new one.**
+See the Priority stack at the bottom.
 
 ### 5. Simulate ✓
 
@@ -273,12 +406,26 @@ above.
 **Test coverage:** `tests/test_tools_motion.py`,
 `tests/test_motion_validators.py`, `tests/test_full_pipeline_e2e.py`
 (10 test methods exercising Tier 1 → Tier 3.5), plus per-backend tests
-gated behind `requires_chrono` / `requires_elmer` / `requires_isaac`
-decorators.
+gated behind `requires_chrono` / `requires_elmer` / `requires_isaac` /
+`requires_cholmod` / `requires_cudss` decorators.
+
+**One caveat to the ✓.** The real-backend tests skip by default in CI
+— they only run when the local environment has the binary built
+(Chrono daemon) or the solver installed (CHOLMOD, cuDSS, Elmer, Isaac
+Sim, Gazebo Harmonic). That's correct for CI hygiene but it means we
+don't have continuous confidence that refactors don't silently break
+real-mode execution paths. For a project whose thesis rests on
+"simulation in the loop," it's worth noting that our day-to-day signal
+on solver correctness comes from stub-mode integration tests, not from
+real solver runs. Mitigation: a manual "real backends smoke test"
+checklist in `docs/simulation-and-rl.md` plus GitHub Actions matrix
+runs with one or two of the real backends installed via apt/conda.
 
 **What would move this forward:** see Interpret. The solvers run fine;
 the problem is that their *output* isn't shaped for the LLM to reason
-against failure-mode expectations.
+against failure-mode expectations. Also see the Screen section — the
+asymmetry between `motion.*` (has a tier ladder) and `analysis.*`
+(doesn't) is the structural gap that matters most here.
 
 ### 6. Interpret ◐ (the second hard gap)
 
@@ -299,8 +446,14 @@ class AnalysisCheck:
     suggestion: str        # "Add fillet"
 ```
 
-Motion validators in `server/motion_validators.py` return similarly
-structured `errors` / `warnings` / `notes` lists.
+Motion validators in `server/motion_validators.py` return
+`errors` / `warnings` / `notes` lists — free-form strings inside, but
+**the category itself (error vs warning vs note) is typed**. That's one
+rung above `AnalysisCheck`'s flat `status` field on the Interpret
+maturation curve. Parallel to the Screen asymmetry above, **motion's
+Interpret layer is further along than analysis's.** Both need
+typed failure modes, but the motion side already has structured
+severity categories and the analysis side doesn't.
 
 The bad news:
 
@@ -359,23 +512,55 @@ diagnosis.
    assert that the returned `FailureMode` and `candidates` list are
    what a subsequent `cad.*` call would consume verbatim.
 
-### 7. Decide ✗ (the third hard gap)
+### 7. Decide — macro scale ◐, micro scale ✗
 
-**Status: bare-bones.** Nothing in the current toolset actually *chooses
-a fix*. What exists:
+**Status: split between two scales, and the project is much further
+along on one than the other.**
+
+**Macro scale — ◐ well-built.** The outer orchestrator loop has
+industrial-grade Decide machinery for ranking whole design variants:
+
+- `orchestrator/sbce.py` — Set-Based Concurrent Engineering (Toyota's
+  approach — keep multiple alternatives alive, eliminate via results,
+  converge late). Candidate enumeration and beam search.
+- `orchestrator/scorer.py` — SBCE scoring with Pareto frontier
+  analysis, the G6 gate check.
+- `orchestrator/validator.py` — geometry and assembly validation
+  against frozen interface contracts, the G5 gate check.
+- `orchestrator/runner.py` — G0 → G7 gate walk orchestration.
+- `orchestrator/dsm.py` — Design Structure Matrix for subsystem
+  dependency analysis.
+
+Tests: `tests/test_sbce.py` (19), `tests/test_runner.py` (41),
+`tests/test_dsm.py` (9), plus the rest of the orchestrator test suite
+(~170 tests total). This is a substantial Decide-at-macro-scale
+capability that's been underweighted in previous drafts of this
+roadmap.
+
+**Micro scale — ✗ bare-bones.** Nothing in the toolset turns a single
+failing `AnalysisCheck` into a ranked list of repair candidates. What
+exists:
 
 - `me.validate_constraints` / `me.apply_risk_gates` /
   `me.build_traceability` / `me.design_loop` — great for static
   constraint checking and "is this design ready for release" gating,
   but they operate on a constraint-dict model, not on a failure →
   remediation flow.
-- `study.*` — parametric sweeps. This is the closest thing to "decide"
-  we have, because a study over fillet radius ∈ [0.5, 5.0] mm will find
-  the smallest radius that satisfies FoS ≥ 1.5. But the LLM has to
-  already know the right variable to sweep. There is no tool that
-  converts *"stress concentration at Face7"* into *"run a bounded
-  study on fillet radius over the edge set of Face7, objective:
-  minimize max stress, budget: 8 samples."*
+- `study.*` — parametric sweeps. This is the closest thing to micro-
+  scale Decide we have, because a study over fillet radius ∈ [0.5,
+  5.0] mm will find the smallest radius that satisfies FoS ≥ 1.5. But
+  the LLM has to already know the right variable to sweep. There is
+  no tool that converts *"stress concentration at Face7"* into *"run
+  a bounded study on fillet radius over the edge set of Face7,
+  objective: minimize max stress, budget: 8 samples."*
+
+**The scales are complementary.** The outer SBCE Decide chooses
+between "Design A vs Design B vs Design C" based on whole-system
+objectives. The inner (missing) Decide chooses "for this failing
+fillet, do I widen it, add material behind it, or change the load
+path?" Both are needed for the loop to close — SBCE picks the winner
+across alternatives; the micro Decide keeps each individual alternative
+from dying to preventable failures.
 
 **Textbook anchor:** Ullman *Decide* (makes this a first-class step in
 every phase); Dieter Ch. 7 *Decision Making and Concept Selection*. The
@@ -561,42 +746,174 @@ the Learn step to inform the next Reflect. Those changes would flip
 the thesis from *"we have the pieces"* to *"the loop empirically
 closes on these part classes."*
 
-## The highest-leverage first move — paired tools
+## Priority stack
 
-The old version of this roadmap named a single change: *"Add
-`FailureMode` enum to `AnalysisCheck`."* That's still necessary, but
-it's not sufficient. The right first move is a **pair** of changes
-that land together:
+The previous draft of this roadmap named a single "highest-leverage
+first move" — add `FailureMode` enum to `AnalysisCheck`. Re-evaluating
+the project against the nine-step model and the two-loop architecture
+surfaced three moves that are each comparable in leverage. They can
+land in parallel; they each unblock a different piece of the loop;
+and together they convert the bulk of `.claude/rules/*.md` from
+prompt rules into enforceable structured substrate.
 
-1. **`FailureMode` enum on `AnalysisCheck`.** Ten or twelve enumerated
-   values (`STRESS_CONCENTRATION`, `YIELD`, `BUCKLING`, `FATIGUE`,
-   `DEFLECTION`, `CONTACT`, `RESONANCE`, `THERMAL`, `WEAR`,
-   `CORROSION`). Every `analysis.*` tool populates it on FAIL. This
-   unblocks Interpret, Decide, and the loop-closure test.
-2. **`ReflectExpectations` dataclass and an enforcement point.** A
-   structured record of "what failure modes am I checking, what do I
-   expect the result to look like, what would make it suspicious."
-   The `analysis.*` tools accept it as an optional argument on day
-   one, warn loudly if it's absent, and make it required in the
-   loop-closure test harness. This unblocks Reflect.
+### Move 1 — Bring `analysis.*` up to `motion.*`'s tier structure
 
-The two are paired because neither one is fully useful without the
-other. `FailureMode` without expectations lets the LLM say "it's a
-stress concentration" but not "I was expecting a stress concentration
-here and it's 4× bigger than I thought." Expectations without
-`FailureMode` lets the LLM file a prediction but not compare it
-against a typed result.
+**Why first.** `motion.*` already has Tier 1 (analytical) / Tier 2
+(kinematic) / Tier 3 (dynamic) as a proven in-repo pattern. `analysis.*`
+has no equivalent. Most routine parts don't need FEA — a hand calc
+plus an SCF lookup resolves 70%+ of real design questions. Today every
+`analysis.stress_check` call jumps straight to CalculiX. Adding an
+analytical screen tier:
 
-Together, these two changes are the wedge that makes every downstream
-step possible: Decide dispatches on `FailureMode`, Act logs the
-`(expectations, failure, chosen_action, result)` tuple, Learn
-indexes by failure mode and part class so Reflect can retrieve prior
-findings, and the loop-closure test finally has a typed assertion it
-can make.
+- Makes the **Screen** step a first-class capability
+- Unblocks the **Reflect** step's "do I even need to simulate?"
+  decision
+- Dramatically speeds up iteration by keeping the solver out of
+  obvious cases
+- Gives **Interpret** a second data point to cross-check against FEA
+  output (if screen prediction and FEA disagree by >expected tolerance,
+  the solver setup is probably wrong)
+- Copies an in-repo pattern (motion's tier ladder) rather than
+  inventing a new one
 
-After these land, the first worked end-to-end iteration transcript
-— see the README's "How to push it closer" section — becomes the
-highest-leverage contribution.
+**Concrete starting set.**
+
+- `analysis.screen_stress` — beam bending (rectangular / circular),
+  stress concentration lookup for common features (fillet, hole,
+  notch), deflection bound, Euler buckling, fastener preload/pullout.
+  Uses `geometry.section_properties` (already in-repo) for I, J, c.
+- `analysis.screen_thermal` — lumped capacitance, Biot number, simple
+  conduction/convection resistance networks.
+- `analysis.screen_aero` — BEMT for rotors, lift curve slope for
+  wings, drag coefficient lookups for common shapes.
+- **Gate Tier 3 behind Tier 1.** `analysis.stress_check` (and its
+  siblings) calls the corresponding screen first; if the screen
+  resolves the question with clear margin, return the screen result
+  and skip FEA. Mirror the escalation rule documented in
+  `.claude/rules/analysis-policy.md`.
+- **Tests** against textbook reference cases (cantilever bending,
+  Hertzian contact, lumped-capacitance cooling).
+
+### Move 2 — Paired wedge: `FailureMode` enum + `ReflectExpectations` dataclass
+
+**Why.** This is the wedge that makes the Interpret step typed and
+the Reflect step unskippable. Neither alone is sufficient.
+
+1. **`FailureMode` enum on `AnalysisCheck`** in `server/analysis_models.py:191`.
+   Ten to twelve enumerated values: `STRESS_CONCENTRATION`, `YIELD`,
+   `BUCKLING`, `FATIGUE`, `DEFLECTION`, `CONTACT`, `RESONANCE`,
+   `THERMAL`, `WEAR`, `CORROSION`. Every `analysis.*` tool (both
+   Screen-tier and Simulate-tier from Move 1) populates it on FAIL.
+   This unblocks Interpret, Decide, and the loop-closure test.
+2. **`ReflectExpectations` dataclass** capturing "what failure modes
+   am I checking, what do I expect the result to look like, what
+   would make it suspicious." `analysis.*` tools accept it as an
+   optional argument on day one, warn loudly if it's absent, and make
+   it required in the loop-closure test harness. This unblocks
+   Reflect.
+
+The two are paired because neither is fully useful alone. `FailureMode`
+without expectations lets the LLM say "it's a stress concentration"
+but not "I was expecting a stress concentration here and it's 4×
+bigger than I thought." Expectations without `FailureMode` lets the
+LLM file a prediction but not compare it against a typed result.
+
+Together they unblock every downstream step: Decide dispatches on
+`FailureMode`, Act logs the `(expectations, failure, chosen_action,
+result)` tuple, Learn indexes by failure mode and part class, and the
+loop-closure test finally has a typed assertion it can make.
+
+### Move 3 — Wire one real worker build into `test_orchestrator_e2e.py`
+
+**Why.** The outer loop is ◐ well-built but workers are stubbed.
+`test_orchestrator_e2e.py:131` writes a *fake STEP file* where a real
+worker should produce geometry. The gate walker (G0 → G7), the SBCE
+scorer, the validator, the release packager, and all of the council/
+skeleton/interface-freeze machinery are real code with real tests —
+they just haven't been exercised against a real `cad.*` build because
+the worker side is a stub.
+
+Closing that one gap:
+
+- Proves the outer loop end-to-end on one real part class
+- Exercises the handoff between `orchestrator/worker.py` and the
+  `cad.*` toolset (likely surfacing latent bugs)
+- Gives us a real test that one worker can produce a geometry that
+  passes `orchestrator/validator.py` against a frozen interface
+  contract
+- Becomes the foundation for running many workers in parallel
+  later — you can't safely parallelize what you haven't closed
+  sequentially
+
+**Suggested starting point.** Pick hexapod hip bracket (or any of the
+four part classes already in `tests/test_project_*.py`). Take its
+build sequence, wrap it as a worker, plumb it through
+`orchestrator.runner.dispatch_all`, and assert that the resulting
+STEP file passes `validator.validate_worker_result`. Keep SBCE single-
+candidate for this first pass — macro scoring and multi-candidate
+pruning can come later.
+
+### Parallelizability
+
+The three moves are independent:
+
+- Move 1 touches `server/tools_analysis.py`, `server/analysis_models.py`,
+  new screen modules, and new tests. No orchestrator changes.
+- Move 2 touches `server/analysis_models.py` (just the `AnalysisCheck`
+  dataclass) and adds a small `server/reflect.py`. No screen tooling
+  required (though Move 1's outputs should also populate `FailureMode`
+  when both land).
+- Move 3 touches `orchestrator/worker.py`, `orchestrator/worker_subprocess.py`
+  or `orchestrator/worker_entry.py` (depending on execution mode), and
+  `tests/test_orchestrator_e2e.py`. No changes to `analysis.*` or
+  `server/analysis_models.py`.
+
+They can be worked in parallel by different contributors without
+merge conflicts. They each independently move the project from
+"substrate exists" toward "the loop empirically closes."
+
+### After the priority stack
+
+Once the three top-priority moves land:
+
+1. **Unskip `tests/test_iteration_loop_e2e.py`** against a known
+   part class. This is the forcing function for the whole inner
+   loop — wiring it up will expose whatever integration bugs are
+   hiding in the handoff between Reflect, Screen, Simulate, and
+   Interpret.
+2. **Knowledge persistence test** — ingest a finding, close the
+   knowledge volume, reopen in a fresh process, assert recall.
+   Without this test the whole Learn step could silently break.
+3. **Part-class failure-mode taxonomies** as hand-curated YAML under
+   `me_knowledge/failure_modes/` — seeded with entries for the four
+   part classes that already have project tests (hexapod leg,
+   planetary gearbox, quadrotor, rc car).
+4. **Auto-ingestion** from `study.results` into the knowledge corpus
+   so Learn starts filling itself without manual curation.
+
+### Why this is mostly a refactor, not new tools
+
+Reading `.claude/rules/*.md` straight through, it's striking how much
+of the 9-step design is *already specified* — just as prompt rules
+instead of as code:
+
+| Rule file | Step | Rule → Tool refactor |
+|---|---|---|
+| `design-pipeline.md` | Specify | Mostly already tools; add `part_class` field |
+| `me-preflight.md` | Reflect | → `reflect.preflight()` + failure-mode taxonomy |
+| `analysis-policy.md` | Reflect + Simulate gating | → analysis tier ladder (Move 1) |
+| `motion-validation.md` | Screen → Simulate tier escalation | → **already implemented** as `motion.*` tiers |
+| `self-assessment.md` | Interpret | → `interpret.compare_to_expectations()` + `FailureMode` enum |
+| `study-policy.md` | Decide + Learn | Mostly already tools; add auto-ingestion |
+| `sim-engine-policy.md` | Simulate engine lifecycle | Already implemented as `sim.*` tools |
+| `orchestrator-protocol.md` | Outer loop | Already implemented as `orchestrator/*` |
+
+**The `motion-validation.md` rule file is the only one whose
+tool-layer equivalent already exists.** That's the proof the approach
+works. Every other rule file is waiting for the same refactor from
+prompt instructions into enforceable structured substrate. The
+priority stack above turns the three most important of those rules
+into code.
 
 ## Sources
 

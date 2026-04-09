@@ -35,17 +35,24 @@ The loop — build, sim, see what broke, fix, re-check — is the point. No manu
 
 The long-term goal is an LLM that can take a mechanical design goal, iterate on it in simulation until every constraint is met, and hand you a buildable part with the reasoning trail intact. "You approved the loop" instead of "you approved every step."
 
-**The loop.** The inner cycle an engineer runs inside Embodiment and Detail Design has nine steps. Six of them have direct equivalents in the canonical ME textbooks (Shigley, Pahl & Beitz, Ullman, Dieter). Three of them — **Reflect**, **Screen**, and **Learn** — are senior-engineer folklore the textbooks assume rather than teach. See [`docs/ROADMAP.md`](docs/ROADMAP.md) for the full pedigree, textbook citations, and per-step status.
+**Two loops, not one.** The project actually has two design loops operating at different scales, and both are needed:
+
+- **The outer loop** — `orchestrator/*` drives a G0 → G7 gate walk with parallel workers, SBCE candidate ranking, and release packaging. ~170 tests across 11 orchestrator-focused test files. *Status:* ◐ well-built but workers are stubbed — `test_orchestrator_e2e.py:131` writes a fake STEP file where a real `cad.*`-driven worker build should go.
+- **The inner loop** — what the table below describes — is the nine-step iteration cycle that runs *inside* a single worker when it's trying to make one subsystem pass its constraints. *Status:* mostly missing; that's the bulk of the roadmap.
+
+These loops are complementary, not competing. SBCE picks the winner across whole design variants; the inner loop keeps each individual variant from dying to preventable failures. See [`docs/ROADMAP.md §"Two loops, not one"`](docs/ROADMAP.md) for the full breakdown of which parts of each loop are real today.
+
+**The inner loop.** The cycle an engineer runs inside Embodiment and Detail Design has nine steps. Six of them have direct equivalents in the canonical ME textbooks (Shigley, Pahl & Beitz, Ullman, Dieter). Three of them — **Reflect**, **Screen**, and **Learn** — are senior-engineer folklore the textbooks assume rather than teach. See [`docs/ROADMAP.md`](docs/ROADMAP.md) for the full pedigree, textbook citations, and per-step status.
 
 | # | Step | Status | Notes |
 |---|---|---|---|
 | 1 | **Specify** — task clarification, brief, interfaces | ✓ | `design.*` brief pipeline + `spec.*` interview flow cover this well |
 | 2 | **Synthesize** — create/modify geometry | ✓ | `cad.*` drives FreeCAD PartDesign directly; 23 parametric generators in `geometry.*` |
 | 3 | **Reflect** — pre-check thinking: what failure modes am I worried about, what do I expect, do I even need to simulate? | ✗ | Folklore step. Exists only as prompt rules in `.claude/rules/`. No structured tool forces the LLM to file its expectations before running the solver. |
-| 4 | **Screen** — cheap analytical first-pass (hand calc, SCF lookup, buckling bound) | ◐ | `me.validate_constraints` is the closest thing. No systematic `screen.*` tool group yet; most analytical checks still live in docstrings and the LLM's head. |
+| 4 | **Screen** — cheap analytical first-pass (hand calc, SCF lookup, buckling bound) | ◐ | `motion.*` has a real tier ladder (Tier 1 analytical → Tier 2 kinematic → Tier 3 dynamic). `analysis.*` doesn't — `stress_check`/`thermal_check`/`aero_check` go straight to FEA/CFD. The fix is to copy motion's tier pattern into analysis, not to invent a new tool group. |
 | 5 | **Simulate** — press the solver button (stress, thermal, aero, dynamic) | ✓ | `analysis.*` + `motion.simulate` with Isaac/Gazebo/Chrono backends; `analysis.stress_from_simulation` couples Tier 3 forces into FEA. |
 | 6 | **Interpret** — compare result against Reflect expectations, classify the failure mode | ◐ | `AnalysisCheck` has the right shape (`status`, `measured`, `limit`, `face_group`, `suggestion`) but `name` is a free-form string. No `FailureMode` enum. No comparison-to-expectations tool. |
-| 7 | **Decide** — pick a fix that addresses the mechanism, not the symptom | ✗ | Nothing turns a failure into a ranked list of candidate tool calls. `study.*` sweeps are the closest primitive but the LLM has to pick the variable manually. |
+| 7 | **Decide** — pick a fix that addresses the mechanism, not the symptom | ◐ macro / ✗ micro | *Macro scale:* `orchestrator/sbce.py` + `scorer.py` + `validator.py` rank whole design variants via Set-Based Concurrent Engineering (◐, well-tested). *Micro scale:* nothing turns a single failing `AnalysisCheck` into a ranked list of repair candidates (✗). |
 | 8 | **Act** — apply the fix and re-check | ◐ | Re-uses `cad.*` tools. No dedicated fix log, no loop-aware dispatch that automatically re-runs the check that found the failure. |
 | 9 | **Learn** — record the finding so the next session doesn't repeat the mistake | ◐ | Folklore step. `knowledge.*` infrastructure exists but the corpus is empty and no test verifies ingest → fresh session → search → recall. |
 
@@ -55,12 +62,18 @@ Observation tools (`cad.screenshot`, `cad.get_body_topology`, `face_map`, etc.) 
 
 **Why the current gates are human.** A bad mechanical part costs money or gets someone hurt. Until the loop is demonstrably reliable on a given part class, the design pipeline keeps humans on the approval gates by default (see [`.claude/rules/design-pipeline.md`](.claude/rules/design-pipeline.md) for the phased flow). The rules that say "Never auto-run. Always suggest." exist because we'd rather be annoying than ship a broken robot arm. As the autonomous loop gets more trustworthy on each class of part, those gates will relax.
 
-**How to push it closer.** The highest-leverage contributions right now:
+**How to push it closer — the priority stack.** Three parallel moves, each independently high-leverage. See [`docs/ROADMAP.md §"Priority stack"`](docs/ROADMAP.md) for the full rationale.
 
-1. **The paired wedge: `FailureMode` enum + `ReflectExpectations` schema.** Add a typed `FailureMode` enum to `AnalysisCheck` in `server/analysis_models.py:191` so downstream tooling can dispatch on a typed value, and add a `ReflectExpectations` dataclass the LLM fills in before calling `analysis.*`. Neither alone is sufficient; together they unblock Interpret, Decide, Act, and the loop-closure test. See `docs/ROADMAP.md §"The highest-leverage first move — paired tools"`.
-2. **Worked iteration-loop transcripts.** One good end-to-end example of "LLM found a problem in sim and fixed it" is worth more than any amount of prose. `tests/test_iteration_loop_e2e.py` ships as a skipped placeholder describing the exact shape of this test.
-3. **Part-class failure-mode taxonomies.** A small structured catalog per common part class (hexapod leg, planetary gearbox, quadrotor frame, rc-car chassis) telling the Reflect step what to worry about. Starts with hand-curated entries for the four part classes that already have project tests.
-4. **Curated knowledge under `me_knowledge/notes/`** so past study findings are available to the next session — and a persistence test that proves `knowledge.ingest` → fresh session → `knowledge.search` actually recalls what was stored.
+1. **Bring `analysis.*` up to `motion.*`'s tier structure.** Add `analysis.screen_stress` / `analysis.screen_thermal` / `analysis.screen_aero` as analytical first-pass tools (beam theory, SCF tables, buckling bounds, lumped capacitance, BEMT). Gate Tier 3 FEA/CFD behind them so most routine parts never touch the solver. Copies an in-repo pattern (motion's tier ladder) that's already proven to work — and it's the single change that turns the Screen step from ◐ into ✓ while also unblocking the Reflect step's "do I need to simulate?" decision.
+2. **Paired wedge: `FailureMode` enum + `ReflectExpectations` dataclass.** Add a typed `FailureMode` enum to `AnalysisCheck` in `server/analysis_models.py:191` so downstream tooling can dispatch on a typed value, and add a `ReflectExpectations` dataclass the LLM fills in before calling `analysis.*`. Neither alone is sufficient; together they unblock Interpret, Decide, Act, and the loop-closure test.
+3. **Wire one real worker build into `test_orchestrator_e2e.py`.** Today the outer loop walks G0 → G7 successfully but with fake STEP files (line 131 of the test file writes a stub). Replacing one worker stub with a real `cad.*`-driven build of a known part class proves the outer loop end-to-end and exposes the integration bugs hiding in `orchestrator/worker.py` ↔ `cad.*` handoff.
+
+Then, after those land:
+
+- **Unskip `tests/test_iteration_loop_e2e.py`** against a known part class — the forcing function for the whole inner loop.
+- **Knowledge persistence test** that proves `knowledge.ingest` → fresh session → `knowledge.search` actually recalls what was stored.
+- **Part-class failure-mode taxonomies** (YAML per class) so Reflect has a real lookup table for hexapod / gearbox / quadrotor / rc-car.
+- **Curated `me_knowledge/notes/` corpus** so Learn stops being dead weight.
 
 **The punch list.** [`docs/ROADMAP.md`](docs/ROADMAP.md) is the canonical per-step gap analysis — it walks each of the nine loop steps (Specify → Synthesize → Reflect → Screen → Simulate → Interpret → Decide → Act → Learn), cites the textbook pedigree of each step, maps every tool and every test file to its step, and gives concrete next steps for moving each ◐ / ✗ to ✓. It also defines the three-test bar for claiming the loop is closed on a given part class. Start there if you want to contribute.
 
