@@ -57,10 +57,12 @@ The long-term goal is an LLM that can take a mechanical design goal, iterate on 
 
 **How to push it closer.** The highest-leverage contributions right now:
 
-1. **Worked iteration-loop transcripts.** One good end-to-end example of "LLM found a problem in sim and fixed it" is worth more than any amount of prose — it gives the evaluation harness something concrete to measure against.
+1. **Worked iteration-loop transcripts.** One good end-to-end example of "LLM found a problem in sim and fixed it" is worth more than any amount of prose — it gives the evaluation harness something concrete to measure against. `tests/test_iteration_loop_e2e.py` ships as a skipped placeholder describing the exact shape of this test; picking it up is the single highest-leverage move.
 2. **Better self-assessment heuristics** the LLM can run after each milestone so it catches its own mistakes before a human does.
-3. **Richer simulation feedback** — sim backends that return actionable structured data about *what* failed and *where*, not just pass/fail.
-4. **Curated knowledge under `me_knowledge/notes/`** so past study findings are available to the next session.
+3. **Richer simulation feedback** — sim backends that return actionable structured data about *what* failed and *where*, not just pass/fail. Concretely: add a `FailureMode` enum to the `AnalysisCheck` dataclass in `server/analysis_models.py` so downstream tooling can dispatch on a typed value instead of parsing strings.
+4. **Curated knowledge under `me_knowledge/notes/`** so past study findings are available to the next session — and a persistence test that proves `knowledge.ingest` → fresh session → `knowledge.search` actually recalls what was stored.
+
+**The punch list.** [`docs/ROADMAP.md`](docs/ROADMAP.md) is the canonical per-stage gap analysis — it walks each of the seven loop stages (BUILD → OBSERVE → SIMULATE → DIAGNOSE → DECIDE → ACT → LEARN), maps every tool and every test file to its stage, and gives concrete next steps for moving each ◐ / ✗ to ✓. It also defines the three-test bar for claiming the loop is closed on a given part class. Start there if you want to contribute.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) and [`docs/simulation-and-rl.md`](docs/simulation-and-rl.md) for the entry points.
 
@@ -336,6 +338,7 @@ See [`docs/simulation-and-rl.md`](docs/simulation-and-rl.md) for simulation back
 
 ## Documentation
 
+- [`docs/ROADMAP.md`](docs/ROADMAP.md) — **tooling assessment vs the autonomous-iteration thesis; start here if you want to contribute**
 - [`docs/simulation-and-rl.md`](docs/simulation-and-rl.md) — simulation backends, RL training, validation tests
 - [`docs/creating-packs.md`](docs/creating-packs.md) — creating tool and knowledge extension packs
 - [`ARCHITECTURE.md`](ARCHITECTURE.md) — architecture and protocol surface
