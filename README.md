@@ -35,34 +35,34 @@ The loop — build, sim, see what broke, fix, re-check — is the point. No manu
 
 The long-term goal is an LLM that can take a mechanical design goal, iterate on it in simulation until every constraint is met, and hand you a buildable part with the reasoning trail intact. "You approved the loop" instead of "you approved every step."
 
-**Today vs goal:**
+**The loop.** The inner cycle an engineer runs inside Embodiment and Detail Design has nine steps. Six of them have direct equivalents in the canonical ME textbooks (Shigley, Pahl & Beitz, Ullman, Dieter). Three of them — **Reflect**, **Screen**, and **Learn** — are senior-engineer folklore the textbooks assume rather than teach. See [`docs/ROADMAP.md`](docs/ROADMAP.md) for the full pedigree, textbook citations, and per-step status.
 
-| Piece of the autonomous loop | Status | Notes |
-|---|---|---|
-| LLM builds CAD from a prompt | ✓ working | `cad.*` drives FreeCAD PartDesign directly |
-| Verification screenshots after every feature | ✓ working | every CAD tool returns an image the LLM inspects |
-| Kinematic interference checks | ✓ working | `motion.check_interference` runs on live FreeCAD Assembly |
-| Dynamic simulation (Isaac / Gazebo / Chrono) | ✓ working | three backends, picked by robot type |
-| Stress analysis coupled to sim forces | ✓ working | `analysis.stress_from_simulation` — the Tier 3.5 flow |
-| Parametric design-space exploration | ✓ working | `study.create` → `study.run` → `study.results` |
-| RL policy iteration | ✓ working | Isaac Lab + RSL-RL pipeline validated on an 18-DOF hexapod |
-| Sim failure → autonomous geometry fix | ◐ tools present, not end-to-end tight | the LLM can do it with human prompting; no worked end-to-end example shipped yet |
-| Cross-session memory via `knowledge.*` | ◐ infrastructure in place, corpus empty | `me_knowledge/notes/` ships as placeholders for users to build up over time |
-| Gate-to-gate without human approval | ✗ by design | safety-critical engineering still human-gated |
-| Failure → root cause → redesign, without prompting | ✗ not yet | the hard problem — needs better self-assessment and richer sim feedback |
+| # | Step | Status | Notes |
+|---|---|---|---|
+| 1 | **Specify** — task clarification, brief, interfaces | ✓ | `design.*` brief pipeline + `spec.*` interview flow cover this well |
+| 2 | **Synthesize** — create/modify geometry | ✓ | `cad.*` drives FreeCAD PartDesign directly; 23 parametric generators in `geometry.*` |
+| 3 | **Reflect** — pre-check thinking: what failure modes am I worried about, what do I expect, do I even need to simulate? | ✗ | Folklore step. Exists only as prompt rules in `.claude/rules/`. No structured tool forces the LLM to file its expectations before running the solver. |
+| 4 | **Screen** — cheap analytical first-pass (hand calc, SCF lookup, buckling bound) | ◐ | `me.validate_constraints` is the closest thing. No systematic `screen.*` tool group yet; most analytical checks still live in docstrings and the LLM's head. |
+| 5 | **Simulate** — press the solver button (stress, thermal, aero, dynamic) | ✓ | `analysis.*` + `motion.simulate` with Isaac/Gazebo/Chrono backends; `analysis.stress_from_simulation` couples Tier 3 forces into FEA. |
+| 6 | **Interpret** — compare result against Reflect expectations, classify the failure mode | ◐ | `AnalysisCheck` has the right shape (`status`, `measured`, `limit`, `face_group`, `suggestion`) but `name` is a free-form string. No `FailureMode` enum. No comparison-to-expectations tool. |
+| 7 | **Decide** — pick a fix that addresses the mechanism, not the symptom | ✗ | Nothing turns a failure into a ranked list of candidate tool calls. `study.*` sweeps are the closest primitive but the LLM has to pick the variable manually. |
+| 8 | **Act** — apply the fix and re-check | ◐ | Re-uses `cad.*` tools. No dedicated fix log, no loop-aware dispatch that automatically re-runs the check that found the failure. |
+| 9 | **Learn** — record the finding so the next session doesn't repeat the mistake | ◐ | Folklore step. `knowledge.*` infrastructure exists but the corpus is empty and no test verifies ingest → fresh session → search → recall. |
 
-**The hard problem.** The tools to close the loop exist. The missing piece is making the LLM *reliably* notice that a result is wrong, diagnose the root cause, and pick the right fix action without a human nudging it at each step. That's a combination of better self-assessment prompts ([`.claude/rules/self-assessment.md`](.claude/rules/self-assessment.md) is a start), richer feedback from simulation ("this link buckled at joint 3 under 12 N·m" instead of just "failed"), and cross-session learning so mistakes made once stop being repeated. All three are open.
+Observation tools (`cad.screenshot`, `cad.get_body_topology`, `face_map`, etc.) are cross-cutting — they support every step and aren't a step of their own.
+
+**The hard problem.** The expensive substrate — FreeCAD automation, three sim backends, FEA coupling, RL training — is built and working. What's missing is making the LLM *reliably* execute the Reflect and Interpret steps: stop and think before running the solver, and compare what came back against what it expected. Today those happen implicitly (or not at all) in model context. The roadmap proposal is to force them into structured tools and data so they're unskippable.
 
 **Why the current gates are human.** A bad mechanical part costs money or gets someone hurt. Until the loop is demonstrably reliable on a given part class, the design pipeline keeps humans on the approval gates by default (see [`.claude/rules/design-pipeline.md`](.claude/rules/design-pipeline.md) for the phased flow). The rules that say "Never auto-run. Always suggest." exist because we'd rather be annoying than ship a broken robot arm. As the autonomous loop gets more trustworthy on each class of part, those gates will relax.
 
 **How to push it closer.** The highest-leverage contributions right now:
 
-1. **Worked iteration-loop transcripts.** One good end-to-end example of "LLM found a problem in sim and fixed it" is worth more than any amount of prose — it gives the evaluation harness something concrete to measure against. `tests/test_iteration_loop_e2e.py` ships as a skipped placeholder describing the exact shape of this test; picking it up is the single highest-leverage move.
-2. **Better self-assessment heuristics** the LLM can run after each milestone so it catches its own mistakes before a human does.
-3. **Richer simulation feedback** — sim backends that return actionable structured data about *what* failed and *where*, not just pass/fail. Concretely: add a `FailureMode` enum to the `AnalysisCheck` dataclass in `server/analysis_models.py` so downstream tooling can dispatch on a typed value instead of parsing strings.
+1. **The paired wedge: `FailureMode` enum + `ReflectExpectations` schema.** Add a typed `FailureMode` enum to `AnalysisCheck` in `server/analysis_models.py:191` so downstream tooling can dispatch on a typed value, and add a `ReflectExpectations` dataclass the LLM fills in before calling `analysis.*`. Neither alone is sufficient; together they unblock Interpret, Decide, Act, and the loop-closure test. See `docs/ROADMAP.md §"The highest-leverage first move — paired tools"`.
+2. **Worked iteration-loop transcripts.** One good end-to-end example of "LLM found a problem in sim and fixed it" is worth more than any amount of prose. `tests/test_iteration_loop_e2e.py` ships as a skipped placeholder describing the exact shape of this test.
+3. **Part-class failure-mode taxonomies.** A small structured catalog per common part class (hexapod leg, planetary gearbox, quadrotor frame, rc-car chassis) telling the Reflect step what to worry about. Starts with hand-curated entries for the four part classes that already have project tests.
 4. **Curated knowledge under `me_knowledge/notes/`** so past study findings are available to the next session — and a persistence test that proves `knowledge.ingest` → fresh session → `knowledge.search` actually recalls what was stored.
 
-**The punch list.** [`docs/ROADMAP.md`](docs/ROADMAP.md) is the canonical per-stage gap analysis — it walks each of the seven loop stages (BUILD → OBSERVE → SIMULATE → DIAGNOSE → DECIDE → ACT → LEARN), maps every tool and every test file to its stage, and gives concrete next steps for moving each ◐ / ✗ to ✓. It also defines the three-test bar for claiming the loop is closed on a given part class. Start there if you want to contribute.
+**The punch list.** [`docs/ROADMAP.md`](docs/ROADMAP.md) is the canonical per-step gap analysis — it walks each of the nine loop steps (Specify → Synthesize → Reflect → Screen → Simulate → Interpret → Decide → Act → Learn), cites the textbook pedigree of each step, maps every tool and every test file to its step, and gives concrete next steps for moving each ◐ / ✗ to ✓. It also defines the three-test bar for claiming the loop is closed on a given part class. Start there if you want to contribute.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) and [`docs/simulation-and-rl.md`](docs/simulation-and-rl.md) for the entry points.
 
