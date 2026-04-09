@@ -7,23 +7,62 @@
 
 Digital advances outpace physical-world changes because atoms are harder to move than bits. CAD is the bridge — it turns digital intent into physical reality. Speed up CAD and you speed up progress in the real world.
 
-SolidMind CAD makes this concrete: describe what you want in plain language, and an LLM builds it in FreeCAD — the open-source parametric CAD platform that sits at the center of everything. FreeCAD is the foundation: every sketch, pad, pocket, fillet, and assembly lives there. From that base, you can validate that what you built actually works — analytical checks, kinematic simulation inside FreeCAD itself, and full dynamic simulation in Isaac Sim, Gazebo, or Chrono — all driven from the same conversation.
+**The bet behind SolidMind CAD is this: with enough simulation in the loop, an LLM can iterate on its own mechanical designs — build a part, watch it break in physics, fix it, and repeat — until the thing actually works.** This repo is the early version of that. Today the LLM is a powerful co-pilot; the goal is an autonomous engineering loop with humans only on the critical gates.
 
-## Demo
+The foundation is FreeCAD — every sketch, pad, pocket, fillet, and assembly lives inside its parametric CAD engine. From there the LLM drives analytical checks, kinematic simulation in FreeCAD's Assembly workbench, and full dynamic simulation in Isaac Sim, Gazebo, or Chrono. Screenshots come back after every feature so the LLM can see what it built. When simulation finds a problem, the LLM already has every tool it needs to fix the geometry and try again — all in the same conversation.
+
+## What it does today
 
 > "Design an 18-DOF hexapod robot"
 
-From that single prompt the LLM drives the entire pipeline:
+From that single prompt the LLM drives the full pipeline. An ideal run of the loop looks like this:
 
-1. **Design** — lays out the kinematic structure (6 legs × 3 DOF each), sizes the servos, and picks arbor paths clear of collisions.
-2. **Build** — creates each leg segment as a composite body in FreeCAD's PartDesign workbench, pockets in the servo mounts, and verifies geometry with screenshots after every feature.
-3. **Assemble** — attaches joints via the FreeCAD 1.1 Assembly workbench, runs kinematic interference checks over the full range of motion.
-4. **Simulate** — exports a URDF sim package, launches Isaac Sim over the bridge, and drops the robot into a physics world with contacts, gravity, and motor torques.
-5. **Teleop / train** — drive it around with `motion.teleop_command`, or hand it to `rl.start_training` to learn a walking policy.
+1. **Design** — registers the kinematic structure through the `design.*` brief pipeline (6 legs × 3 DOF), sizes the servos, picks arbor paths clear of collisions. Interfaces are explicit before any geometry exists.
+2. **Build v1** — creates each leg segment as a composite body in FreeCAD's PartDesign workbench, pockets in the servo mounts. A verification screenshot comes back after every feature so the LLM catches drift before the next step.
+3. **Assemble** — attaches joints via the FreeCAD 1.1 Assembly workbench, runs `motion.check_interference` over the full range of motion.
+4. **First sim** — `cad.export_sim_package` generates URDF + meshes, `motion.simulate` drops the robot into Isaac Sim. Suppose the femur buckles under body weight on the first step.
+5. **Fix and re-sim** — the LLM reads the joint-load results, widens the femur cross-section, re-exports, re-imports, re-sims. Stands.
+6. **Stress check** — `analysis.stress_from_simulation` pipes peak walking torques into CalculiX on the hip bracket. Factor of safety comes back at 1.3 — marginal. LLM adds a fillet at the high-stress corner, re-checks, FoS = 2.4.
+7. **Teleop / train** — *only now* does the robot go to `motion.teleop_command` for manual driving, or to `rl.start_training` to learn a walking policy from scratch.
 
-All of this happens in a single conversation. No manual feature trees, no URDF hand-editing, no context switching between tools.
+The loop — build, sim, see what broke, fix, re-check — is the point. No manual feature trees, no URDF hand-editing, no context switching between tools.
 
-> _Screenshots and a video walkthrough will land in `docs/images/` and on the GitHub release page — the `.gitignore` already has the exception so illustrations can be committed under `docs/images/`._
+> **Reality check:** the geometry, sim, analysis, and study tools above all exist and work. Getting the LLM to execute the *diagnosis* steps (reading a sim failure and picking the right fix) reliably without human nudging is the active research problem — see [Where it's going](#where-its-going) for an honest breakdown of what's autonomous today vs. what still needs a human in the loop.
+>
+> Screenshots and a video walkthrough will land in `docs/images/` and on a GitHub release — `.gitignore` already has the exception so illustrations can be committed under `docs/images/`.
+
+## Where it's going
+
+The long-term goal is an LLM that can take a mechanical design goal, iterate on it in simulation until every constraint is met, and hand you a buildable part with the reasoning trail intact. "You approved the loop" instead of "you approved every step."
+
+**Today vs goal:**
+
+| Piece of the autonomous loop | Status | Notes |
+|---|---|---|
+| LLM builds CAD from a prompt | ✓ working | `cad.*` drives FreeCAD PartDesign directly |
+| Verification screenshots after every feature | ✓ working | every CAD tool returns an image the LLM inspects |
+| Kinematic interference checks | ✓ working | `motion.check_interference` runs on live FreeCAD Assembly |
+| Dynamic simulation (Isaac / Gazebo / Chrono) | ✓ working | three backends, picked by robot type |
+| Stress analysis coupled to sim forces | ✓ working | `analysis.stress_from_simulation` — the Tier 3.5 flow |
+| Parametric design-space exploration | ✓ working | `study.create` → `study.run` → `study.results` |
+| RL policy iteration | ✓ working | Isaac Lab + RSL-RL pipeline validated on an 18-DOF hexapod |
+| Sim failure → autonomous geometry fix | ◐ tools present, not end-to-end tight | the LLM can do it with human prompting; no worked end-to-end example shipped yet |
+| Cross-session memory via `knowledge.*` | ◐ infrastructure in place, corpus empty | `me_knowledge/notes/` ships as placeholders for users to build up over time |
+| Gate-to-gate without human approval | ✗ by design | safety-critical engineering still human-gated |
+| Failure → root cause → redesign, without prompting | ✗ not yet | the hard problem — needs better self-assessment and richer sim feedback |
+
+**The hard problem.** The tools to close the loop exist. The missing piece is making the LLM *reliably* notice that a result is wrong, diagnose the root cause, and pick the right fix action without a human nudging it at each step. That's a combination of better self-assessment prompts ([`.claude/rules/self-assessment.md`](.claude/rules/self-assessment.md) is a start), richer feedback from simulation ("this link buckled at joint 3 under 12 N·m" instead of just "failed"), and cross-session learning so mistakes made once stop being repeated. All three are open.
+
+**Why the current gates are human.** A bad mechanical part costs money or gets someone hurt. Until the loop is demonstrably reliable on a given part class, the design pipeline keeps humans on the approval gates by default (see [`.claude/rules/design-pipeline.md`](.claude/rules/design-pipeline.md) for the phased flow). The rules that say "Never auto-run. Always suggest." exist because we'd rather be annoying than ship a broken robot arm. As the autonomous loop gets more trustworthy on each class of part, those gates will relax.
+
+**How to push it closer.** The highest-leverage contributions right now:
+
+1. **Worked iteration-loop transcripts.** One good end-to-end example of "LLM found a problem in sim and fixed it" is worth more than any amount of prose — it gives the evaluation harness something concrete to measure against.
+2. **Better self-assessment heuristics** the LLM can run after each milestone so it catches its own mistakes before a human does.
+3. **Richer simulation feedback** — sim backends that return actionable structured data about *what* failed and *where*, not just pass/fail.
+4. **Curated knowledge under `me_knowledge/notes/`** so past study findings are available to the next session.
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) and [`docs/simulation-and-rl.md`](docs/simulation-and-rl.md) for the entry points.
 
 ## Getting Started
 
