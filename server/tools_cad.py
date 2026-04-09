@@ -874,6 +874,33 @@ def cad_export_body(
     return {"ok": True, **result}
 
 
+@_wrap
+def cad_import_step(
+    path: str,
+    doc: str | None = None,
+    object_name: str = "ImportedStep",
+) -> dict[str, Any]:
+    """Import a STEP file as a ``Part::Feature`` for independent measurement.
+
+    Used by the orchestrator's self-verifying validator to re-measure
+    worker outputs without trusting the worker's own metadata. If
+    ``doc`` is None a fresh ``step_import`` document is created;
+    otherwise the named document is reused. The imported shape becomes
+    an object named ``object_name`` (default ``ImportedStep``) that can
+    be subsequently measured via ``cad_measure_between``,
+    ``cad_get_dimensions``, or ``cad_get_body_topology``.
+
+    Returns volume, bounding box, face count, and edge count computed
+    from the on-disk STEP file — not from any live session state.
+    """
+    client = get_client()
+    kwargs: dict[str, Any] = {"path": path, "object_name": object_name}
+    if doc is not None:
+        kwargs["doc"] = doc
+    result = client.send_command("import_step", **kwargs)
+    return {"ok": True, **result}
+
+
 def cad_set_visibility(
     objects: list[str],
     visible: bool = True,

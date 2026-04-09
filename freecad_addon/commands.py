@@ -2595,6 +2595,63 @@ def export_body(
     return {"path": path, "format": fmt, "body": body}
 
 
+def import_step(
+    path: str,
+    doc: str | None = None,
+    object_name: str = "ImportedStep",
+) -> dict[str, Any]:
+    """Import a STEP file as a Part::Feature in a fresh or named document.
+
+    Used by the orchestrator's self-verifying validator
+    (``orchestrator/measure.py``) to re-measure worker outputs
+    independently of any metadata.json the worker wrote. The returned
+    volume and bounding box come from the on-disk STEP file, not from
+    any live session state.
+
+    If ``doc`` is None, a fresh document named ``step_import`` is
+    created. Otherwise the named document is reused. The imported
+    feature is added with ``object_name`` (default ``ImportedStep``);
+    the caller can look it up by name via ``d.getObject(object_name)``
+    for subsequent measurement via ``measure_between`` or
+    ``get_dimensions``.
+    """
+    import Part  # type: ignore[import-untyped]
+
+    p = Path(path)
+    if not p.is_file():
+        raise FileNotFoundError(f"STEP file not found: {path}")
+
+    if doc is None:
+        d = FreeCAD.newDocument("step_import")
+    else:
+        d = _get_doc(doc)
+
+    shape = Part.Shape()
+    shape.read(str(p))
+    if shape.isNull():
+        raise ValueError(f"STEP file '{path}' produced a null shape")
+
+    obj = d.addObject("Part::Feature", object_name)
+    obj.Shape = shape
+    d.recompute()
+
+    bb = shape.BoundBox
+    return {
+        "doc": d.Name,
+        "object": obj.Name,
+        "volume_mm3": float(shape.Volume),
+        "bbox_mm": [
+            float(bb.XLength),
+            float(bb.YLength),
+            float(bb.ZLength),
+        ],
+        "bbox_min_mm": [float(bb.XMin), float(bb.YMin), float(bb.ZMin)],
+        "bbox_max_mm": [float(bb.XMax), float(bb.YMax), float(bb.ZMax)],
+        "num_faces": len(shape.Faces),
+        "num_edges": len(shape.Edges),
+    }
+
+
 # ---------------------------------------------------------------------------
 # Assembly (Tier 2 kinematic validation)
 # ---------------------------------------------------------------------------
@@ -4893,6 +4950,7 @@ COMMAND_HANDLERS: dict[str, Any] = {
     "get_camera": get_camera,
     "export": export,
     "export_body": export_body,
+    "import_step": import_step,
     "export_sim_package": export_sim_package,
     "set_visibility": set_visibility,
     "assembly_create": assembly_create,
