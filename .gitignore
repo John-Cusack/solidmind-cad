@@ -242,8 +242,11 @@ hexapod_*_pkg*/
 # Training runs (checkpoints, configs, logs)
 training_runs/
 
-# Compiled Rust extension
-solidmind_geometry/
+# Compiled Rust extension — track __init__.py (required so maturin can
+# find the Python module on a fresh clone) but ignore the .so artifacts
+# and bytecode caches that maturin generates locally.
+solidmind_geometry/*.so
+solidmind_geometry/__pycache__/
 
 # Screenshots / transient images
 *.png
