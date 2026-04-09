@@ -61,11 +61,16 @@ sudo ln -s ~/Applications/FreeCAD_1.1.0-Linux-x86_64-py311.AppImage /usr/local/b
 sudo apt-get install -y python3-pip python3-venv   # Ubuntu/Debian
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -e .
-# Optional: full knowledge backend (LanceDB + Docling + embeddings)
-pip install -e ".[knowledge]"
-pip install maturin
-maturin develop --manifest-path geometry/Cargo.toml
+pip install -e .                                   # core install (pulls maturin + builds the Rust extension)
+maturin develop --manifest-path geometry/Cargo.toml  # rebuilds the Rust extension in-place after edits
+```
+
+Optional extras:
+
+```bash
+pip install -e ".[knowledge]"      # LanceDB + Docling + embeddings for the knowledge store
+pip install -e ".[orchestrator]"   # httpx for the docker/A2A orchestrator path
+pip install -e ".[fea]"            # gmsh + meshio for mesh generation in analysis tools
 ```
 
 ### 4. Run tests

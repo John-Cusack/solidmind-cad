@@ -39,6 +39,10 @@ dependencies = [
   "jsonschema>=4.10,<5",
   "orjson>=3.9,<4",
   "PyYAML>=6.0,<7",
+  # numpy is imported at module load time by server/analysis_assembly.py
+  # and the analysis_solver_* adapters, so it must be a hard dep — without
+  # it the test suite fails to even import on a fresh `pip install -e .`.
+  "numpy>=1.26,<3",
 ]
 
 [project.urls]

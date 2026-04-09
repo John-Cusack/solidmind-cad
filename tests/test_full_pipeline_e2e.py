@@ -36,9 +36,11 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 # ---------------------------------------------------------------------------
 
 requires_chrono = unittest.skipUnless(
-    os.path.isfile("chrono_daemon/build/chrono_daemon")
-    or os.path.isfile("chrono_daemon/run.sh"),
-    "Chrono daemon not built",
+    # Must have the actual compiled binary — run.sh is only the wrapper
+    # script and is checked into the repo, so testing for run.sh alone
+    # makes the skip a no-op on fresh clones.
+    os.path.isfile("chrono_daemon/build/chrono_daemon"),
+    "Chrono daemon binary not built (chrono_daemon/build/chrono_daemon)",
 )
 
 _ELMER_AVAILABLE = bool(
