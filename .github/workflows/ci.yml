@@ -25,17 +25,20 @@ jobs:
           cache: pip
 
       - name: Install test dependencies
-        # Install only the pure-Python runtime deps — the Rust extension
-        # (`solidmind_geometry`, built via maturin) is not required for most
-        # tests and needs a Rust toolchain, so we skip `pip install -e .`
-        # here to keep CI lean. Tests that need the extension skip cleanly.
+        # Install only the deps the test suite actually imports — the Rust
+        # extension (`solidmind_geometry`, built via maturin) is not required
+        # for most tests and needs a Rust toolchain, so we skip
+        # `pip install -e .` here to keep CI lean. Tests that need optional
+        # extensions (CHOLMOD, cuDSS, FreeCAD, Isaac, Gazebo) skip cleanly.
         run: |
           python -m pip install --upgrade pip
           python -m pip install \
             "jsonschema>=4.10,<5" \
             "orjson>=3.9,<4" \
             "PyYAML>=6.0,<7" \
-            "pydantic>=2.6,<3"
+            "pydantic>=2.6,<3" \
+            "numpy>=1.26,<3" \
+            "scipy>=1.11,<2"
 
       - name: Run unit tests
         run: python -m unittest --verbose
