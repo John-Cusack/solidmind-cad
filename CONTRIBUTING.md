@@ -40,7 +40,7 @@ See `CLAUDE.md` for a detailed architecture description, tool groups, and module
 
 ## Runtime Components
 
-- **[FreeCAD 1.0.2](https://github.com/FreeCAD/FreeCAD/releases/tag/1.0.2) AppImage** — the foundation; all CAD modeling runs inside FreeCAD (see README for install)
+- **[FreeCAD 1.1](https://github.com/FreeCAD/FreeCAD/releases/tag/1.1.0) AppImage** (1.0.2 also supported) — the foundation; all CAD modeling runs inside FreeCAD (see README for install)
 
 Optional simulation/knowledge backends:
 

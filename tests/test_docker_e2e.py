@@ -23,6 +23,15 @@ COMPOSE_FILE = Path(__file__).parent.parent / "docker" / "docker-compose.yml"
 PROJECT_DIR = Path(__file__).parent.parent
 
 
+def _httpx_available() -> bool:
+    """Check if httpx is importable (required by the A2A client)."""
+    try:
+        import httpx  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
 def _docker_available() -> bool:
     """Check if docker and docker compose are available."""
     try:
@@ -97,7 +106,7 @@ async def _submit_task(
         await client.close()
 
 
-@unittest.skipUnless(_docker_available(), "Docker not available")
+@unittest.skipUnless(_docker_available() and _httpx_available(), "Docker or httpx not available")
 class TestDockerE2E(unittest.TestCase):
     """End-to-end test with Docker worker containers."""
 
@@ -278,7 +287,7 @@ class TestDockerE2E(unittest.TestCase):
                 )
 
 
-@unittest.skipUnless(_docker_available(), "Docker not available")
+@unittest.skipUnless(_docker_available() and _httpx_available(), "Docker or httpx not available")
 class TestDockerTaskProtocol(unittest.TestCase):
     """Test the A2A task protocol specifics (requires running stack)."""
 

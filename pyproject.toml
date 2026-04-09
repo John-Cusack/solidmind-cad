@@ -9,11 +9,43 @@ description = "FreeCAD-integrated CAD co-pilot driven by MCP — PartDesign work
 readme = "README.md"
 requires-python = ">=3.12"
 license = { file = "LICENSE" }
+authors = [
+  { name = "John Cusack", email = "johncusackccm@gmail.com" },
+]
+keywords = [
+  "cad",
+  "freecad",
+  "mcp",
+  "partdesign",
+  "mechanical-engineering",
+  "robotics",
+  "fea",
+  "cfd",
+  "simulation",
+]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "Intended Audience :: Science/Research",
+  "Intended Audience :: Manufacturing",
+  "License :: OSI Approved :: Apache Software License",
+  "Operating System :: POSIX :: Linux",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Scientific/Engineering",
+  "Topic :: Scientific/Engineering :: Visualization",
+]
 dependencies = [
   "jsonschema>=4.10,<5",
   "orjson>=3.9,<4",
   "PyYAML>=6.0,<7",
 ]
+
+[project.urls]
+Homepage = "https://github.com/John-Cusack/solidmind-cad"
+Repository = "https://github.com/John-Cusack/solidmind-cad"
+Issues = "https://github.com/John-Cusack/solidmind-cad/issues"
+Changelog = "https://github.com/John-Cusack/solidmind-cad/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
 gpu = ["onnxruntime-gpu"]
@@ -37,7 +69,8 @@ fea-gpu = [
   "cupy-cuda12x>=14,<15",
 ]
 schemas = ["pydantic>=2.6,<3"]
-dev = ["maturin>=1.7,<2"]
+orchestrator = ["httpx>=0.27,<1"]
+dev = ["maturin>=1.7,<2", "ruff>=0.6,<1"]
 
 [project.scripts]
 solidmind-cad = "server.main:main"
@@ -51,6 +84,36 @@ markers = [
     "subprocess: spawns real subprocesses",
 ]
 testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = [
+  "geometry/target",
+  "me_knowledge",
+  "training_runs",
+  "analyses",
+  "docs",
+]
+
+[tool.ruff.lint]
+# Start conservative — these rules catch real bugs without being noisy.
+# Expand once the codebase has been cleaned up.
+select = [
+  "E",   # pycodestyle errors
+  "F",   # pyflakes
+  "W",   # pycodestyle warnings
+  "I",   # isort
+  "B",   # flake8-bugbear
+  "UP",  # pyupgrade
+]
+ignore = [
+  "E501",  # line length handled by formatter
+  "B008",  # function calls in argument defaults (common in dataclass fields)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["B011"]  # assert False is fine in tests
 
 [tool.maturin]
 manifest-path = "geometry/Cargo.toml"

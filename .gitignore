@@ -247,6 +247,9 @@ solidmind_geometry/
 
 # Screenshots / transient images
 *.png
+# ...but allow README / docs illustrations to be committed
+!docs/images/*.png
+!docs/images/**/*.png
 
 # IDE
 .idea/
@@ -263,3 +266,32 @@ freecad
 # Docker build artifact (copied by build.sh)
 docker/FreeCAD.AppImage
 # /isaacsim/
+
+# FreeCAD AppImages (any location)
+*.AppImage
+
+# FreeCAD solver run artifacts
+--version.*
+*.cvg
+*.dat
+*.sta
+
+# Local backup / scratch files
+requirements-backup.txt
+
+# Demo videos (host on Releases or external, not in repo)
+*.mp4
+docs/demo_clips/
+
+# Local analysis scratch outputs
+analyses/
+
+# Scratch animation frame dumps from watch demo
+watch_*anim*.json
+watch_animation_frames.json
+
+# Scratch local helpers
+type_prompt.sh
+
+# Training runs already ignored above at line 243, but ensure subdirs too
+training_runs/**

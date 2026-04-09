@@ -1,5 +1,10 @@
 # SolidMind CAD
 
+[![CI](https://github.com/John-Cusack/solidmind-cad/actions/workflows/ci.yml/badge.svg)](https://github.com/John-Cusack/solidmind-cad/actions/workflows/ci.yml)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+[![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
+[![FreeCAD 1.1+](https://img.shields.io/badge/FreeCAD-1.1+-red.svg)](https://www.freecad.org/)
+
 Digital advances outpace physical-world changes because atoms are harder to move than bits. CAD is the bridge — it turns digital intent into physical reality. Speed up CAD and you speed up progress in the real world.
 
 SolidMind CAD makes this concrete: describe what you want in plain language, and an LLM builds it in FreeCAD — the open-source parametric CAD platform that sits at the center of everything. FreeCAD is the foundation: every sketch, pad, pocket, fillet, and assembly lives there. From that base, you can validate that what you built actually works — analytical checks, kinematic simulation inside FreeCAD itself, and full dynamic simulation in Isaac Sim, Gazebo, or Chrono — all driven from the same conversation.
@@ -31,14 +36,15 @@ source "$HOME/.cargo/env"
 
 ### 2. Install FreeCAD
 
-Download the AppImage and symlink it onto your PATH:
+Download the AppImage and symlink it onto your PATH. **FreeCAD 1.1 is
+recommended; 1.0.2 is still supported via the compatibility layer.**
 
 ```bash
 mkdir -p ~/Applications
-wget -O ~/Applications/FreeCAD_1.0.2-conda-Linux-x86_64-py311.AppImage \
-  "https://github.com/FreeCAD/FreeCAD/releases/download/1.0.2/FreeCAD_1.0.2-conda-Linux-x86_64-py311.AppImage"
-chmod +x ~/Applications/FreeCAD_1.0.2-conda-Linux-x86_64-py311.AppImage
-sudo ln -s ~/Applications/FreeCAD_1.0.2-conda-Linux-x86_64-py311.AppImage /usr/local/bin/freecad
+wget -O ~/Applications/FreeCAD_1.1.0-Linux-x86_64-py311.AppImage \
+  "https://github.com/FreeCAD/FreeCAD/releases/download/1.1.0/FreeCAD_1.1.0-Linux-x86_64-py311.AppImage"
+chmod +x ~/Applications/FreeCAD_1.1.0-Linux-x86_64-py311.AppImage
+sudo ln -s ~/Applications/FreeCAD_1.1.0-Linux-x86_64-py311.AppImage /usr/local/bin/freecad
 ```
 
 > **Note:** Use a symlink to the AppImage — do not copy/move the binary directly.
@@ -263,7 +269,7 @@ See [`docs/creating-packs.md`](docs/creating-packs.md) for the full developer gu
 
 ## Requirements
 
-- **[FreeCAD 1.0.2](https://github.com/FreeCAD/FreeCAD/releases/tag/1.0.2)** AppImage — the foundation; all CAD modeling, Tier 2 kinematic simulation, and visual verification run inside FreeCAD (0.21 is **not** supported)
+- **[FreeCAD 1.1](https://github.com/FreeCAD/FreeCAD/releases/tag/1.1.0)** AppImage (1.0.2 also supported) — the foundation; all CAD modeling, Tier 2 kinematic simulation, and visual verification run inside FreeCAD (0.21 is **not** supported)
 - Python `>= 3.12`
 - Rust toolchain ([rustup](https://rustup.rs/)) for the `solidmind_geometry` extension
 

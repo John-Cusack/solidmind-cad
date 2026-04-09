@@ -43,8 +43,10 @@ individual is officially representing the project in public spaces.
 ## Enforcement
 
 Instances of abusive, harassing, or otherwise unacceptable behavior may be
-reported to the maintainers via `security@solidmind.dev`.
-All complaints will be reviewed and investigated promptly and fairly.
+reported to the maintainers by opening a
+[GitHub Security Advisory](https://github.com/John-Cusack/solidmind-cad/security/advisories/new)
+(private) or by contacting the project owner directly through their GitHub
+profile. All complaints will be reviewed and investigated promptly and fairly.
 
 ## Attribution
 

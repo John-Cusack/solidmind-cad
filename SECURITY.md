@@ -2,16 +2,19 @@
 
 ## Reporting a Vulnerability
 
-If you discover a security vulnerability in SolidMind CAD, please report it responsibly.
+If you discover a security vulnerability in SolidMind CAD, please report it
+privately via **[GitHub Security Advisories](https://github.com/John-Cusack/solidmind-cad/security/advisories/new)**.
 
-**Email:** security@solidmind.dev
+Do **not** open a public issue for security reports.
 
 Please include:
 - A description of the vulnerability
 - Steps to reproduce
 - Potential impact
 
-We will acknowledge your report within 48 hours and aim to provide a fix or mitigation within 7 days for critical issues.
+We will acknowledge reports as quickly as possible and work with you on a
+coordinated disclosure timeline. As a small project, response times are
+best-effort — please be patient.
 
 ## Scope
 
