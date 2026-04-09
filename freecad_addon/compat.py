@@ -30,8 +30,12 @@ def _parse_version() -> tuple[int, int]:
 
 VERSION_TUPLE: tuple[int, int] = _parse_version()
 IS_V1_PLUS: bool = VERSION_TUPLE >= (1, 0)
+IS_V1_1_PLUS: bool = VERSION_TUPLE >= (1, 1)
 
-logger.info("FreeCAD version: %d.%d (IS_V1_PLUS=%s)", VERSION_TUPLE[0], VERSION_TUPLE[1], IS_V1_PLUS)
+logger.info(
+    "FreeCAD version: %d.%d (IS_V1_PLUS=%s, IS_V1_1_PLUS=%s)",
+    VERSION_TUPLE[0], VERSION_TUPLE[1], IS_V1_PLUS, IS_V1_1_PLUS,
+)
 
 
 # ---------------------------------------------------------------------------

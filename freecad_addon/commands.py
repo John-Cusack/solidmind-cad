@@ -2599,7 +2599,15 @@ def export_body(
 # Assembly (Tier 2 kinematic validation)
 # ---------------------------------------------------------------------------
 
-# FreeCAD 1.0+ joint type indices (Assembly.JointObject.Joint constructor)
+# FreeCAD 1.0+ joint type indices (Assembly.JointObject.Joint constructor).
+#
+# Verified against FreeCAD 1.1.0 ``JointObject.JointTypes``:
+#   ['Fixed', 'Revolute', 'Cylindrical', 'Slider', 'Ball', 'Distance',
+#    'Parallel', 'Perpendicular', 'Angle', 'RackPinion', 'Screw',
+#    'Gears', 'Belt']
+# The order matches exactly — no version-specific branching needed.
+# Internal names differ for clarity (prismatic↔Slider, gear_mesh↔Gears,
+# belt_chain↔Belt, rack_pinion↔RackPinion).
 _JOINT_TYPE_INDEX = {
     "fixed": 0,
     "revolute": 1,

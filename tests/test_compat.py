@@ -29,6 +29,19 @@ class TestVersionDetection(unittest.TestCase):
             importlib.reload(compat)
             self.assertEqual(compat.VERSION_TUPLE, (1, 0))
             self.assertTrue(compat.IS_V1_PLUS)
+            self.assertFalse(compat.IS_V1_1_PLUS)
+
+    def test_parse_v1_1(self):
+        mock_fc = _setup_mock_freecad((1, 1))
+        with patch.dict(sys.modules, {"FreeCAD": mock_fc}):
+            import importlib
+            if "freecad_addon.compat" in sys.modules:
+                del sys.modules["freecad_addon.compat"]
+            import freecad_addon.compat as compat
+            importlib.reload(compat)
+            self.assertEqual(compat.VERSION_TUPLE, (1, 1))
+            self.assertTrue(compat.IS_V1_PLUS)
+            self.assertTrue(compat.IS_V1_1_PLUS)
 
     def test_parse_v0_21(self):
         mock_fc = _setup_mock_freecad((0, 21))
@@ -40,6 +53,7 @@ class TestVersionDetection(unittest.TestCase):
             importlib.reload(compat)
             self.assertEqual(compat.VERSION_TUPLE, (0, 21))
             self.assertFalse(compat.IS_V1_PLUS)
+            self.assertFalse(compat.IS_V1_1_PLUS)
 
 
 class TestSetSketchSupport(unittest.TestCase):
