@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/John-Cusack/solidmind-cad/security/advisories/new
+    about: Please report security issues privately via GitHub Security Advisories.
+  - name: Question or discussion
+    url: https://github.com/John-Cusack/solidmind-cad/discussions
+    about: Open a discussion for usage questions, design ideas, or general Q&A.

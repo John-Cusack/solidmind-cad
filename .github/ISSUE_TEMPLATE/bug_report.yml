@@ -1,0 +1,54 @@
+name: Bug report
+description: Report a problem with SolidMind CAD
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug report. Please include enough
+        detail for us to reproduce the issue locally.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: A clear description of the bug and what you expected to happen instead.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Minimal steps, commands, or tool calls that trigger the bug.
+      placeholder: |
+        1. Start the MCP server with `python3 -m server.main`
+        2. Call `cad.new_document`
+        3. ...
+    validations:
+      required: true
+  - type: input
+    id: freecad-version
+    attributes:
+      label: FreeCAD version
+      placeholder: "1.0.2 or 1.1.0"
+    validations:
+      required: true
+  - type: input
+    id: python-version
+    attributes:
+      label: Python version
+      placeholder: "3.12.3"
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      placeholder: "Ubuntu 24.04, macOS 14.5, ..."
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs or screenshots
+      description: Paste any stack traces, server logs, or FreeCAD console output. Use fenced code blocks.
+      render: shell
