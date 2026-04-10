@@ -103,18 +103,59 @@ class MeasurementVerification:
 # core.  See ``_measure_bore_diameter`` for the template.
 
 
+def _dedup_cylinders(holes: list[dict[str, Any]]) -> list[float]:
+    """Collapse cylindrical face segments with the same diameter.
+
+    ``find_holes`` reports every cylindrical face in the shape, and a
+    single logical cylinder (e.g. a sun_gear's central bore or the
+    addendum-arc belt around its teeth) can appear as dozens of
+    separate segmented faces after STEP import.  This helper groups
+    them by rounded diameter and returns the unique diameter list
+    sorted ascending.
+
+    A tolerance of 0.001 mm (1 micron) is used for grouping — any two
+    faces within that tolerance are considered the same cylinder.
+    """
+    unique: list[float] = []
+    for h in holes:
+        d = float(h.get("diameter_mm", 0.0))
+        if d <= 0:
+            continue
+        if not any(abs(d - u) < 0.001 for u in unique):
+            unique.append(d)
+    unique.sort()
+    return unique
+
+
 def _measure_bore_diameter(
     cad: Any,
     object_name: str,
     doc_name: str,
+    expected_mm: float | None = None,
+    tolerance_mm: float | None = None,
 ) -> float | None:
-    """Measure the diameter of the largest cylindrical through-hole.
+    """Measure the central-bore cylindrical through-hole diameter.
 
-    Walks the faces returned by ``cad.cad_find_holes`` and picks the
-    hole with the greatest diameter.  Works on both ``PartDesign::Body``
-    objects and imported ``Part::Feature`` shapes (the addon's
-    ``find_holes`` handler accepts both after the fix in this series).
-    Returns None if no cylindrical hole was found.
+    Works in two modes:
+
+    1. **With a hint** (``expected_mm`` is provided, typically from the
+       interface's ``ValidationCheckPoint.expected_mm``) — picks the
+       unique cylinder closest to the expected value.  This is the
+       reliable path for any part class where the bore isn't the
+       largest or smallest cylinder (e.g. sun_gear, where
+       ``find_holes`` also returns the addendum and root-circle arcs).
+
+    2. **No hint** — falls back to the *smallest* unique cylinder on
+       the assumption that bores are usually the smallest feature at
+       the center.  This is the right fallback for most part classes
+       but can fail on parts whose bore is genuinely the largest
+       feature (e.g. a thin ring).  Pass ``expected_mm`` whenever the
+       interface spec has it — which is essentially always.
+
+    Both modes first deduplicate faces with the same diameter via
+    ``_dedup_cylinders`` so the tooth-tip arcs don't count as many
+    separate cylinders.  Returns None if no cylindrical face was
+    found.
     """
     try:
         result = cad.cad_find_holes(body=object_name, doc=doc_name)
@@ -124,21 +165,39 @@ def _measure_bore_diameter(
     holes = result.get("holes") or []
     if not holes:
         return None
-    # Pick the largest hole.  For sun_gear-style parts this is the
-    # central bore.  Multi-hole parts should use a more specific
-    # strategy keyed off the interface's geometry hints.
-    largest = max(holes, key=lambda h: h.get("diameter_mm", 0.0))
-    return float(largest.get("diameter_mm", 0.0)) or None
+
+    unique = _dedup_cylinders(holes)
+    if not unique:
+        return None
+
+    if expected_mm is not None:
+        # Closest-to-expected, no tolerance clipping — the drift
+        # detector is what decides whether the pick is "close enough"
+        # against the interface's own tolerance_mm. We just report the
+        # measurement that matches the LLM's intent.
+        best = min(unique, key=lambda d: abs(d - expected_mm))
+        log.debug(
+            "bore_diameter: expected=%.3f, candidates=%s, picked=%.3f",
+            expected_mm, unique, best,
+        )
+        return best
+
+    # No hint — assume smallest cylinder is the bore.
+    return unique[0]
 
 
 def _measure_bbox_diagonal(
     cad: Any,
     object_name: str,
     doc_name: str,
+    expected_mm: float | None = None,
+    tolerance_mm: float | None = None,
 ) -> float | None:
     """Measure the maximum bounding-box extent (largest of x/y/z).
 
     Useful as a coarse drift signal on envelope-bounded features.
+    ``expected_mm`` / ``tolerance_mm`` are accepted for signature
+    uniformity with the other strategies but aren't used here.
     """
     try:
         result = cad.cad_get_body_topology(body=object_name, doc=doc_name)
@@ -217,7 +276,16 @@ def measure_worker_step(
                     )
                     ifc_measurements[cp.feature] = None
                     continue
-                ifc_measurements[cp.feature] = strategy(cad, obj_name, doc_name)
+                # Pass the interface's expected / tolerance hints through
+                # so the strategy can disambiguate when find_holes (or
+                # similar) returns multiple candidate features. E.g. for
+                # a sun_gear, bore_dia should pick the 8 mm bore out of a
+                # {8, 17.5, 22} candidate set, guided by expected_mm=8.0.
+                ifc_measurements[cp.feature] = strategy(
+                    cad, obj_name, doc_name,
+                    expected_mm=cp.expected_mm,
+                    tolerance_mm=cp.tolerance_mm,
+                )
             measurements[ifc.id] = ifc_measurements
     finally:
         # Leave the import document around if cleanup is hard; the

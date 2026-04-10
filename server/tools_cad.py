@@ -637,6 +637,37 @@ def cad_get_body_topology(body: str | None = None, doc: str | None = None) -> di
 
 
 @_wrap
+def cad_find_holes(
+    body: str | None = None,
+    doc: str | None = None,
+    min_diameter: float | None = None,
+    max_diameter: float | None = None,
+) -> dict[str, Any]:
+    """Find cylindrical holes / bores in a body or imported shape.
+
+    Mirrors the addon's ``find_holes`` command. Returns structured info
+    per cylindrical face (name, diameter_mm, axis, center, depth). Used
+    by ``orchestrator.measure._measure_bore_diameter`` to pick up the
+    central bore after re-importing a worker's STEP file via
+    ``cad_import_step`` — the addon's ``find_holes`` accepts both
+    ``PartDesign::Body`` objects and ``Part::Feature`` imports, so this
+    wrapper works for both the authoring path and the verify path.
+    """
+    client = get_client()
+    kwargs: dict[str, Any] = {}
+    if body is not None:
+        kwargs["body"] = body
+    if doc is not None:
+        kwargs["doc"] = doc
+    if min_diameter is not None:
+        kwargs["min_diameter"] = min_diameter
+    if max_diameter is not None:
+        kwargs["max_diameter"] = max_diameter
+    result = client.send_command("find_holes", **kwargs)
+    return {"ok": True, **result}
+
+
+@_wrap
 def cad_find_edges(
     body: str | None = None,
     doc: str | None = None,

@@ -1652,11 +1652,29 @@ def get_body_topology(
     body: str | None = None,
     doc: str | None = None,
 ) -> dict[str, Any]:
-    """Return all faces and edges on the body's tip shape with geometric properties."""
+    """Return all faces and edges on the body's tip shape with geometric properties.
+
+    Accepts both ``PartDesign::Body`` objects (via ``_resolve_body`` +
+    ``_get_tip``) and non-Body shape holders like ``Part::Feature``
+    (used by the orchestrator's self-verifying validator after importing
+    a worker's STEP file via ``import_step``). If body-resolution fails
+    because the target has no ``Group`` attribute, fall through to
+    direct shape access.
+    """
     d = _get_doc(doc)
-    body_obj = _resolve_body(d, body)
-    tip = _get_tip(body_obj)
-    shape = tip.Shape
+    try:
+        body_obj = _resolve_body(d, body)
+        tip = _get_tip(body_obj)
+        shape = tip.Shape
+    except (ValueError, AttributeError):
+        if body is None:
+            raise
+        obj = d.getObject(body)
+        if obj is None:
+            raise ValueError(f"Object '{body}' not found in document '{d.Name}'")
+        if not hasattr(obj, "Shape") or obj.Shape is None:
+            raise ValueError(f"Object '{body}' has no Shape attribute")
+        shape = obj.Shape
 
     faces: list[dict[str, Any]] = []
     for i, face in enumerate(shape.Faces):
@@ -4486,6 +4504,12 @@ def find_holes(
     # Try body-resolution first for backward compat. If body is an
     # imported Part::Feature or similar shape holder, fall through to
     # direct shape access.
+    #
+    # We catch AttributeError in addition to ValueError because
+    # _resolve_body succeeds on any object found by name (including
+    # Part::Feature imports) but _get_tip then walks `body.Group`,
+    # which doesn't exist on Part::Feature and raises AttributeError.
+    # The fallback path below handles non-Body shape holders directly.
     shape = None
     resolved_name = None
     try:
@@ -4493,7 +4517,7 @@ def find_holes(
         tip = _get_tip(body_obj)
         shape = tip.Shape
         resolved_name = body_obj.Name
-    except ValueError:
+    except (ValueError, AttributeError):
         if body is None:
             raise
         obj = d.getObject(body)
