@@ -603,12 +603,30 @@ def verify_worker_measurements(
 
     # Also pull bbox / volume from the imported shape for envelope checks.
     # Re-import is idempotent; we accept the overhead for simplicity.
+    #
+    # Caveat: ``Part.Shape().read(step)`` populates the shape but
+    # OpenCascade's BoundBox is computed lazily; on freshly-loaded
+    # shapes ``shape.BoundBox`` returns ±1e+100 sentinels until the
+    # shape is tessellated or face-iterated. The addon's import_step
+    # reads BoundBox immediately and so returns those sentinels for
+    # most STEPs in the wild. Detect the sentinel and treat bbox as
+    # unmeasured rather than poisoning downstream envelope checks
+    # with absurd values.
     try:
         bbox_result = cad.cad_import_step(
             path=str(step_path),
             object_name=f"VerifyBbox_{subsystem.id or subsystem.name}",
         )
-        bbox = bbox_result.get("bbox_mm") or []
+        raw_bbox = bbox_result.get("bbox_mm") or []
+        if raw_bbox and all(abs(float(d)) < 1e50 for d in raw_bbox):
+            bbox = [float(d) for d in raw_bbox]
+        else:
+            log.info(
+                "bbox_measured_mm sentinel for %s — leaving bbox empty so the "
+                "envelope check falls back to the worker's claimed bbox",
+                subsystem.name,
+            )
+            bbox = []
         volume = float(bbox_result.get("volume_mm3") or 0.0)
     except Exception as exc:  # pragma: no cover - integration
         log.warning("bbox re-import failed: %s", exc)
