@@ -2,6 +2,24 @@
 
 Sample specs and an extension pack you can use to explore SolidMind CAD.
 
+## `planetary_gearbox/` — End-to-end orchestrator demo (start here)
+
+Six worker builds in a single orchestrator run, producing a complete
+5:1 planetary gearbox (sun + 3 planets + carrier + ring gear). Walks
+G0 → G5 against a live FreeCAD addon, with the orchestrator
+independently re-measuring every produced STEP and validating against
+frozen interface-control documents. ~30s end-to-end.
+
+This is the v0.2.0 flagship — the multi-part counterpart to the
+per-class verify-mode tests in `tests/test_orchestrator_real_worker_e2e.py`.
+
+```bash
+PYTHONPATH=. python3 examples/planetary_gearbox/run.py --out /tmp/gearbox
+```
+
+See [`planetary_gearbox/README.md`](planetary_gearbox/README.md) for
+the narrative + hyperparameters.
+
 ## `cnc/` — CNC spec progression
 
 Four manufacturing spec JSON files demonstrating the **maturity level**
