@@ -109,6 +109,7 @@ class TestOrchestratorDriftE2E(unittest.TestCase):
                     material="steel",
                     interfaces=["ifc1"],
                     worker_count=1,
+                    assembly_constraints={"datum": "A"},
                 ),
             ]
             run.spec.interfaces = [

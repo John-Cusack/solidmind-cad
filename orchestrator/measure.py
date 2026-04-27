@@ -133,6 +133,7 @@ def _measure_bore_diameter(
     doc_name: str,
     expected_mm: float | None = None,
     tolerance_mm: float | None = None,
+    step_path: Path | None = None,
 ) -> float | None:
     """Measure the central-bore cylindrical through-hole diameter.
 
@@ -186,12 +187,34 @@ def _measure_bore_diameter(
     return unique[0]
 
 
+def _bbox_from_step(cad: Any, step_path: Path | None) -> dict | None:
+    """Re-import a STEP into a fresh document and return the bbox dict.
+
+    Workaround for a FreeCAD quirk: ``obj.Shape.BoundBox`` on a Part::Feature
+    that was imported via ``import_step`` and then iterated by
+    ``find_holes`` returns sentinel ±1e+100 values — the shape's bbox cache
+    appears to invalidate after face-iteration mutates ``Surface`` state.
+    A fresh import (which calls ``shape.read()`` cleanly and reads bbox
+    immediately) gives correct dimensions.
+    """
+    if step_path is None:
+        return None
+    try:
+        return cad.cad_import_step(
+            path=str(step_path),
+            object_name=f"BboxProbe_{Path(step_path).stem}",
+        )
+    except Exception:  # pragma: no cover - integration
+        return None
+
+
 def _measure_bbox_diagonal(
     cad: Any,
     object_name: str,
     doc_name: str,
     expected_mm: float | None = None,
     tolerance_mm: float | None = None,
+    step_path: Path | None = None,
 ) -> float | None:
     """Measure the maximum bounding-box extent (largest of x/y/z).
 
@@ -199,13 +222,19 @@ def _measure_bbox_diagonal(
     ``expected_mm`` / ``tolerance_mm`` are accepted for signature
     uniformity with the other strategies but aren't used here.
     """
+    fresh = _bbox_from_step(cad, step_path)
+    if fresh is not None:
+        bbox_mm = fresh.get("bbox_mm") or []
+        if len(bbox_mm) >= 3 and all(abs(d) < 1e50 for d in bbox_mm):
+            return max(float(d) for d in bbox_mm[:3])
+
     try:
         result = cad.cad_get_dimensions(object_name=object_name, doc=doc_name)
     except Exception:  # pragma: no cover
         return None
     bbox = result.get("bounding_box") or {}
     dims = [bbox.get("x_len"), bbox.get("y_len"), bbox.get("z_len")]
-    dims = [d for d in dims if d is not None]
+    dims = [d for d in dims if d is not None and abs(d) < 1e50]
     return max(dims) if dims else None
 
 
@@ -215,13 +244,23 @@ def _measure_segment_length(
     doc_name: str,
     expected_mm: float | None = None,
     tolerance_mm: float | None = None,
+    step_path: Path | None = None,
 ) -> float | None:
     """Return the longest planar bounding-box dimension (max of x_len, y_len).
 
     Used by hexapod_leg-style parts whose "segment_length" is the laid-out
     extent of the body in the XY plane (z is thickness). Doesn't honor
     ``expected_mm``: a body has exactly one bbox.
+
+    Prefers a fresh STEP re-import for the bbox (see ``_bbox_from_step``
+    for why); falls back to ``cad_get_dimensions`` on the live shape.
     """
+    fresh = _bbox_from_step(cad, step_path)
+    if fresh is not None:
+        bbox_mm = fresh.get("bbox_mm") or []
+        if len(bbox_mm) >= 2 and all(abs(d) < 1e50 for d in bbox_mm[:2]):
+            return max(float(bbox_mm[0]), float(bbox_mm[1]))
+
     try:
         result = cad.cad_get_dimensions(object_name=object_name, doc=doc_name)
     except Exception:  # pragma: no cover
@@ -229,7 +268,7 @@ def _measure_segment_length(
     bbox = result.get("bounding_box") or {}
     x_len = bbox.get("x_len")
     y_len = bbox.get("y_len")
-    if x_len is None or y_len is None:
+    if x_len is None or y_len is None or abs(x_len) > 1e50 or abs(y_len) > 1e50:
         return None
     return max(float(x_len), float(y_len))
 
@@ -288,6 +327,7 @@ def _measure_pin_circle_diameter(
     doc_name: str,
     expected_mm: float | None = None,
     tolerance_mm: float | None = None,
+    step_path: Path | None = None,
 ) -> float | None:
     """Measure pitch-circle diameter (PCD) of a pin / bolt-hole pattern.
 
@@ -353,6 +393,7 @@ def _measure_pocket_depth(
     doc_name: str,
     expected_mm: float | None = None,
     tolerance_mm: float | None = None,
+    step_path: Path | None = None,
 ) -> float | None:
     """Measure depth of a top-face rectangular pocket.
 
@@ -493,10 +534,13 @@ def measure_worker_step(
                 # similar) returns multiple candidate features. E.g. for
                 # a sun_gear, bore_dia should pick the 8 mm bore out of a
                 # {8, 17.5, 22} candidate set, guided by expected_mm=8.0.
+                # ``step_path`` lets strategies that need a clean bbox
+                # re-import the STEP fresh — see ``_bbox_from_step``.
                 ifc_measurements[cp.feature] = strategy(
                     cad, obj_name, doc_name,
                     expected_mm=cp.expected_mm,
                     tolerance_mm=cp.tolerance_mm,
+                    step_path=step_path,
                 )
             measurements[ifc.id] = ifc_measurements
     finally:

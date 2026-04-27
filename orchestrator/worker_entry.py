@@ -459,10 +459,15 @@ def _build_envelope(
                 f"Boss {i+1} Ø{diameter} at ({cx:.1f},{cy:.1f}) × {depth or 5.0}"
             )
         else:
+            # Sketches sit on XY (z=0); the padded envelope sits in +Z
+            # (z=0..h). Pocket needs reversed=True to cut INTO the body.
+            # auto-resolve gets confused after the first pocket carves
+            # so hardcode the direction here.
             if depth > 0:
                 _send(
                     host, fc_port, "pocket",
-                    sketch=sk_h["sketch"], length=depth, doc=doc_name,
+                    sketch=sk_h["sketch"], length=depth,
+                    reversed=True, verify=False, doc=doc_name,
                 )
                 task.progress.append(
                     f"Pocket {i+1} Ø{diameter} at ({cx:.1f},{cy:.1f}) × {depth}"
@@ -471,7 +476,7 @@ def _build_envelope(
                 _send(
                     host, fc_port, "pocket",
                     sketch=sk_h["sketch"], pocket_type="ThroughAll",
-                    reversed="auto", verify=False, doc=doc_name,
+                    reversed=True, verify=False, doc=doc_name,
                 )
                 task.progress.append(
                     f"Pocket {i+1} Ø{diameter} at ({cx:.1f},{cy:.1f}) × through"
@@ -779,8 +784,10 @@ def _build_leg(
         _send(host, fc_port, "sketch_populate", sketch=sk_b["sketch"], doc=doc_name,
               elements=[{"type": "circle", "cx": cx, "cy": 0.0, "r": dia / 2.0}])
         _send(host, fc_port, "close_sketch", sketch=sk_b["sketch"], doc=doc_name)
+        # Body sits in +Z (z=0..thickness); reversed=True cuts INTO it.
+        # auto-resolve gets confused after multiple sequential pockets.
         _send(host, fc_port, "pocket", sketch=sk_b["sketch"],
-              pocket_type="ThroughAll", reversed="auto", verify=False, doc=doc_name)
+              pocket_type="ThroughAll", reversed=True, verify=False, doc=doc_name)
         task.progress.append(f"Bore {label} Ø{dia} at x={cx:.1f}")
 
     return _export_and_package(
