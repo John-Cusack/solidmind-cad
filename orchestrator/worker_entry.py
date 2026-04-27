@@ -144,7 +144,7 @@ def wait_for_freecad(
             if b"pong" in data:
                 log.info("FreeCAD ready after %d attempts", attempt)
                 return
-        except (ConnectionRefusedError, OSError, socket.timeout):
+        except (TimeoutError, ConnectionRefusedError, OSError):
             pass
         finally:
             try:
@@ -228,7 +228,6 @@ async def build_from_spec(
     For production use with Claude Code, replace this with a function
     that launches `claude --print` with the appropriate prompt.
     """
-    fc_host = os.environ.get("FREECAD_HOST", "127.0.0.1")
     # Use localhost to connect (even if server binds 0.0.0.0)
     fc_port = int(os.environ.get("FREECAD_PORT", "9876"))
 
@@ -273,6 +272,10 @@ def _build_geometry(
         )
     elif build_type == "carrier":
         return _build_carrier(
+            host, fc_port, part_name, output_dir, sub_spec, task, interfaces,
+        )
+    elif build_type == "leg":
+        return _build_leg(
             host, fc_port, part_name, output_dir, sub_spec, task, interfaces,
         )
 
@@ -385,7 +388,23 @@ def _build_envelope(
     interfaces: list[dict[str, Any]],
     task: Any,
 ) -> dict[str, Any]:
-    """Build a box from envelope dims + interface features (original logic)."""
+    """Build a rect-pad envelope, optionally with holes / bosses.
+
+    Two ways to add cylindrical features (used in this priority order):
+
+    1. ``sub_spec["envelope_holes"]`` — list of dicts with explicit
+       positions: ``{cx, cy, diameter_mm, depth_mm, type}`` where
+       ``type`` is ``"pocket"`` (default) or ``"boss"``. This is the
+       path used by chunks 6 and 7 — patterned holes at non-origin
+       positions. ``depth_mm`` for a pocket can be omitted (or 0) to
+       cut through-all.
+
+    2. ``interfaces`` (legacy) — for each cylindrical interface, a
+       single feature is created at the body origin. Boss vs pocket
+       inferred from ``subsystem_a == part_name`` or ``role == "boss"``.
+       Kept for backwards compat with sub_specs that pre-date
+       ``envelope_holes``.
+    """
     # 1. New document
     doc_result = _send(host, fc_port, "new_document", name=part_name)
     doc_name = doc_result.get("name", part_name)
@@ -409,7 +428,56 @@ def _build_envelope(
     _send(host, fc_port, "pad", sketch=sk["sketch"], length=h, doc=doc_name)
     task.progress.append(f"Padded {h}mm")
 
-    # 5. Add interface features (boss or hole based on spec)
+    # 5a. envelope_holes (preferred, supports arbitrary positions)
+    envelope_holes = sub_spec.get("envelope_holes") or []
+    for i, hole in enumerate(envelope_holes):
+        cx = float(hole.get("cx", 0.0))
+        cy = float(hole.get("cy", 0.0))
+        diameter = float(hole.get("diameter_mm", 3.0))
+        depth = float(hole.get("depth_mm", 0.0))
+        kind = hole.get("type", "pocket")
+
+        sk_h = _send(
+            host, fc_port, "new_sketch",
+            body=body_name, plane="XY", doc=doc_name,
+        )
+        _send(
+            host, fc_port, "sketch_populate",
+            sketch=sk_h["sketch"], doc=doc_name,
+            elements=[
+                {"type": "circle", "cx": cx, "cy": cy, "r": diameter / 2},
+            ],
+        )
+        _send(host, fc_port, "close_sketch", sketch=sk_h["sketch"], doc=doc_name)
+
+        if kind == "boss":
+            _send(
+                host, fc_port, "pad",
+                sketch=sk_h["sketch"], length=depth or 5.0, doc=doc_name,
+            )
+            task.progress.append(
+                f"Boss {i+1} Ø{diameter} at ({cx:.1f},{cy:.1f}) × {depth or 5.0}"
+            )
+        else:
+            if depth > 0:
+                _send(
+                    host, fc_port, "pocket",
+                    sketch=sk_h["sketch"], length=depth, doc=doc_name,
+                )
+                task.progress.append(
+                    f"Pocket {i+1} Ø{diameter} at ({cx:.1f},{cy:.1f}) × {depth}"
+                )
+            else:
+                _send(
+                    host, fc_port, "pocket",
+                    sketch=sk_h["sketch"], pocket_type="ThroughAll",
+                    reversed="auto", verify=False, doc=doc_name,
+                )
+                task.progress.append(
+                    f"Pocket {i+1} Ø{diameter} at ({cx:.1f},{cy:.1f}) × through"
+                )
+
+    # 5b. Legacy: per-interface centered-at-origin features
     for ifc in interfaces:
         geom = ifc.get("geometry", {})
         if geom.get("type") == "cylinder":
@@ -620,6 +688,100 @@ def _build_carrier(
         _send(host, fc_port, "close_sketch", sketch=sk3["sketch"], doc=doc_name)
         _send(host, fc_port, "pad", sketch=sk3["sketch"], length=pin_height, doc=doc_name)
         task.progress.append(f"Pin boss {i + 1} at ({pos[0]:.1f}, {pos[1]:.1f})")
+
+    return _export_and_package(
+        host, fc_port, part_name, doc_name, body_name, output_dir, sub_spec, task,
+        interfaces=interfaces,
+    )
+
+
+def _build_leg(
+    host: str,
+    fc_port: int,
+    part_name: str,
+    output_dir: Path,
+    sub_spec: dict[str, Any],
+    task: Any,
+    interfaces: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Build a multi-segment leg: coxa + femur + tibia in one body.
+
+    Geometry: three rectangular pads laid end-to-end in +X, sharing
+    their adjacent edges so they fuse into a continuous bar. Three
+    pivot bores (ThroughAll) at the junction positions: hip_yaw at the
+    chassis end (x=0), hip_pitch between coxa and femur, knee between
+    femur and tibia.
+
+    sub_spec fields:
+      - coxa_length_mm, femur_length_mm, tibia_length_mm: segment lengths (X)
+      - segment_width_mm: leg width (Y)
+      - segment_thickness_mm: leg thickness (Z, pad length)
+      - hip_yaw_bore_mm, hip_pitch_bore_mm, knee_bore_mm: pivot bore dias
+
+    Bore diameters are typically distinct so the orchestrator's bore
+    strategy can disambiguate between the three with ``expected_mm``
+    hints.
+    """
+    coxa_len = float(sub_spec.get("coxa_length_mm", 52.0))
+    femur_len = float(sub_spec.get("femur_length_mm", 66.0))
+    tibia_len = float(sub_spec.get("tibia_length_mm", 133.0))
+    width = float(sub_spec.get("segment_width_mm", 20.0))
+    thickness = float(sub_spec.get("segment_thickness_mm", 8.0))
+    hip_yaw_bore = float(sub_spec.get("hip_yaw_bore_mm", 4.0))
+    hip_pitch_bore = float(sub_spec.get("hip_pitch_bore_mm", 5.0))
+    knee_bore = float(sub_spec.get("knee_bore_mm", 6.0))
+
+    half_w = width / 2.0
+
+    doc_result = _send(host, fc_port, "new_document", name=part_name)
+    doc_name = doc_result.get("name", part_name)
+    task.progress.append(f"Document created: {doc_name}")
+
+    body_result = _send(host, fc_port, "new_body", name=part_name, doc=doc_name)
+    body_name = body_result["name"]
+    task.progress.append(f"Body created: {body_name}")
+
+    # 1. Coxa segment: x ∈ [0, coxa_len]
+    sk1 = _send(host, fc_port, "new_sketch", body=body_name, plane="XY", doc=doc_name)
+    _send(host, fc_port, "sketch_populate", sketch=sk1["sketch"], doc=doc_name,
+          elements=[{"type": "rect", "x": 0.0, "y": -half_w, "w": coxa_len, "h": width}])
+    _send(host, fc_port, "close_sketch", sketch=sk1["sketch"], doc=doc_name)
+    _send(host, fc_port, "pad", sketch=sk1["sketch"], length=thickness, doc=doc_name)
+    task.progress.append(f"Coxa pad {coxa_len}×{width}×{thickness}")
+
+    # 2. Femur segment: x ∈ [coxa_len, coxa_len + femur_len], shares edge with coxa
+    sk2 = _send(host, fc_port, "new_sketch", body=body_name, plane="XY", doc=doc_name)
+    _send(host, fc_port, "sketch_populate", sketch=sk2["sketch"], doc=doc_name,
+          elements=[{"type": "rect", "x": coxa_len, "y": -half_w, "w": femur_len, "h": width}])
+    _send(host, fc_port, "close_sketch", sketch=sk2["sketch"], doc=doc_name)
+    _send(host, fc_port, "pad", sketch=sk2["sketch"], length=thickness, doc=doc_name)
+    task.progress.append(f"Femur pad {femur_len}×{width}×{thickness}")
+
+    # 3. Tibia segment
+    sk3 = _send(host, fc_port, "new_sketch", body=body_name, plane="XY", doc=doc_name)
+    _send(host, fc_port, "sketch_populate", sketch=sk3["sketch"], doc=doc_name,
+          elements=[{"type": "rect", "x": coxa_len + femur_len, "y": -half_w,
+                     "w": tibia_len, "h": width}])
+    _send(host, fc_port, "close_sketch", sketch=sk3["sketch"], doc=doc_name)
+    _send(host, fc_port, "pad", sketch=sk3["sketch"], length=thickness, doc=doc_name)
+    task.progress.append(f"Tibia pad {tibia_len}×{width}×{thickness}")
+
+    # 4. Pivot bores (ThroughAll) at segment junctions
+    bores = [
+        ("hip_yaw", 0.0, hip_yaw_bore),
+        ("hip_pitch", coxa_len, hip_pitch_bore),
+        ("knee", coxa_len + femur_len, knee_bore),
+    ]
+    for label, cx, dia in bores:
+        if dia <= 0:
+            continue
+        sk_b = _send(host, fc_port, "new_sketch", body=body_name, plane="XY", doc=doc_name)
+        _send(host, fc_port, "sketch_populate", sketch=sk_b["sketch"], doc=doc_name,
+              elements=[{"type": "circle", "cx": cx, "cy": 0.0, "r": dia / 2.0}])
+        _send(host, fc_port, "close_sketch", sketch=sk_b["sketch"], doc=doc_name)
+        _send(host, fc_port, "pocket", sketch=sk_b["sketch"],
+              pocket_type="ThroughAll", reversed="auto", verify=False, doc=doc_name)
+        task.progress.append(f"Bore {label} Ø{dia} at x={cx:.1f}")
 
     return _export_and_package(
         host, fc_port, part_name, doc_name, body_name, output_dir, sub_spec, task,
