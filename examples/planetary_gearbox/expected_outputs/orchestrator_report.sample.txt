@@ -1,0 +1,15 @@
+Planetary Gearbox 5:1 — orchestrator run summary
+================================================
+
+module=1.0, sun_teeth=12, planet_teeth=18, ring_teeth=48, num_planets=3
+target speed ratio = 5.00:1
+
+Parts built and validated:
+  ✓ sun_gear (source=orchestrator)
+  ✓ planet_1 (source=orchestrator)
+  ✓ planet_2 (source=orchestrator)
+  ✓ planet_3 (source=orchestrator)
+  ✓ planet_carrier (source=orchestrator)
+  ✓ ring_gear (source=orchestrator)
+
+All parts passing: True
