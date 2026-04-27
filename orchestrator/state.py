@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from orchestrator.spec import FailureCode, SpecStatus
@@ -38,6 +38,7 @@ _FAILURE_RETRY_TARGET: dict[FailureCode, SpecStatus] = {
     FailureCode.MISSING_ARTIFACT:       SpecStatus.BUILDING,
     FailureCode.MANIFEST_HASH_MISMATCH: SpecStatus.BUILDING,
     FailureCode.INTERFACE_DIM_MISMATCH: SpecStatus.BUILDING,
+    FailureCode.MEASUREMENT_DRIFT:      SpecStatus.BUILDING,
     FailureCode.CLEARANCE_COLLISION:    SpecStatus.BUILDING,
     FailureCode.MASS_OVER_BUDGET:       SpecStatus.BUILDING,
     FailureCode.ENVELOPE_VIOLATION:     SpecStatus.COUNCIL_REVIEW,
@@ -95,7 +96,7 @@ class StateMachine:
             )
 
         event = StateEvent(
-            timestamp=datetime.now(timezone.utc).isoformat(),
+            timestamp=datetime.now(UTC).isoformat(),
             from_state=self.current.value,
             to_state=to.value,
             reason=reason,

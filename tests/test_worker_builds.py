@@ -31,6 +31,8 @@ class TestPackageImports(unittest.TestCase):
         self.assertTrue(hasattr(common, "TaskStub"))
         self.assertTrue(hasattr(common, "read_metadata"))
         self.assertTrue(hasattr(common, "override_claimed_measurements"))
+        self.assertTrue(hasattr(common, "rewrite_interface_actuals"))
+        self.assertTrue(hasattr(common, "dispatch_and_rewrite"))
 
 
 class TestTaskStub(unittest.TestCase):
@@ -158,6 +160,72 @@ class TestMetadataHelpers(unittest.TestCase):
             # ...but other fields are preserved.
             self.assertEqual(on_disk["notes"], "preserved")
             self.assertEqual(on_disk["subsystem"], "probe")
+
+    def test_rewrite_interface_actuals_replaces_keys_and_notes(self) -> None:
+        """``rewrite_interface_actuals`` is the post-build feature-key remap.
+
+        Builders use it to translate ``_export_and_package``'s generic
+        ``diameter_mm`` keys into the design-friendly keys (``bore_dia``,
+        ``pin_circle_dia``) that ValidationCheckPoints reference.
+        """
+        original = {
+            "subsystem": "probe",
+            "claimed_mass_kg": 0.05,  # auto-measured default
+            "interface_actuals": {"ifc1": {"diameter_mm": 8.005}},  # generic
+            "notes": "Docker worker build — probe",  # generic
+            "params": {"keep": "this"},
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp)
+            (out / "metadata.json").write_text(json.dumps(original))
+
+            updated = common.rewrite_interface_actuals(
+                out,
+                {"ifc1": {"bore_dia": 8.0, "pin_circle_dia": 22.0}},
+                notes="planet_carrier builder: bore=8, PCD=22",
+                claimed_mass_kg=0.018,
+            )
+
+            # Keys swapped, claimed value preserved
+            ia = updated["interface_actuals"]["ifc1"]
+            self.assertEqual(ia, {"bore_dia": 8.0, "pin_circle_dia": 22.0})
+            self.assertNotIn("diameter_mm", ia)
+            # notes + mass updated
+            self.assertEqual(updated["notes"], "planet_carrier builder: bore=8, PCD=22")
+            self.assertEqual(updated["claimed_mass_kg"], 0.018)
+            # Unrelated fields untouched
+            self.assertEqual(updated["params"], {"keep": "this"})
+            # On disk matches
+            on_disk = json.loads((out / "metadata.json").read_text())
+            self.assertEqual(on_disk["interface_actuals"], updated["interface_actuals"])
+
+    def test_rewrite_interface_actuals_preserves_existing_mass(self) -> None:
+        """If the caller doesn't override mass and existing is non-zero, keep it."""
+        original = {
+            "subsystem": "probe",
+            "claimed_mass_kg": 0.042,  # already measured
+            "interface_actuals": {"ifc1": {"diameter_mm": 8.0}},
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp)
+            (out / "metadata.json").write_text(json.dumps(original))
+            updated = common.rewrite_interface_actuals(
+                out, {"ifc1": {"bore_dia": 8.0}},
+            )
+            self.assertEqual(updated["claimed_mass_kg"], 0.042)
+
+    def test_rewrite_interface_actuals_fills_default_mass_when_missing(self) -> None:
+        original = {
+            "subsystem": "probe",
+            "interface_actuals": {},
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp)
+            (out / "metadata.json").write_text(json.dumps(original))
+            updated = common.rewrite_interface_actuals(
+                out, {"ifc1": {"bore_dia": 8.0}},
+            )
+            self.assertEqual(updated["claimed_mass_kg"], 0.05)
 
 
 if __name__ == "__main__":

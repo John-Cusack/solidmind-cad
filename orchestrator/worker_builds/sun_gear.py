@@ -29,7 +29,6 @@ result into ``runner.validate_results``, etc.
 """
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any
 
@@ -149,46 +148,27 @@ def build_sun_gear(
         [tip_diameter_mm, tip_diameter_mm, thickness_mm],
     )
 
-    # We don't let _export_and_package auto-measure interfaces here —
-    # its find_holes heuristic returns the outer tip cylinder for a
-    # gear, not the central bore, and it writes under the key
-    # ``diameter_mm`` whereas the spec's ValidationCheckPoint looks for
-    # ``bore_dia``. Instead we pass interfaces=None to skip the
-    # auto-measurement, then rewrite the interface_actuals block below
-    # with the claimed value under the correct feature key. The
-    # verify-mode path (orchestrator.measure.verify_worker_measurements)
-    # re-measures from the STEP file anyway, and its feature-strategy
-    # registry handles ``bore_dia`` via the dedicated bore strategy.
-    step_path = common.build_geometry(
-        sub_spec=build_spec,
+    # _export_and_package's find_holes heuristic finds the addendum tip
+    # cylinder for a gear (not the central bore) and writes it under
+    # ``diameter_mm`` — the spec's ValidationCheckPoint expects ``bore_dia``.
+    # Skip auto-measure (interfaces=None) and rewrite ourselves under the
+    # right feature key. Verify-mode re-measurement is the source of truth.
+    interface_id = (
+        "ifc1"
+        if interfaces is None
+        else (interfaces[0] if interfaces else {}).get("id", "ifc1")
+    )
+    return common.dispatch_and_rewrite(
+        build_spec=build_spec,
         output_dir=output_dir,
-        interfaces=None,
         part_name=part_name,
+        interface_actuals={interface_id: {"bore_dia": bore_diameter_mm}},
+        notes=(
+            f"sun_gear builder: module={module_mm}, teeth={teeth}, "
+            f"thickness={thickness_mm} mm, bore={bore_diameter_mm} mm"
+        ),
+        claimed_mass_kg=0.02,
     )
-
-    # Overwrite interface_actuals with claimed values under the correct
-    # feature key. Interface id defaults to "ifc1" matching the test
-    # spec; callers with a different interface contract can pass their
-    # own ``interfaces`` list to override.
-    metadata_path = Path(output_dir) / "metadata.json"
-    metadata = json.loads(metadata_path.read_text())
-    if interfaces is None:
-        interface_id = "ifc1"
-    else:
-        interface_id = (interfaces[0] if interfaces else {}).get("id", "ifc1")
-    metadata["interface_actuals"] = {
-        interface_id: {
-            "bore_dia": bore_diameter_mm,
-        },
-    }
-    metadata["claimed_mass_kg"] = metadata.get("claimed_mass_kg") or 0.02
-    metadata["notes"] = (
-        f"sun_gear builder: module={module_mm}, teeth={teeth}, "
-        f"thickness={thickness_mm} mm, bore={bore_diameter_mm} mm"
-    )
-    metadata_path.write_text(json.dumps(metadata, indent=2))
-
-    return step_path
 
 
 __all__ = ["build_sun_gear"]

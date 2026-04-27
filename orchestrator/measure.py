@@ -43,7 +43,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from orchestrator.spec import Interface, MasterSpec, Subsystem
+from orchestrator.spec import Interface, Subsystem
 
 log = logging.getLogger(__name__)
 
@@ -200,7 +200,7 @@ def _measure_bbox_diagonal(
     uniformity with the other strategies but aren't used here.
     """
     try:
-        result = cad.cad_get_body_topology(body=object_name, doc=doc_name)
+        result = cad.cad_get_dimensions(object_name=object_name, doc=doc_name)
     except Exception:  # pragma: no cover
         return None
     bbox = result.get("bounding_box") or {}
@@ -209,10 +209,222 @@ def _measure_bbox_diagonal(
     return max(dims) if dims else None
 
 
+def _measure_segment_length(
+    cad: Any,
+    object_name: str,
+    doc_name: str,
+    expected_mm: float | None = None,
+    tolerance_mm: float | None = None,
+) -> float | None:
+    """Return the longest planar bounding-box dimension (max of x_len, y_len).
+
+    Used by hexapod_leg-style parts whose "segment_length" is the laid-out
+    extent of the body in the XY plane (z is thickness). Doesn't honor
+    ``expected_mm``: a body has exactly one bbox.
+    """
+    try:
+        result = cad.cad_get_dimensions(object_name=object_name, doc=doc_name)
+    except Exception:  # pragma: no cover
+        return None
+    bbox = result.get("bounding_box") or {}
+    x_len = bbox.get("x_len")
+    y_len = bbox.get("y_len")
+    if x_len is None or y_len is None:
+        return None
+    return max(float(x_len), float(y_len))
+
+
+def _group_holes_by_diameter(
+    holes: list[dict[str, Any]],
+    tol_mm: float = 0.001,
+) -> list[list[dict[str, Any]]]:
+    """Group holes whose diameters agree within ``tol_mm``.
+
+    Returns a list of groups (each a list of hole dicts), preserving
+    input order within each group.  Used by the PCD strategy to find
+    sets of co-diameter holes that might form a pin/bolt circle.
+    """
+    groups: list[list[dict[str, Any]]] = []
+    for h in holes:
+        d = float(h.get("diameter_mm", 0.0))
+        if d <= 0:
+            continue
+        placed = False
+        for grp in groups:
+            if abs(float(grp[0]["diameter_mm"]) - d) < tol_mm:
+                grp.append(h)
+                placed = True
+                break
+        if not placed:
+            groups.append([h])
+    return groups
+
+
+def _unique_centers_xy(
+    holes: list[dict[str, Any]],
+    pos_tol_mm: float = 0.01,
+) -> list[tuple[float, float]]:
+    """Collapse cylindrical face segments at the same (x, y) into one entry.
+
+    ``find_holes`` reports each cylindrical face — a single bored hole
+    can be split into multiple segmented faces after STEP import, all
+    sharing the same center.  Round to ``pos_tol_mm`` and dedupe.
+    """
+    seen: set[tuple[float, float]] = set()
+    unique: list[tuple[float, float]] = []
+    for h in holes:
+        c = h.get("center") or [0.0, 0.0, 0.0]
+        key = (round(float(c[0]) / pos_tol_mm), round(float(c[1]) / pos_tol_mm))
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append((float(c[0]), float(c[1])))
+    return unique
+
+
+def _measure_pin_circle_diameter(
+    cad: Any,
+    object_name: str,
+    doc_name: str,
+    expected_mm: float | None = None,
+    tolerance_mm: float | None = None,
+) -> float | None:
+    """Measure pitch-circle diameter (PCD) of a pin / bolt-hole pattern.
+
+    Algorithm:
+      1. ``cad_find_holes`` -> all cylindrical faces with center + dia.
+      2. Group by diameter (1 micron tol); keep groups with ≥3 unique
+         center positions (need 3 points to define a circle).
+      3. For each surviving group, compute centroid → mean radius from
+         centroid → 2 × mean = candidate PCD.
+      4. With ``expected_mm``: pick candidate closest to it.
+         Without:   pick the group with the most holes (largest pattern),
+                    breaking ties by larger PCD.
+
+    Works for both pin bosses (planet_carrier) and pocket holes (motor
+    mount, chassis mounts) — ``find_holes`` returns both since both
+    expose cylindrical faces on the body.
+    """
+    try:
+        result = cad.cad_find_holes(body=object_name, doc=doc_name)
+    except Exception as exc:  # pragma: no cover - integration
+        log.warning("cad_find_holes failed on %s: %s", object_name, exc)
+        return None
+    holes = result.get("holes") or []
+    if len(holes) < 3:
+        return None
+
+    candidates: list[tuple[int, float]] = []  # (count, pcd)
+    for grp in _group_holes_by_diameter(holes):
+        centers = _unique_centers_xy(grp)
+        if len(centers) < 3:
+            continue
+        cx = sum(p[0] for p in centers) / len(centers)
+        cy = sum(p[1] for p in centers) / len(centers)
+        radii = [
+            ((p[0] - cx) ** 2 + (p[1] - cy) ** 2) ** 0.5
+            for p in centers
+        ]
+        mean_r = sum(radii) / len(radii)
+        # Filter degenerate clusters (all centers at one point).
+        if mean_r < 0.5:
+            continue
+        candidates.append((len(centers), 2.0 * mean_r))
+
+    if not candidates:
+        return None
+
+    if expected_mm is not None:
+        best = min(candidates, key=lambda c: abs(c[1] - expected_mm))
+        log.debug(
+            "pin_circle_diameter: expected=%.3f, candidates=%s, picked=%.3f",
+            expected_mm, candidates, best[1],
+        )
+        return best[1]
+
+    # No hint: largest pattern wins; tie-break on larger PCD.
+    candidates.sort(key=lambda c: (-c[0], -c[1]))
+    return candidates[0][1]
+
+
+def _measure_pocket_depth(
+    cad: Any,
+    object_name: str,
+    doc_name: str,
+    expected_mm: float | None = None,
+    tolerance_mm: float | None = None,
+) -> float | None:
+    """Measure depth of a top-face rectangular pocket.
+
+    Algorithm:
+      1. ``cad_get_body_topology`` -> all faces with surface_type, normal,
+         center, area.
+      2. Filter to planar faces with Z-aligned normals (|n.z| ≥ 0.99) and
+         non-trivial area.
+      3. Top of body = max-z up-facing face. Pocket floors = additional
+         up-facing planar faces whose center.z < top.z (below the top
+         surface). Their depth = top.z - floor.z.
+      4. With ``expected_mm``: closest match. Without: deepest pocket.
+
+    Treats only Z-aligned pockets (the chunk-8 use case). Doesn't handle
+    side pockets; new strategies can be registered for those.
+    """
+    try:
+        result = cad.cad_get_body_topology(body=object_name, doc=doc_name)
+    except Exception as exc:  # pragma: no cover - integration
+        log.warning("cad_get_body_topology failed on %s: %s", object_name, exc)
+        return None
+    faces = result.get("faces") or []
+
+    up_facing: list[float] = []  # z-centers of up-facing planar faces
+    for f in faces:
+        if f.get("surface_type") != "Plane":
+            continue
+        normal = f.get("normal") or [0.0, 0.0, 0.0]
+        if abs(float(normal[2])) < 0.99:
+            continue
+        if float(f.get("area", 0.0)) < 1e-3:
+            continue
+        center = f.get("center") or [0.0, 0.0, 0.0]
+        if float(normal[2]) > 0.99:
+            up_facing.append(float(center[2]))
+
+    if len(up_facing) < 2:
+        return None
+
+    top_z = max(up_facing)
+    depths = [top_z - z for z in up_facing if z < top_z - 0.001]
+    if not depths:
+        return None
+
+    if expected_mm is not None:
+        return min(depths, key=lambda d: abs(d - expected_mm))
+    return max(depths)
+
+
 _FEATURE_STRATEGIES: dict[str, Any] = {
+    # Bore strategies (sun_gear, planet_carrier central bore, axles).
     "bore_diameter": _measure_bore_diameter,
     "bore_dia": _measure_bore_diameter,
     "central_bore_dia": _measure_bore_diameter,
+    "axle_bore_dia": _measure_bore_diameter,
+    "hip_yaw_bore_dia": _measure_bore_diameter,
+    "hip_pitch_bore_dia": _measure_bore_diameter,
+    "knee_bore_dia": _measure_bore_diameter,
+    # Pin/bolt circle strategies.
+    "pin_circle_dia": _measure_pin_circle_diameter,
+    "pcd_diameter": _measure_pin_circle_diameter,
+    "bolt_circle_dia": _measure_pin_circle_diameter,
+    "motor_mount_pcd": _measure_pin_circle_diameter,
+    "mounting_pcd": _measure_pin_circle_diameter,
+    # Pocket-depth strategies.
+    "pocket_depth": _measure_pocket_depth,
+    "servo_pocket_depth": _measure_pocket_depth,
+    # Segment-length / bbox strategies.
+    "segment_length": _measure_segment_length,
+    "coxa_length": _measure_segment_length,
+    "femur_length": _measure_segment_length,
+    "tibia_length": _measure_segment_length,
     "bbox_diagonal": _measure_bbox_diagonal,
 }
 

@@ -291,6 +291,11 @@ requirements-backup.txt
 *.mp4
 docs/demo_clips/
 
+# Internal planning, review, and handoff docs — kept on disk for the
+# author but not tracked publicly. To publish one, `git mv` it back
+# to docs/.
+docs/private/
+
 # Local analysis scratch outputs
 analyses/
 

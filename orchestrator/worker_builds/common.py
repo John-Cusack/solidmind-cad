@@ -262,3 +262,69 @@ def override_claimed_measurements(
     path = Path(output_dir) / "metadata.json"
     path.write_text(json.dumps(metadata, indent=2))
     return metadata
+
+
+def rewrite_interface_actuals(
+    output_dir: Path,
+    interface_actuals: dict[str, dict[str, float]],
+    *,
+    notes: str | None = None,
+    claimed_mass_kg: float | None = None,
+) -> dict[str, Any]:
+    """Replace ``interface_actuals`` under caller-specified feature keys.
+
+    ``_export_and_package`` writes auto-measured ``interface_actuals``
+    keyed by generic features (``diameter_mm``, ``depth_mm``) — the
+    output of a single ``find_holes`` call on the finished body. Spec
+    ``ValidationCheckPoint`` keys are design-friendly (``bore_dia``,
+    ``pin_circle_dia``, ...). Builders bridge the two by writing the
+    metadata once via auto-measure (or skipping it with
+    ``interfaces=None``), then calling this helper to rewrite
+    ``interface_actuals`` under the keys the spec actually checks.
+
+    Optionally update ``notes`` and ``claimed_mass_kg`` in the same
+    pass — common builder needs that don't justify a second helper.
+    """
+    metadata = read_metadata(output_dir)
+    metadata["interface_actuals"] = interface_actuals
+    if notes is not None:
+        metadata["notes"] = notes
+    if claimed_mass_kg is not None:
+        metadata["claimed_mass_kg"] = claimed_mass_kg
+    elif not metadata.get("claimed_mass_kg"):
+        metadata["claimed_mass_kg"] = 0.05
+    path = Path(output_dir) / "metadata.json"
+    path.write_text(json.dumps(metadata, indent=2))
+    return metadata
+
+
+def dispatch_and_rewrite(
+    build_spec: dict[str, Any],
+    output_dir: Path,
+    *,
+    part_name: str,
+    interface_actuals: dict[str, dict[str, float]],
+    notes: str,
+    claimed_mass_kg: float | None = None,
+) -> Path:
+    """Build via ``build_geometry`` then rewrite ``interface_actuals``.
+
+    The standard pattern for chunks 5-8 collapses to: compute geometry
+    Python-side, pack a ``build_spec``, call this function. ``interfaces``
+    is forced to ``None`` (no auto-measure) so the rewrite owns the
+    feature-key shape end-to-end and the orchestrator's verify-mode
+    re-measurement is the single source of dimensional truth.
+    """
+    step_path = build_geometry(
+        sub_spec=build_spec,
+        output_dir=output_dir,
+        interfaces=None,
+        part_name=part_name,
+    )
+    rewrite_interface_actuals(
+        output_dir,
+        interface_actuals,
+        notes=notes,
+        claimed_mass_kg=claimed_mass_kg,
+    )
+    return step_path
