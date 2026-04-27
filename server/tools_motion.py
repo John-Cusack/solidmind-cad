@@ -409,6 +409,41 @@ def motion_create_assembly(
     try:
         client = get_client()
 
+        # Pre-flight: when the doc reports SOME bodies but not the ones the
+        # mechanism references, surface that here with all missing names at
+        # once instead of raising mid-loop on the first one. The "no bodies
+        # at all" case falls through to the addon's assembly_add_part, which
+        # has its own informative error pointing at cad.new_body etc.
+        referenced_bodies = {
+            part.body_name for part in mech.parts if part.body_name is not None
+        }
+        if referenced_bodies:
+            try:
+                tree_kwargs: dict[str, Any] = {"detail": "bodies"}
+                if doc is not None:
+                    tree_kwargs["doc"] = doc
+                tree = client.send_command("get_model_tree", **tree_kwargs)
+                if isinstance(tree, dict):
+                    available = set(tree.get("bodies") or [])
+                elif isinstance(tree, list):
+                    available = {b if isinstance(b, str) else b.get("name", "") for b in tree}
+                else:
+                    available = set()
+                missing = sorted(referenced_bodies - available)
+                if missing and available:
+                    return _error_result(
+                        "MISSING_BODIES",
+                        f"Mechanism '{mech.name}' references bodies that don't "
+                        f"exist in the target doc: {missing}. Available bodies: "
+                        f"{sorted(available)}. Build the geometry first via "
+                        "cad.new_body / cad.create_primitive / cad.import_step, "
+                        "then retry motion.create_assembly.",
+                    )
+            except FreeCADCommandError:
+                # get_model_tree might fail for unrelated reasons; fall
+                # through and let assembly_add_part raise the per-body error.
+                pass
+
         # Create assembly
         asm_kwargs: dict[str, Any] = {"name": f"Asm_{mech.name}"}
         if doc is not None:

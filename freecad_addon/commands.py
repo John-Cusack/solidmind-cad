@@ -2745,7 +2745,20 @@ def assembly_add_part(
     body_obj = d.getObject(body)
     if body_obj is None:
         available_bodies = [o.Name for o in d.Objects if o.TypeId == "PartDesign::Body"]
-        raise ValueError(f"Body '{body}' not found. Available bodies: {available_bodies}")
+        if not available_bodies:
+            raise ValueError(
+                f"Body '{body}' not found in doc '{d.Name}', and no PartDesign "
+                "bodies exist there at all. Bodies must be created (via "
+                "cad.new_body / cad.create_primitive / cad.import_step) before "
+                "they can be added to an assembly. If your mechanism was "
+                "defined before any geometry was built, build the parts first "
+                "or call motion_create_assembly with the doc that contains "
+                "the bodies."
+            )
+        raise ValueError(
+            f"Body '{body}' not found in doc '{d.Name}'. "
+            f"Available bodies: {available_bodies}"
+        )
 
     # Link the body into the assembly
     link = asm_obj.newObject("App::Link", f"{body}_link")
