@@ -100,14 +100,20 @@ focused test files: `test_runner.py` (41), `test_preflight.py` (24),
 `test_dsm.py` (9), `test_worker.py` (5), `test_orchestrator_cli.py` (3),
 plus `test_orchestrator_e2e.py` for end-to-end gate walking.
 
-**Status — outer loop: ◐ well-built but workers are stubbed.** The
-state machine, gate checkers, SBCE scorer, DSM dependency analysis,
-release packaging, and preflight validation are all real code with
-real tests. What's missing: `test_orchestrator_e2e.py:131` writes a
-*fake STEP file* where a real worker build should go. The outer loop
-can walk G0→G7 on mocked worker output; it hasn't been wired to a real
-per-worker `cad.*` build yet. Closing that gap is one of the top
-priorities (see §Priority stack below).
+**Status — outer loop: ✓ closed on 5 part classes.** The state machine,
+gate checkers, SBCE scorer, DSM dependency analysis, release packaging,
+and preflight validation are all real code with real tests — and as of
+the chunk-5–9 wiring work, the loop is provably closed against real
+FreeCAD builds for **five** part classes: `sun_gear`, `planet_carrier`,
+`quadrotor_arm`, `rc_car_chassis`, and `hexapod_leg`. Each class has
+a per-part-class builder under `orchestrator/worker_builds/` that drives
+real geometry through the addon socket; the orchestrator then independently
+re-imports the produced STEP file and re-measures interface dimensions
+via `orchestrator/measure.py`. A drift-detection test
+(`tests/test_orchestrator_drift_e2e.py`) deliberately stomps a worker's
+claimed `bore_dia` and asserts the validator catches the lie via
+`FailureCode.MEASUREMENT_DRIFT`. The legacy mocked path
+(`test_orchestrator_e2e.py`) remains for trust-mode CI coverage.
 
 **The inner loop — the nine steps described in this document** —
 happens *inside* a single worker. Each worker is responsible for
@@ -125,7 +131,7 @@ system needs both:
 | Concurrency | Parallel workers | Sequential iterations |
 | Decide surface | "Which of these N candidate designs wins?" (SBCE) | "Which repair do I try first for this failing part?" (empty) |
 | State | G0 → G7 gate walk | 9-step cycle |
-| Status | ◐ well-built but workers stubbed | ✗ mostly missing (what this roadmap describes) |
+| Status | ✓ closed on 5 part classes | ✗ mostly missing (what this roadmap describes) |
 | Tests | ~170 tests across 11 files | 1 skipped placeholder |
 
 The rest of this roadmap focuses on the **inner loop** because that's
@@ -823,35 +829,42 @@ Together they unblock every downstream step: Decide dispatches on
 result)` tuple, Learn indexes by failure mode and part class, and the
 loop-closure test finally has a typed assertion it can make.
 
-### Move 3 — Wire one real worker build into `test_orchestrator_e2e.py`
+### Move 3 — Wire real worker builds into the outer loop ✓ done
 
-**Why.** The outer loop is ◐ well-built but workers are stubbed.
-`test_orchestrator_e2e.py:131` writes a *fake STEP file* where a real
-worker should produce geometry. The gate walker (G0 → G7), the SBCE
-scorer, the validator, the release packager, and all of the council/
-skeleton/interface-freeze machinery are real code with real tests —
-they just haven't been exercised against a real `cad.*` build because
-the worker side is a stub.
+**What landed.** The outer loop is now closed against real FreeCAD
+builds for **five** part classes. The plumbing has three layers:
 
-Closing that one gap:
+1. **`orchestrator/worker_builds/`** — per-part-class builders
+   (`sun_gear`, `planet_carrier`, `quadrotor_arm`, `rc_car_chassis`,
+   `hexapod_leg`) that compute geometry Python-side then dispatch
+   through `worker_entry._build_*` to drive the FreeCAD addon over
+   TCP. Shared post-processing lives in `common.dispatch_and_rewrite`
+   so each builder collapses to ~50 lines.
+2. **`orchestrator/measure.py`** — self-verifying measurement layer.
+   After each worker build, `measure_worker_step` independently
+   re-imports the STEP file via `cad_import_step` and re-measures
+   interface dimensions. Strategies registered: `bore_diameter` /
+   `bore_dia` (with expected-hint disambiguation for parts whose
+   `find_holes` returns multiple candidates), `pin_circle_dia` /
+   `motor_mount_pcd` (PCD from N hole centroids), `pocket_depth`
+   (top-face minus floor-face), `segment_length` (max of bbox X/Y).
+3. **`tests/test_orchestrator_real_worker_e2e.py`** — five verify-mode
+   tests, one per part class, that walk G0→G5 against real builds.
+   Each asserts `report.measurement_source == "orchestrator"` and
+   that all checkpoints pass.
 
-- Proves the outer loop end-to-end on one real part class
-- Exercises the handoff between `orchestrator/worker.py` and the
-  `cad.*` toolset (likely surfacing latent bugs)
-- Gives us a real test that one worker can produce a geometry that
-  passes `orchestrator/validator.py` against a frozen interface
-  contract
-- Becomes the foundation for running many workers in parallel
-  later — you can't safely parallelize what you haven't closed
-  sequentially
+A drift-detection test
+(`tests/test_orchestrator_drift_e2e.py`) deliberately stomps a
+worker's claimed `bore_dia` value with `common.override_claimed_measurements`
+and asserts the validator flags `FailureCode.MEASUREMENT_DRIFT`. This
+is the proof that the self-verifying measurement path actually catches
+worker lies — not just passes them through.
 
-**Suggested starting point.** Pick hexapod hip bracket (or any of the
-four part classes already in `tests/test_project_*.py`). Take its
-build sequence, wrap it as a worker, plumb it through
-`orchestrator.runner.dispatch_all`, and assert that the resulting
-STEP file passes `validator.validate_worker_result`. Keep SBCE single-
-candidate for this first pass — macro scoring and multi-candidate
-pruning can come later.
+**Original starting point** (kept for context): pick hexapod hip
+bracket (or any of the four part classes already in
+`tests/test_project_*.py`). Take its build sequence, wrap it as a
+worker, plumb it through `orchestrator.runner.dispatch_all`, and
+assert that the resulting STEP file passes `validator.validate_worker_result`.
 
 ### Parallelizability
 
@@ -863,10 +876,11 @@ The three moves are independent:
   dataclass) and adds a small `server/reflect.py`. No screen tooling
   required (though Move 1's outputs should also populate `FailureMode`
   when both land).
-- Move 3 touches `orchestrator/worker.py`, `orchestrator/worker_subprocess.py`
-  or `orchestrator/worker_entry.py` (depending on execution mode), and
-  `tests/test_orchestrator_e2e.py`. No changes to `analysis.*` or
-  `server/analysis_models.py`.
+- Move 3 (done) touched `orchestrator/worker_entry.py` (extended
+  `_build_envelope` with `envelope_holes`, added `_build_leg`),
+  `orchestrator/measure.py` (three new strategies + aliases), the new
+  `orchestrator/worker_builds/` package, and the two new e2e test
+  files. No changes to `analysis.*` or `server/analysis_models.py`.
 
 They can be worked in parallel by different contributors without
 merge conflicts. They each independently move the project from

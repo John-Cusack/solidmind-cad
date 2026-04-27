@@ -5,6 +5,22 @@
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
 [![FreeCAD 1.1+](https://img.shields.io/badge/FreeCAD-1.1+-red.svg)](https://www.freecad.org/)
 
+> **An LLM that drives FreeCAD until your part passes simulation.** Sketches, pads, fillets, FEA, kinematic + dynamic sim, and a self-verifying orchestrator that re-measures every worker output. See it work in [`examples/`](examples/) or scroll for the autonomous-iteration thesis.
+
+## 60-second quickstart
+
+```bash
+git clone https://github.com/John-Cusack/solidmind-cad
+cd solidmind-cad
+pip install -e .                                            # core install (Python ≥ 3.12)
+maturin develop --manifest-path geometry/Cargo.toml         # Rust geometry kernel (one-time)
+scripts/install_freecad_addon.sh                            # registers the FreeCAD addon
+# Then open FreeCAD, start a Claude Code session in this dir, and ask:
+#   "Make me a 30 × 20 × 10 mm bracket with an M5 hole through the long axis."
+```
+
+Optional installs: `pip install -e .[orchestrator]` adds the multi-worker outer-loop dependencies; `pip install -e .[dev]` adds ruff + test extras. See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the full dev setup.
+
 Digital advances outpace physical-world changes because atoms are harder to move than bits. CAD is the bridge — it turns digital intent into physical reality. Speed up CAD and you speed up progress in the real world.
 
 **The bet behind SolidMind CAD is this: with enough simulation in the loop, an LLM can iterate on its own mechanical designs — build a part, watch it break in physics, fix it, and repeat — until the thing actually works.** This repo is the early version of that. Today the LLM is a powerful co-pilot; the goal is an autonomous engineering loop with humans only on the critical gates.
@@ -37,7 +53,7 @@ The long-term goal is an LLM that can take a mechanical design goal, iterate on 
 
 **Two loops, not one.** The project actually has two design loops operating at different scales, and both are needed:
 
-- **The outer loop** — `orchestrator/*` drives a G0 → G7 gate walk with parallel workers, SBCE candidate ranking, and release packaging. ~170 tests across 11 orchestrator-focused test files. *Status:* ◐ well-built but workers are stubbed — `test_orchestrator_e2e.py:131` writes a fake STEP file where a real `cad.*`-driven worker build should go.
+- **The outer loop** — `orchestrator/*` drives a G0 → G7 gate walk with parallel workers, SBCE candidate ranking, and release packaging. ~170 tests across 11 orchestrator-focused test files. *Status:* ✓ closed on 5 part classes — `orchestrator/worker_builds/` produces real STEP geometry for `sun_gear`, `planet_carrier`, `quadrotor_arm`, `rc_car_chassis`, and `hexapod_leg`; `orchestrator/measure.py` re-imports each STEP independently and validates against frozen ICDs; `tests/test_orchestrator_drift_e2e.py` proves the validator catches deliberate measurement lies via `FailureCode.MEASUREMENT_DRIFT`.
 - **The inner loop** — what the table below describes — is the nine-step iteration cycle that runs *inside* a single worker when it's trying to make one subsystem pass its constraints. *Status:* mostly missing; that's the bulk of the roadmap.
 
 These loops are complementary, not competing. SBCE picks the winner across whole design variants; the inner loop keeps each individual variant from dying to preventable failures. See [`docs/ROADMAP.md §"Two loops, not one"`](docs/ROADMAP.md) for the full breakdown of which parts of each loop are real today.
@@ -66,7 +82,7 @@ Observation tools (`cad.screenshot`, `cad.get_body_topology`, `face_map`, etc.) 
 
 1. **Bring `analysis.*` up to `motion.*`'s tier structure.** Add `analysis.screen_stress` / `analysis.screen_thermal` / `analysis.screen_aero` as analytical first-pass tools (beam theory, SCF tables, buckling bounds, lumped capacitance, BEMT). Gate Tier 3 FEA/CFD behind them so most routine parts never touch the solver. Copies an in-repo pattern (motion's tier ladder) that's already proven to work — and it's the single change that turns the Screen step from ◐ into ✓ while also unblocking the Reflect step's "do I need to simulate?" decision.
 2. **Paired wedge: `FailureMode` enum + `ReflectExpectations` dataclass.** Add a typed `FailureMode` enum to `AnalysisCheck` in `server/analysis_models.py:191` so downstream tooling can dispatch on a typed value, and add a `ReflectExpectations` dataclass the LLM fills in before calling `analysis.*`. Neither alone is sufficient; together they unblock Interpret, Decide, Act, and the loop-closure test.
-3. **Wire one real worker build into `test_orchestrator_e2e.py`.** Today the outer loop walks G0 → G7 successfully but with fake STEP files (line 131 of the test file writes a stub). Replacing one worker stub with a real `cad.*`-driven build of a known part class proves the outer loop end-to-end and exposes the integration bugs hiding in `orchestrator/worker.py` ↔ `cad.*` handoff.
+3. ~~**Wire one real worker build into `test_orchestrator_e2e.py`.**~~ ✓ done — the outer loop is now closed against five real part classes. The `orchestrator/worker_builds/` package and `tests/test_orchestrator_real_worker_e2e.py` cover `sun_gear`, `planet_carrier`, `quadrotor_arm`, `rc_car_chassis`, `hexapod_leg`. `tests/test_orchestrator_drift_e2e.py` covers deliberate-drift detection.
 
 Then, after those land:
 
