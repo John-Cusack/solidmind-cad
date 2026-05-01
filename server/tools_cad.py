@@ -984,6 +984,38 @@ def cad_delete_objects(names: list[str], doc: str | None = None) -> dict[str, An
 
 
 @_wrap
+def cad_cleanup_orphans(
+    *,
+    dry_run: bool = False,
+    doc: str | None = None,
+) -> dict[str, Any]:
+    """Delete sketches/pads/patterns that aren't reachable from any body's Tip.
+
+    When a feature operation fails (e.g. polar_pattern with a cross-body
+    axis reference), the created Sketch + Pad + Pattern objects end up
+    un-parented in the FreeCAD document — they aren't in any body's
+    feature chain but still appear in the GUI viewport at the world
+    origin.  Over multiple build/rebuild cycles a drone document
+    accumulates dozens of these orphans.
+
+    Call this between iterations to keep the document clean.
+
+    Args:
+        dry_run: When True, returns the orphan list without deleting.
+        doc: Document name (defaults to active doc).
+
+    Returns:
+        ``{"orphans": [...], "deleted": N, "dry_run": bool}``.
+    """
+    client = get_client()
+    kwargs: dict[str, Any] = {"dry_run": dry_run}
+    if doc is not None:
+        kwargs["doc"] = doc
+    result = client.send_command("cleanup_orphans", **kwargs)
+    return {"ok": True, **result}
+
+
+@_wrap
 def cad_animate(
     frames: list[dict[str, Any]],
     duration_s: float = 10.0,
@@ -1018,6 +1050,7 @@ def cad_export_sim_package(
     mechanism_id: str | None = None,
     emit_sdf: bool = False,
     ground_clearance_m: float | None = None,
+    drone_config: dict[str, Any] | None = None,
     doc: str | None = None,
 ) -> dict[str, Any]:
     """Export bodies as individual meshes + optionally generate URDF from mechanism.
@@ -1027,6 +1060,14 @@ def cad_export_sim_package(
     2. Returns each body's Placement (position + rotation quaternion)
     3. If ``mechanism_id`` is provided, generates URDF from the mechanism definition
     4. If ``emit_sdf=True``, also emits SDF beside URDF for Gazebo workflows
+    5. If ``drone_config`` is provided alongside ``emit_sdf``, the SDF embeds the
+       Gazebo multicopter motor model plugin (``rotors`` list, etc.) so the model
+       is hover-ready under ``motion.simulate(backend="gazebo")``.
+    6. If ``drone_config["px4"]=True``, also generates a PX4 airframe init
+       script and (when ``register_airframe=True``) drops it into the
+       configured PX4 install directory.  The result includes
+       ``airframe_id`` (SYS_AUTOSTART) and ``airframe_path``.  PX4 must
+       be rebuilt for the new airframe to be available to ``PX4_SIM_MODEL``.
     """
     import os
     from server import motion_store
@@ -1067,6 +1108,7 @@ def cad_export_sim_package(
             body_manifest,
             ground_clearance_m=ground_clearance_m,
             mesh_findings=mesh_findings,
+            drone_config=drone_config,
         )
 
         pkg_dir = result.get("output_dir", output_dir or ".")
@@ -1131,11 +1173,53 @@ def cad_export_sim_package(
                 sim_model, sdf_path,
                 base_dir=pkg_dir,
                 absolute_mesh_paths=True,
+                drone_config=drone_config,
             )
-            sdf_findings = validate_sdf(sdf_path)
+            sdf_findings = validate_sdf(sdf_path, drone_mode=drone_config is not None)
             result["sdf_path"] = sdf_path
             if sdf_findings:
                 result["sdf_validation"] = [f.to_dict() for f in sdf_findings]
+
+            # Phase 4: optional PX4 airframe params generation.  Triggered
+            # by drone_config["px4"] = True.  Produces the shell-style
+            # init file PX4 reads at boot and (by default) drops it into
+            # the configured PX4 install path so the next ``make px4_sitl``
+            # build picks it up.
+            if drone_config is not None and drone_config.get("px4"):
+                from server.px4_airframe_generator import (
+                    AirframeGeneratorError,
+                    format_airframe_init_script,
+                    generate_airframe_params,
+                    register_airframe,
+                )
+                try:
+                    airframe_params = generate_airframe_params(
+                        model_name=sim_model.name,
+                        sim_model=sim_model,
+                        drone_config=drone_config,
+                    )
+                    result["airframe_id"] = airframe_params.sys_autostart
+                    result["airframe_name"] = airframe_params.name
+                    result["airframe_mass_kg"] = airframe_params.mass_kg
+                    result["airframe_arm_length_m"] = airframe_params.arm_length_m
+                    result["airframe_hover_throttle"] = airframe_params.hover_throttle
+
+                    if drone_config.get("register_airframe", True):
+                        airframe_path = register_airframe(
+                            airframe_params,
+                            install_path=drone_config.get("px4_install_path"),
+                        )
+                        result["airframe_path"] = str(airframe_path)
+                    else:
+                        # Operator wants the script body without writing it.
+                        result["airframe_script"] = format_airframe_init_script(
+                            airframe_params,
+                        )
+                except AirframeGeneratorError as exc:
+                    result["airframe_error"] = {
+                        "code": exc.code or "AIRFRAME_GENERATION_FAILED",
+                        "message": str(exc),
+                    }
 
     return {"ok": True, **result}
 

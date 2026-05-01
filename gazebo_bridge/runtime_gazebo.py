@@ -79,6 +79,10 @@ class StubGazeboRuntime:
         self._world_name = world_name
         self._sessions: dict[str, GazeboSession] = {}
         self._session_controllers: dict[str, MultirotorDirectController | Px4OffboardController] = {}
+        # Real px4_offboard sessions allocate one MavlinkController each.
+        # Stored separately from controllers so teardown can disconnect
+        # cleanly without touching the controller's lifecycle.
+        self._session_mavlinks: dict[str, Any] = {}
         self._entity_counter = 0
         self._px4 = Px4Manager(enabled=enable_px4)
 
@@ -178,6 +182,45 @@ class StubGazeboRuntime:
             )
 
         session_id = f"gz_sess_{secrets.token_hex(4)}"
+
+        # Real PX4 sessions: spin up a MavlinkController, connect, and
+        # attach to the offboard controller before the session is
+        # registered.  Fake mode (SOLIDMIND_GAZEBO_PX4_FAKE=1) keeps the
+        # echo behaviour for stub-mode tests that have no MAVLink target.
+        mavlink_ctrl: Any | None = None
+        if controller_type == "px4_offboard" and not self._px4.is_fake_mode():
+            try:
+                from server.mavlink_controller import (
+                    MavlinkController,
+                    MavlinkError,
+                )
+            except ImportError as exc:
+                raise GazeboRuntimeError(
+                    f"MavlinkController unavailable: {exc}. Install pymavlink.",
+                    code="GAZEBO_PX4_NOT_READY",
+                ) from exc
+
+            mavlink_url = self._px4.get_mavlink_url()
+            try:
+                mavlink_ctrl = MavlinkController(udp_url=mavlink_url)
+                mavlink_ctrl.connect(timeout_s=10.0)
+                mavlink_ctrl.start_setpoint_stream()
+            except MavlinkError as exc:
+                # Tear down anything that connected before re-raising,
+                # otherwise we leak a daemon thread per failed start.
+                if mavlink_ctrl is not None:
+                    try:
+                        mavlink_ctrl.disconnect()
+                    except Exception:  # noqa: BLE001
+                        pass
+                raise GazeboRuntimeError(
+                    f"Failed to connect to PX4 MAVLink: {exc}",
+                    code="GAZEBO_PX4_NOT_READY",
+                ) from exc
+
+            if isinstance(controller, Px4OffboardController):
+                controller.attach_mavlink(mavlink_ctrl)
+
         model_name = str(args.get("model_name", "")).strip() or f"model_{session_id[-4:]}"
         world_name = _normalize_world_name(args, self._world_name)
         session = GazeboSession(
@@ -195,6 +238,8 @@ class StubGazeboRuntime:
         )
         self._sessions[session_id] = session
         self._session_controllers[session_id] = controller
+        if mavlink_ctrl is not None:
+            self._session_mavlinks[session_id] = mavlink_ctrl
         return {
             "session_id": session_id,
             "status": "started",
@@ -280,7 +325,25 @@ class StubGazeboRuntime:
     def handle_teleop_stop(self, args: dict[str, Any]) -> dict[str, Any]:
         session_id = str(args.get("session_id", "")).strip()
         session = self._sessions.pop(session_id, None)
-        self._session_controllers.pop(session_id, None)
+        controller = self._session_controllers.pop(session_id, None)
+        mavlink = self._session_mavlinks.pop(session_id, None)
+
+        # Tear down the MAVLink connection if one was attached.  We
+        # explicitly detach from the controller first so any in-flight
+        # set_velocity calls drop their reference cleanly, then stop
+        # the streamer and close the underlying connection.
+        if mavlink is not None:
+            if isinstance(controller, Px4OffboardController):
+                controller.detach_mavlink()
+            try:
+                mavlink.stop_setpoint_stream()
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("MavlinkController stop_setpoint_stream failed: %s", exc)
+            try:
+                mavlink.disconnect()
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("MavlinkController disconnect failed: %s", exc)
+
         if session is None:
             return {"stopped": False, "tick_count": 0}
         session.status = "stopped"

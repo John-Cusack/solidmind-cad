@@ -6,6 +6,7 @@ FreeCAD instance.
 from __future__ import annotations
 
 import unittest
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from server.tools_cad import (
@@ -2370,6 +2371,327 @@ class TestCadExportSimPackage(unittest.TestCase):
         self.assertIn("urdf_path", result)
         self.assertIn("sdf_path", result)
         self.assertTrue(str(result["sdf_path"]).endswith(".sdf"))
+
+    @patch("server.motion_store.get")
+    @patch("server.tools_cad.get_client")
+    def test_export_sim_package_drone_config_writes_plugin(
+        self, mock_get: MagicMock, mock_mech_get: MagicMock
+    ) -> None:
+        import tempfile
+        import xml.etree.ElementTree as ET
+        from server.motion_models import JointEdge, JointType, Mechanism, PartNode
+
+        client = _mock_client()
+        tmp_dir = tempfile.mkdtemp()
+        client.send_command.return_value = {
+            "output_dir": tmp_dir,
+            "format": "stl",
+            "body_count": 2,
+            "bodies": [
+                {
+                    "name": "Body_Base",
+                    "label": "Base",
+                    "mesh_path": f"{tmp_dir}/Body_Base.stl",
+                    "placement": {"position": [0, 0, 0], "rotation_quat": [1, 0, 0, 0]},
+                },
+                {
+                    "name": "Body_Rotor",
+                    "label": "Rotor",
+                    "mesh_path": f"{tmp_dir}/Body_Rotor.stl",
+                    "placement": {"position": [50, 0, 50], "rotation_quat": [1, 0, 0, 0]},
+                },
+            ],
+        }
+        mock_get.return_value = client
+
+        mechanism = Mechanism(
+            name="test_drone",
+            parts=(
+                PartNode(id="base", body_name="Body_Base", is_ground=True),
+                PartNode(id="rotor_fl", body_name="Body_Rotor"),
+            ),
+            joints=(
+                JointEdge(
+                    id="rotor_fl_joint",
+                    joint_type=JointType.CONTINUOUS,
+                    parent_part="base",
+                    child_part="rotor_fl",
+                    origin=(50.0, 0.0, 50.0),
+                    axis=(0.0, 0.0, 1.0),
+                ),
+            ),
+            drives=(),
+        )
+        mock_mech_get.return_value = mechanism
+
+        drone_cfg = {
+            "rotors": [
+                {"index": 0, "joint": "rotor_fl_joint", "direction": "ccw"},
+            ],
+            # Disable sensors here — separate test covers them, this one
+            # focuses on the multicopter motor plugin format.
+            "sensors": False,
+        }
+        result = cad_export_sim_package(
+            mechanism_id="mech_drone", emit_sdf=True, drone_config=drone_cfg
+        )
+        self.assertTrue(result["ok"])
+        self.assertIn("sdf_path", result)
+
+        tree = ET.parse(result["sdf_path"])
+        plugins = tree.findall(".//plugin")
+        # Canonical Gazebo Harmonic format: one plugin per rotor, with the
+        # gz::sim::systems::MulticopterMotorModel name and per-rotor joint
+        # binding. No <rotor> children — that was a non-canonical shape
+        # that PX4/gz reject.
+        self.assertEqual(len(plugins), 1, "expected one plugin per rotor")
+        plugin = plugins[0]
+        self.assertEqual(
+            plugin.get("filename"),
+            "gz-sim-multicopter-motor-model-system",
+        )
+        self.assertEqual(
+            plugin.get("name"),
+            "gz::sim::systems::MulticopterMotorModel",
+        )
+        self.assertEqual(plugin.find("jointName").text, "rotor_fl_joint")
+        # Link name in the SDF is the mechanism part id (sim_export.py:562
+        # sets ``link_name = part.id``), not the FreeCAD body_name.
+        self.assertEqual(plugin.find("linkName").text, "rotor_fl")
+        self.assertEqual(plugin.find("turningDirection").text, "ccw")
+        # gz-sim's MulticopterMotorModel uses <motorNumber> (NOT
+        # <actuator_number>, which the schema doesn't recognise).
+        self.assertEqual(plugin.find("motorNumber").text, "0")
+        self.assertEqual(plugin.find("commandSubTopic").text, "command/motor_speed")
+        # PX4's gz_bridge publishes to /<model>/command/motor_speed.
+        # Setting <robotNamespace> changes that path and the plugin
+        # never sees the commands.  We deliberately omit the element.
+        self.assertIsNone(plugin.find("robotNamespace"))
+        # <motorType>velocity</motorType> is required for PX4's gz_bridge
+        # actuator output (omitting it makes the plugin default to
+        # position/force control, which never produces lift).
+        self.assertEqual(plugin.find("motorType").text, "velocity")
+        # No <rotor> children allowed in canonical schema.
+        self.assertEqual(plugin.findall("rotor"), [])
+
+    @patch("server.motion_store.get")
+    @patch("server.tools_cad.get_client")
+    def test_export_sim_package_drone_config_writes_sensors(
+        self, mock_get: MagicMock, mock_mech_get: MagicMock
+    ) -> None:
+        """drone_config defaults to emitting IMU/GPS/baro/mag on root link."""
+        import tempfile
+        import xml.etree.ElementTree as ET
+        from server.motion_models import JointEdge, JointType, Mechanism, PartNode
+
+        client = _mock_client()
+        tmp_dir = tempfile.mkdtemp()
+        client.send_command.return_value = {
+            "output_dir": tmp_dir,
+            "format": "stl",
+            "body_count": 2,
+            "bodies": [
+                {
+                    "name": "Body_Base",
+                    "label": "Base",
+                    "mesh_path": f"{tmp_dir}/Body_Base.stl",
+                    "placement": {"position": [0, 0, 0], "rotation_quat": [1, 0, 0, 0]},
+                },
+                {
+                    "name": "Body_Rotor",
+                    "label": "Rotor",
+                    "mesh_path": f"{tmp_dir}/Body_Rotor.stl",
+                    "placement": {"position": [50, 0, 50], "rotation_quat": [1, 0, 0, 0]},
+                },
+            ],
+        }
+        mock_get.return_value = client
+
+        mechanism = Mechanism(
+            name="sensor_drone",
+            parts=(
+                PartNode(id="base", body_name="Body_Base", is_ground=True),
+                PartNode(id="rotor_fl", body_name="Body_Rotor"),
+            ),
+            joints=(
+                JointEdge(
+                    id="rotor_fl_joint",
+                    joint_type=JointType.CONTINUOUS,
+                    parent_part="base",
+                    child_part="rotor_fl",
+                    origin=(50.0, 0.0, 50.0),
+                    axis=(0.0, 0.0, 1.0),
+                ),
+            ),
+            drives=(),
+        )
+        mock_mech_get.return_value = mechanism
+
+        # No explicit sensors key — defaults to True.
+        drone_cfg = {
+            "rotors": [
+                {"index": 0, "joint": "rotor_fl_joint", "direction": "ccw"},
+            ],
+        }
+        result = cad_export_sim_package(
+            mechanism_id="mech_sensor", emit_sdf=True, drone_config=drone_cfg
+        )
+        self.assertTrue(result["ok"])
+
+        tree = ET.parse(result["sdf_path"])
+
+        # Sensors attach to the kinematic root link (no parent joint),
+        # which in this mechanism is the part with id="base" (is_ground=True).
+        # SDF link name = part.id, not body_name.
+        root_link = None
+        for link_el in tree.findall(".//link"):
+            if link_el.get("name") == "base":
+                root_link = link_el
+                break
+        self.assertIsNotNone(root_link, "root link 'base' not found in SDF")
+
+        sensor_types = {
+            s.get("type") for s in root_link.findall("sensor")
+        }
+        self.assertEqual(
+            sensor_types,
+            {"imu", "navsat", "air_pressure", "magnetometer"},
+            f"expected IMU/GPS/baro/mag sensors, got {sensor_types}",
+        )
+
+        imu = root_link.find("./sensor[@type='imu']")
+        self.assertIsNotNone(imu.find("./imu/angular_velocity/x/noise"))
+        self.assertIsNotNone(imu.find("./imu/linear_acceleration/x/noise"))
+
+        # Non-root link must NOT have sensors.
+        rotor_link = None
+        for link_el in tree.findall(".//link"):
+            if link_el.get("name") == "rotor_fl":
+                rotor_link = link_el
+                break
+        self.assertIsNotNone(rotor_link, "rotor_fl link not found in SDF")
+        self.assertEqual(rotor_link.findall("sensor"), [])
+
+    @patch("server.motion_store.get")
+    @patch("server.tools_cad.get_client")
+    def test_export_sim_package_px4_generates_airframe(
+        self, mock_get: MagicMock, mock_mech_get: MagicMock
+    ) -> None:
+        """drone_config['px4']=True produces a PX4 airframe params file."""
+        import tempfile
+        from server.motion_models import JointEdge, JointType, Mechanism, PartNode
+
+        client = _mock_client()
+        tmp_dir = tempfile.mkdtemp()
+        client.send_command.return_value = {
+            "output_dir": tmp_dir,
+            "format": "stl",
+            "body_count": 5,
+            "bodies": [
+                {
+                    "name": "Body_Base",
+                    "label": "Base",
+                    "mesh_path": f"{tmp_dir}/Body_Base.stl",
+                    "placement": {"position": [0, 0, 0], "rotation_quat": [1, 0, 0, 0]},
+                },
+                # Four rotor bodies in an X pattern
+                *[
+                    {
+                        "name": f"Body_Rotor_{i}",
+                        "label": f"Rotor_{i}",
+                        "mesh_path": f"{tmp_dir}/Body_Rotor_{i}.stl",
+                        "placement": {
+                            "position": [px, py, 0],
+                            "rotation_quat": [1, 0, 0, 0],
+                        },
+                    }
+                    for i, (px, py) in enumerate(
+                        [(130, 130), (-130, 130), (-130, -130), (130, -130)]
+                    )
+                ],
+            ],
+        }
+        mock_get.return_value = client
+
+        # Build the matching mechanism — base + 4 rotor parts, each with
+        # a continuous joint at the rotor body position.
+        parts: list[PartNode] = [
+            PartNode(id="base", body_name="Body_Base", is_ground=True),
+        ]
+        joints: list[JointEdge] = []
+        for i, (px, py) in enumerate(
+            [(130, 130), (-130, 130), (-130, -130), (130, -130)]
+        ):
+            parts.append(PartNode(id=f"r{i}", body_name=f"Body_Rotor_{i}",
+                                  mass_kg=0.05))
+            joints.append(JointEdge(
+                id=f"r{i}_joint",
+                joint_type=JointType.CONTINUOUS,
+                parent_part="base",
+                child_part=f"r{i}",
+                origin=(float(px), float(py), 0.0),
+                axis=(0.0, 0.0, 1.0),
+            ))
+        mechanism = Mechanism(
+            name="px4_test_quad",
+            parts=tuple(parts),
+            joints=tuple(joints),
+            drives=(),
+        )
+        # PartNode mass is set on rotors above; chassis mass derived
+        # via the build_sim_model fallback (see SimLink defaults).  For
+        # this test we just need *some* mass so airframe generation
+        # doesn't fail; patch is_ground node mass via the manifest.
+        for part in mechanism.parts:
+            if part.is_ground:
+                # Set a heavy chassis via attribute assignment (frozen
+                # PartNode would fail; PartNode is mutable in the
+                # current mechanism definitions used by this test).
+                try:
+                    object.__setattr__(part, "mass_kg", 1.0)
+                except Exception:
+                    pass
+        mock_mech_get.return_value = mechanism
+
+        # Use a temp directory as a fake PX4 install with the right layout.
+        px4_install = tempfile.mkdtemp()
+        airframes_dir = (
+            Path(px4_install) / "ROMFS" / "px4fmu_common"
+            / "init.d-posix" / "airframes"
+        )
+        airframes_dir.mkdir(parents=True)
+
+        drone_cfg = {
+            "rotors": [
+                {"index": 0, "joint": "r0_joint", "direction": "ccw"},
+                {"index": 1, "joint": "r1_joint", "direction": "cw"},
+                {"index": 2, "joint": "r2_joint", "direction": "ccw"},
+                {"index": 3, "joint": "r3_joint", "direction": "cw"},
+            ],
+            "sensors": False,  # Keep this test focused on airframe gen.
+            "px4": True,
+            "px4_install_path": px4_install,
+        }
+        result = cad_export_sim_package(
+            mechanism_id="mech_px4_test", emit_sdf=True, drone_config=drone_cfg,
+        )
+        self.assertTrue(result["ok"], f"export failed: {result.get('error')}")
+
+        # Phase 4 deliverables in the response:
+        self.assertIn("airframe_id", result)
+        self.assertGreaterEqual(result["airframe_id"], 50000)
+        self.assertLess(result["airframe_id"], 51000)
+        self.assertIn("airframe_path", result)
+        self.assertEqual(result["airframe_name"], "px4_test_quad")
+        self.assertGreater(result["airframe_arm_length_m"], 0.0)
+
+        # The script file actually exists and contains the expected params.
+        airframe_path = Path(result["airframe_path"])
+        self.assertTrue(airframe_path.exists())
+        content = airframe_path.read_text()
+        self.assertIn("CA_ROTOR_COUNT 4", content)
+        self.assertIn("CA_AIRFRAME 0", content)
+        self.assertIn("MPC_THR_HOVER", content)
 
 
 class TestCadMirror(unittest.TestCase):

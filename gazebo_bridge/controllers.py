@@ -1,8 +1,11 @@
 """Controllers used by the Gazebo runtime teleop sessions."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+import logging
+from dataclasses import dataclass, field
 from typing import Any
+
+logger = logging.getLogger("solidmind.gazebo_controllers")
 
 
 class ControllerError(Exception):
@@ -59,7 +62,33 @@ class MultirotorDirectController:
 
 @dataclass(slots=True)
 class Px4OffboardController:
-    """Pass-through high-level command envelope for PX4 offboard control."""
+    """Bridge between teleop commands and a PX4 MAVLink session.
+
+    When ``mavlink`` is attached (real PX4 SITL run), ``command_to_setpoint``
+    forwards the velocity to PX4 via ``MavlinkController.set_velocity``,
+    which updates the streaming setpoint that PX4's offboard mode reads.
+
+    When ``mavlink`` is None (stub mode, fake_running, unit tests),
+    ``command_to_setpoint`` falls back to a pure echo so existing
+    teleop-state tests keep passing without a real autopilot.
+
+    The controller is constructed by ``create_controller`` without a
+    MavlinkController; the runtime calls ``attach_mavlink`` after it has
+    successfully connected to PX4.  This keeps the controller factory
+    cheap and side-effect-free.
+    """
+
+    # Stored as Any to avoid a hard import dep on pymavlink at module load
+    # time; runtime injects a real ``server.mavlink_controller.MavlinkController``.
+    mavlink: Any | None = field(default=None)
+
+    def attach_mavlink(self, mavlink: Any) -> None:
+        """Wire a connected MavlinkController into this controller."""
+        self.mavlink = mavlink
+
+    def detach_mavlink(self) -> None:
+        """Drop the MavlinkController reference (used during session teardown)."""
+        self.mavlink = None
 
     def command_to_setpoint(
         self,
@@ -69,6 +98,23 @@ class Px4OffboardController:
         vz_mps: float,
         yaw_rate_rps: float,
     ) -> dict[str, float]:
+        if self.mavlink is not None:
+            try:
+                self.mavlink.set_velocity(
+                    vx_mps=float(vx_mps),
+                    vy_mps=float(vy_mps),
+                    vz_mps=float(vz_mps),
+                    yaw_rate_rps=float(yaw_rate_rps),
+                )
+            except Exception as exc:  # noqa: BLE001
+                # A failed setpoint must not nuke the teleop session — the
+                # autopilot will hold its last good setpoint.  Log so the
+                # operator can see the issue, but return the echo dict
+                # unchanged so tests + telemetry keep flowing.
+                logger.warning(
+                    "PX4 setpoint forwarding failed: %s (returning echo only)",
+                    exc,
+                )
         return {
             "vx_mps": float(vx_mps),
             "vy_mps": float(vy_mps),

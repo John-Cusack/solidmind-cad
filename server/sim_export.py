@@ -31,6 +31,30 @@ _DEFAULT_DENSITY_KG_M3 = 1250.0
 
 
 @dataclass(frozen=True, slots=True)
+class CollisionShape:
+    """Primitive collision geometry for a SimLink.
+
+    When set on a :class:`SimLink`, ``write_sdf`` emits a primitive
+    ``<collision>`` block (``<box>`` or ``<cylinder>``) instead of the
+    mesh-based collision that gets reused from the visual.
+
+    Mesh-based collision is the default for legacy paths that don't
+    set this field, but it triggers DART/ODE crashes in Gazebo Harmonic
+    on complex shapes (e.g. multi-blade propellers).  Drone exports
+    via :class:`server.airframes.MulticopterAirframe` always populate
+    a primitive shape here.
+
+    All dimensions are in metres.  Only one of (``size_m``,
+    ``radius_m``+``length_m``) is required depending on ``kind``.
+    """
+
+    kind: str   # "box" | "cylinder"
+    size_m: tuple[float, float, float] | None = None
+    radius_m: float | None = None
+    length_m: float | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class SimLink:
     """A rigid body (link) in the sim description."""
     name: str
@@ -41,6 +65,11 @@ class SimLink:
     inertia: tuple[float, float, float, float, float, float] | None = None  # ixx,ixy,ixz,iyy,iyz,izz
     is_root: bool = False
     visual_origin_xyz: tuple[float, float, float] | None = None  # mesh offset from link frame (meters)
+    collision_shape: CollisionShape | None = None
+    """Optional primitive collision geometry.  When set, ``write_sdf`` emits
+    a ``<box>`` or ``<cylinder>`` collision instead of reusing the visual
+    mesh — avoids DART/ODE crashes on complex shapes (multi-blade props,
+    high-triangle-count chassis meshes, etc.)."""
 
     def __post_init__(self) -> None:
         if not self.name:
@@ -218,11 +247,16 @@ def _box_inertia(
     mass_kg: float,
     dx_m: float, dy_m: float, dz_m: float,
 ) -> tuple[float, float, float, float, float, float]:
-    """Compute box inertia tensor (ixx, ixy, ixz, iyy, iyz, izz) from mass and dimensions in meters."""
-    ixx = mass_kg / 12.0 * (dy_m ** 2 + dz_m ** 2)
-    iyy = mass_kg / 12.0 * (dx_m ** 2 + dz_m ** 2)
-    izz = mass_kg / 12.0 * (dx_m ** 2 + dy_m ** 2)
-    return (ixx, 0.0, 0.0, iyy, 0.0, izz)
+    """Compute box inertia tensor as a 6-tuple, in URDF/SDF order.
+
+    Thin wrapper that delegates to :func:`server.inertia.box_inertia`
+    so the formula has a single source of truth.  Kept around for
+    backwards compatibility with callers that work in tuple-of-floats
+    form (the legacy hexapod path through :func:`build_sim_model`).
+    New code should prefer :class:`server.inertia.Inertia6` directly.
+    """
+    from server.inertia import box_inertia as _box_inertia_fn
+    return _box_inertia_fn(mass_kg, dx_m, dy_m, dz_m).as_tuple()
 
 
 logger = logging.getLogger("solidmind.sim_export")
@@ -513,6 +547,7 @@ def build_sim_model(
     mesh_transform_error_mode: str = "warn",
     require_explicit_joint_origins: bool = False,
     mesh_findings: list[Finding] | None = None,
+    drone_config: dict[str, Any] | None = None,
 ) -> SimModel:
     """Transform a Mechanism + mesh manifest into a format-agnostic SimModel.
 
@@ -710,6 +745,27 @@ def build_sim_model(
             part_world_quat[part.id] = _IDENTITY_QUAT
             ground_parts.add(part.id)
 
+    # Build a set of part IDs that are explicitly-placed rotors so the
+    # BFS can skip the radial auto-yaw heuristic for them.  The auto-yaw
+    # is meant for hexapod legs (whose body meshes extend along +X);
+    # rotors are point-symmetric about Z and don't need it.  The check
+    # is opt-in via the optional ``drone_config["rotors"][i]["joint"]``
+    # field — when present, the joint's child_part is treated as
+    # already-placed.
+    rotor_part_ids: set[str] = set()
+    if drone_config is not None:
+        rotor_entries = drone_config.get("rotors") or []
+        joint_to_child = {j.id: j.child_part for j in mechanism.joints}
+        for entry in rotor_entries:
+            if not isinstance(entry, dict):
+                continue
+            joint_name = entry.get("joint")
+            if not joint_name:
+                continue
+            child_id = joint_to_child.get(str(joint_name))
+            if child_id:
+                rotor_part_ids.add(child_id)
+
     # BFS / iterative pass — compute world pos + orientation quaternion for
     # every reachable part.  For root-attached joints: auto-compute outward
     # yaw to orient child +X radially outward.  For deeper joints: inherit
@@ -724,8 +780,13 @@ def build_sim_model(
         still_remaining: list[Any] = []
         for jedge in remaining:
             if jedge.parent_part in part_world_pos:
-                # Use mechanism-specified origin, falling back to the child
-                # body's manifest placement when origin is unset (all zeros).
+                # ``JointEdge.origin`` is in MILLIMETRES, matching FreeCAD's
+                # native unit and the rest of the manifest (``placement.position``,
+                # ``bbox_mm``, ...).  ``SimJoint.origin_xyz`` is in METRES (URDF/SDF
+                # convention) — converted via ``/ 1000`` further below.  The
+                # conversion happens at the boundary between FreeCAD-side data
+                # (mm) and URDF/SDF-side data (m); it does NOT happen on
+                # ``part_world_pos``.
                 origin = tuple(jedge.origin)
                 if abs(origin[0]) < 1e-3 and abs(origin[1]) < 1e-3 and abs(origin[2]) < 1e-3:
                     fallback = manifest_pos_by_part.get(jedge.child_part)
@@ -739,7 +800,7 @@ def build_sim_model(
                             )
                         origin = fallback
 
-                # Place child at the joint's world origin
+                # Place child at the joint's world origin (in mm)
                 part_world_pos[jedge.child_part] = origin  # type: ignore[assignment]
 
                 parent_quat = part_world_quat.get(jedge.parent_part, _IDENTITY_QUAT)
@@ -747,9 +808,23 @@ def build_sim_model(
                 # Auto-compute outward yaw for root-attached joints.
                 # Formula: atan2(dy, dx) orients child +X toward (dx, dy).
                 # Body-local meshes extend along +X, so this aligns them
-                # radially outward from the body center.
+                # radially outward from the body center.  This is what
+                # hexapod legs and quadruped legs need: each leg's body
+                # mesh is the same template, oriented by the joint frame.
+                #
+                # SKIP auto-yaw for parts whose mesh is already placed
+                # explicitly in world coordinates — drone rotors are the
+                # canonical case.  These are identified through the
+                # ``drone_config["rotors"]`` list (see ``rotor_part_ids``
+                # built earlier), not via geometric heuristics: the
+                # previous "manifest position ≈ joint origin → already
+                # placed" rule misclassified hexapod legs whose manifest
+                # was authored at the joint origin.
                 added_quat = _IDENTITY_QUAT
-                if jedge.parent_part in ground_parts:
+                if (
+                    jedge.parent_part in ground_parts
+                    and jedge.child_part not in rotor_part_ids
+                ):
                     ppos = part_world_pos[jedge.parent_part]
                     dx = origin[0] - ppos[0]
                     dy = origin[1] - ppos[1]
@@ -1210,6 +1285,232 @@ def _pose_str(
     return f"{_fmt(x)} {_fmt(y)} {_fmt(z)} {_fmt(roll)} {_fmt(pitch)} {_fmt(yaw)}"
 
 
+def _find_root_link_name(model: SimModel) -> str:
+    """Return the name of the kinematic-root link (no parent joint)."""
+    children = {j.child for j in model.joints}
+    for link in model.links:
+        if link.name not in children:
+            return link.name
+    return model.links[0].name if model.links else ""
+
+
+def _normalize_turning_direction(value: Any) -> str:
+    """Accept 'ccw'/'cw' or +1/-1 and return the gz canonical string."""
+    if value in ("ccw", "CCW", 1, "1", True):
+        return "ccw"
+    if value in ("cw", "CW", -1, "-1"):
+        return "cw"
+    return "ccw"
+
+
+# Default motor parameters tuned to match Gazebo Harmonic's stock
+# X3/X500 quadrotor — produces ~16 N total thrust at full throttle on
+# a 4-rotor airframe.  Phase 4's airframe generator will override these
+# with values derived from BEMT thrust curves per drone.
+_DEFAULT_MOTOR_CONSTANT = 8.54858e-06
+_DEFAULT_MOMENT_CONSTANT = 0.016
+_DEFAULT_MAX_ROT_VELOCITY = 1000.0
+_DEFAULT_TIME_CONSTANT_UP = 0.0125
+_DEFAULT_TIME_CONSTANT_DOWN = 0.025
+
+
+def _emit_multicopter_motor_plugin(
+    model_el: ET.Element,
+    *,
+    model_name: str,
+    joint_name: str,
+    link_name: str,
+    direction: str,
+    actuator_number: int,
+    motor_constant: float = _DEFAULT_MOTOR_CONSTANT,
+    moment_constant: float = _DEFAULT_MOMENT_CONSTANT,
+    max_rot_velocity: float = _DEFAULT_MAX_ROT_VELOCITY,
+) -> None:
+    """Emit one Gazebo-canonical MulticopterMotorModel plugin for a rotor.
+
+    The plugin must be one-per-rotor (NOT one plugin with multiple <rotor>
+    children).  This is the schema PX4 SITL and Gazebo Harmonic 10's
+    ``gz-sim-multicopter-motor-model-system`` accept.  Each plugin reads
+    ``velocity[actuator_number]`` from ``gz.msgs.Actuators`` published on
+    ``/<model_name>/command/motor_speed`` and applies thrust to the
+    ``link_name`` link via the ``joint_name`` revolute/continuous joint.
+    """
+    plugin = ET.SubElement(
+        model_el, "plugin",
+        filename="gz-sim-multicopter-motor-model-system",
+        name="gz::sim::systems::MulticopterMotorModel",
+    )
+    # NOTE: deliberately no <robotNamespace> — gz-sim's MulticopterMotorModel
+    # subscribes to /model/<model_name>/<commandSubTopic> by default, which
+    # matches what PX4's gz_bridge publishes.  Setting robotNamespace breaks
+    # the topic match between PX4's actuator output and the motor plugin.
+    ET.SubElement(plugin, "jointName").text = joint_name
+    ET.SubElement(plugin, "linkName").text = link_name
+    ET.SubElement(plugin, "turningDirection").text = direction
+    ET.SubElement(plugin, "timeConstantUp").text = _fmt(_DEFAULT_TIME_CONSTANT_UP)
+    ET.SubElement(plugin, "timeConstantDown").text = _fmt(_DEFAULT_TIME_CONSTANT_DOWN)
+    ET.SubElement(plugin, "maxRotVelocity").text = _fmt(max_rot_velocity)
+    ET.SubElement(plugin, "motorConstant").text = _fmt(motor_constant)
+    ET.SubElement(plugin, "momentConstant").text = _fmt(moment_constant)
+    ET.SubElement(plugin, "commandSubTopic").text = "command/motor_speed"
+    # gz-sim Multicopter plugin uses <motorNumber>, not <actuator_number>
+    ET.SubElement(plugin, "motorNumber").text = str(actuator_number)
+    ET.SubElement(plugin, "rotorDragCoefficient").text = "8.06428e-05"
+    ET.SubElement(plugin, "rollingMomentCoefficient").text = "1e-06"
+    ET.SubElement(plugin, "motorSpeedPubTopic").text = f"motor_speed/{actuator_number}"
+    ET.SubElement(plugin, "rotorVelocitySlowdownSim").text = "10"
+    # Required: PX4's gz_bridge publishes velocity (rad/s) commands
+    ET.SubElement(plugin, "motorType").text = "velocity"
+
+
+def _emit_mesh_collision(link_el: ET.Element, link_name: str, mesh_uri: str) -> None:
+    """Emit a ``<collision>`` block referencing a mesh (legacy default).
+
+    Used for hexapod legs and any other path that hasn't migrated to
+    explicit primitive collisions.  Mesh collision can crash Gazebo
+    Harmonic's DART/ODE physics on complex shapes, so prefer
+    :func:`_emit_primitive_collision` where the link has a known
+    primitive shape (drone rotors, chassis boxes, etc.).
+    """
+    coll = ET.SubElement(link_el, "collision", name=f"{link_name}_collision")
+    ET.SubElement(coll, "pose").text = "0 0 0 0 0 0"
+    geom = ET.SubElement(coll, "geometry")
+    mesh = ET.SubElement(geom, "mesh")
+    ET.SubElement(mesh, "uri").text = mesh_uri
+    ET.SubElement(mesh, "scale").text = "0.001 0.001 0.001"
+
+
+def _emit_primitive_collision(
+    link_el: ET.Element,
+    link_name: str,
+    shape: "CollisionShape",
+) -> None:
+    """Emit a ``<collision>`` block with primitive geometry.
+
+    Box: requires ``size_m = (dx, dy, dz)``.
+    Cylinder: requires ``radius_m`` and ``length_m``.
+
+    Primitive collision is what Gazebo's DART/ODE physics handles
+    cleanly — mesh collision on multi-blade propellers, for example,
+    causes intermittent abort()s during contact resolution.
+    """
+    coll = ET.SubElement(link_el, "collision", name=f"{link_name}_collision")
+    ET.SubElement(coll, "pose").text = "0 0 0 0 0 0"
+    geom = ET.SubElement(coll, "geometry")
+    if shape.kind == "box":
+        if shape.size_m is None:
+            raise ValueError(
+                f"CollisionShape kind='box' requires size_m on link {link_name!r}"
+            )
+        box = ET.SubElement(geom, "box")
+        dx, dy, dz = shape.size_m
+        ET.SubElement(box, "size").text = f"{dx} {dy} {dz}"
+    elif shape.kind == "cylinder":
+        if shape.radius_m is None or shape.length_m is None:
+            raise ValueError(
+                f"CollisionShape kind='cylinder' requires radius_m + length_m "
+                f"on link {link_name!r}"
+            )
+        cyl = ET.SubElement(geom, "cylinder")
+        ET.SubElement(cyl, "radius").text = _fmt(shape.radius_m)
+        ET.SubElement(cyl, "length").text = _fmt(shape.length_m)
+    else:
+        raise ValueError(
+            f"Unknown CollisionShape kind {shape.kind!r} on link {link_name!r}; "
+            "expected 'box' or 'cylinder'"
+        )
+
+
+def _emit_primitive_visual(
+    link_el: ET.Element,
+    link_name: str,
+    shape: "CollisionShape",
+) -> None:
+    """Emit a ``<visual>`` block with primitive geometry, matching the
+    collision shape.  Without a visual, mesh-less drones (chassis +
+    rotors built procedurally via :class:`MulticopterAirframe`) are
+    invisible in the Gazebo GUI even though physics is correct.
+
+    Material is a soft gray so the user can see the airframe against
+    the default sky/ground.
+    """
+    visual = ET.SubElement(link_el, "visual", name=f"{link_name}_visual")
+    ET.SubElement(visual, "pose").text = "0 0 0 0 0 0"
+    geom = ET.SubElement(visual, "geometry")
+    if shape.kind == "box":
+        box = ET.SubElement(geom, "box")
+        dx, dy, dz = shape.size_m  # type: ignore[misc]
+        ET.SubElement(box, "size").text = f"{dx} {dy} {dz}"
+    elif shape.kind == "cylinder":
+        cyl = ET.SubElement(geom, "cylinder")
+        ET.SubElement(cyl, "radius").text = _fmt(shape.radius_m)  # type: ignore[arg-type]
+        ET.SubElement(cyl, "length").text = _fmt(shape.length_m)  # type: ignore[arg-type]
+    material = ET.SubElement(visual, "material")
+    # Tinted slightly different per body part so the user can tell the
+    # chassis apart from the rotors at a glance.
+    if "rotor" in link_name:
+        ET.SubElement(material, "ambient").text = "0.2 0.2 0.2 1"
+        ET.SubElement(material, "diffuse").text = "0.3 0.3 0.3 1"
+    else:
+        ET.SubElement(material, "ambient").text = "0.6 0.2 0.2 1"
+        ET.SubElement(material, "diffuse").text = "0.8 0.3 0.3 1"
+
+
+def _emit_imu_sensor(link_el: ET.Element) -> None:
+    sensor = ET.SubElement(link_el, "sensor", name="imu_sensor", type="imu")
+    ET.SubElement(sensor, "always_on").text = "1"
+    ET.SubElement(sensor, "update_rate").text = "250"
+    imu = ET.SubElement(sensor, "imu")
+    for parent_tag, stddev, bias_mean, bias_stddev in (
+        ("angular_velocity", 0.0001, 7.5e-06, 8.0e-07),
+        ("linear_acceleration", 0.001, 1.0e-04, 1.0e-03),
+    ):
+        parent_el = ET.SubElement(imu, parent_tag)
+        for axis in ("x", "y", "z"):
+            axis_el = ET.SubElement(parent_el, axis)
+            noise = ET.SubElement(axis_el, "noise", type="gaussian")
+            ET.SubElement(noise, "mean").text = "0"
+            ET.SubElement(noise, "stddev").text = _fmt(stddev)
+            ET.SubElement(noise, "bias_mean").text = _fmt(bias_mean)
+            ET.SubElement(noise, "bias_stddev").text = _fmt(bias_stddev)
+
+
+def _emit_gps_sensor(link_el: ET.Element) -> None:
+    sensor = ET.SubElement(link_el, "sensor", name="navsat_sensor", type="navsat")
+    ET.SubElement(sensor, "always_on").text = "1"
+    ET.SubElement(sensor, "update_rate").text = "20"
+
+
+def _emit_barometer_sensor(link_el: ET.Element) -> None:
+    sensor = ET.SubElement(
+        link_el, "sensor", name="air_pressure_sensor", type="air_pressure",
+    )
+    ET.SubElement(sensor, "always_on").text = "1"
+    ET.SubElement(sensor, "update_rate").text = "50"
+    air = ET.SubElement(sensor, "air_pressure")
+    ET.SubElement(air, "reference_altitude").text = "0"
+    pressure = ET.SubElement(air, "pressure")
+    noise = ET.SubElement(pressure, "noise", type="gaussian")
+    ET.SubElement(noise, "mean").text = "0"
+    ET.SubElement(noise, "stddev").text = "1.0"
+
+
+def _emit_magnetometer_sensor(link_el: ET.Element) -> None:
+    sensor = ET.SubElement(
+        link_el, "sensor", name="magnetometer_sensor", type="magnetometer",
+    )
+    ET.SubElement(sensor, "always_on").text = "1"
+    ET.SubElement(sensor, "update_rate").text = "50"
+    mag = ET.SubElement(sensor, "magnetometer")
+    for axis in ("x", "y", "z"):
+        axis_el = ET.SubElement(mag, axis)
+        noise = ET.SubElement(axis_el, "noise", type="gaussian")
+        ET.SubElement(noise, "mean").text = "0"
+        ET.SubElement(noise, "stddev").text = "1.0e-06"
+        ET.SubElement(noise, "bias_mean").text = "1.0e-06"
+        ET.SubElement(noise, "bias_stddev").text = "3.0e-07"
+
+
 def write_sdf(
     model: SimModel,
     output_path: str,
@@ -1255,13 +1556,28 @@ def write_sdf(
                 mesh_uri = os.path.abspath(link.mesh_path)
             elif base_dir:
                 mesh_uri = os.path.relpath(link.mesh_path, base_dir)
-            for tag in ("visual", "collision"):
-                node = ET.SubElement(link_el, tag, name=f"{link.name}_{tag}")
-                ET.SubElement(node, "pose").text = "0 0 0 0 0 0"
-                geom = ET.SubElement(node, "geometry")
-                mesh = ET.SubElement(geom, "mesh")
-                ET.SubElement(mesh, "uri").text = mesh_uri
-                ET.SubElement(mesh, "scale").text = "0.001 0.001 0.001"
+            visual_node = ET.SubElement(link_el, "visual", name=f"{link.name}_visual")
+            ET.SubElement(visual_node, "pose").text = "0 0 0 0 0 0"
+            visual_geom = ET.SubElement(visual_node, "geometry")
+            visual_mesh = ET.SubElement(visual_geom, "mesh")
+            ET.SubElement(visual_mesh, "uri").text = mesh_uri
+            ET.SubElement(visual_mesh, "scale").text = "0.001 0.001 0.001"
+            # Collision geometry: prefer the explicit primitive on the
+            # link (set by drone exports via airframes/multicopter.py).
+            # If the link doesn't declare a primitive, fall back to the
+            # mesh — same as before for hexapod legs etc.
+            if link.collision_shape is None:
+                _emit_mesh_collision(link_el, link.name, mesh_uri)
+            else:
+                _emit_primitive_collision(link_el, link.name, link.collision_shape)
+        elif link.collision_shape is not None:
+            # Mesh-less link with an explicit primitive collision (e.g.
+            # the chassis of a procedurally-built drone).  Emit BOTH a
+            # visual (so it renders in Gazebo) and a collision (so
+            # physics works).  Without the visual, the link is invisible
+            # in the GUI even though physics is correct.
+            _emit_primitive_visual(link_el, link.name, link.collision_shape)
+            _emit_primitive_collision(link_el, link.name, link.collision_shape)
 
         if link.mass_kg is not None:
             inertial = ET.SubElement(link_el, "inertial")
@@ -1280,14 +1596,13 @@ def write_sdf(
         joint_el = ET.SubElement(model_el, "joint", name=joint.name, type=joint_type)
         ET.SubElement(joint_el, "parent").text = joint.parent
         ET.SubElement(joint_el, "child").text = joint.child
-        ET.SubElement(joint_el, "pose").text = _pose_str(
-            joint.origin_xyz[0],
-            joint.origin_xyz[1],
-            joint.origin_xyz[2],
-            joint.origin_rpy[0],
-            joint.origin_rpy[1],
-            joint.origin_rpy[2],
-        )
+        # SDF 1.10: <pose> defaults to child link's frame.  When the child link
+        # is already positioned at the joint's world location (via its <pose>),
+        # writing the joint origin here causes a DOUBLE OFFSET — the rotation
+        # axis ends up displaced from the child link by (origin_xyz, origin_rpy),
+        # so the rotor visually spins around a point offset from its hub.
+        # Omit the joint <pose> so it defaults to (0, 0, 0) in child frame =
+        # joint origin coincides with child link origin.  Matches x500 stock SDF.
 
         axis = ET.SubElement(joint_el, "axis")
         ET.SubElement(axis, "xyz").text = _xyz_str(joint.axis)
@@ -1303,29 +1618,68 @@ def write_sdf(
             ET.SubElement(dynamics, "friction").text = _fmt(joint.friction)
 
     if drone_config:
-        plugin = ET.SubElement(
-            model_el,
-            "plugin",
-            name=str(drone_config.get("plugin_name", "multirotor_control")),
-            filename=str(
-                drone_config.get(
-                    "plugin_filename",
-                    "libgz-sim-multicopter-motor-model-system.so",
-                )
-            ),
-        )
-        ET.SubElement(plugin, "controller_type").text = str(
-            drone_config.get("controller_type", "multirotor_direct"),
-        )
-        rotors = drone_config.get("rotors")
-        if isinstance(rotors, list):
+        # ------------------------------------------------------------------
+        # Multicopter motor model plugins — one per rotor (Gazebo canonical).
+        # ------------------------------------------------------------------
+        rotors = drone_config.get("rotors") or []
+        if isinstance(rotors, list) and rotors:
+            joint_to_child = {j.name: j.child for j in model.joints}
             for idx, rotor in enumerate(rotors):
                 if not isinstance(rotor, dict):
                     continue
-                rotor_el = ET.SubElement(plugin, "rotor")
-                ET.SubElement(rotor_el, "index").text = str(int(rotor.get("index", idx)))
-                ET.SubElement(rotor_el, "joint").text = str(rotor.get("joint", f"rotor_{idx}_joint"))
-                ET.SubElement(rotor_el, "direction").text = str(rotor.get("direction", 1))
+                joint_name = str(rotor.get("joint", f"rotor_{idx}_joint"))
+                link_name = str(
+                    rotor.get("link") or joint_to_child.get(joint_name, "")
+                )
+                if not link_name:
+                    # No way to bind the plugin to a link — skip rather than
+                    # emit an invalid plugin block that PX4 will reject.
+                    continue
+                _emit_multicopter_motor_plugin(
+                    model_el,
+                    model_name=model.name,
+                    joint_name=joint_name,
+                    link_name=link_name,
+                    direction=_normalize_turning_direction(
+                        rotor.get("direction", "ccw"),
+                    ),
+                    actuator_number=int(rotor.get("index", idx)),
+                    motor_constant=float(
+                        rotor.get("motor_constant", _DEFAULT_MOTOR_CONSTANT),
+                    ),
+                    moment_constant=float(
+                        rotor.get("moment_constant", _DEFAULT_MOMENT_CONSTANT),
+                    ),
+                    max_rot_velocity=float(
+                        rotor.get("max_rot_velocity", _DEFAULT_MAX_ROT_VELOCITY),
+                    ),
+                )
+
+        # ------------------------------------------------------------------
+        # Sensor declarations (IMU/GPS/barometer/magnetometer) on the root
+        # link.  Default ON when drone_config is present — PX4 SITL needs
+        # these topics to converge its EKF.  Set ``sensors=False`` to opt
+        # out (e.g. for non-PX4 flight stacks).
+        # ------------------------------------------------------------------
+        sensors_cfg = drone_config.get("sensors", True)
+        if sensors_cfg:
+            if not isinstance(sensors_cfg, dict):
+                sensors_cfg = {}
+            sensor_link_name = (
+                sensors_cfg.get("link") or _find_root_link_name(model)
+            )
+            for link_el in model_el.findall("link"):
+                if link_el.get("name") != sensor_link_name:
+                    continue
+                if sensors_cfg.get("imu", True):
+                    _emit_imu_sensor(link_el)
+                if sensors_cfg.get("gps", True):
+                    _emit_gps_sensor(link_el)
+                if sensors_cfg.get("barometer", True):
+                    _emit_barometer_sensor(link_el)
+                if sensors_cfg.get("magnetometer", True):
+                    _emit_magnetometer_sensor(link_el)
+                break
 
     tree = ET.ElementTree(sdf)
     ET.indent(tree, space="  ")

@@ -118,6 +118,7 @@ from server.tools_cad import (
     cad_chamfer,
     cad_create_primitive,
     cad_create_primitives,
+    cad_cleanup_orphans,
     cad_define_selection,
     cad_delete_objects,
     cad_delete_selection,
@@ -1171,6 +1172,24 @@ def _cad_tool_list() -> list[dict[str, Any]]:
                             "Recommended for Gazebo-native drone simulation."
                         ),
                     },
+                    "drone_config": {
+                        "type": "object",
+                        "description": (
+                            "Optional drone configuration. When present alongside emit_sdf=true, the "
+                            "SDF embeds a canonical Gazebo MulticopterMotorModel plugin per rotor and "
+                            "(by default) IMU/GPS/baro/magnetometer sensors on the root link. Keys:\n"
+                            "  rotors: list of {index, joint, direction ('ccw'|'cw'), [link, "
+                            "position_m, motor_constant, max_rot_velocity, moment_constant]}\n"
+                            "  sensors: bool (default True) or fine-grained dict\n"
+                            "  px4: bool — when True, also generates a PX4 airframe params script "
+                            "(see server.px4_airframe_generator). Result includes airframe_id and "
+                            "airframe_path.\n"
+                            "  register_airframe: bool (default True when px4=True) — drop the script "
+                            "into the PX4 install dir.\n"
+                            "  px4_install_path: optional override for the PX4 directory "
+                            "(defaults to SOLIDMIND_PX4_INSTALL or ~/repos/PX4-Autopilot)."
+                        ),
+                    },
                     "ground_clearance_m": {
                         "type": "number",
                         "description": (
@@ -1195,6 +1214,29 @@ def _cad_tool_list() -> list[dict[str, Any]]:
                     "doc": {"type": "string", "description": "Document name (optional)"},
                 },
                 "required": ["names"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "cad.cleanup_orphans",
+            "description": (
+                "Delete sketches/pads/patterns that aren't reachable from any "
+                "body's Tip chain. When a feature operation fails (e.g. a "
+                "polar_pattern with a cross-body axis reference), the created "
+                "Sketch + Pad + Pattern objects end up un-parented in the doc "
+                "and appear as ghost geometry at the world origin. Call between "
+                "iterations of multi-body builds (drones, hexapods) to keep the "
+                "document clean."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "dry_run": {
+                        "type": "boolean",
+                        "description": "Return the orphan list without deleting (default false).",
+                    },
+                    "doc": {"type": "string", "description": "Document name (optional)"},
+                },
                 "additionalProperties": False,
             },
         },
@@ -4282,6 +4324,7 @@ _CAD_DISPATCH: dict[str, Any] = {
     "cad.get_camera": cad_get_camera,
     "cad.undo": cad_undo,
     "cad.delete_objects": cad_delete_objects,
+    "cad.cleanup_orphans": cad_cleanup_orphans,
     "cad.export": cad_export,
     "cad.export_body": cad_export_body,
     "cad.export_sim_package": cad_export_sim_package,

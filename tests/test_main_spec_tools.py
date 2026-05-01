@@ -164,6 +164,12 @@ class TestMainSpecTools(unittest.TestCase):
         self.assertEqual(props["emit_sdf"]["type"], "boolean")
         self.assertFalse(props["emit_sdf"]["default"])
 
+    def test_cad_export_sim_package_schema_has_drone_config(self) -> None:
+        tool = next(t for t in mcp_main._tool_list() if t.get("name") == "cad.export_sim_package")
+        props = tool["inputSchema"]["properties"]
+        self.assertIn("drone_config", props)
+        self.assertEqual(props["drone_config"]["type"], "object")
+
 
 class TestDesignGenerateMechanism(unittest.TestCase):
     """Tests for design.generate_mechanism and enhanced design.verify_build."""

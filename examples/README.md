@@ -20,6 +20,24 @@ PYTHONPATH=. python3 examples/planetary_gearbox/run.py --out /tmp/gearbox
 See [`planetary_gearbox/README.md`](planetary_gearbox/README.md) for
 the narrative + hyperparameters.
 
+## `hexapod_robot/` — 7-worker orchestrator demo
+
+The biggest end-to-end build the v0.2.0 outer loop has run. Seven
+worker dispatches in a single orchestrator pass: 1 chassis + 6
+multi-segment legs, 18 revolute-joint pivot bores when assembled.
+20 dimension checkpoints, all measured by the orchestrator's
+independent re-import. ~30s end-to-end.
+
+Two distinct build paths in one run: chassis routes through
+`_build_envelope`, legs route through the new `_build_leg` (chunk 8).
+
+```bash
+PYTHONPATH=. python3 examples/hexapod_robot/run.py --out /tmp/hexapod
+```
+
+See [`hexapod_robot/README.md`](hexapod_robot/README.md) for the
+narrative + the v0.3.0+ follow-up paths (assembly, URDF, Isaac, RL).
+
 ## `cnc/` — CNC spec progression
 
 Four manufacturing spec JSON files demonstrating the **maturity level**

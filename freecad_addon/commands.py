@@ -1121,16 +1121,37 @@ def polar_pattern(
         pattern_obj.Axis = (sk, [f"{axis}_Axis"])
     else:
         axis_map = {
-            "Base_X": "X_Axis",
-            "Base_Y": "Y_Axis",
-            "Base_Z": "Z_Axis",
+            "Base_X": ("X_Axis", "X_Axis"),
+            "Base_Y": ("Y_Axis", "Y_Axis"),
+            "Base_Z": ("Z_Axis", "Z_Axis"),
         }
-        fc_axis = axis_map.get(axis)
-        if fc_axis is None:
+        if axis not in axis_map:
             raise ValueError(f"Invalid axis '{axis}', must be V, H, Base_X, Base_Y, or Base_Z")
-        axis_obj = d.getObject(fc_axis)
+        # Reference the BODY's own Origin axis, not the document-scope
+        # ``X_Axis``/``Y_Axis``/``Z_Axis`` (which is the *first* body's
+        # axis).  Cross-body references trigger FreeCAD's "out of allowed
+        # scope" warning AND silently leave ``body.Tip`` unchanged, so
+        # the polar pattern's geometry never reaches the body's Shape —
+        # only the source feature gets exported (one blade instead of
+        # the patterned three).  Body-scoped axis references work
+        # cleanly across any body, regardless of creation order.
+        body_label, _doc_label = axis_map[axis]
+        axis_obj = None
+        origin = getattr(body_obj, "Origin", None)
+        if origin is not None:
+            for child in getattr(origin, "OutList", ()):
+                if getattr(child, "Name", "").endswith(body_label):
+                    axis_obj = child
+                    break
         if axis_obj is None:
-            raise ValueError(f"Document has no '{fc_axis}' object")
+            # Fall back to document-scope lookup for documents without an
+            # Origin (older FreeCAD versions that don't expose body.Origin).
+            axis_obj = d.getObject(body_label)
+        if axis_obj is None:
+            raise ValueError(
+                f"Body '{body_obj.Name}' has no '{body_label}' axis in its "
+                "Origin and document has no fallback. Cannot apply polar pattern."
+            )
         pattern_obj.Axis = (axis_obj, [""])
 
     op_context = {"op": "polar_pattern", "axis": axis, "occurrences": occurrences, "angle": angle}
@@ -3995,6 +4016,103 @@ def delete_objects(
     return {"deleted": deleted, "not_found": not_found}
 
 
+def cleanup_orphans(
+    *,
+    dry_run: bool = False,
+    doc: str | None = None,
+) -> dict[str, Any]:
+    """Delete sketches/pads/patterns that aren't reachable from any body's Tip.
+
+    When a feature operation fails (most commonly :func:`polar_pattern`
+    falling back from a cross-body axis reference), the created sketch
+    + pad + pattern objects end up un-parented in the document — they
+    aren't in any body's ``InList`` chain but still appear in the FreeCAD
+    viewport at the world origin.  After a few build/rebuild cycles a
+    drone document accumulates dozens of these "ghost" objects, which
+    show up in the GUI as a phantom prop / pad floating at the origin.
+
+    This walks the document graph rooted at every ``PartDesign::Body``'s
+    Tip, marks every reachable feature as live, and deletes the rest.
+    Origin frames, axes, planes, and the sketches/pads referenced by
+    live bodies are always preserved.
+
+    Args:
+        dry_run: When True, return the orphan list without deleting.
+        doc: Document name (defaults to active doc).
+
+    Returns:
+        Dict with ``orphans`` (list of object names that were/would be
+        deleted) and ``deleted`` (count actually removed).
+    """
+    d = _get_doc(doc)
+
+    # Walk every body's Tip chain to discover live features.
+    live: set[str] = set()
+    bodies = [obj for obj in d.Objects if obj.TypeId == "PartDesign::Body"]
+    for body in bodies:
+        live.add(body.Name)
+        # Body's Origin is part of the live set
+        origin = getattr(body, "Origin", None)
+        if origin is not None:
+            live.add(origin.Name)
+            for child in getattr(origin, "OutList", ()):
+                live.add(child.Name)
+        # Walk every feature in the body's Group (sketches, pads,
+        # pockets, patterns, ...) — Group is the canonical list of
+        # owned features in the body's tree.
+        for feat in getattr(body, "Group", ()):
+            live.add(feat.Name)
+            # Sketches reference the plane they're on; that's already
+            # in the Origin.  Features (pads/pockets/patterns) reference
+            # the sketch via their Profile or Originals — those are
+            # also in the body's Group, so they're caught here.
+
+    # Anything in d.Objects that isn't live and isn't an origin/axis/plane
+    # at document scope is an orphan.
+    orphan_kinds = (
+        "Sketcher::SketchObject",
+        "PartDesign::Pad",
+        "PartDesign::Pocket",
+        "PartDesign::Hole",
+        "PartDesign::Revolution",
+        "PartDesign::Loft",
+        "PartDesign::Sweep",
+        "PartDesign::Helix",
+        "PartDesign::PolarPattern",
+        "PartDesign::LinearPattern",
+        "PartDesign::Mirrored",
+        "PartDesign::Fillet",
+        "PartDesign::Chamfer",
+        "PartDesign::Draft",
+        "PartDesign::Thickness",
+    )
+    orphans: list[str] = [
+        obj.Name
+        for obj in d.Objects
+        if obj.Name not in live and obj.TypeId in orphan_kinds
+    ]
+
+    deleted = 0
+    if not dry_run:
+        # Delete in two passes: features first, then sketches.  Pads
+        # depend on sketches via Profile, so removing the pad first
+        # avoids dependency errors on the sketch removal.
+        feature_orphans = [
+            n for n in orphans
+            if d.getObject(n) is not None
+            and d.getObject(n).TypeId != "Sketcher::SketchObject"
+        ]
+        sketch_orphans = [n for n in orphans if n not in feature_orphans]
+        for name in feature_orphans + sketch_orphans:
+            obj = d.getObject(name)
+            if obj is not None:
+                d.removeObject(name)
+                deleted += 1
+        d.recompute()
+
+    return {"orphans": orphans, "deleted": deleted, "dry_run": dry_run}
+
+
 # ---------------------------------------------------------------------------
 # Placement Plan
 # ---------------------------------------------------------------------------
@@ -5027,6 +5145,7 @@ COMMAND_HANDLERS: dict[str, Any] = {
     "assembly_animate_stop": assembly_animate_stop,
     "set_placement": set_placement,
     "delete_objects": delete_objects,
+    "cleanup_orphans": cleanup_orphans,
     "freecad_info": freecad_info,
     "create_primitive": create_primitive,
     "create_primitives": create_primitives,

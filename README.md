@@ -21,6 +21,27 @@ scripts/install_freecad_addon.sh                            # registers the Free
 
 Optional installs: `pip install -e .[orchestrator]` adds the multi-worker outer-loop dependencies; `pip install -e .[dev]` adds ruff + test extras. See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the full dev setup.
 
+## See it work
+
+Two flagship demos that exercise the full outer-loop stack end-to-end:
+
+**[`examples/planetary_gearbox/`](examples/planetary_gearbox/)** — 6 worker builds in a single orchestrator run produce a complete 5:1 planetary gearbox (sun + 3 planets + carrier + ring gear), each independently re-measured by the validator. ~30 s. The visual proof of the outer-loop thesis: spec → 6 STEPs → 6 dimension checks all pass against frozen ICDs.
+
+```bash
+PYTHONPATH=. python3 examples/planetary_gearbox/run.py --out /tmp/gearbox
+```
+
+**[`examples/hexapod_robot/`](examples/hexapod_robot/)** — full CAD → URDF → Isaac Sim → walking RL policy stack. Builds a 37-body hexapod live in FreeCAD, exports a URDF via `motion.define_mechanism` + `cad.export_sim_package`, trains a PPO walking policy on the freshly-built robot, and watches it walk in Isaac. ~20 min total.
+
+```bash
+./examples/hexapod_robot/build_and_train.sh    # build + URDF + train (~20 min)
+./examples/hexapod_robot/watch_walking.sh      # Isaac GUI walking demo
+```
+
+See [`examples/hexapod_robot/ISAAC_DEMO.md`](examples/hexapod_robot/ISAAC_DEMO.md) for the full walkthrough with measured trajectory data.
+
+---
+
 Digital advances outpace physical-world changes because atoms are harder to move than bits. CAD is the bridge — it turns digital intent into physical reality. Speed up CAD and you speed up progress in the real world.
 
 **The bet behind SolidMind CAD is this: with enough simulation in the loop, an LLM can iterate on its own mechanical designs — build a part, watch it break in physics, fix it, and repeat — until the thing actually works.** This repo is the early version of that. Today the LLM is a powerful co-pilot; the goal is an autonomous engineering loop with humans only on the critical gates.
