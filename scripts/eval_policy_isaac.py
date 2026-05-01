@@ -44,14 +44,16 @@ def main() -> int:
                         help="Override velocity command with constant forward speed (m/s)")
     parser.add_argument("--no-reset", action="store_true",
                         help="Disable episode resets (run continuously)")
+    parser.add_argument("--headless", action="store_true", default=False,
+                        help="Run without GUI (for capturing stdout proof of policy execution)")
     args = parser.parse_args()
 
     if not args.policy and not args.checkpoint:
         parser.error("Provide either --policy (JIT) or --checkpoint (RSL-RL)")
 
-    # Boot Isaac Sim with GUI
+    # Boot Isaac Sim
     from isaaclab.app import AppLauncher
-    launcher = AppLauncher(headless=False)
+    launcher = AppLauncher(headless=args.headless)
     simulation_app = launcher.app
 
     import torch
@@ -153,6 +155,14 @@ def main() -> int:
 
         obs_dict, _ = env.reset()
         obs = obs_dict["policy"]
+        # Capture initial body root position so we can measure
+        # forward-distance progress over the rollout.
+        try:
+            robot = env.scene["robot"]
+            initial_pos = robot.data.root_pos_w.clone()
+        except Exception:
+            robot = None
+            initial_pos = None
         print(f"Obs shape: {obs.shape}, running {args.num_steps} steps...", flush=True)
 
         for step in range(args.num_steps):
@@ -161,10 +171,32 @@ def main() -> int:
             obs_dict, rewards, terminated, truncated, info = env.step(actions)
             obs = obs_dict["policy"]
 
-            if step % 200 == 0:
-                print(f"  step {step}/{args.num_steps}, reward={rewards.mean().item():.3f}", flush=True)
+            if step % 100 == 0:
+                msg = f"  step {step}/{args.num_steps}, reward={rewards.mean().item():.3f}"
+                if robot is not None:
+                    pos = robot.data.root_pos_w
+                    if initial_pos is not None:
+                        dx = (pos[:, 0] - initial_pos[:, 0]).mean().item()
+                        dy = (pos[:, 1] - initial_pos[:, 1]).mean().item()
+                        msg += f", dx={dx:+.3f}m, dy={dy:+.3f}m"
+                    h = pos[:, 2].mean().item()
+                    msg += f", height={h:.3f}m"
+                print(msg, flush=True)
 
             time.sleep(0.005)
+
+        # Final summary so the rollout proof persists in the log.
+        if robot is not None and initial_pos is not None:
+            pos = robot.data.root_pos_w
+            dx = (pos[:, 0] - initial_pos[:, 0]).cpu().numpy()
+            dy = (pos[:, 1] - initial_pos[:, 1]).cpu().numpy()
+            h = pos[:, 2].cpu().numpy()
+            print(f"\nFinal rollout summary ({args.num_envs} envs, {args.num_steps} steps):", flush=True)
+            for i in range(len(dx)):
+                print(f"  env {i}: forward dx={dx[i]:+.3f}m, lateral dy={dy[i]:+.3f}m, "
+                      f"final height={h[i]:.3f}m", flush=True)
+            print(f"  mean: dx={dx.mean():+.3f}m, dy={dy.mean():+.3f}m, h={h.mean():.3f}m",
+                  flush=True)
     else:
         # JIT policy path
         device = "cuda:0" if torch.cuda.is_available() else "cpu"
