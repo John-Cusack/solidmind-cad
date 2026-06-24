@@ -42,6 +42,8 @@ See [`examples/hexapod_robot/ISAAC_DEMO.md`](examples/hexapod_robot/ISAAC_DEMO.m
 
 ---
 
+**AI mastered the digital world by iterating in it. Simulation lets it iterate in the physical world too.**
+
 Digital advances outpace physical-world changes because atoms are harder to move than bits. CAD is the bridge — it turns digital intent into physical reality. Speed up CAD and you speed up progress in the real world.
 
 **The bet behind SolidMind CAD is this: with enough simulation in the loop, an LLM can iterate on its own mechanical designs — build a part, watch it break in physics, fix it, and repeat — until the thing actually works.** This repo is the early version of that. Today the LLM is a powerful co-pilot; the goal is an autonomous engineering loop with humans only on the critical gates.
