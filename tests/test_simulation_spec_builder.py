@@ -4,6 +4,7 @@ from __future__ import annotations
 import unittest
 
 from server.motion_models import (
+    AppliedForce,
     DriveCondition,
     JointEdge,
     JointType,
@@ -456,6 +457,71 @@ class TestDrivenPartResolution(unittest.TestCase):
         motors = [o for o in spec["objects"] if o["type"] == "motor_shaft_speed"]
         self.assertEqual(len(motors), 1)
         self.assertEqual(motors[0]["shaft"], "sun")
+
+
+class TestAppliedForceForwarding(unittest.TestCase):
+    """Mechanism.applied_forces forwards into the daemon spec as 'applied_force'."""
+
+    def _rotor_with_loads(self, applied_forces) -> Mechanism:
+        return Mechanism(
+            name="rotor_test",
+            parts=(
+                PartNode(id="hub", is_ground=True),
+                PartNode(id="blade", mass_kg=0.05, inertia_kg_m2=0.001),
+            ),
+            joints=(
+                JointEdge(id="rev",
+                          joint_type=JointType.REVOLUTE,
+                          parent_part="hub", child_part="blade",
+                          axis=(0, 0, 1)),
+            ),
+            drives=(DriveCondition(joint_id="rev", speed_rpm=4000.0,
+                                   driven_part="blade"),),
+            applied_forces=applied_forces,
+        )
+
+    def test_no_forces_no_force_objects(self):
+        spec = build_simulation_spec(self._rotor_with_loads(()))
+        self.assertEqual(
+            [o for o in spec["objects"] if o["type"] == "applied_force"],
+            [],
+        )
+
+    def test_single_force_emits_one_object(self):
+        spec = build_simulation_spec(self._rotor_with_loads((
+            AppliedForce(target_body="blade",
+                         position_local=(0.075, 0.0, 0.0),
+                         force_vector=(0.0, 0.0, 1.5),
+                         label="station_3"),
+        )))
+        forces = [o for o in spec["objects"] if o["type"] == "applied_force"]
+        self.assertEqual(len(forces), 1)
+        self.assertEqual(forces[0]["id"], "station_3")
+        self.assertEqual(forces[0]["body"], "blade")
+        self.assertEqual(forces[0]["position_local"], [0.075, 0.0, 0.0])
+        self.assertEqual(forces[0]["force_vector"], [0.0, 0.0, 1.5])
+        self.assertEqual(forces[0]["frame"], "body")
+
+    def test_unlabeled_forces_get_indexed_ids(self):
+        spec = build_simulation_spec(self._rotor_with_loads(tuple(
+            AppliedForce(target_body="blade",
+                         position_local=(0.01 * i, 0, 0),
+                         force_vector=(0, 0, 1.0))
+            for i in range(3)
+        )))
+        forces = [o for o in spec["objects"] if o["type"] == "applied_force"]
+        ids = sorted(o["id"] for o in forces)
+        self.assertEqual(ids, ["applied_force_0", "applied_force_1", "applied_force_2"])
+
+    def test_world_frame_round_trips(self):
+        spec = build_simulation_spec(self._rotor_with_loads((
+            AppliedForce(target_body="blade",
+                         position_local=(0.05, 0.0, 0.0),
+                         force_vector=(0.0, 0.0, -9.81),
+                         frame="world"),
+        )))
+        forces = [o for o in spec["objects"] if o["type"] == "applied_force"]
+        self.assertEqual(forces[0]["frame"], "world")
 
 
 if __name__ == "__main__":

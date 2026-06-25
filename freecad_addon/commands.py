@@ -1156,6 +1156,16 @@ def polar_pattern(
 
     op_context = {"op": "polar_pattern", "axis": axis, "occurrences": occurrences, "angle": angle}
     result = _recompute_and_check(d, pattern_obj, body=body_obj, op_context=op_context)
+    # Promote the new pattern to the body's Tip so body.Shape (and downstream
+    # STL exports) include the patterned copies. FreeCAD doesn't always
+    # auto-promote when features are added via Python scripting, leaving
+    # body.Tip pointing at the source feature — which silently exports a
+    # single un-patterned instance.
+    try:
+        body_obj.Tip = pattern_obj
+        d.recompute()
+    except Exception as exc:
+        logger.warning("polar_pattern: failed to promote Tip: %s", exc)
     logger.info("polar_pattern: created %s", pattern_obj.Name)
     if verify:
         result["verification_images"] = _capture_verification_views(d, op_context=op_context, body=body_obj)

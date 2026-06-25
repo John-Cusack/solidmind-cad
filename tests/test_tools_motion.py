@@ -2647,5 +2647,53 @@ class TestRotatePointAroundCenter(unittest.TestCase):
             self.assertAlmostEqual(result[i], p[i], places=8)
 
 
+class TestDeriveCaptures(unittest.TestCase):
+    """Translation of summary fields into the high-level capture API."""
+
+    def _resp(self, summary: dict) -> dict:
+        return {"ok": True, "summary": summary}
+
+    def test_thrust_signals_from_summary(self):
+        from server.tools_motion import _derive_captures
+        resp = self._resp({
+            "applied_force_world_z_mean_N": 14.7,
+            "applied_force_world_z_std_N": 0.02,
+            "applied_force_count": 30,
+        })
+        out = _derive_captures(resp, ["thrust_mean_N", "thrust_std_N", "applied_force_count"])
+        self.assertEqual(out["signals"]["thrust_mean_N"], 14.7)
+        self.assertEqual(out["signals"]["thrust_std_N"], 0.02)
+        self.assertEqual(out["signals"]["applied_force_count"], 30)
+        self.assertEqual(out["unrecognized"], [])
+
+    def test_hub_bearing_load_returns_dict_of_joints(self):
+        from server.tools_motion import _derive_captures
+        resp = self._resp({
+            "mean_joint_forces": {"rotor_test_joint": 14.71, "other": 0.0},
+            "peak_joint_forces": {"rotor_test_joint": 18.55, "other": 0.0},
+        })
+        out = _derive_captures(resp, ["hub_bearing_load_N", "peak_hub_bearing_load_N"])
+        self.assertEqual(out["signals"]["hub_bearing_load_N"]["rotor_test_joint"], 14.71)
+        self.assertEqual(out["signals"]["peak_hub_bearing_load_N"]["rotor_test_joint"], 18.55)
+
+    def test_unknown_signals_listed_in_unrecognized(self):
+        from server.tools_motion import _derive_captures
+        out = _derive_captures(self._resp({}),
+                               ["thrust_mean_N", "blade_root_moment_Nm", "tip_deflection_mm"])
+        self.assertEqual(out["unrecognized"],
+                         ["blade_root_moment_Nm", "tip_deflection_mm"])
+
+    def test_missing_summary_fields_yield_none(self):
+        from server.tools_motion import _derive_captures
+        out = _derive_captures(self._resp({}), ["thrust_mean_N", "thrust_std_N"])
+        self.assertIsNone(out["signals"]["thrust_mean_N"])
+        self.assertIsNone(out["signals"]["thrust_std_N"])
+
+    def test_missing_joint_dicts_yield_empty(self):
+        from server.tools_motion import _derive_captures
+        out = _derive_captures(self._resp({}), ["hub_bearing_load_N"])
+        self.assertEqual(out["signals"]["hub_bearing_load_N"], {})
+
+
 if __name__ == "__main__":
     unittest.main()

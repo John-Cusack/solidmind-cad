@@ -183,6 +183,47 @@ class DriveCondition:
 
 
 @dataclass(frozen=True, slots=True)
+class AppliedForce:
+    """A constant external force applied to a body at a fixed application point.
+
+    Used to inject distributed loads (e.g. BEMT per-station thrust on a blade)
+    that the rigid-body solver doesn't compute itself.
+
+    - ``target_body`` references a Mechanism part by id.
+    - ``position_local`` is the application point in the body's local frame, in metres.
+    - ``force_vector`` is the force in newtons.
+    - ``frame`` is "body" (force vector follows body rotation) or "world"
+      (force vector is constant in world frame).
+    """
+    target_body: str
+    position_local: tuple[float, float, float]
+    force_vector: tuple[float, float, float]
+    frame: str = "body"
+    label: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        d: dict[str, Any] = {
+            "target_body": self.target_body,
+            "position_local": list(self.position_local),
+            "force_vector": list(self.force_vector),
+            "frame": self.frame,
+        }
+        if self.label is not None:
+            d["label"] = self.label
+        return d
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> AppliedForce:
+        return cls(
+            target_body=d["target_body"],
+            position_local=tuple(d.get("position_local", (0.0, 0.0, 0.0))),
+            force_vector=tuple(d.get("force_vector", (0.0, 0.0, 0.0))),
+            frame=d.get("frame", "body"),
+            label=d.get("label"),
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class Mechanism:
     """Top-level mechanism definition: a graph of parts + joints + drives."""
     name: str
@@ -190,6 +231,7 @@ class Mechanism:
     joints: tuple[JointEdge, ...]
     drives: tuple[DriveCondition, ...]
     expected_outputs: dict[str, Any] = dc_field(default_factory=dict)
+    applied_forces: tuple[AppliedForce, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -198,6 +240,7 @@ class Mechanism:
             "joints": [j.to_dict() for j in self.joints],
             "drives": [d.to_dict() for d in self.drives],
             "expected_outputs": dict(self.expected_outputs),
+            "applied_forces": [f.to_dict() for f in self.applied_forces],
         }
 
     @classmethod
@@ -208,6 +251,9 @@ class Mechanism:
             joints=tuple(JointEdge.from_dict(j) for j in d.get("joints", [])),
             drives=tuple(DriveCondition.from_dict(dc) for dc in d.get("drives", [])),
             expected_outputs=d.get("expected_outputs", {}),
+            applied_forces=tuple(
+                AppliedForce.from_dict(f) for f in d.get("applied_forces", [])
+            ),
         )
 
     def get_part(self, part_id: str) -> PartNode | None:

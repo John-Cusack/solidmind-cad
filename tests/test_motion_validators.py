@@ -5,6 +5,7 @@ import math
 import unittest
 
 from server.motion_models import (
+    AppliedForce,
     DriveCondition,
     JointEdge,
     JointType,
@@ -16,6 +17,7 @@ from server.motion_validators import (
     propagate_speeds,
     propagate_torques,
     run_validators,
+    validate_mechanism_structure,
 )
 
 
@@ -429,6 +431,77 @@ class TestInternalFieldSerialization(unittest.TestCase):
         for j in ring_joints:
             self.assertTrue(j.get("internal", False),
                             f"Joint {j['id']} missing internal=true")
+
+
+class TestAppliedForceValidation(unittest.TestCase):
+    """Structural validation of Mechanism.applied_forces entries."""
+
+    def _rotor_mech(self, applied_forces=()) -> Mechanism:
+        return Mechanism(
+            name="rotor",
+            parts=(PartNode(id="hub", is_ground=True), PartNode(id="blade")),
+            joints=(JointEdge(id="rev", joint_type=JointType.REVOLUTE,
+                              parent_part="hub", child_part="blade"),),
+            drives=(),
+            applied_forces=applied_forces,
+        )
+
+    def test_no_applied_forces_no_errors_about_them(self):
+        errs, _ = validate_mechanism_structure(self._rotor_mech())
+        for e in errs:
+            self.assertNotIn("applied force", e.lower())
+
+    def test_unknown_target_body_is_error(self):
+        m = self._rotor_mech((
+            AppliedForce(target_body="nonexistent",
+                         position_local=(0,0,0), force_vector=(0,0,1)),
+        ))
+        errs, _ = validate_mechanism_structure(m)
+        self.assertTrue(any("nonexistent" in e for e in errs))
+
+    def test_non_finite_position_is_error(self):
+        m = self._rotor_mech((
+            AppliedForce(target_body="blade",
+                         position_local=(0.1, math.nan, 0.0),
+                         force_vector=(0,0,1)),
+        ))
+        errs, _ = validate_mechanism_structure(m)
+        self.assertTrue(any("position_local" in e for e in errs))
+
+    def test_non_finite_force_is_error(self):
+        m = self._rotor_mech((
+            AppliedForce(target_body="blade",
+                         position_local=(0,0,0),
+                         force_vector=(0.0, 0.0, math.inf)),
+        ))
+        errs, _ = validate_mechanism_structure(m)
+        self.assertTrue(any("force_vector" in e for e in errs))
+
+    def test_zero_force_is_warning_not_error(self):
+        m = self._rotor_mech((
+            AppliedForce(target_body="blade",
+                         position_local=(0,0,0), force_vector=(0,0,0)),
+        ))
+        errs, warns = validate_mechanism_structure(m)
+        self.assertFalse(any("zero force" in e for e in errs))
+        self.assertTrue(any("zero force" in w for w in warns))
+
+    def test_invalid_frame_is_error(self):
+        m = self._rotor_mech((
+            AppliedForce(target_body="blade", position_local=(0,0,0),
+                         force_vector=(0,0,1), frame="oops"),
+        ))
+        errs, _ = validate_mechanism_structure(m)
+        self.assertTrue(any("frame" in e and "oops" in e for e in errs))
+
+    def test_label_appears_in_error_when_provided(self):
+        m = self._rotor_mech((
+            AppliedForce(target_body="missing",
+                         position_local=(0,0,0), force_vector=(0,0,1),
+                         label="bemt_station_5"),
+        ))
+        errs, _ = validate_mechanism_structure(m)
+        self.assertTrue(any("bemt_station_5" in e for e in errs))
 
 
 if __name__ == "__main__":

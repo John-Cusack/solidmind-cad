@@ -60,6 +60,53 @@ def _error_result(code: str, message: str) -> dict[str, Any]:
     return {"ok": False, "error": {"code": code, "message": message}}
 
 
+# Capture-signal aliases recognised by motion.simulate's `capture` parameter.
+# Each maps a high-level name to a derivation rule applied to the simulate
+# response (after the daemon round-trip). Signals not in this map are listed
+# back to the caller as `unrecognized` so they can compute them analytically.
+_CHRONO_CAPTURE_SIGNALS: set[str] = {
+    "thrust_mean_N",
+    "thrust_std_N",
+    "hub_bearing_load_N",
+    "peak_hub_bearing_load_N",
+    "applied_force_count",
+}
+
+
+def _derive_captures(
+    response: dict[str, Any],
+    capture: list[str],
+) -> dict[str, Any]:
+    """Derive high-level capture signals from a Chrono simulate response.
+
+    Only daemon-derivable signals are computed here. Analytical signals like
+    blade_root_moment_Nm or tip_deflection_mm are left to the caller — they
+    appear in the returned ``unrecognized`` list so Phase-5 callers know they
+    must compute them from BEMT per-station data + beam theory.
+    """
+    summary = response.get("summary", {}) or {}
+    out: dict[str, Any] = {}
+    unrecognized: list[str] = []
+
+    for name in capture:
+        if name == "thrust_mean_N":
+            out[name] = summary.get("applied_force_world_z_mean_N")
+        elif name == "thrust_std_N":
+            out[name] = summary.get("applied_force_world_z_std_N")
+        elif name == "applied_force_count":
+            out[name] = summary.get("applied_force_count")
+        elif name == "hub_bearing_load_N":
+            mean_forces = summary.get("mean_joint_forces") or {}
+            out[name] = dict(mean_forces) if mean_forces else {}
+        elif name == "peak_hub_bearing_load_N":
+            peak_forces = summary.get("peak_joint_forces") or {}
+            out[name] = dict(peak_forces) if peak_forces else {}
+        else:
+            unrecognized.append(name)
+
+    return {"signals": out, "unrecognized": unrecognized}
+
+
 def _rotate_point_around_center(
     point: tuple[float, float, float],
     center: tuple[float, float, float],
@@ -1485,8 +1532,18 @@ def motion_simulate(
     sdf_path: str | None = None,
     import_config: dict[str, Any] | None = None,
     verify: bool = True,
+    capture: list[str] | None = None,
 ) -> dict[str, Any]:
-    """Run dynamic simulation via selected backend (`isaac`, `chrono`, or `gazebo`)."""
+    """Run dynamic simulation via selected backend (`isaac`, `chrono`, or `gazebo`).
+
+    ``capture`` is an optional list of high-level signal names. Recognized
+    daemon-derivable signals (thrust_mean_N, thrust_std_N, hub_bearing_load_N,
+    peak_hub_bearing_load_N, applied_force_count) are computed from summary
+    fields and surfaced under ``response['captures']['signals']``. Unrecognized
+    signals are listed under ``response['captures']['unrecognized']`` so the
+    caller can compute them analytically (blade_root_moment_Nm, tip_deflection_mm,
+    etc.).
+    """
     if _TOOL_LOG:
         log.info(
             "CALL motion_simulate id=%s backend=%s mode=%s duration=%.3f dt=%.4f",
@@ -1569,6 +1626,14 @@ def motion_simulate(
             import_config=import_config,
             verify=verify,
         )
+
+    if capture and response.get("ok"):
+        if not isinstance(capture, list) or not all(isinstance(c, str) for c in capture):
+            return _error_result(
+                "INVALID_INPUT",
+                "capture must be a list of strings",
+            )
+        response["captures"] = _derive_captures(response, capture)
 
     if _TOOL_LOG:
         log.info(

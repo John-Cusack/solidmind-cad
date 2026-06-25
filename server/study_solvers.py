@@ -354,6 +354,24 @@ def _prandtl_loss(
 
 
 @dataclass(frozen=True, slots=True)
+class _BEMTStation:
+    """Per-radial-station BEMT contribution (distributed-load source).
+
+    ``dT_N`` and ``dQ_Nm`` are the integrated thrust and torque from the annulus
+    of width ``dr_m`` centred at ``r_m`` — i.e. ``dT/dr × dr_m`` already, not the
+    derivative. Sum over all stations equals the total thrust/torque on the rotor.
+    """
+
+    r_m: float
+    dr_m: float
+    chord_m: float
+    twist_deg: float
+    dT_N: float
+    dQ_Nm: float
+    converged: bool
+
+
+@dataclass(frozen=True, slots=True)
 class _BEMTResult:
     """Results from a single BEMT solve."""
 
@@ -365,6 +383,7 @@ class _BEMTResult:
     Cq: float
     stations_converged: int
     stations_total: int
+    per_section: tuple[_BEMTStation, ...] = ()
 
 
 def _bemt_solve(
@@ -418,6 +437,7 @@ def _bemt_solve(
     total_thrust = 0.0
     total_torque = 0.0
     stations_converged = 0
+    stations: list[_BEMTStation] = []
 
     # Radial stations from hub to tip (excluding center and exact tip)
     for i in range(radial_stations):
@@ -535,6 +555,18 @@ def _bemt_solve(
         total_thrust += dT
         total_torque += dQ
 
+        stations.append(
+            _BEMTStation(
+                r_m=r_m,
+                dr_m=dr,
+                chord_m=chord_m,
+                twist_deg=twist_deg,
+                dT_N=dT,
+                dQ_Nm=dQ,
+                converged=converged,
+            )
+        )
+
     power = total_torque * omega
     power = max(power, 1e-12)  # avoid division by zero
 
@@ -566,6 +598,7 @@ def _bemt_solve(
         Cq=Cq,
         stations_converged=stations_converged,
         stations_total=radial_stations,
+        per_section=tuple(stations),
     )
 
 

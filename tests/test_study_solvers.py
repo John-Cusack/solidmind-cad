@@ -406,6 +406,24 @@ class TestBEMTSolve(unittest.TestCase):
         self.assertGreater(result.efficiency, 0.0)
         self.assertLessEqual(result.efficiency, 1.0)
 
+    def test_per_section_populated_and_sums_to_totals(self) -> None:
+        result = self._solve()
+        self.assertEqual(len(result.per_section), result.stations_total)
+        # dr is positive and chord/twist match the linear taper end-points
+        self.assertTrue(all(s.dr_m > 0 for s in result.per_section))
+        # Sum of per-station contributions equals the integrated totals
+        T_sum = sum(s.dT_N for s in result.per_section)
+        Q_sum = sum(s.dQ_Nm for s in result.per_section)
+        self.assertAlmostEqual(T_sum, result.thrust_N, places=9)
+        self.assertAlmostEqual(Q_sum, result.torque_Nm, places=9)
+        # Stations are ordered hub → tip
+        radii = [s.r_m for s in result.per_section]
+        self.assertEqual(radii, sorted(radii))
+
+    def test_per_section_empty_on_zero_rpm_short_circuit(self) -> None:
+        result = self._solve(rpm=0.0)
+        self.assertEqual(result.per_section, ())
+
 
 class TestBEMTXfoilSolverClass(unittest.TestCase):
     """Test the BEMTXfoilSolver adapter class."""

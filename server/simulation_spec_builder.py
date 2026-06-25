@@ -63,6 +63,10 @@ def build_simulation_spec(mechanism: Mechanism) -> dict[str, Any]:
     motor_objs = _build_motor_objects(mechanism, shaft_part_ids)
     objects.extend(motor_objs)
 
+    # Build applied forces (e.g. BEMT distributed loads on a blade body)
+    force_objs = _build_applied_force_objects(mechanism, shaft_part_ids)
+    objects.extend(force_objs)
+
     # Build derived outputs for planet speeds
     derived = _build_derived_outputs(planetary_sets)
 
@@ -366,6 +370,33 @@ def _resolve_driven_part(
 
     # Neither side is a shaft — default to parent for body motors
     return joint.parent_part
+
+
+def _build_applied_force_objects(
+    mechanism: Mechanism,
+    shaft_part_ids: set[str],
+) -> list[dict[str, Any]]:
+    """Translate Mechanism.applied_forces into Chrono daemon spec objects.
+
+    Each AppliedForce becomes one ``applied_force`` spec entry that the C++
+    daemon attaches to the named body. Forces targeting shaft-only parts are
+    skipped with a warning-equivalent: the Chrono daemon's 1D shafts cannot
+    carry 3D point loads.
+    """
+    objects: list[dict[str, Any]] = []
+    for i, f in enumerate(mechanism.applied_forces):
+        if f.target_body in shaft_part_ids:
+            # Shaft-based parts can't take 3D point loads. Skip.
+            continue
+        objects.append({
+            "type": "applied_force",
+            "id": f.label or f"applied_force_{i}",
+            "body": f.target_body,
+            "position_local": list(f.position_local),
+            "force_vector": list(f.force_vector),
+            "frame": f.frame,
+        })
+    return objects
 
 
 def _build_derived_outputs(

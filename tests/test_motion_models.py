@@ -4,6 +4,7 @@ from __future__ import annotations
 import unittest
 
 from server.motion_models import (
+    AppliedForce,
     DriveCondition,
     JointEdge,
     JointType,
@@ -117,6 +118,54 @@ class TestMechanism(unittest.TestCase):
         self.assertIsNone(m.get_part("nonexistent"))
         self.assertIsNotNone(m.get_joint("mesh1"))
         self.assertEqual(len(m.joints_for_part("input_shaft")), 2)  # mesh1 + input_rev
+
+    def test_applied_forces_default_empty(self):
+        m = self._make_simple_gear_pair()
+        self.assertEqual(m.applied_forces, ())
+
+    def test_applied_forces_round_trip(self):
+        m = Mechanism(
+            name="rotor_with_loads",
+            parts=(PartNode(id="hub", is_ground=True), PartNode(id="blade")),
+            joints=(JointEdge(id="rev", joint_type=JointType.REVOLUTE,
+                              parent_part="hub", child_part="blade"),),
+            drives=(),
+            applied_forces=(
+                AppliedForce(target_body="blade",
+                             position_local=(0.05, 0.0, 0.0),
+                             force_vector=(0.0, 0.0, 1.5),
+                             label="station_0"),
+                AppliedForce(target_body="blade",
+                             position_local=(0.10, 0.0, 0.0),
+                             force_vector=(0.0, 0.0, 2.7),
+                             frame="world"),
+            ),
+        )
+        d = m.to_dict()
+        self.assertEqual(len(d["applied_forces"]), 2)
+        m2 = Mechanism.from_dict(d)
+        self.assertEqual(len(m2.applied_forces), 2)
+        self.assertEqual(m2.applied_forces[0].target_body, "blade")
+        self.assertEqual(m2.applied_forces[0].position_local, (0.05, 0.0, 0.0))
+        self.assertEqual(m2.applied_forces[0].force_vector, (0.0, 0.0, 1.5))
+        self.assertEqual(m2.applied_forces[0].frame, "body")
+        self.assertEqual(m2.applied_forces[0].label, "station_0")
+        self.assertEqual(m2.applied_forces[1].frame, "world")
+        self.assertIsNone(m2.applied_forces[1].label)
+
+
+class TestAppliedForce(unittest.TestCase):
+    def test_round_trip_minimal(self):
+        f = AppliedForce(target_body="blade",
+                         position_local=(0.0, 0.0, 0.0),
+                         force_vector=(1.0, 0.0, 0.0))
+        f2 = AppliedForce.from_dict(f.to_dict())
+        self.assertEqual(f, f2)
+
+    def test_label_roundtrips(self):
+        f = AppliedForce(target_body="b", position_local=(0,0,0),
+                         force_vector=(0,0,1), label="tip_force")
+        self.assertEqual(AppliedForce.from_dict(f.to_dict()).label, "tip_force")
 
 
 if __name__ == "__main__":

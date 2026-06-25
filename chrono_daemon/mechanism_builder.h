@@ -50,6 +50,24 @@ T json_get(const json& j, const std::string& key, const T& default_val) {
     return default_val;
 }
 
+/// External point load on a body, applied each step in run_simulation.
+struct AppliedForceSpec {
+    std::string id;
+    std::string body_id;
+    chrono::ChVector3d position_local;  // application point in body local frame (m)
+    chrono::ChVector3d force_vector;    // force in N
+    bool world_frame;                   // true = constant in world; false = follows body
+    unsigned int accumulator_idx = 0;   // populated when AddAccumulator() is called
+};
+
+/// Joint reaction snapshot used to compute mean and peak bearing loads.
+struct JointReactionAccum {
+    std::string id;
+    double sum_force_mag = 0.0;   // Σ |F_reaction| over samples
+    double peak_force_mag = 0.0;  // max |F_reaction|
+    int    samples = 0;
+};
+
 /// Result of building a mechanism in Chrono.
 struct BuiltMechanism {
     std::shared_ptr<chrono::ChSystemNSC> system;
@@ -60,6 +78,10 @@ struct BuiltMechanism {
     // Motors — both shaft and body types
     std::unordered_map<std::string, std::shared_ptr<chrono::ChShaftsMotorSpeed>> shaft_motors;
     std::unordered_map<std::string, std::shared_ptr<chrono::ChLinkMotorRotationSpeed>> body_motors;
+    // External applied forces (e.g. BEMT distributed loads)
+    std::vector<AppliedForceSpec> applied_forces;
+    // 3D links keyed by spec id (for joint reaction capture)
+    std::unordered_map<std::string, std::shared_ptr<chrono::ChLinkLock>> links;
     std::vector<std::string> warnings;
 };
 
@@ -183,6 +205,7 @@ inline BuiltMechanism build_mechanism_from_spec(const json& spec_json) {
             chrono::ChFrame<> frame(pos);
             revolute->Initialize(b1_it->second, b2_it->second, frame);
             sys.AddLink(revolute);
+            result.links[id] = revolute;
 
         } else if (type == "prismatic") {
             auto b1_it = result.bodies.find(obj["body_1"].get<std::string>());
@@ -197,6 +220,7 @@ inline BuiltMechanism build_mechanism_from_spec(const json& spec_json) {
             chrono::ChFrame<> frame(pos);
             prismatic->Initialize(b1_it->second, b2_it->second, frame);
             sys.AddLink(prismatic);
+            result.links[id] = prismatic;
 
         } else if (type == "fixed") {
             auto b1_it = result.bodies.find(obj["body_1"].get<std::string>());
@@ -211,6 +235,27 @@ inline BuiltMechanism build_mechanism_from_spec(const json& spec_json) {
             chrono::ChFrame<> frame(pos);
             fixed->Initialize(b1_it->second, b2_it->second, frame);
             sys.AddLink(fixed);
+            result.links[id] = fixed;
+
+        } else if (type == "applied_force") {
+            std::string body_id = obj["body"];
+            auto body_it = result.bodies.find(body_id);
+            if (body_it == result.bodies.end()) {
+                result.warnings.push_back(
+                    "applied_force '" + id + "': body '" + body_id + "' not found");
+                continue;
+            }
+            auto pos_vec = json_get(obj, "position_local", std::vector<double>{0, 0, 0});
+            auto fvec = json_get(obj, "force_vector", std::vector<double>{0, 0, 0});
+            std::string frame_str = json_get(obj, "frame", std::string("body"));
+            AppliedForceSpec af;
+            af.id = id;
+            af.body_id = body_id;
+            af.position_local = chrono::ChVector3d(pos_vec[0], pos_vec[1], pos_vec[2]);
+            af.force_vector = chrono::ChVector3d(fvec[0], fvec[1], fvec[2]);
+            af.world_frame = (frame_str == "world");
+            af.accumulator_idx = body_it->second->AddAccumulator();
+            result.applied_forces.push_back(af);
 
         } else if (type == "motor_shaft_speed") {
             std::string shaft_id = obj["shaft"];

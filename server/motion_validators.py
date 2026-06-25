@@ -1358,4 +1358,32 @@ def validate_mechanism_structure(
                 f"(will cause simulation instability)"
             )
 
+    # 13. Applied forces
+    valid_frames = {"body", "world"}
+    for i, f in enumerate(mech.applied_forces):
+        label = f.label or f"applied_forces[{i}]"
+        if f.target_body not in part_ids:
+            errors.append(
+                f"Applied force '{label}' targets unknown body '{f.target_body}'"
+            )
+        for k, val in enumerate(f.position_local):
+            if not math.isfinite(val):
+                errors.append(
+                    f"Applied force '{label}': position_local[{k}]={val} is not finite"
+                )
+        for k, val in enumerate(f.force_vector):
+            if not math.isfinite(val):
+                errors.append(
+                    f"Applied force '{label}': force_vector[{k}]={val} is not finite"
+                )
+        if all(v == 0.0 for v in f.force_vector):
+            warnings.append(
+                f"Applied force '{label}' has zero force vector — no effect"
+            )
+        if f.frame not in valid_frames:
+            errors.append(
+                f"Applied force '{label}' has invalid frame '{f.frame}' "
+                f"(must be one of {sorted(valid_frames)})"
+            )
+
     return errors, warnings
