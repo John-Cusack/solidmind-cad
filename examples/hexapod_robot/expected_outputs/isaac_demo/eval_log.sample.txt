@@ -1,0 +1,12 @@
+Obs shape: torch.Size([4, 66]), running 500 steps...
+  step 0/500, reward=-0.088, dx=+0.002m, dy=-0.006m, height=0.144m
+  step 100/500, reward=0.097, dx=+0.161m, dy=-0.234m, height=0.142m
+  step 200/500, reward=0.090, dx=+0.406m, dy=-0.310m, height=0.140m
+  step 300/500, reward=0.089, dx=+0.726m, dy=-0.242m, height=0.140m
+  step 400/500, reward=0.098, dx=+0.974m, dy=-0.024m, height=0.141m
+Final rollout summary (4 envs, 500 steps):
+  env 0: forward dx=+0.730m, lateral dy=-1.335m, final height=0.139m
+  env 1: forward dx=+1.440m, lateral dy=+0.555m, final height=0.141m
+  env 2: forward dx=+1.114m, lateral dy=+1.194m, final height=0.141m
+  env 3: forward dx=+1.180m, lateral dy=+0.460m, final height=0.140m
+  mean: dx=+1.116m, dy=+0.219m, h=0.140m

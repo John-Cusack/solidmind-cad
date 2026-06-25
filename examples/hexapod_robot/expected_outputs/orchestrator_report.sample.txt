@@ -1,0 +1,18 @@
+Hexapod Robot — orchestrator run summary
+========================================
+
+chassis: 150.0×150.0×5.0 mm, PCD=110.0
+legs: 6× hexapod_leg (52.0+66.0+133.0=251.0 mm)
+pivot bores: hip_yaw=4.0, hip_pitch=5.0, knee=6.0
+
+Parts built and validated:
+  ✓ hexapod_chassis (source=orchestrator)
+  ✓ leg_1 (source=orchestrator)
+  ✓ leg_2 (source=orchestrator)
+  ✓ leg_3 (source=orchestrator)
+  ✓ leg_4 (source=orchestrator)
+  ✓ leg_5 (source=orchestrator)
+  ✓ leg_6 (source=orchestrator)
+
+All parts passing: True
+DOF count when assembled: 18

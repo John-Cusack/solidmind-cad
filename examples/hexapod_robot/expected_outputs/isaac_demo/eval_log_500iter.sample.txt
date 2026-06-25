@@ -1,0 +1,18 @@
+Checkpoint:   training_runs/hex18_pub_demo_500/model_499.pt
+Checkpoint loaded from training_runs/hex18_pub_demo_500/model_499.pt
+Obs shape: torch.Size([1, 66]), running 3000 steps...
+  step 0/3000, reward=-0.069, dx=-0.005m, dy=+0.003m, height=0.142m
+  step 100/3000, reward=0.100, dx=-0.507m, dy=+0.432m, height=0.142m
+  step 200/3000, reward=0.100, dx=-0.879m, dy=+0.962m, height=0.138m
+  step 300/3000, reward=0.101, dx=-1.101m, dy=+1.560m, height=0.145m
+  step 400/3000, reward=0.102, dx=-1.183m, dy=+2.203m, height=0.137m
+  step 500/3000, reward=0.099, dx=-1.120m, dy=+2.823m, height=0.143m
+  step 600/3000, reward=0.103, dx=-0.928m, dy=+3.436m, height=0.138m
+  step 700/3000, reward=0.101, dx=-0.612m, dy=+3.983m, height=0.143m
+  step 800/3000, reward=0.106, dx=-0.169m, dy=+4.459m, height=0.139m
+  step 900/3000, reward=0.097, dx=+0.353m, dy=+4.828m, height=0.144m
+  step 1000/3000, reward=0.103, dx=+0.950m, dy=+5.082m, height=0.137m
+  step 1100/3000, reward=0.102, dx=+1.581m, dy=+5.208m, height=0.143m
+  step 1200/3000, reward=0.104, dx=+2.245m, dy=+5.180m, height=0.139m
+  step 1300/3000, reward=0.099, dx=+2.876m, dy=+5.037m, height=0.143m
+  step 1400/3000, reward=0.101, dx=+3.460m, dy=+4.739m, height=0.137m

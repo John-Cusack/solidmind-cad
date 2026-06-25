@@ -1,0 +1,15 @@
+Checkpoint loaded from training_runs/hex18_freshbuild_500/model_499.pt
+Obs shape: torch.Size([1, 66]), running 5000 steps...
+  step 0/5000, reward=0.063, dx=-0.001m, dy=+0.003m, height=0.132m
+  step 100/5000, reward=0.097, dx=+0.436m, dy=+0.343m, height=0.128m
+  step 200/5000, reward=0.097, dx=+0.872m, dy=+0.663m, height=0.124m
+  step 300/5000, reward=0.097, dx=+1.335m, dy=+0.969m, height=0.130m
+  step 400/5000, reward=0.089, dx=+1.781m, dy=+1.324m, height=0.126m
+  step 500/5000, reward=0.101, dx=+2.227m, dy=+1.648m, height=0.123m
+  step 600/5000, reward=0.093, dx=+2.656m, dy=+1.996m, height=0.125m
+  step 700/5000, reward=0.096, dx=+3.043m, dy=+2.357m, height=0.127m
+  step 800/5000, reward=0.097, dx=+3.461m, dy=+2.700m, height=0.124m
+  step 900/5000, reward=0.101, dx=+3.860m, dy=+3.072m, height=0.131m
+  step 1000/5000, reward=0.105, dx=+4.231m, dy=+3.465m, height=0.123m
+  step 1100/5000, reward=0.093, dx=+4.632m, dy=+3.864m, height=0.131m
+  step 1200/5000, reward=0.098, dx=+4.990m, dy=+4.244m, height=0.124m
