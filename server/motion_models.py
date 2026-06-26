@@ -88,6 +88,7 @@ class JointEdge:
     spring_k_n_per_m: float | None = None    # stiffness (N/m)
     spring_rest_length_m: float | None = None  # natural length; None = initial separation
     spring_preload_n: float = 0.0            # force at rest length (N, +ve extends)
+    spring_damping_n_s_per_m: float = 0.0    # linear damping coefficient (N·s/m)
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {
@@ -131,6 +132,8 @@ class JointEdge:
                 d["spring_rest_length_m"] = self.spring_rest_length_m
             if self.spring_preload_n:
                 d["spring_preload_n"] = self.spring_preload_n
+            if self.spring_damping_n_s_per_m:
+                d["spring_damping_n_s_per_m"] = self.spring_damping_n_s_per_m
         return d
 
     @classmethod
@@ -161,6 +164,7 @@ class JointEdge:
             spring_k_n_per_m=d.get("spring_k_n_per_m"),
             spring_rest_length_m=d.get("spring_rest_length_m"),
             spring_preload_n=d.get("spring_preload_n", 0.0),
+            spring_damping_n_s_per_m=d.get("spring_damping_n_s_per_m", 0.0),
         )
 
 

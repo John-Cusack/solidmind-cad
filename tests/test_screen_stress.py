@@ -131,6 +131,58 @@ class TestScreenStress(unittest.TestCase):
             )
 
 
+class TestSectionReuse(unittest.TestCase):
+    def test_hollow_circle_section_now_supported(self) -> None:
+        # Previously raised 'unknown section type'; now routed via section_properties.
+        check = screen_stress(
+            section={"type": "hollow_circle", "outer_diameter_mm": 10.0,
+                     "inner_diameter_mm": 8.0},
+            load={"moment_nmm": 500.0},
+            yield_strength_mpa=200.0,
+        )
+        self.assertGreater(check.measured, 0.0)
+
+    def test_direct_i_c_still_supported(self) -> None:
+        check = screen_stress(
+            section={"i_mm4": 100.0, "c_mm": 2.0},
+            load={"moment_nmm": 1000.0},
+            yield_strength_mpa=200.0,
+        )
+        self.assertAlmostEqual(check.measured, 1000.0 * 2.0 / 100.0, places=3)
+
+
+class TestFailureModeInference(unittest.TestCase):
+    def _result(self, status, checks):
+        from server.analysis_models import FieldResult
+        return FieldResult(
+            analysis_id="a", status=status, safety_factor=0.5,
+            max_von_mises_mpa=300.0, max_displacement_mm=1.0,
+            checks=checks, scalar_fields=(),
+        )
+
+    def test_pass_infers_none(self) -> None:
+        from server.tools_analysis import _infer_failure_mode
+        self.assertIsNone(_infer_failure_mode(self._result(CheckStatus.PASS, ())))
+
+    def test_displacement_failure_infers_deflection(self) -> None:
+        from server.analysis_models import AnalysisCheck
+        from server.tools_analysis import _infer_failure_mode
+        chk = AnalysisCheck(name="max displacement", status=CheckStatus.FAIL, message="x")
+        self.assertEqual(
+            _infer_failure_mode(self._result(CheckStatus.FAIL, (chk,))),
+            FailureMode.DEFLECTION,
+        )
+
+    def test_stress_failure_infers_yield(self) -> None:
+        from server.analysis_models import AnalysisCheck
+        from server.tools_analysis import _infer_failure_mode
+        chk = AnalysisCheck(name="von Mises stress", status=CheckStatus.FAIL, message="x")
+        self.assertEqual(
+            _infer_failure_mode(self._result(CheckStatus.FAIL, (chk,))),
+            FailureMode.YIELD,
+        )
+
+
 class TestScreenStressTool(unittest.TestCase):
     def test_tool_returns_check_dict(self) -> None:
         out = analysis_screen_stress(

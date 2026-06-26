@@ -114,6 +114,42 @@ class TestInterpret(unittest.TestCase):
         )
         self.assertFalse(cmp.mode_was_expected)
 
+    def test_buckling_band_not_applicable(self) -> None:
+        # A buckling-governed result with out-of-band peak von Mises is NOT
+        # flagged as out-of-band (matches screen_stress's BUCKLING exemption).
+        cmp = interpret_compare_to_expectations(
+            _result(mode=FailureMode.BUCKLING, max_vm=300.0), self._exp()
+        )
+        self.assertTrue(cmp.peak_within_expected_band)
+        self.assertIn("N/A", cmp.message)
+
+
+class TestFromFailureSuggestion(unittest.TestCase):
+    def test_uses_check_suggestion_when_present(self) -> None:
+        chk = AnalysisCheck(
+            name="latch", status=CheckStatus.FAIL, message="m",
+            face_group="root", failure_mode=FailureMode.STRESS_CONCENTRATION,
+            suggestion="add a 0.5 mm root fillet (from screen)",
+        )
+        fix = from_failure(chk)
+        self.assertEqual(fix.rationale, "add a 0.5 mm root fillet (from screen)")
+
+    def test_falls_back_to_template_without_suggestion(self) -> None:
+        fix = from_failure(_check(FailureMode.STRESS_CONCENTRATION))
+        self.assertIn("tooth_root", fix.rationale)
+
+
+class TestFailureModeLoadTolerance(unittest.TestCase):
+    def test_unknown_failure_mode_does_not_crash_from_dict(self) -> None:
+        d = FieldResult(
+            analysis_id="a", status=CheckStatus.FAIL, safety_factor=0.5,
+            max_von_mises_mpa=10.0, max_displacement_mm=0.0,
+            checks=(), scalar_fields=(),
+        ).to_dict()
+        d["failure_mode"] = "some_future_mode"  # not in the enum
+        restored = FieldResult.from_dict(d)  # must not raise
+        self.assertIsNone(restored.failure_mode)
+
 
 class TestDecideTools(unittest.TestCase):
     def test_tool_from_failure(self) -> None:

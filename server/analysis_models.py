@@ -52,6 +52,21 @@ class FailureMode(str, Enum):
     CORROSION = "corrosion"
 
 
+def _parse_failure_mode(value: Any) -> FailureMode | None:
+    """Tolerant parse of a stored failure_mode string.
+
+    Returns ``None`` for empty values *and* for unrecognized strings, so loading
+    a result persisted by a solver pack or a different schema version can't crash
+    the load path (e.g. ``analysis_store.load_result``).
+    """
+    if not value:
+        return None
+    try:
+        return FailureMode(value)
+    except ValueError:
+        return None
+
+
 @dataclass(frozen=True, slots=True)
 class ReflectExpectations:
     """Pre-simulation expectations filed before calling an ``analysis.*`` tool.
@@ -275,7 +290,7 @@ class AnalysisCheck:
             limit=d.get("limit", 0.0),
             face_group=d.get("face_group", ""),
             suggestion=d.get("suggestion", ""),
-            failure_mode=FailureMode(fm) if fm else None,
+            failure_mode=_parse_failure_mode(fm),
         )
 
 
@@ -329,7 +344,7 @@ class FieldResult:
             ),
             solver_name=d.get("solver_name", ""),
             solve_time_s=d.get("solve_time_s", 0.0),
-            failure_mode=FailureMode(fm) if fm else None,
+            failure_mode=_parse_failure_mode(fm),
             candidates=tuple(d.get("candidates", ())),
         )
 
