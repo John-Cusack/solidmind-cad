@@ -16,11 +16,13 @@ Key design decisions:
 """
 from __future__ import annotations
 
-import math
+import logging
 from typing import Any
 
 from server.motion_models import JointType, Mechanism
 from server.motion_planetary import PlanetarySet, detect_planetary_sets
+
+log = logging.getLogger("solidmind.simulation_spec_builder")
 
 
 def build_simulation_spec(mechanism: Mechanism) -> dict[str, Any]:
@@ -30,6 +32,15 @@ def build_simulation_spec(mechanism: Mechanism) -> dict[str, Any]:
       - "objects": list of Chrono element dicts to instantiate
       - "derived_outputs": dict of outputs computed post-simulation
     """
+    # Springs are only consumed on PRISMATIC joints; warn loudly if one is set
+    # elsewhere so it isn't a silent no-op.
+    for j in mechanism.joints:
+        if j.spring_k_n_per_m is not None and j.joint_type != JointType.PRISMATIC:
+            log.warning(
+                "Spring on joint '%s' (type=%s) ignored — springs are only "
+                "supported on PRISMATIC joints.", j.id, j.joint_type.value,
+            )
+
     planetary_sets = detect_planetary_sets(mechanism)
 
     # Collect all part IDs that are handled by planetary/gear shaft elements
@@ -281,6 +292,24 @@ def _build_body_objects(
                 "body_2": j.child_part,
                 "pos": origin_m,
             })
+            # Optional linear spring acting along the prismatic axis. Emitted as
+            # a sibling object so the prismatic constraint stays untouched when
+            # no spring is present (regression-safe). The daemon derives the
+            # spring direction from the two body positions, so no pos/axis is
+            # sent here.
+            if j.spring_k_n_per_m is not None:
+                spring_obj: dict[str, Any] = {
+                    "type": "spring",
+                    "id": f"{j.id}_spring",
+                    "body_1": j.parent_part,
+                    "body_2": j.child_part,
+                    "k_n_per_m": j.spring_k_n_per_m,
+                    "preload_n": j.spring_preload_n,
+                    "damping_n_s_per_m": j.spring_damping_n_s_per_m,
+                }
+                if j.spring_rest_length_m is not None:
+                    spring_obj["rest_length_m"] = j.spring_rest_length_m
+                objects.append(spring_obj)
             consumed.add(j.id)
 
         elif j.joint_type == JointType.FIXED:
@@ -408,7 +437,7 @@ def _build_derived_outputs(
     for ps in planetary_sets:
         teeth_ratio = ps.teeth_sun / ps.teeth_planet if ps.teeth_planet > 0 else 1.0
 
-        for i, planet_id in enumerate(ps.planets):
+        for planet_id in ps.planets:
             derived[planet_id] = {
                 "formula": "carrier_planet",
                 "carrier": ps.carrier,
@@ -428,7 +457,7 @@ def validate_simulation_spec(spec: dict[str, Any]) -> list[str]:
 
     Returns a list of issue strings.  Empty list = spec is valid.
     Checks:
-    1. At least one motor object exists
+    1. At least one driving force exists (a motor OR a spring)
     2. At least one non-fixed element exists
     3. Motor shaft/body references point to existing objects
     """
@@ -438,6 +467,7 @@ def validate_simulation_spec(spec: dict[str, Any]) -> list[str]:
     # Index object IDs by type
     shaft_ids: set[str] = set()
     body_ids: set[str] = set()
+    springs: list[dict[str, Any]] = []
     non_fixed_exists = False
 
     for obj in objects:
@@ -451,6 +481,8 @@ def validate_simulation_spec(spec: dict[str, Any]) -> list[str]:
             body_ids.add(oid)
             if not obj.get("fixed", False):
                 non_fixed_exists = True
+        elif otype == "spring":
+            springs.append(obj)
 
     # Collect motors and check references
     motors: list[dict[str, Any]] = []
@@ -473,8 +505,13 @@ def validate_simulation_spec(spec: dict[str, Any]) -> list[str]:
                     f"which does not exist in spec (available bodies: {sorted(body_ids)})"
                 )
 
-    if not motors:
-        issues.append("No motor objects in spec — simulation will have no driving force")
+    # A spring is itself a driving force (e.g. a cocked spring-loaded plunger
+    # has no motor), so a spec with a spring and no motor is valid.
+    if not motors and not springs:
+        issues.append(
+            "No driving force in spec (no motor and no spring) — "
+            "simulation will have nothing to move it"
+        )
 
     if not non_fixed_exists:
         issues.append("All elements are fixed — nothing can move")

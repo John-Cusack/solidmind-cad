@@ -370,7 +370,7 @@ class TestValidateSimulationSpec(unittest.TestCase):
         self.assertEqual(issues, [])
 
     def test_no_motors(self):
-        """Spec with no motors should report an issue."""
+        """Spec with no motor and no spring should report a no-driver issue."""
         spec = {
             "objects": [
                 {"type": "shaft", "id": "a", "inertia": 0.01, "fixed": False},
@@ -378,7 +378,7 @@ class TestValidateSimulationSpec(unittest.TestCase):
             ],
         }
         issues = validate_simulation_spec(spec)
-        self.assertTrue(any("No motor" in i for i in issues))
+        self.assertTrue(any("no driving force" in i.lower() for i in issues))
 
     def test_motor_targets_missing_shaft(self):
         """Motor referencing a non-existent shaft should be caught."""
