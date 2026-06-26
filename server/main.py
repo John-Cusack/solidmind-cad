@@ -269,6 +269,10 @@ from server.tools_analysis import (
     analysis_thermal_check,
     analysis_torque_sweep,
 )
+from server.tools_decide import (
+    decide_from_failure,
+    decide_interpret,
+)
 from server.tools_sim import (
     sim_engine_status,
     sim_start_engine,
@@ -4336,6 +4340,53 @@ def _sim_tool_list() -> list[dict[str, Any]]:
     ]
 
 
+def _decide_tool_list() -> list[dict[str, Any]]:
+    return [
+        {
+            "name": "decide.from_failure",
+            "description": (
+                "Turn a failing AnalysisCheck into a concrete, typed fix proposal "
+                "(op/target/param/delta) dispatched on its failure_mode. The Decide "
+                "step of the inner loop."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "check": {
+                        "type": "object",
+                        "description": "An AnalysisCheck dict (must carry a failure_mode).",
+                    },
+                },
+                "required": ["check"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "decide.interpret",
+            "description": (
+                "Compare a FieldResult against Reflect-step expectations: hotspot "
+                "match, peak-stress band, and whether the failure mode was expected. "
+                "The Interpret step of the inner loop."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "result": {
+                        "type": "object",
+                        "description": "A FieldResult dict (from analysis.stress_check).",
+                    },
+                    "expectations": {
+                        "type": "object",
+                        "description": "A ReflectExpectations dict.",
+                    },
+                },
+                "required": ["result", "expectations"],
+                "additionalProperties": False,
+            },
+        },
+    ]
+
+
 def _tool_list() -> list[dict[str, Any]]:
     return (
         _cad_tool_list()
@@ -4351,6 +4402,7 @@ def _tool_list() -> list[dict[str, Any]]:
         + _design_tool_list()
         + _fastener_tool_list()
         + _analysis_tool_list()
+        + _decide_tool_list()
         + _sim_tool_list()
         + _PACK_TOOLS
     )
@@ -4546,6 +4598,11 @@ _ANALYSIS_DISPATCH: dict[str, Any] = {
     "analysis.list_solvers": analysis_list_solvers,
 }
 
+_DECIDE_DISPATCH: dict[str, Any] = {
+    "decide.from_failure": decide_from_failure,
+    "decide.interpret": decide_interpret,
+}
+
 _SIM_DISPATCH: dict[str, Any] = {
     "sim.start_engine": sim_start_engine,
     "sim.stop_engine": sim_stop_engine,
@@ -4567,6 +4624,7 @@ def _call_tool(name: str, arguments: dict[str, Any]) -> Any:
         or _DESIGN_DISPATCH.get(name)
         or _FASTENER_DISPATCH.get(name)
         or _ANALYSIS_DISPATCH.get(name)
+        or _DECIDE_DISPATCH.get(name)
         or _SIM_DISPATCH.get(name)
         or _PACK_DISPATCH.get(name)
     )

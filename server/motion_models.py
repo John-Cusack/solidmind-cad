@@ -83,6 +83,11 @@ class JointEdge:
     friction: float | None = None
     effort_nm: float | None = None       # max torque (Nm) or force (N)
     velocity_rad_s: float | None = None  # max velocity (rad/s or m/s)
+    # Spring parameters (prismatic only): a linear spring acting between the two
+    # bodies along the joint axis. A non-None ``spring_k_n_per_m`` enables it.
+    spring_k_n_per_m: float | None = None    # stiffness (N/m)
+    spring_rest_length_m: float | None = None  # natural length; None = initial separation
+    spring_preload_n: float = 0.0            # force at rest length (N, +ve extends)
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {
@@ -120,6 +125,12 @@ class JointEdge:
             d["effort_nm"] = self.effort_nm
         if self.velocity_rad_s is not None:
             d["velocity_rad_s"] = self.velocity_rad_s
+        if self.spring_k_n_per_m is not None:
+            d["spring_k_n_per_m"] = self.spring_k_n_per_m
+            if self.spring_rest_length_m is not None:
+                d["spring_rest_length_m"] = self.spring_rest_length_m
+            if self.spring_preload_n:
+                d["spring_preload_n"] = self.spring_preload_n
         return d
 
     @classmethod
@@ -147,6 +158,9 @@ class JointEdge:
             friction=d.get("friction"),
             effort_nm=d.get("effort_nm"),
             velocity_rad_s=d.get("velocity_rad_s"),
+            spring_k_n_per_m=d.get("spring_k_n_per_m"),
+            spring_rest_length_m=d.get("spring_rest_length_m"),
+            spring_preload_n=d.get("spring_preload_n", 0.0),
         )
 
 
