@@ -1,0 +1,77 @@
+{
+  "name": "Foam-Dart Spring Launcher",
+  "schema": "design.brief/v1",
+  "status": "approved",
+  "parameters": {
+    "intent": "A 3D-printable, fixed-angle, single-shot spring-plunger foam-dart launcher used as a sim-to-real validation rig. The analytical model, the Chrono dynamic sim, and the measured range must agree within tolerance after one-shot calibration.",
+    "constraints": {
+      "launch_angle_deg": 12.0,
+      "pullback_notches_mm": [10, 20, 30],
+      "max_spring_compression_mm": 30,
+      "structural_fos_target": 2.0,
+      "material_default": "pla",
+      "material_option": "petg",
+      "min_moving_clearance_mm": 0.4,
+      "min_static_clearance_mm": 0.25,
+      "min_wall_mm": 2.4,
+      "single_shot": true,
+      "manual_load": true,
+      "predicted_range_ft": [10, 20]
+    },
+    "physical_defaults": {
+      "dart_mass_g": 1.0,
+      "dart_mass_note": "default placeholder — override with a measured value",
+      "dart_diameter_mm": null,
+      "dart_length_mm": null,
+      "spring_k_n_per_m": 300.0,
+      "spring_k_note": "PLACEHOLDER — the user must measure the actual spring constant",
+      "plunger_mass_g": 12.0
+    },
+    "layout": {
+      "z_layers": {
+        "base": 0.0,
+        "guide_axis": 18.0
+      },
+      "launch_height_mm": 150.0,
+      "notes": "Guide tube axis is fixed at 12 deg above horizontal on the test stand; barrel is coaxial with the guide bore. launch_height_mm is the muzzle height above ground (stand + table)."
+    }
+  },
+  "parts": [
+    {"name": "guide_tube", "kind": "custom", "quantity": 1,
+     "specs": {"bore_dia_mm": 16.0, "wall_mm": 2.8, "length_mm": 90.0, "z_layer": "guide_axis"}},
+    {"name": "plunger_head", "kind": "custom", "quantity": 1,
+     "specs": {"dia_mm": 15.2, "thickness_mm": 6.0, "moving_clearance_mm": 0.4}},
+    {"name": "plunger_rod", "kind": "custom", "quantity": 1,
+     "specs": {"dia_mm": 6.0, "length_mm": 70.0, "load": "spring_compression"}},
+    {"name": "pull_handle", "kind": "custom", "quantity": 1,
+     "specs": {"width_mm": 30.0, "thickness_mm": 6.0}},
+    {"name": "spring_seat", "kind": "custom", "quantity": 1,
+     "specs": {"bore_dia_mm": 6.4, "wall_mm": 3.0, "seat_dia_mm": 13.0, "load": "spring_reaction"}},
+    {"name": "latch_sear", "kind": "custom", "quantity": 1,
+     "specs": {"tooth_width_mm": 6.0, "tooth_height_mm": 2.5, "fillet_mm": 0.0, "load": "spring_hold"}},
+    {"name": "barrel", "kind": "custom", "quantity": 1,
+     "specs": {"bore_dia_mm": 14.5, "wall_mm": 2.6, "length_mm": 60.0, "clearance_note": "conservative dart clearance"}},
+    {"name": "test_stand", "kind": "custom", "quantity": 1,
+     "specs": {"base_w_mm": 80.0, "base_l_mm": 140.0, "angle_deg": 12.0}},
+    {"name": "notch_plate", "kind": "custom", "quantity": 1,
+     "specs": {"notches_mm": [10, 20, 30], "printed_scale": true}},
+    {"name": "compression_spring", "kind": "purchased", "quantity": 1,
+     "specs": {"k_n_per_m": 300.0, "free_length_mm": 60.0, "od_mm": 12.0, "note": "off-the-shelf; measure k"}},
+    {"name": "m3_screws", "kind": "purchased", "quantity": 8,
+     "specs": {"size": "M3", "length_mm": 12.0}}
+  ],
+  "interfaces": [
+    {"part_a": "plunger_head", "port_a": "rod_bore", "part_b": "plunger_rod", "port_b": "shank",
+     "spec": {"type": "press_or_screw", "z_layer": "guide_axis", "clearance_mm": 0.0}},
+    {"part_a": "plunger_rod", "port_a": "spring_end", "part_b": "spring_seat", "port_b": "bore",
+     "spec": {"type": "sliding", "moving_clearance_mm": 0.4}},
+    {"part_a": "guide_tube", "port_a": "bore", "part_b": "plunger_head", "port_b": "od",
+     "spec": {"type": "prismatic", "moving_clearance_mm": 0.4, "travel_mm": 30}},
+    {"part_a": "latch_sear", "port_a": "tooth", "part_b": "plunger_rod", "port_b": "notch",
+     "spec": {"type": "latch", "hold_force_basis": "max_spring_load"}},
+    {"part_a": "guide_tube", "port_a": "muzzle", "part_b": "barrel", "port_b": "breech",
+     "spec": {"type": "coaxial", "static_clearance_mm": 0.25}},
+    {"part_a": "test_stand", "port_a": "cradle", "part_b": "guide_tube", "port_b": "od",
+     "spec": {"type": "bolted", "fasteners": "M3", "angle_deg": 12.0}}
+  ]
+}

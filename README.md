@@ -40,6 +40,12 @@ PYTHONPATH=. python3 examples/planetary_gearbox/run.py --out /tmp/gearbox
 
 See [`examples/hexapod_robot/ISAAC_DEMO.md`](examples/hexapod_robot/ISAAC_DEMO.md) for the full walkthrough with measured trajectory data.
 
+**[`examples/foam_dart_spring_launcher/`](examples/foam_dart_spring_launcher/)** — a 3D-printable single-shot spring-plunger foam-dart launcher used as a sim-to-real validation rig. Walks the full nine-step inner loop (Specify → … → Learn) on a deliberately under-dimensioned latch: the analytical Screen tier catches it, Decide proposes a root fillet, and the V2 re-screen passes — peak stress 68 → 6 MPa. A real Chrono run validates the spring→plunger energy delivery against `physics_model.py` (0% residual), and one measured shot calibrates the lumped efficiency so it predicts the other pullbacks. The first example that *closes* the autonomous iteration test for a part class. `--smoke` runs solver-free in CI.
+
+```bash
+PYTHONPATH=. python3 examples/foam_dart_spring_launcher/run.py --out /tmp/foam_dart
+```
+
 ---
 
 **AI mastered the digital world by iterating in it. Simulation lets it iterate in the physical world too.**

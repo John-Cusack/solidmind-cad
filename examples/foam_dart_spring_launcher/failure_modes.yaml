@@ -1,0 +1,34 @@
+# Reflect-step failure-mode taxonomy for the foam-dart launcher part classes.
+#
+# One entry per structural part class. The inner loop's Reflect step reads this
+# to build a ReflectExpectations before running a check: which failure modes to
+# watch, where the hotspot should land, and a plausible peak-stress band. A
+# result that lands outside the band — or fails in an unlisted mode — is a
+# surprise worth learning from.
+#
+# failure_modes values match server.analysis_models.FailureMode.
+
+part_classes:
+
+  latch_sear:
+    description: Printed latch tooth that holds the cocked plunger against full spring load.
+    failure_modes_to_check: [stress_concentration, yield, fatigue]
+    expected_hotspot: tooth_root
+    expected_peak_stress_mpa: [15, 60]
+    notes: >
+      Sharp tooth root is the classic stress riser. A zero-radius root will fail
+      the screen on stress_concentration; a root fillet is the intended fix.
+
+  spring_seat:
+    description: Reacts the full spring force into the frame; thin wall around the rod bore.
+    failure_modes_to_check: [yield, deflection]
+    expected_hotspot: bore_wall
+    expected_peak_stress_mpa: [5, 30]
+    notes: Thicken the wall if peak stress crowds yield.
+
+  plunger_rod:
+    description: Slender rod in compression under the cocked spring — buckling candidate.
+    failure_modes_to_check: [buckling, yield]
+    expected_hotspot: mid_span
+    expected_peak_stress_mpa: [2, 20]
+    notes: Euler buckling governs for long thin rods; increase diameter or shorten span.
