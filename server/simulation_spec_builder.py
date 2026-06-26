@@ -281,6 +281,23 @@ def _build_body_objects(
                 "body_2": j.child_part,
                 "pos": origin_m,
             })
+            # Optional linear spring acting along the prismatic axis. Emitted as
+            # a sibling object so the prismatic constraint stays untouched when
+            # no spring is present (regression-safe).
+            if j.spring_k_n_per_m is not None:
+                spring_obj: dict[str, Any] = {
+                    "type": "spring",
+                    "id": f"{j.id}_spring",
+                    "body_1": j.parent_part,
+                    "body_2": j.child_part,
+                    "k_n_per_m": j.spring_k_n_per_m,
+                    "preload_n": j.spring_preload_n,
+                    "pos": origin_m,
+                    "axis": list(j.axis),
+                }
+                if j.spring_rest_length_m is not None:
+                    spring_obj["rest_length_m"] = j.spring_rest_length_m
+                objects.append(spring_obj)
             consumed.add(j.id)
 
         elif j.joint_type == JointType.FIXED:
