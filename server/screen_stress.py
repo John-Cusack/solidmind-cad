@@ -68,7 +68,7 @@ def _interp(table: tuple[tuple[float, float], ...], x: float) -> float:
         return table[0][1]
     if x >= table[-1][0]:
         return table[-1][1]
-    for (x0, y0), (x1, y1) in zip(table, table[1:]):
+    for (x0, y0), (x1, y1) in zip(table, table[1:], strict=False):
         if x0 <= x <= x1:
             t = (x - x0) / (x1 - x0)
             return y0 + t * (y1 - y0)
