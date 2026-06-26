@@ -32,7 +32,8 @@
         "base": 0.0,
         "guide_axis": 18.0
       },
-      "notes": "Guide tube axis is fixed at 12 deg above horizontal on the test stand; barrel is coaxial with the guide bore."
+      "launch_height_mm": 150.0,
+      "notes": "Guide tube axis is fixed at 12 deg above horizontal on the test stand; barrel is coaxial with the guide bore. launch_height_mm is the muzzle height above ground (stand + table)."
     }
   },
   "parts": [

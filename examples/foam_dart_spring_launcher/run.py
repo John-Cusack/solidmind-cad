@@ -149,7 +149,8 @@ def screen_parts(
 # --------------------------------------------------------------------------- #
 # Synthesize: build real geometry via FreeCAD if the addon is reachable
 # --------------------------------------------------------------------------- #
-def synthesize(out: Path, smoke: bool, log: StepLog) -> dict[str, Any]:
+def synthesize(out: Path, smoke: bool, log: StepLog,
+               brief: dict[str, Any] | None = None) -> dict[str, Any]:
     if smoke:
         log.say("Synthesize", "SKIPPED (smoke mode — no geometry)")
         return {"built": False, "reason": "smoke"}
@@ -170,8 +171,15 @@ def synthesize(out: Path, smoke: bool, log: StepLog) -> dict[str, Any]:
         return {"built": False, "reason": "no_builder"}
     step_dir = out / "step"
     step_dir.mkdir(parents=True, exist_ok=True)
-    built = fdl.build_all(out, log_fn=lambda m: log.say("Synthesize", m))
-    log.say("Synthesize", f"built {len(built)} STEP parts")
+    specs = {p["name"]: p.get("specs", {})
+             for p in (brief or {}).get("parts", [])}
+    try:
+        built = fdl.build_all(out, specs=specs, log_fn=lambda m: log.say("Synthesize", m))
+    except Exception as exc:  # any builder error → report SKIPPED, never crash the run
+        log.say("Synthesize", f"SKIPPED (geometry build failed: {exc})")
+        return {"built": False, "reason": "build_error", "error": str(exc)}
+    n_custom = sum(1 for p in (brief or {}).get("parts", []) if p.get("kind") == "custom")
+    log.say("Synthesize", f"built {len(built)} of {n_custom} custom STEP parts")
     return {"built": True, "parts": {k: str(v) for k, v in built.items()}}
 
 
@@ -243,6 +251,9 @@ def chrono_plunger_velocity(
                                      duration_s=0.04, dt_s=1e-5, output_interval=1e-4)
         finally:
             client.disconnect()
+    except Exception as exc:  # connect/sim/protocol error → degrade, don't crash
+        log.say("Simulate", f"Chrono SKIPPED (sim error: {exc})")
+        return None, []
     finally:
         proc.terminate()
         try:
@@ -252,6 +263,11 @@ def chrono_plunger_velocity(
 
     ts = result.get("time_series", [])
     samples = [(s["t"], s["parts"]["plunger"]["pos"][2]) for s in ts]
+    # A degenerate trace (≤1 sample) yields no real velocity — report SKIPPED
+    # rather than a faked 0.0 m/s that would look like a genuine measurement.
+    if len(samples) < 2:
+        log.say("Simulate", "Chrono SKIPPED (degenerate trace — no usable samples)")
+        return None, []
     trace: list[dict[str, float]] = []
     peak = 0.0
     for (t1, z1), (t2, z2) in zip(samples, samples[1:]):
@@ -317,10 +333,12 @@ def write_bom(path: Path, brief: dict[str, Any]) -> None:
 
 def write_report(
     path: Path, *, brief: dict[str, Any], spec: pm.LauncherSpec, material_name: str,
-    hold_force_n: float, v1: dict[str, AnalysisCheck], v2_latch: AnalysisCheck,
+    hold_force_n: float, v1: dict[str, AnalysisCheck], v2: dict[str, AnalysisCheck],
     fix, interp, dyn_v: float | None, analytical_lossless_v: float,
     pred_rows: list[dict[str, Any]], calibrated: bool, log: StepLog, smoke: bool,
+    k_is_placeholder: bool, mass_is_placeholder: bool,
 ) -> None:
+    v2_latch = v2["latch_sear"]
     L: list[str] = []
     A = L.append
     A("# Foam-Dart Spring Launcher — Validation Report\n")
@@ -333,9 +351,9 @@ def write_report(
     A("## Assumptions\n")
     A(f"- Material: **{material_name}** (yield used in screening).")
     A(f"- Spring constant: **{spec.spring_k_n_per_m:.0f} N/m** "
-      + ("(PLACEHOLDER — measure your spring)" if spec.spring_k_n_per_m == 300.0 else "(user-supplied)"))
+      + ("(PLACEHOLDER — measure your spring)" if k_is_placeholder else "(user-supplied)"))
     A(f"- Dart mass: **{spec.dart_mass_kg*1000:.2f} g**"
-      + (" (default placeholder)" if abs(spec.dart_mass_kg - 0.001) < 1e-9 else " (user-supplied)"))
+      + (" (default placeholder)" if mass_is_placeholder else " (user-supplied)"))
     A(f"- Launch angle: **{spec.launch_angle_deg:.0f}°**, launch height **{spec.launch_height_m:.2f} m**.")
     A(f"- Efficiency: **{spec.efficiency:.3f}** "
       + ("(CALIBRATED from your measured shot)" if calibrated else "(uncalibrated placeholder — feed a shot to --calibrate-from-shot)"))
@@ -383,8 +401,10 @@ def write_report(
     lv1 = v1["latch_sear"]
     A(f"| Latch tooth (FoS basis) | > 2.0 | {lv1.status.value.upper()} (peak {lv1.measured:.0f} MPa) | "
       f"{v2_latch.status.value.upper()} (peak {v2_latch.measured:.0f} MPa) |")
-    A(f"| Spring seat | > 2.0 | {v1['spring_seat'].status.value.upper()} | PASS |")
-    A(f"| Plunger rod (buckling) | > 2.0 | {v1['plunger_rod'].status.value.upper()} | PASS |")
+    A(f"| Spring seat | > 2.0 | {v1['spring_seat'].status.value.upper()} | "
+      f"{v2['spring_seat'].status.value.upper()} |")
+    A(f"| Plunger rod (buckling) | > 2.0 | {v1['plunger_rod'].status.value.upper()} | "
+      f"{v2['plunger_rod'].status.value.upper()} |")
     A("")
 
     A("## V1 failure → V2 fix\n")
@@ -443,7 +463,7 @@ def run(argv: list[str] | None = None) -> int:
         spring_k_n_per_m=args.spring_k_n_m,
         dart_mass_kg=args.dart_mass_g / 1000.0,
         launch_angle_deg=args.angle_deg,
-        launch_height_m=brief["parameters"]["layout"]["z_layers"]["guide_axis"] / 100.0,
+        launch_height_m=brief["parameters"]["layout"]["launch_height_mm"] / 1000.0,
         efficiency=args.efficiency,
     ).validated()
     hold_force_n = spec.spring_k_n_per_m * MAX_COMPRESSION_M
@@ -453,7 +473,7 @@ def run(argv: list[str] | None = None) -> int:
                        f"({len(brief['parts'])} parts, {len(brief['interfaces'])} interfaces)")
 
     # 2. SYNTHESIZE
-    synth = synthesize(out, args.smoke, log)
+    synth = synthesize(out, args.smoke, log, brief=brief)
 
     # 3. REFLECT
     expectations = load_expectations()
@@ -550,15 +570,22 @@ def run(argv: list[str] | None = None) -> int:
                 r["actual_range_m"] = rng_m
                 r["rel_error"] = f"{100*abs(r['predicted_range_m']-rng_m)/rng_m:.1f}%"
 
+    # Placeholder labels are decided against the brief's declared defaults, not
+    # hardcoded magic numbers, so they stay correct if the defaults change.
+    pdefaults = brief["parameters"]["physical_defaults"]
+    k_is_placeholder = spec.spring_k_n_per_m == float(pdefaults["spring_k_n_per_m"])
+    mass_is_placeholder = abs(spec.dart_mass_kg * 1000.0 - float(pdefaults["dart_mass_g"])) < 1e-9
+
     # Write outputs
     write_range_csv(out / "range_prediction.csv", pred_rows)
     write_motion_csv(out / "motion_trace.csv", trace, mech_spec, MAX_COMPRESSION_M)
     write_bom(out / "bom.json", brief)
     write_report(out / "validation_report.md", brief=brief, spec=spec,
                  material_name=mat.name, hold_force_n=hold_force_n, v1=v1,
-                 v2_latch=v2_latch, fix=fix, interp=interp, dyn_v=dyn_v,
+                 v2=v2, fix=fix, interp=interp, dyn_v=dyn_v,
                  analytical_lossless_v=analytical_lossless_v, pred_rows=pred_rows,
-                 calibrated=calibrated, log=log, smoke=args.smoke)
+                 calibrated=calibrated, log=log, smoke=args.smoke,
+                 k_is_placeholder=k_is_placeholder, mass_is_placeholder=mass_is_placeholder)
 
     print(f"\nOutputs written to {out}")
     print(f"  V1 latch: {v1['latch_sear'].status.value} → V2 latch: {v2_latch.status.value}")

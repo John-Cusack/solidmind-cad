@@ -29,7 +29,8 @@ def _send(cmd: str, **args: Any) -> dict[str, Any]:
 
 
 def _circle(radius_mm: float, cx: float = 0.0, cy: float = 0.0) -> dict[str, Any]:
-    return {"type": "circle", "cx": cx, "cy": cy, "radius": radius_mm}
+    # The addon's sketch_populate reads circle radius from "r" (commands.py).
+    return {"type": "circle", "cx": cx, "cy": cy, "r": radius_mm}
 
 
 def _rect(w: float, h: float, x: float = 0.0, y: float = 0.0) -> dict[str, Any]:
@@ -65,13 +66,14 @@ def _rod(part: str, out_dir: Path, *, dia_mm: float, length_mm: float,
     return _export(part, doc, out_dir, log)
 
 
-def _stand(part: str, out_dir: Path, *, base_w: float, base_l: float,
+def _block(part: str, out_dir: Path, *, w: float, length: float,
            thickness: float, log: Callable[[str], None]) -> Path:
+    """A flat rectangular block padded up by ``thickness`` (no supports)."""
     doc = _send("new_document", name=part).get("name", part)
     body = _send("new_body", name=part, doc=doc)["name"]
     sk = _send("new_sketch", body=body, plane="XY", doc=doc)["sketch"]
     _send("sketch_populate", sketch=sk, doc=doc,
-          elements=[_rect(base_w, base_l, -base_w / 2.0, -base_l / 2.0)])
+          elements=[_rect(w, length, -w / 2.0, -length / 2.0)])
     _send("close_sketch", sketch=sk, doc=doc)
     _send("pad", sketch=sk, length=thickness, doc=doc)
     return _export(part, doc, out_dir, log)
@@ -91,22 +93,62 @@ def _export(part: str, doc: str, out_dir: Path, log: Callable[[str], None]) -> P
     return step_path
 
 
-def build_all(out_dir: Path, *, log_fn: Callable[[str], None] | None = None) -> dict[str, Path]:
-    """Build the launcher's printable parts and return {part: step_path}.
+def build_all(
+    out_dir: Path,
+    *,
+    specs: dict[str, dict[str, Any]] | None = None,
+    log_fn: Callable[[str], None] | None = None,
+) -> dict[str, Path]:
+    """Build the launcher's printable custom parts → {part: step_path}.
 
-    Dimensions mirror the committed design brief. Sequential because the FreeCAD
-    socket is single-document-at-a-time.
+    Dimensions are read from ``specs`` (the committed design brief's per-part
+    specs, keyed by part name) so geometry tracks the single source of truth;
+    each value falls back to a sensible default if the spec is absent.
+    Sequential because the FreeCAD socket is single-document-at-a-time.
     """
     log = log_fn or (lambda _m: None)
+    specs = specs or {}
+
+    def g(part: str, key: str, default: float) -> float:
+        return float(specs.get(part, {}).get(key, default))
+
     built: dict[str, Path] = {}
-    built["guide_tube"] = _tube("guide_tube", out_dir, od_mm=16.0 + 2 * 2.8,
-                                bore_mm=16.0, length_mm=90.0, log=log)
-    built["barrel"] = _tube("barrel", out_dir, od_mm=14.5 + 2 * 2.6,
-                            bore_mm=14.5, length_mm=60.0, log=log)
-    built["spring_seat"] = _tube("spring_seat", out_dir, od_mm=13.0,
-                                 bore_mm=6.4, length_mm=8.0, log=log)
-    built["plunger_rod"] = _rod("plunger_rod", out_dir, dia_mm=6.0, length_mm=70.0, log=log)
-    built["plunger_head"] = _rod("plunger_head", out_dir, dia_mm=15.2, length_mm=6.0, log=log)
-    built["test_stand"] = _stand("test_stand", out_dir, base_w=80.0, base_l=140.0,
-                                 thickness=6.0, log=log)
+    built["guide_tube"] = _tube(
+        "guide_tube", out_dir,
+        od_mm=g("guide_tube", "bore_dia_mm", 16.0) + 2 * g("guide_tube", "wall_mm", 2.8),
+        bore_mm=g("guide_tube", "bore_dia_mm", 16.0),
+        length_mm=g("guide_tube", "length_mm", 90.0), log=log)
+    built["barrel"] = _tube(
+        "barrel", out_dir,
+        od_mm=g("barrel", "bore_dia_mm", 14.5) + 2 * g("barrel", "wall_mm", 2.6),
+        bore_mm=g("barrel", "bore_dia_mm", 14.5),
+        length_mm=g("barrel", "length_mm", 60.0), log=log)
+    built["spring_seat"] = _tube(
+        "spring_seat", out_dir,
+        od_mm=g("spring_seat", "seat_dia_mm", 13.0),
+        bore_mm=g("spring_seat", "bore_dia_mm", 6.4),
+        length_mm=g("spring_seat", "length_mm", 8.0), log=log)
+    built["plunger_rod"] = _rod(
+        "plunger_rod", out_dir,
+        dia_mm=g("plunger_rod", "dia_mm", 6.0),
+        length_mm=g("plunger_rod", "length_mm", 70.0), log=log)
+    built["plunger_head"] = _rod(
+        "plunger_head", out_dir,
+        dia_mm=g("plunger_head", "dia_mm", 15.2),
+        length_mm=g("plunger_head", "thickness_mm", 6.0), log=log)
+    built["pull_handle"] = _block(
+        "pull_handle", out_dir,
+        w=g("pull_handle", "width_mm", 30.0), length=20.0,
+        thickness=g("pull_handle", "thickness_mm", 6.0), log=log)
+    built["latch_sear"] = _block(
+        "latch_sear", out_dir,
+        w=g("latch_sear", "tooth_width_mm", 6.0) + 6.0, length=15.0,
+        thickness=6.0, log=log)
+    built["notch_plate"] = _block(
+        "notch_plate", out_dir, w=12.0, length=40.0, thickness=3.0, log=log)
+    built["test_stand"] = _block(
+        "test_stand", out_dir,
+        w=g("test_stand", "base_w_mm", 80.0),
+        length=g("test_stand", "base_l_mm", 140.0),
+        thickness=6.0, log=log)
     return built
