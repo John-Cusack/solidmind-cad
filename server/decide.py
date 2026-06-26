@@ -88,21 +88,28 @@ def interpret_compare_to_expectations(
         for c in result.checks
     )
 
-    lo, hi = expectations.expected_peak_stress_mpa
-    within_band = lo <= result.max_von_mises_mpa <= hi
-
     observed = result.failure_mode
     mode_expected = (
         observed in expectations.failure_modes_to_check if observed is not None else False
     )
 
+    # Peak-stress band doesn't apply to buckling-governed failures (the peak
+    # von Mises isn't the governing metric there) — match screen_stress, which
+    # exempts BUCKLING from its band check, so the two never disagree.
+    lo, hi = expectations.expected_peak_stress_mpa
+    band_applies = observed is not FailureMode.BUCKLING
+    within_band = (lo <= result.max_von_mises_mpa <= hi) if band_applies else True
+
     notes: list[str] = []
     notes.append("hotspot as expected" if hotspot_match else "hotspot NOT where expected")
-    notes.append(
-        f"peak {result.max_von_mises_mpa:.1f} MPa "
-        + ("within" if within_band else "outside")
-        + f" band {lo:.0f}-{hi:.0f}"
-    )
+    if band_applies:
+        notes.append(
+            f"peak {result.max_von_mises_mpa:.1f} MPa "
+            + ("within" if within_band else "outside")
+            + f" band {lo:.0f}-{hi:.0f}"
+        )
+    else:
+        notes.append("peak-stress band N/A (buckling-governed)")
     if observed is not None:
         notes.append(
             f"mode {observed.value} "
@@ -165,7 +172,11 @@ def from_failure(check: AnalysisCheck) -> FixProposal | None:
             rationale=f"no automated fix mapped for {mode.value}; manual review at {target}",
         )
     op, param, delta, template = mapped
+    # Prefer the check's own remediation text when it carries one (e.g. from
+    # screen_stress), so the advice has a single source of truth and can't drift
+    # from the check; fall back to the per-mode template otherwise.
+    rationale = check.suggestion.strip() if check.suggestion else template.format(target=target)
     return FixProposal(
         op=op, target=target, param=param, delta=delta,
-        rationale=template.format(target=target),
+        rationale=rationale,
     )
