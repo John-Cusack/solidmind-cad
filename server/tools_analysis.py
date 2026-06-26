@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import concurrent.futures
+import dataclasses
 import logging
 import tempfile
 import time
@@ -18,7 +19,9 @@ from server.analysis_models import (
     CheckStatus,
     FieldResult,
     Material,
+    ReflectExpectations,
 )
+from server.screen_stress import screen_stress
 from server.analysis_solvers import (
     FieldSolver,
     get_solver,
@@ -131,6 +134,7 @@ def analysis_stress_check(
     mesh_size: float = 0.0,
     solver: str = "",
     doc: str | None = None,
+    expectations: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Run structural stress analysis on a body.
 
@@ -140,6 +144,11 @@ def analysis_stress_check(
     Load contract (v1 direct-solver rollout):
     - ``force`` values are interpreted as total force (N) over selected faces.
     - ``pressure_mpa`` values are pressure intensity (MPa == N/mm^2).
+
+    ``expectations`` is an optional Reflect-step payload (see
+    ``analysis.screen_stress``); when supplied and the result is not PASS, the
+    primary expected failure mode is tagged on the result so the Interpret step
+    can compare it. It does not change the solve.
     """
     # Resolve material
     mat = _resolve_material(material)
@@ -291,6 +300,19 @@ def analysis_stress_check(
         solve_time_s=solve_time,
     )
 
+    # Tag the primary expected failure mode (Reflect → Interpret) when the part
+    # didn't pass, so the loop has a typed value to dispatch on.
+    if expectations is not None and result.status != CheckStatus.PASS:
+        exp = (
+            ReflectExpectations.from_dict(expectations)
+            if isinstance(expectations, dict)
+            else expectations
+        )
+        if exp.failure_modes_to_check:
+            result = dataclasses.replace(
+                result, failure_mode=exp.failure_modes_to_check[0]
+            )
+
     # Persist
     try:
         save_result(result)
@@ -298,6 +320,54 @@ def analysis_stress_check(
         log.warning("Failed to persist analysis result", exc_info=True)
 
     return {"ok": True, **result.to_dict()}
+
+
+def analysis_screen_stress(
+    *,
+    section: dict[str, Any],
+    load: dict[str, Any],
+    material: str | dict[str, Any],
+    stress_concentration: dict[str, Any] | None = None,
+    buckling: dict[str, Any] | None = None,
+    target_fos: float = 2.0,
+    name: str = "analytical stress screen",
+    expectations: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Tier-1 analytical stress screen — gate FEA without a solver.
+
+    Beam-theory bending stress + handbook stress-concentration factor + Euler
+    buckling bound. Returns an AnalysisCheck (pass/warn/fail). A WARN means the
+    screen is not definitive — run ``analysis.stress_check`` (FEA). No gmsh /
+    CalculiX is invoked.
+    """
+    mat = _resolve_material(material)
+    if mat is None:
+        return {
+            "ok": False,
+            "error": {
+                "code": "UNKNOWN_MATERIAL",
+                "message": f"Material not found: {material!r}. Use analysis.list_materials to see available materials.",
+            },
+        }
+    exp = ReflectExpectations.from_dict(expectations) if expectations else None
+    try:
+        check = screen_stress(
+            section=section,
+            load=load,
+            yield_strength_mpa=mat.yield_strength_mpa,
+            youngs_modulus_mpa=mat.youngs_modulus_mpa,
+            stress_concentration=stress_concentration,
+            buckling=buckling,
+            target_fos=target_fos,
+            name=name,
+            expectations=exp,
+        )
+    except (ValueError, KeyError) as exc:
+        return {
+            "ok": False,
+            "error": {"code": "INVALID_INPUT", "message": str(exc)},
+        }
+    return {"ok": True, **check.to_dict()}
 
 
 def analysis_stress_from_simulation(

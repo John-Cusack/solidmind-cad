@@ -263,6 +263,7 @@ from server.tools_analysis import (
     analysis_conjugate_thermal_check,
     analysis_list_materials,
     analysis_list_solvers,
+    analysis_screen_stress,
     analysis_stress_check,
     analysis_stress_from_simulation,
     analysis_thermal_check,
@@ -3908,6 +3909,74 @@ def _analysis_tool_list() -> list[dict[str, Any]]:
             },
         },
         {
+            "name": "analysis.screen_stress",
+            "description": (
+                "Tier-1 analytical stress screen (beam theory + handbook "
+                "stress-concentration factor + Euler buckling bound). Gates FEA: "
+                "FAIL = obviously bad, WARN = run analysis.stress_check to confirm, "
+                "PASS = no FEA needed. No gmsh/CalculiX invoked."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "section": {
+                        "type": "object",
+                        "description": (
+                            "Cross-section. {type:'rectangle', width_mm, height_mm} "
+                            "or {type:'circle', diameter_mm} or {i_mm4, c_mm} directly."
+                        ),
+                    },
+                    "load": {
+                        "type": "object",
+                        "description": (
+                            "Bending load. {moment_nmm} or {force_n, length_mm} "
+                            "(cantilever tip load, M = F·L)."
+                        ),
+                    },
+                    "material": {
+                        "description": (
+                            "Material key (e.g. 'aluminum_6061_t6', 'pla') or inline "
+                            "dict with yield_strength_mpa + youngs_modulus_mpa."
+                        ),
+                    },
+                    "stress_concentration": {
+                        "type": "object",
+                        "description": (
+                            "Optional. {feature:'fillet'|'hole'|'notch', ratio} where "
+                            "ratio is r/d (fillet/notch) or d/w (hole). ratio<=0 = sharp corner."
+                        ),
+                    },
+                    "buckling": {
+                        "type": "object",
+                        "description": (
+                            "Optional compressive-buckling check. "
+                            "{length_mm, compressive_force_n, end_fixity?}."
+                        ),
+                    },
+                    "target_fos": {
+                        "type": "number",
+                        "description": "Target factor of safety (default 2.0).",
+                        "default": 2.0,
+                    },
+                    "name": {
+                        "type": "string",
+                        "description": "Check label.",
+                        "default": "analytical stress screen",
+                    },
+                    "expectations": {
+                        "type": "object",
+                        "description": (
+                            "Optional Reflect-step expectations: {part_class, "
+                            "failure_modes_to_check, expected_hotspot, "
+                            "expected_peak_stress_mpa:[lo,hi]}."
+                        ),
+                    },
+                },
+                "required": ["section", "load", "material"],
+                "additionalProperties": False,
+            },
+        },
+        {
             "name": "analysis.stress_from_simulation",
             "description": (
                 "Run stress analysis using forces extracted from simulation results. "
@@ -4467,6 +4536,7 @@ _FASTENER_DISPATCH: dict[str, Any] = {
 
 _ANALYSIS_DISPATCH: dict[str, Any] = {
     "analysis.stress_check": analysis_stress_check,
+    "analysis.screen_stress": analysis_screen_stress,
     "analysis.stress_from_simulation": analysis_stress_from_simulation,
     "analysis.thermal_check": analysis_thermal_check,
     "analysis.conjugate_thermal_check": analysis_conjugate_thermal_check,
