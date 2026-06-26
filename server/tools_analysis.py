@@ -22,13 +22,13 @@ from server.analysis_models import (
     Material,
     ReflectExpectations,
 )
-from server.screen_stress import screen_stress
 from server.analysis_solvers import (
     FieldSolver,
     get_solver,
     list_solvers,
 )
 from server.analysis_store import save_result
+from server.screen_stress import screen_stress
 from server.tools_cad import cad_export_body
 
 log = logging.getLogger("solidmind.tools_analysis")
@@ -542,12 +542,12 @@ def analysis_aero_check(
 
     Exports STEP → surface mesh → solver → CL/CD/L÷D + rotor thrust/torque.
     """
+    from server.analysis_fluids import get_fluid
     from server.analysis_models import (
         AeroReference,
         FlowConditions,
         RotorSpec,
     )
-    from server.analysis_fluids import get_fluid
 
     # Parse flow conditions — support fluid shorthand
     if fluid and isinstance(flow_conditions, dict):

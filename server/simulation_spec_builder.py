@@ -17,7 +17,6 @@ Key design decisions:
 from __future__ import annotations
 
 import logging
-import math
 from typing import Any
 
 from server.motion_models import JointType, Mechanism
@@ -438,7 +437,7 @@ def _build_derived_outputs(
     for ps in planetary_sets:
         teeth_ratio = ps.teeth_sun / ps.teeth_planet if ps.teeth_planet > 0 else 1.0
 
-        for i, planet_id in enumerate(ps.planets):
+        for planet_id in ps.planets:
             derived[planet_id] = {
                 "formula": "carrier_planet",
                 "carrier": ps.carrier,
