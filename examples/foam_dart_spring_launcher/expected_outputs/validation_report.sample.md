@@ -11,8 +11,8 @@ A 3D-printable, fixed-angle, single-shot spring-plunger foam-dart launcher used 
 - Material: **pla** (yield used in screening).
 - Spring constant: **300 N/m** (PLACEHOLDER — measure your spring)
 - Dart mass: **1.00 g** (default placeholder)
-- Launch angle: **12°**, launch height **0.18 m**.
-- Efficiency: **0.761** (CALIBRATED from your measured shot)
+- Launch angle: **12°**, launch height **0.15 m**.
+- Efficiency: **0.782** (CALIBRATED from your measured shot)
 - Full-cock spring hold force: **9.0 N** (k × 30 mm).
 
 ## Sim-to-real chain
@@ -30,9 +30,9 @@ The lossless head-to-head validates the energy core of physics_model against the
 
 | Pullback | Muzzle v (real) | Predicted range | Actual range | Error |
 | ---: | ---: | ---: | ---: | ---: |
-| 10 mm | 4.78 m/s | 1.49 m (4.9 ft) | user fills | user fills |
-| 20 mm | 9.56 m/s | 4.50 m (14.8 ft) | 4.5 | 0.0% |
-| 30 mm | 14.33 m/s | 9.30 m (30.5 ft) | user fills | user fills |
+| 10 mm | 4.84 m/s | 1.45 m (4.7 ft) | user fills | user fills |
+| 20 mm | 9.68 m/s | 4.50 m (14.8 ft) | 4.5 | 0.0% |
+| 30 mm | 14.53 m/s | 9.41 m (30.9 ft) | user fills | user fills |
 
 ## Inner-loop trace (nine steps)
 
@@ -43,7 +43,7 @@ The lossless head-to-head validates the energy core of physics_model against the
 - `[Simulate] latch screen FAIL is definitive — no FEA needed to reject V1`
 - `[Simulate] Chrono SKIPPED (smoke)`
 - `[Interpret] stress_concentration; hotspot as expected; peak 67.5 MPa outside band 15-60; mode stress_concentration was in the checklist`
-- `[Decide] add_fillet → add or enlarge the root fillet at latch tooth_root to cut the stress-concentration factor`
+- `[Decide] add_fillet → add or enlarge the fillet/round at the hotspot to lower Kt`
 - `[Act] V2 latch re-screen → pass (peak 68 → 6 MPa)`
 - `[Learn] finding written to <out>/launcher_v2/finding.md (knowledge store unavailable)`
 
@@ -59,7 +59,7 @@ The lossless head-to-head validates the energy core of physics_model against the
 
 - **V1 failure:** latch screen → `fail` / `stress_concentration` — sigma_nom=22.5 MPa, Kt=3.00, peak=67.5 MPa, FoS=0.89 vs target 2.0
 - **Interpret:** hotspot as expected; peak 67.5 MPa outside band 15-60; mode stress_concentration was in the checklist
-- **Decide:** add_fillet at `latch tooth_root` (radius_mm += 0.5) — add or enlarge the root fillet at latch tooth_root to cut the stress-concentration factor
+- **Decide:** add_fillet at `latch tooth_root` (radius_mm += 0.5) — add or enlarge the fillet/round at the hotspot to lower Kt
 - **Act → V2:** re-screen → `pass` (peak 68 → 6 MPa).
 
 ## Print / test instructions
