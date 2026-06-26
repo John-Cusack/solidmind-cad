@@ -214,9 +214,9 @@ def chrono_plunger_velocity(
         log.say("Simulate", "Chrono SKIPPED (daemon not built); using analytical value")
         return None, []
 
+    from server.chrono_client import ChronoClient
     from server.motion_models import JointEdge, JointType, Mechanism, PartNode
     from server.simulation_spec_builder import build_simulation_spec
-    from server.chrono_client import ChronoClient
 
     z0 = 0.005  # initial plunger offset; spring rest = z0 + pullback (compressed)
     rest = z0 + pullback_m
@@ -270,7 +270,7 @@ def chrono_plunger_velocity(
         return None, []
     trace: list[dict[str, float]] = []
     peak = 0.0
-    for (t1, z1), (t2, z2) in zip(samples, samples[1:]):
+    for (t1, z1), (t2, z2) in zip(samples, samples[1:], strict=False):
         v = abs((z2 - z1) / (t2 - t1)) if t2 > t1 else 0.0
         peak = max(peak, v)
         trace.append({"t_s": round(t2, 6), "plunger_pos_m": round(z2, 6),
@@ -473,7 +473,7 @@ def run(argv: list[str] | None = None) -> int:
                        f"({len(brief['parts'])} parts, {len(brief['interfaces'])} interfaces)")
 
     # 2. SYNTHESIZE
-    synth = synthesize(out, args.smoke, log, brief=brief)
+    synthesize(out, args.smoke, log, brief=brief)
 
     # 3. REFLECT
     expectations = load_expectations()
@@ -484,9 +484,9 @@ def run(argv: list[str] | None = None) -> int:
     v1 = screen_parts(hold_force_n=hold_force_n, yield_mpa=mat.yield_strength_mpa,
                       youngs_mpa=mat.youngs_modulus_mpa, latch_root_mm=1.0,
                       latch_fillet_ratio=0.0)
-    log.say("Screen", "V1 latch=%s spring_seat=%s plunger_rod=%s" % (
-        v1["latch_sear"].status.value, v1["spring_seat"].status.value,
-        v1["plunger_rod"].status.value))
+    log.say("Screen", f"V1 latch={v1['latch_sear'].status.value} "
+            f"spring_seat={v1['spring_seat'].status.value} "
+            f"plunger_rod={v1['plunger_rod'].status.value}")
 
     # 5. SIMULATE — structural (FEA, guarded) + dynamic (Chrono)
     from server.analysis_solvers import list_solvers

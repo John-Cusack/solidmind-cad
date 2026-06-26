@@ -46,7 +46,7 @@ class TestRange(unittest.TestCase):
     def test_range_monotonic_increasing_in_pullback(self) -> None:
         s = _spec()
         ranges = [pm.predicted_range_m(s, x / 1000.0) for x in (10, 20, 30)]
-        self.assertTrue(all(b > a for a, b in zip(ranges, ranges[1:])))
+        self.assertTrue(all(b > a for a, b in zip(ranges, ranges[1:], strict=False)))
 
     def test_range_ratio_tracks_x_squared_no_drag_no_height(self) -> None:
         # With launch_height 0 and no drag, range ∝ v² ∝ x².

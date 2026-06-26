@@ -60,7 +60,7 @@ class TestFoamDartSmokeE2E(unittest.TestCase):
             rows = list(csv.DictReader(f))
         self.assertEqual([r["pullback_mm"] for r in rows], ["10.0", "20.0", "30.0"])
         ranges = [float(r["predicted_range_m"]) for r in rows]
-        self.assertTrue(all(b > a for a, b in zip(ranges, ranges[1:])))
+        self.assertTrue(all(b > a for a, b in zip(ranges, ranges[1:], strict=False)))
 
     def test_calibration_fills_actual_and_error(self) -> None:
         self._run_smoke("--calibrate-from-shot", "20", "4.5")
