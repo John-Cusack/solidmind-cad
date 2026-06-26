@@ -14,7 +14,10 @@ from server.motion_models import (
     Mechanism,
     PartNode,
 )
-from server.simulation_spec_builder import build_simulation_spec
+from server.simulation_spec_builder import (
+    build_simulation_spec,
+    validate_simulation_spec,
+)
 
 
 def _slider(*, with_spring: bool) -> Mechanism:
@@ -56,7 +59,36 @@ class TestSpringEmission(unittest.TestCase):
         self.assertEqual(s["k_n_per_m"], 300.0)
         self.assertEqual(s["rest_length_m"], 0.04)
         self.assertEqual(s["preload_n"], 2.0)
-        self.assertEqual(s["axis"], [0.0, 0.0, 1.0])
+        # Direction is derived daemon-side from body positions — no pos/axis sent.
+        self.assertNotIn("axis", s)
+        self.assertNotIn("pos", s)
+
+    def test_spring_only_spec_passes_validation(self) -> None:
+        """A cocked spring-loaded slider has no motor; the spring is its driver."""
+        spec = build_simulation_spec(_slider(with_spring=True))
+        self.assertEqual(validate_simulation_spec(spec), [])
+
+    def test_motorless_springless_spec_still_rejected(self) -> None:
+        spec = build_simulation_spec(_slider(with_spring=False))
+        issues = validate_simulation_spec(spec)
+        self.assertTrue(any("no driving force" in i.lower() for i in issues))
+
+    def test_spring_on_non_prismatic_warns(self) -> None:
+        joint = JointEdge(
+            id="hinge", joint_type=JointType.REVOLUTE,
+            parent_part="ground", child_part="plunger",
+            spring_k_n_per_m=300.0,
+        )
+        mech = Mechanism(
+            name="m",
+            parts=(PartNode(id="ground", is_ground=True),
+                   PartNode(id="plunger", mass_kg=0.05)),
+            joints=(joint,), drives=(),
+        )
+        with self.assertLogs("solidmind.simulation_spec_builder", level="WARNING") as cm:
+            objs = build_simulation_spec(mech)["objects"]
+        self.assertEqual(_by_type(objs, "spring"), [])  # not emitted
+        self.assertTrue(any("only" in m and "PRISMATIC" in m for m in cm.output))
 
     def test_prismatic_still_emitted_alongside_spring(self) -> None:
         objs = build_simulation_spec(_slider(with_spring=True))["objects"]

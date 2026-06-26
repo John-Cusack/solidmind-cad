@@ -69,6 +69,27 @@ struct JointReactionAccum {
     int    samples = 0;
 };
 
+/// Custom TSDA force: F = preload + k (rest_length - length) - damping * vel.
+/// Expressed directly (rather than via a rest-length offset) so the preload is
+/// correct even when k == 0, and so optional linear damping can be applied.
+/// Sign matches ChLinkTSDA's default: positive force extends the spring, so a
+/// compressed spring (length < rest_length) pushes the bodies apart.
+class SpringForce : public chrono::ChLinkTSDA::ForceFunctor {
+  public:
+    SpringForce(double k, double preload, double damping)
+        : m_k(k), m_preload(preload), m_damping(damping) {}
+
+    double evaluate(double /*time*/, double rest_length, double length,
+                    double vel, const chrono::ChLinkTSDA& /*link*/) override {
+        return m_preload + m_k * (rest_length - length) - m_damping * vel;
+    }
+
+  private:
+    double m_k;
+    double m_preload;
+    double m_damping;
+};
+
 /// Result of building a mechanism in Chrono.
 struct BuiltMechanism {
     std::shared_ptr<chrono::ChSystemNSC> system;
@@ -236,6 +257,7 @@ inline BuiltMechanism build_mechanism_from_spec(const json& spec_json) {
             }
             double k = json_get(obj, "k_n_per_m", 0.0);
             double preload = json_get(obj, "preload_n", 0.0);
+            double damping = json_get(obj, "damping_n_s_per_m", 0.0);
             chrono::ChVector3d p1 = b1_it->second->GetPos();
             chrono::ChVector3d p2 = b2_it->second->GetPos();
             double init_len = (p2 - p1).Length();
@@ -243,12 +265,14 @@ inline BuiltMechanism build_mechanism_from_spec(const json& spec_json) {
             auto tsda = chrono_types::make_shared<chrono::ChLinkTSDA>();
             // Attach at the two body origins in world coordinates.
             tsda->Initialize(b1_it->second, b2_it->second, false, p1, p2);
-            // Encode preload by offsetting the effective rest length so that
-            // F(rest_len) == preload:  F = -k (len - rest_eff).
-            double rest_eff = (k != 0.0) ? rest_len + preload / k : rest_len;
-            tsda->SetRestLength(rest_eff);
-            tsda->SetSpringCoefficient(k);
-            tsda->SetDampingCoefficient(0.0);
+            tsda->SetRestLength(rest_len);
+            // A custom force functor expresses force directly:
+            //   F = preload + k (rest_len - len) - damping * vel
+            // This keeps preload correct even when k == 0 (no division) and
+            // adds optional linear damping. Stored on the link (shared_ptr),
+            // so it outlives this scope.
+            tsda->RegisterForceFunctor(
+                chrono_types::make_shared<SpringForce>(k, preload, damping));
             sys.AddLink(tsda);
 
         } else if (type == "fixed") {
