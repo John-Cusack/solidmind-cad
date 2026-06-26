@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import concurrent.futures
+import dataclasses
 import logging
 import tempfile
 import time
@@ -16,8 +17,10 @@ from server.analysis_models import (
     AnalysisType,
     BoundaryCondition,
     CheckStatus,
+    FailureMode,
     FieldResult,
     Material,
+    ReflectExpectations,
 )
 from server.analysis_solvers import (
     FieldSolver,
@@ -25,6 +28,7 @@ from server.analysis_solvers import (
     list_solvers,
 )
 from server.analysis_store import save_result
+from server.screen_stress import screen_stress
 from server.tools_cad import cad_export_body
 
 log = logging.getLogger("solidmind.tools_analysis")
@@ -37,6 +41,43 @@ def _resolve_material(material: str | dict[str, Any]) -> Material | None:
     if isinstance(material, dict):
         return Material.from_dict(material)
     return None
+
+
+def _resolve_screen_material(material: str | dict[str, Any]) -> Material | None:
+    """Resolve a material for screening, accepting a minimal inline dict.
+
+    Screening only needs yield + Young's modulus, so an inline dict may carry
+    just ``{yield_strength_mpa, youngs_modulus_mpa}`` (the documented schema);
+    the structural-only fields default. A string falls back to the catalog.
+    """
+    if isinstance(material, dict):
+        return Material(
+            name=material.get("name", "custom"),
+            youngs_modulus_mpa=float(material["youngs_modulus_mpa"]),
+            poissons_ratio=float(material.get("poissons_ratio", 0.3)),
+            density_kg_m3=float(material.get("density_kg_m3", 0.0)),
+            yield_strength_mpa=float(material["yield_strength_mpa"]),
+        )
+    return get_material(material)
+
+
+def _infer_failure_mode(result: FieldResult) -> FailureMode | None:
+    """Infer a typed failure mode from a solved result's own signals.
+
+    Real solvers don't know geometry intent, so this is deliberately simple: a
+    displacement-governed failure is DEFLECTION; any other non-pass is treated
+    as YIELD. This gives the Interpret/Decide steps a real typed value to
+    dispatch on without round-tripping the caller's expectations (which would be
+    circular).
+    """
+    if result.status == CheckStatus.PASS:
+        return None
+    for c in result.checks:
+        if c.status != CheckStatus.PASS and (
+            "displacement" in c.name.lower() or "deflection" in c.name.lower()
+        ):
+            return FailureMode.DEFLECTION
+    return FailureMode.YIELD
 
 
 def _structural_solver_chain(
@@ -135,7 +176,8 @@ def analysis_stress_check(
     """Run structural stress analysis on a body.
 
     Exports STEP → meshes with Gmsh → solves with CalculiX (or selected solver)
-    → returns pass/fail with actionable results.
+    → returns pass/fail with actionable results. A typed ``failure_mode`` is
+    inferred from the result and stamped on it for the Interpret/Decide steps.
 
     Load contract (v1 direct-solver rollout):
     - ``force`` values are interpreted as total force (N) over selected faces.
@@ -291,6 +333,13 @@ def analysis_stress_check(
         solve_time_s=solve_time,
     )
 
+    # Tag a typed failure mode inferred from the result's own signals, so the
+    # Interpret/Decide steps have a real value to dispatch on. (Comparing it
+    # against expectations is the Interpret step's job — decide.interpret.)
+    inferred = _infer_failure_mode(result)
+    if inferred is not None:
+        result = dataclasses.replace(result, failure_mode=inferred)
+
     # Persist
     try:
         save_result(result)
@@ -298,6 +347,60 @@ def analysis_stress_check(
         log.warning("Failed to persist analysis result", exc_info=True)
 
     return {"ok": True, **result.to_dict()}
+
+
+def analysis_screen_stress(
+    *,
+    section: dict[str, Any],
+    load: dict[str, Any],
+    material: str | dict[str, Any],
+    stress_concentration: dict[str, Any] | None = None,
+    buckling: dict[str, Any] | None = None,
+    target_fos: float = 2.0,
+    name: str = "analytical stress screen",
+    expectations: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Tier-1 analytical stress screen — gate FEA without a solver.
+
+    Beam-theory bending stress + handbook stress-concentration factor + Euler
+    buckling bound. Returns an AnalysisCheck (pass/warn/fail). A WARN means the
+    screen is not definitive — run ``analysis.stress_check`` (FEA). No gmsh /
+    CalculiX is invoked.
+    """
+    try:
+        mat = _resolve_screen_material(material)
+    except (KeyError, ValueError, TypeError) as exc:
+        return {
+            "ok": False,
+            "error": {"code": "INVALID_INPUT", "message": f"bad material: {exc}"},
+        }
+    if mat is None:
+        return {
+            "ok": False,
+            "error": {
+                "code": "UNKNOWN_MATERIAL",
+                "message": f"Material not found: {material!r}. Use analysis.list_materials to see available materials.",
+            },
+        }
+    try:
+        exp = ReflectExpectations.from_dict(expectations) if expectations else None
+        check = screen_stress(
+            section=section,
+            load=load,
+            yield_strength_mpa=mat.yield_strength_mpa,
+            youngs_modulus_mpa=mat.youngs_modulus_mpa,
+            stress_concentration=stress_concentration,
+            buckling=buckling,
+            target_fos=target_fos,
+            name=name,
+            expectations=exp,
+        )
+    except (ValueError, KeyError, TypeError) as exc:
+        return {
+            "ok": False,
+            "error": {"code": "INVALID_INPUT", "message": str(exc)},
+        }
+    return {"ok": True, **check.to_dict()}
 
 
 def analysis_stress_from_simulation(
@@ -439,12 +542,12 @@ def analysis_aero_check(
 
     Exports STEP → surface mesh → solver → CL/CD/L÷D + rotor thrust/torque.
     """
+    from server.analysis_fluids import get_fluid
     from server.analysis_models import (
         AeroReference,
         FlowConditions,
         RotorSpec,
     )
-    from server.analysis_fluids import get_fluid
 
     # Parse flow conditions — support fluid shorthand
     if fluid and isinstance(flow_conditions, dict):
