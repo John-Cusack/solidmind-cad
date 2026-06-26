@@ -21,6 +21,15 @@ from server.analysis_models import (
     FailureMode,
     ReflectExpectations,
 )
+from server.section_properties import compute_section
+
+# Per-mode remediation text, built once (read by screen_stress and reused by
+# decide.from_failure via AnalysisCheck.suggestion).
+_SUGGESTIONS: dict[FailureMode, str] = {
+    FailureMode.STRESS_CONCENTRATION: "add or enlarge the fillet/round at the hotspot to lower Kt",
+    FailureMode.YIELD: "increase the section (thicker wall / deeper beam) or lower the load",
+    FailureMode.BUCKLING: "increase second moment of area or shorten the unsupported length",
+}
 
 # --- Stress-concentration-factor lookup tables -----------------------------
 # Each table maps a geometric ratio to Kt, sorted ascending by ratio. Values
@@ -101,22 +110,30 @@ def euler_buckling_load_n(
 
 
 def _section_i_c(section: dict[str, Any]) -> tuple[float, float]:
-    """Resolve a section dict to (I_mm4, c_mm)."""
+    """Resolve a section dict to (I_mm4, c_mm).
+
+    Either pass ``{i_mm4, c_mm}`` directly, or a ``{type, <dims>_mm}`` shape that
+    is forwarded to :func:`server.section_properties.compute_section` (so every
+    shape it supports — rectangle, circle, hollow_circle, i_beam, c_channel,
+    angle, t_section, polygon — works here, with no duplicated formulas). The
+    extreme-fibre distance is ``c = Ixx / Sx``.
+    """
     if "i_mm4" in section and "c_mm" in section:
         return float(section["i_mm4"]), float(section["c_mm"])
     stype = section.get("type", "rectangle").lower()
-    if stype == "rectangle":
-        b = float(section["width_mm"])
-        h = float(section["height_mm"])
-        if b <= 0.0 or h <= 0.0:
-            raise ValueError("rectangle width/height must be positive")
-        return b * h ** 3 / 12.0, h / 2.0
-    if stype == "circle":
-        d = float(section["diameter_mm"])
-        if d <= 0.0:
-            raise ValueError("circle diameter must be positive")
-        return math.pi * d ** 4 / 64.0, d / 2.0
-    raise ValueError(f"unknown section type {stype!r}")
+    params = {
+        (k[:-3] if k.endswith("_mm") else k): v
+        for k, v in section.items()
+        if k != "type"
+    }
+    try:
+        props = compute_section(stype, **params)
+    except (TypeError, ValueError, ArithmeticError) as exc:
+        raise ValueError(f"invalid section {section!r}: {exc}") from exc
+    ixx, sx = props["Ixx"], props["Sx"]
+    if ixx <= 0.0 or sx <= 0.0:
+        raise ValueError(f"degenerate section {section!r} (Ixx={ixx}, Sx={sx})")
+    return ixx, ixx / sx
 
 
 def _bending_moment_nmm(load: dict[str, Any]) -> float:
@@ -199,11 +216,7 @@ def screen_stress(
     else:
         status = CheckStatus.PASS
 
-    suggestion = {
-        FailureMode.STRESS_CONCENTRATION: "add or enlarge the fillet/round at the hotspot to lower Kt",
-        FailureMode.YIELD: "increase the section (thicker wall / deeper beam) or lower the load",
-        FailureMode.BUCKLING: "increase second moment of area or shorten the unsupported length",
-    }[mode]
+    suggestion = _SUGGESTIONS[mode]
 
     msg = (
         f"sigma_nom={sigma_nom:.1f} MPa, Kt={kt:.2f}, peak={peak_stress:.1f} MPa, "

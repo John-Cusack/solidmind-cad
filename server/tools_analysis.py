@@ -17,6 +17,7 @@ from server.analysis_models import (
     AnalysisType,
     BoundaryCondition,
     CheckStatus,
+    FailureMode,
     FieldResult,
     Material,
     ReflectExpectations,
@@ -40,6 +41,43 @@ def _resolve_material(material: str | dict[str, Any]) -> Material | None:
     if isinstance(material, dict):
         return Material.from_dict(material)
     return None
+
+
+def _resolve_screen_material(material: str | dict[str, Any]) -> Material | None:
+    """Resolve a material for screening, accepting a minimal inline dict.
+
+    Screening only needs yield + Young's modulus, so an inline dict may carry
+    just ``{yield_strength_mpa, youngs_modulus_mpa}`` (the documented schema);
+    the structural-only fields default. A string falls back to the catalog.
+    """
+    if isinstance(material, dict):
+        return Material(
+            name=material.get("name", "custom"),
+            youngs_modulus_mpa=float(material["youngs_modulus_mpa"]),
+            poissons_ratio=float(material.get("poissons_ratio", 0.3)),
+            density_kg_m3=float(material.get("density_kg_m3", 0.0)),
+            yield_strength_mpa=float(material["yield_strength_mpa"]),
+        )
+    return get_material(material)
+
+
+def _infer_failure_mode(result: FieldResult) -> FailureMode | None:
+    """Infer a typed failure mode from a solved result's own signals.
+
+    Real solvers don't know geometry intent, so this is deliberately simple: a
+    displacement-governed failure is DEFLECTION; any other non-pass is treated
+    as YIELD. This gives the Interpret/Decide steps a real typed value to
+    dispatch on without round-tripping the caller's expectations (which would be
+    circular).
+    """
+    if result.status == CheckStatus.PASS:
+        return None
+    for c in result.checks:
+        if c.status != CheckStatus.PASS and (
+            "displacement" in c.name.lower() or "deflection" in c.name.lower()
+        ):
+            return FailureMode.DEFLECTION
+    return FailureMode.YIELD
 
 
 def _structural_solver_chain(
@@ -134,21 +172,16 @@ def analysis_stress_check(
     mesh_size: float = 0.0,
     solver: str = "",
     doc: str | None = None,
-    expectations: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Run structural stress analysis on a body.
 
     Exports STEP → meshes with Gmsh → solves with CalculiX (or selected solver)
-    → returns pass/fail with actionable results.
+    → returns pass/fail with actionable results. A typed ``failure_mode`` is
+    inferred from the result and stamped on it for the Interpret/Decide steps.
 
     Load contract (v1 direct-solver rollout):
     - ``force`` values are interpreted as total force (N) over selected faces.
     - ``pressure_mpa`` values are pressure intensity (MPa == N/mm^2).
-
-    ``expectations`` is an optional Reflect-step payload (see
-    ``analysis.screen_stress``); when supplied and the result is not PASS, the
-    primary expected failure mode is tagged on the result so the Interpret step
-    can compare it. It does not change the solve.
     """
     # Resolve material
     mat = _resolve_material(material)
@@ -300,18 +333,12 @@ def analysis_stress_check(
         solve_time_s=solve_time,
     )
 
-    # Tag the primary expected failure mode (Reflect → Interpret) when the part
-    # didn't pass, so the loop has a typed value to dispatch on.
-    if expectations is not None and result.status != CheckStatus.PASS:
-        exp = (
-            ReflectExpectations.from_dict(expectations)
-            if isinstance(expectations, dict)
-            else expectations
-        )
-        if exp.failure_modes_to_check:
-            result = dataclasses.replace(
-                result, failure_mode=exp.failure_modes_to_check[0]
-            )
+    # Tag a typed failure mode inferred from the result's own signals, so the
+    # Interpret/Decide steps have a real value to dispatch on. (Comparing it
+    # against expectations is the Interpret step's job — decide.interpret.)
+    inferred = _infer_failure_mode(result)
+    if inferred is not None:
+        result = dataclasses.replace(result, failure_mode=inferred)
 
     # Persist
     try:
@@ -340,7 +367,13 @@ def analysis_screen_stress(
     screen is not definitive — run ``analysis.stress_check`` (FEA). No gmsh /
     CalculiX is invoked.
     """
-    mat = _resolve_material(material)
+    try:
+        mat = _resolve_screen_material(material)
+    except (KeyError, ValueError, TypeError) as exc:
+        return {
+            "ok": False,
+            "error": {"code": "INVALID_INPUT", "message": f"bad material: {exc}"},
+        }
     if mat is None:
         return {
             "ok": False,
@@ -349,8 +382,8 @@ def analysis_screen_stress(
                 "message": f"Material not found: {material!r}. Use analysis.list_materials to see available materials.",
             },
         }
-    exp = ReflectExpectations.from_dict(expectations) if expectations else None
     try:
+        exp = ReflectExpectations.from_dict(expectations) if expectations else None
         check = screen_stress(
             section=section,
             load=load,
@@ -362,7 +395,7 @@ def analysis_screen_stress(
             name=name,
             expectations=exp,
         )
-    except (ValueError, KeyError) as exc:
+    except (ValueError, KeyError, TypeError) as exc:
         return {
             "ok": False,
             "error": {"code": "INVALID_INPUT", "message": str(exc)},
