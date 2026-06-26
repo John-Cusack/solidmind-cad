@@ -34,6 +34,59 @@ class CheckStatus(str, Enum):
     FAIL = "fail"
 
 
+class FailureMode(str, Enum):
+    """Typed mechanism of failure for a structural check.
+
+    Lets the Interpret step dispatch on a value instead of parsing a free-text
+    ``name`` string.  Set drawn from the ROADMAP §Interpret taxonomy.
+    """
+    STRESS_CONCENTRATION = "stress_concentration"
+    YIELD = "yield"
+    FATIGUE = "fatigue"
+    BUCKLING = "buckling"
+    CONTACT = "contact"
+    DEFLECTION = "deflection"
+    RESONANCE = "resonance"
+    THERMAL = "thermal"
+    WEAR = "wear"
+    CORROSION = "corrosion"
+
+
+@dataclass(frozen=True, slots=True)
+class ReflectExpectations:
+    """Pre-simulation expectations filed before calling an ``analysis.*`` tool.
+
+    The Reflect step of the inner loop fills this in *before* the solver runs:
+    which failure modes are being checked, where the hotspot is expected, and
+    the plausible peak-stress band.  Interpret later compares the real result
+    against it.  Tuples are used so the model stays frozen + hashable.
+    """
+    part_class: str
+    failure_modes_to_check: tuple[FailureMode, ...]
+    expected_hotspot: str
+    expected_peak_stress_mpa: tuple[float, float]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "part_class": self.part_class,
+            "failure_modes_to_check": [m.value for m in self.failure_modes_to_check],
+            "expected_hotspot": self.expected_hotspot,
+            "expected_peak_stress_mpa": list(self.expected_peak_stress_mpa),
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> ReflectExpectations:
+        band = d["expected_peak_stress_mpa"]
+        return cls(
+            part_class=d["part_class"],
+            failure_modes_to_check=tuple(
+                FailureMode(m) for m in d["failure_modes_to_check"]
+            ),
+            expected_hotspot=d["expected_hotspot"],
+            expected_peak_stress_mpa=(band[0], band[1]),
+        )
+
+
 @dataclass(frozen=True, slots=True)
 class Material:
     name: str
@@ -197,6 +250,7 @@ class AnalysisCheck:
     limit: float = 0.0
     face_group: str = ""
     suggestion: str = ""
+    failure_mode: FailureMode | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -207,10 +261,12 @@ class AnalysisCheck:
             "limit": self.limit,
             "face_group": self.face_group,
             "suggestion": self.suggestion,
+            "failure_mode": self.failure_mode.value if self.failure_mode else None,
         }
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> AnalysisCheck:
+        fm = d.get("failure_mode")
         return cls(
             name=d["name"],
             status=CheckStatus(d["status"]),
@@ -219,6 +275,7 @@ class AnalysisCheck:
             limit=d.get("limit", 0.0),
             face_group=d.get("face_group", ""),
             suggestion=d.get("suggestion", ""),
+            failure_mode=FailureMode(fm) if fm else None,
         )
 
 
@@ -234,6 +291,13 @@ class FieldResult:
     scalar_fields: tuple[ScalarFieldSummary, ...]
     solver_name: str = ""
     solve_time_s: float = 0.0
+    failure_mode: FailureMode | None = None
+    candidates: tuple[str, ...] = ()  # fix-option labels for the Decide step
+
+    @property
+    def factor_of_safety(self) -> float:
+        """Alias for ``safety_factor`` (matches the iteration-loop contract)."""
+        return self.safety_factor
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -246,10 +310,13 @@ class FieldResult:
             "scalar_fields": [sf.to_dict() for sf in self.scalar_fields],
             "solver_name": self.solver_name,
             "solve_time_s": self.solve_time_s,
+            "failure_mode": self.failure_mode.value if self.failure_mode else None,
+            "candidates": list(self.candidates),
         }
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> FieldResult:
+        fm = d.get("failure_mode")
         return cls(
             analysis_id=d["analysis_id"],
             status=CheckStatus(d["status"]),
@@ -262,6 +329,8 @@ class FieldResult:
             ),
             solver_name=d.get("solver_name", ""),
             solve_time_s=d.get("solve_time_s", 0.0),
+            failure_mode=FailureMode(fm) if fm else None,
+            candidates=tuple(d.get("candidates", ())),
         )
 
 
