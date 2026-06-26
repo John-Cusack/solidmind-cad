@@ -24,15 +24,22 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: pip
 
-      - name: Install test dependencies
-        # Install only the deps the test suite actually imports — the Rust
-        # extension (`solidmind_geometry`, built via maturin) is not required
-        # for most tests and needs a Rust toolchain, so we skip
-        # `pip install -e .` here to keep CI lean. Tests that need optional
-        # extensions (CHOLMOD, cuDSS, FreeCAD, Isaac, Gazebo) skip cleanly.
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: geometry
+
+      - name: Set up venv + test dependencies
+        # A venv is required by `maturin develop` (below). We install only the
+        # deps the test suite imports — heavier optional extensions (CHOLMOD,
+        # cuDSS, FreeCAD, Isaac, Gazebo) are omitted; tests needing them skip.
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install \
+          python -m venv .venv
+          .venv/bin/pip install --upgrade pip "maturin>=1.7,<2"
+          .venv/bin/pip install \
             "jsonschema>=4.10,<5" \
             "orjson>=3.9,<4" \
             "PyYAML>=6.0,<7" \
@@ -40,8 +47,14 @@ jobs:
             "numpy>=1.26,<3" \
             "scipy>=1.11,<2"
 
+      - name: Build Rust geometry kernel (solidmind_geometry)
+        # `import solidmind_geometry` is a hard requirement for the geometry /
+        # propeller test modules — without it they error at collection. Build
+        # and install the pyo3 extension so those tests run instead of failing.
+        run: .venv/bin/maturin develop --manifest-path geometry/Cargo.toml
+
       - name: Run unit tests
-        run: python -m unittest --verbose
+        run: .venv/bin/python -m unittest --verbose
 
   lint:
     name: Ruff lint
