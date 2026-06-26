@@ -8,6 +8,32 @@ and this project aims to follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **Foam-dart spring launcher example — sim-to-real validation rig.** New
+  `examples/foam_dart_spring_launcher/` walks the full nine-step inner loop
+  (Specify → Synthesize → Reflect → Screen → Simulate → Interpret → Decide →
+  Act → Learn) on a single-shot spring-plunger launcher. A deliberately
+  under-dimensioned latch FAILs the analytical `analysis.screen_stress`
+  tier on `stress_concentration`; `decide.from_failure` proposes a root
+  fillet; the V2 re-screen passes (peak 68 → 6 MPa). A real Chrono run
+  validates the spring→plunger energy delivery against the calibration-first
+  `physics_model.py` (0% residual), and `--calibrate-from-shot` fits the lumped
+  efficiency from one measured shot to predict the other pullbacks. First
+  example to close the autonomous iteration test for a part class
+  (`tests/test_iteration_loop_foam_dart_e2e.py`). `--smoke` runs solver-free
+  for CI.
+- **Analytical structural screening tier (`analysis.screen_stress`).** Beam
+  bending (σ=Mc/I) + handbook stress-concentration-factor lookup + Euler
+  buckling bound, returning an `AnalysisCheck` that gates Tier-3 FEA — the
+  structural analogue of the `motion.*` analytical rung.
+- **Typed failure modes + Reflect/Decide/Interpret primitives.** New
+  `FailureMode` enum and `ReflectExpectations` dataclass on
+  `server/analysis_models.py`; `decide.from_failure` / `decide.interpret`
+  tools (`server/decide.py`) turn a failing check into a typed fix proposal and
+  compare results against pre-sim expectations.
+- **Chrono spring force on prismatic joints.** `JointEdge` gains optional
+  spring parameters; `simulation_spec_builder` emits a `spring` object and the
+  Chrono daemon applies it via `ChLinkTSDA`, making spring-loaded sliders a
+  real dynamic case.
 - **Outer-loop wiring closed against five real part classes.** New
   `orchestrator/worker_builds/` package with per-part-class builders
   (`sun_gear`, `planet_carrier`, `quadrotor_arm`, `rc_car_chassis`,

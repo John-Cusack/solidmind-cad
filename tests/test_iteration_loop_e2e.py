@@ -141,9 +141,10 @@ import unittest
 
 
 @unittest.skip(
-    "Not implemented yet — structural placeholder. "
-    "See docs/ROADMAP.md §'What autonomous on a part class would mean' "
-    "for the three-test bar this is the first of."
+    "Hexapod hip-bracket instance still needs FreeCAD geometry. The loop is "
+    "now CLOSED for the foam-dart latch part class — see "
+    "tests/test_iteration_loop_foam_dart_e2e.py, which walks all nine steps "
+    "for real on the analytical Screen tier + Decide/Interpret."
 )
 class TestIterationLoopClosure(unittest.TestCase):
     """Placeholder for the end-to-end autonomous iteration test.

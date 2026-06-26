@@ -1,0 +1,4 @@
+pullback_mm,muzzle_velocity_m_s,predicted_range_m,predicted_range_ft,actual_range_m,rel_error
+10.0,4.7779,1.4863,4.88,,
+20.0,9.5558,4.5,14.76,4.5,0.0%
+30.0,14.3337,9.2975,30.5,,
