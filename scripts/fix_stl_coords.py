@@ -11,10 +11,8 @@ Usage:
 """
 from __future__ import annotations
 
-import math
 import re
 from pathlib import Path
-
 
 # Manifest: body name -> (position_mm, rotation_quat [w, x, y, z])
 MANIFEST = {

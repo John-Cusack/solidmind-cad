@@ -2,14 +2,14 @@ from __future__ import annotations
 
 import unittest
 
+from server.geometry_executor import ExecutionStep, ExecutionTrace
 from server.geometry_ir import (
-    CompiledOp,
     GIR,
+    CompiledOp,
     GIRBuilder,
     Quantity,
 )
-from server.geometry_executor import Executor, ExecutionTrace, ExecutionStep
-from server.geometry_verify import VerificationEngine, VerificationReport
+from server.geometry_verify import VerificationEngine
 
 
 def _make_trace(ops_status: list[tuple[str, str]] | None = None) -> ExecutionTrace:

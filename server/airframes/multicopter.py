@@ -22,11 +22,10 @@ intermediate FreeCAD documents required.
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, field
-from typing import Literal
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Literal
 
 from server.airframes import (
-    AirframeSpec,
     Cylinder,
     Disk,
     SensorPack,
@@ -41,6 +40,9 @@ from server.inertia import (
     thin_disk_inertia,
 )
 
+if TYPE_CHECKING:
+    from server.px4_airframe_generator import AirframeParams
+    from server.sim_export import SimModel
 
 _GRAVITY_MS2 = 9.81
 
@@ -264,13 +266,13 @@ class MulticopterAirframe:
     # SimModel construction (drives URDF + SDF)
     # ------------------------------------------------------------------
 
-    def to_sim_model(self) -> "SimModel":
+    def to_sim_model(self) -> SimModel:
         """Build the format-agnostic kinematic + inertial description.
 
         Imported lazily to avoid the import cycle between this module
         and ``server.sim_export``.
         """
-        from server.sim_export import SimLink, SimJoint, SimModel, CollisionShape
+        from server.sim_export import CollisionShape, SimJoint, SimLink, SimModel
 
         # Chassis link: aggregated mass + inertia, primitive box collision.
         chassis_mass, chassis_com, chassis_inertia = self.chassis_inertia()
@@ -354,7 +356,7 @@ class MulticopterAirframe:
     # PX4 airframe params
     # ------------------------------------------------------------------
 
-    def to_px4_airframe_params(self) -> "AirframeParams":
+    def to_px4_airframe_params(self) -> AirframeParams:
         """Build the params bundle for ``format_airframe_init_script``."""
         from server.px4_airframe_generator import (
             AirframeParams,

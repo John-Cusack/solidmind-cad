@@ -2,10 +2,10 @@
 from __future__ import annotations
 
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
-from server.design_models import DesignBrief, InterfaceEntry, PartEntry
-from server.design_store import store_brief, add_interface, add_part
+from server.design_models import InterfaceEntry, PartEntry
+from server.design_store import add_interface, add_part, store_brief
 from server.preflight import preflight_check
 
 

@@ -100,7 +100,7 @@ fig.suptitle(f"2-DOF Hexapod Gait — vx={VX} m/s, stride=2 Hz\n"
 for col, (shape_name, overrides) in enumerate(SHAPES.items()):
     times, history = run_controller(overrides)
 
-    for row, (leg_id, label) in enumerate(zip(LEG_IDS, LEG_LABELS)):
+    for row, (leg_id, label) in enumerate(zip(LEG_IDS, LEG_LABELS, strict=False)):
         ax = axes[row, col] if n_shapes > 1 else axes[row]
 
         coxa_key = f"hip_yaw_{leg_id}"

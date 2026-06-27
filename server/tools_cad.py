@@ -1070,6 +1070,7 @@ def cad_export_sim_package(
        be rebuilt for the new airframe to be available to ``PX4_SIM_MODEL``.
     """
     import os
+
     from server import motion_store
     from server.sim_export import (
         MeshBBox,

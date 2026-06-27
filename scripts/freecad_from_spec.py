@@ -13,7 +13,7 @@ if str(_ROOT) not in sys.path:
 from server.jsonutil import loads as json_loads  # noqa: E402
 
 
-def _die(msg: str, code: int = 2) -> "None":
+def _die(msg: str, code: int = 2) -> None:
     print(msg, file=sys.stderr)
     raise SystemExit(code)
 

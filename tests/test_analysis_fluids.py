@@ -69,8 +69,9 @@ class TestHydrodynamicTool(unittest.TestCase):
     """Test that aero_check works for hydrodynamic (water) analysis."""
 
     def test_fluid_preset_seawater(self) -> None:
-        import server.tools_analysis as mod
         from unittest.mock import patch
+
+        import server.tools_analysis as mod
         from server.analysis_models import MeshInfo
 
         with (

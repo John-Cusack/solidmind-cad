@@ -12,7 +12,6 @@ from orchestrator.spec import (
     CostPolicy,
     FailureCode,
     Interface,
-    KnowledgeConfig,
     ManufacturingSpec,
     MasterSpec,
     Objective,

@@ -8,7 +8,7 @@ import sys
 import tempfile
 import zipfile
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any
@@ -17,7 +17,6 @@ from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
 import yaml
-
 
 DEFAULT_MANIFEST = Path("me_knowledge/corpus/manifest.yml")
 DEFAULT_RAW_DIR = Path("me_knowledge/corpus/raw")
@@ -251,7 +250,7 @@ def main(argv: list[str]) -> int:
         print(f"[{result.status}] {result.id}{reason}")
 
     summary = {
-        "synced_at": datetime.now(timezone.utc).isoformat(),
+        "synced_at": datetime.now(UTC).isoformat(),
         "manifest": str(args.manifest),
         "results": [r.__dict__ for r in results],
         "counts": {

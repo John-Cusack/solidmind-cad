@@ -78,7 +78,6 @@ class StrategyPlanner:
         has_extrude = "extrude_intent" in feature_types
         has_revolve = "revolve_intent" in feature_types
         has_pattern = "pattern_intent" in feature_types
-        has_sketch = "sketch_profile" in feature_types
 
         prism_score = 0.0
         revolve_score = 0.0
@@ -107,7 +106,7 @@ class StrategyPlanner:
 
         has_pad = backend_caps.operations.get("pad")
         has_revolution = backend_caps.operations.get("revolve")
-        has_pocket = backend_caps.operations.get("pocket")
+        backend_caps.operations.get("pocket")
 
         if has_pad and has_pad.status == "Yes" and prism_score > 0:
             candidates.append(

@@ -17,7 +17,6 @@ from server.planning_types import (
     PlanningPolicyRepairPlaybook,
 )
 
-
 VALID_STATUS = {"Yes", "Partial", "No"}
 VALID_USAGE = {"High", "Medium", "Low"}
 CHECK_TYPES = {

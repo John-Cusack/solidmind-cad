@@ -4,8 +4,8 @@ from __future__ import annotations
 import unittest
 from unittest.mock import patch
 
+import server.tools_analysis as mod
 from server.analysis_models import (
-    AnalysisSpec,
     AnalysisType,
     BoundaryCondition,
     CheckStatus,
@@ -13,7 +13,6 @@ from server.analysis_models import (
     Material,
     MeshInfo,
 )
-import server.tools_analysis as mod
 
 
 class _FakeSolver:

@@ -5,20 +5,21 @@ import shutil
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
+# Module under test for tool-level patching
+import server.tools_analysis as tools_mod
 from server.analysis_models import (
     AnalysisSpec,
     AnalysisType,
     BoundaryCondition,
     CheckStatus,
+    FieldResult,
     Material,
     MeshInfo,
+    ScalarFieldSummary,
 )
 from server.analysis_solvers import MockFieldSolver, get_solver
-
-# Module under test for tool-level patching
-import server.tools_analysis as tools_mod
 
 
 def _thermal_material() -> Material:
@@ -608,7 +609,7 @@ def _create_box_step(
     size: tuple[float, float, float] = (10, 10, 10),
     mesh_size: float = 3.0,
     face_groups: dict[str, list[str]] | None = None,
-) -> tuple[Path, "MeshInfo"]:
+) -> tuple[Path, MeshInfo]:
     """Create a box STEP via Gmsh OCC + mesh it. Returns (step_path, mesh_info)."""
     import gmsh
 
@@ -637,10 +638,10 @@ def _create_box_step(
 
 def _run_elmer(
     work_dir: Path,
-    mesh_info: "MeshInfo",
+    mesh_info: MeshInfo,
     material: Material,
     bcs: tuple[BoundaryCondition, ...],
-) -> "FieldResult":
+) -> FieldResult:
     """Run the full Elmer pipeline: write_input → run → parse_results."""
     from server.analysis_solver_elmer import ElmerSolver
 
@@ -656,9 +657,8 @@ def _run_elmer(
     return solver.parse_results(work_dir, spec)
 
 
-def _get_temp_field(result: "FieldResult") -> "ScalarFieldSummary":
+def _get_temp_field(result: FieldResult) -> ScalarFieldSummary:
     """Extract the temperature ScalarFieldSummary from a FieldResult."""
-    from server.analysis_models import ScalarFieldSummary
 
     fields = [f for f in result.scalar_fields if f.field_name == "temperature"]
     assert len(fields) == 1, f"Expected 1 temperature field, got {len(fields)}"
@@ -674,8 +674,8 @@ class TestElmerRealFeatures(unittest.TestCase):
         try:
             import gmsh  # noqa: F401
             import meshio  # noqa: F401
-        except ImportError:
-            raise unittest.SkipTest("gmsh or meshio not installed")
+        except ImportError as exc:
+            raise unittest.SkipTest("gmsh or meshio not installed") from exc
 
     # ---- Test 1: linear gradient (enhanced) ----
 
@@ -965,7 +965,6 @@ class TestElmerRealFeatures(unittest.TestCase):
         """Full analysis_thermal_check tool → real solver → safety evaluation."""
         import gmsh
 
-        from server.analysis_mesh import mesh_step_to_msh
         from server.tools_analysis import analysis_thermal_check
 
         with tempfile.TemporaryDirectory() as tmpdir:

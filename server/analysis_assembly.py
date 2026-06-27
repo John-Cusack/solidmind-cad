@@ -10,13 +10,15 @@ Only first-order tetrahedral volume meshes (tet4) are supported in v1.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
 import hashlib
 import json
 import logging
-from typing import Any, Mapping, Sequence
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
+
 try:
     from scipy import sparse
 except Exception:  # pragma: no cover - optional runtime dependency

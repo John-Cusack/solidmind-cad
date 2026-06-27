@@ -14,7 +14,6 @@ from isaac_bridge.bridge_server import BridgeServer
 from isaac_bridge.runtime_isaac import IsaacRuntime
 from server.isaac_client import IsaacClient, IsaacCommandError
 
-
 _MECHANISM = {
     "name": "e2e_mech",
     "parts": [{"id": "frame", "is_ground": True}, {"id": "link_a"}],

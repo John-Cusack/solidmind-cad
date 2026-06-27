@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import unittest
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 from server.tools_cad import (
@@ -16,6 +17,7 @@ from server.tools_cad import (
     cad_chamfer,
     cad_check_clearance,
     cad_check_swept_clearance,
+    cad_clear_placement_plan,
     cad_define_selection,
     cad_delete_objects,
     cad_delete_selection,
@@ -25,8 +27,6 @@ from server.tools_cad import (
     cad_export_sim_package,
     cad_fillet,
     cad_find_edges,
-    cad_register_placement_plan,
-    cad_clear_placement_plan,
     cad_get_body_topology,
     cad_get_camera,
     cad_get_dimensions,
@@ -43,6 +43,7 @@ from server.tools_cad import (
     cad_pad,
     cad_pocket,
     cad_polar_pattern,
+    cad_register_placement_plan,
     cad_resolve_selection,
     cad_revolution,
     cad_screenshot,
@@ -412,7 +413,7 @@ class TestPocketDirectionAlgorithm(unittest.TestCase):
     @staticmethod
     def _resolve(origin: list[float], normal: list[float], centroid: list[float]) -> bool:
         """Reimplement the resolver algorithm for testing."""
-        dot = sum((c - o) * n for c, o, n in zip(centroid, origin, normal))
+        dot = sum((c - o) * n for c, o, n in zip(centroid, origin, normal, strict=False))
         return dot > 0
 
     def test_xy_sketch_body_above(self) -> None:
@@ -2250,7 +2251,8 @@ class TestCadExportSimPackage(unittest.TestCase):
     @patch("server.tools_cad.get_client")
     def test_export_sim_package_with_mechanism(self, mock_get: MagicMock, mock_mech_get: MagicMock) -> None:
         import tempfile
-        from server.motion_models import Mechanism, PartNode, JointEdge, JointType
+
+        from server.motion_models import JointEdge, JointType, Mechanism, PartNode
 
         client = _mock_client()
         tmp_dir = tempfile.mkdtemp()
@@ -2322,6 +2324,7 @@ class TestCadExportSimPackage(unittest.TestCase):
     @patch("server.tools_cad.get_client")
     def test_export_sim_package_emit_sdf(self, mock_get: MagicMock, mock_mech_get: MagicMock) -> None:
         import tempfile
+
         from server.motion_models import JointEdge, JointType, Mechanism, PartNode
 
         client = _mock_client()
@@ -2379,6 +2382,7 @@ class TestCadExportSimPackage(unittest.TestCase):
     ) -> None:
         import tempfile
         import xml.etree.ElementTree as ET
+
         from server.motion_models import JointEdge, JointType, Mechanism, PartNode
 
         client = _mock_client()
@@ -2482,6 +2486,7 @@ class TestCadExportSimPackage(unittest.TestCase):
         """drone_config defaults to emitting IMU/GPS/baro/mag on root link."""
         import tempfile
         import xml.etree.ElementTree as ET
+
         from server.motion_models import JointEdge, JointType, Mechanism, PartNode
 
         client = _mock_client()
@@ -2579,6 +2584,7 @@ class TestCadExportSimPackage(unittest.TestCase):
     ) -> None:
         """drone_config['px4']=True produces a PX4 airframe params file."""
         import tempfile
+
         from server.motion_models import JointEdge, JointType, Mechanism, PartNode
 
         client = _mock_client()

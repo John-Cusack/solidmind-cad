@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 from orchestrator.spec import (
-    ComplexityClass,
     MasterSpec,
     RuntimePolicy,
     Subsystem,

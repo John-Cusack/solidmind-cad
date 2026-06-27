@@ -10,9 +10,8 @@ joint-limit clamping integration tests.
 from __future__ import annotations
 
 import json
-import math
 import unittest
-from unittest.mock import MagicMock, call
+from unittest.mock import MagicMock
 
 from isaac_bridge.bridge_server import BridgeServer
 from isaac_bridge.runtime_isaac import IsaacRuntime
@@ -291,7 +290,7 @@ class TestTickWithMockArticulation(unittest.TestCase):
 
     def test_apply_and_step_receives_all_config_joints(self) -> None:
         """The targets dict passed to _apply_and_step has all config joint names."""
-        sid = self._start_with_mock_articulation()
+        self._start_with_mock_articulation()
         with unittest.mock.patch.object(self.runtime, "_apply_and_step") as mock_apply:
             self.runtime.tick_teleop(0.01)
             targets = mock_apply.call_args[0][1]
@@ -303,7 +302,7 @@ class TestTickWithMockArticulation(unittest.TestCase):
 
     def test_apply_and_step_called_every_tick(self) -> None:
         """_apply_and_step is called once per tick for N ticks."""
-        sid = self._start_with_mock_articulation()
+        self._start_with_mock_articulation()
         with unittest.mock.patch.object(self.runtime, "_apply_and_step") as mock_apply:
             for _ in range(5):
                 self.runtime.tick_teleop(0.01)

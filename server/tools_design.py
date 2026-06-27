@@ -13,12 +13,20 @@ from typing import Any
 from server.design_models import InterfaceEntry, PartEntry
 from server.design_store import (
     add_interface as store_add_interface,
+)
+from server.design_store import (
     add_part as store_add_part,
+)
+from server.design_store import (
     get_brief,
-    get_part as store_get_part,
     list_briefs,
     store_brief,
     update_brief,
+)
+from server.design_store import (
+    get_part as store_get_part,
+)
+from server.design_store import (
     update_part as store_update_part,
 )
 from server.motion_models import JointEdge, JointType, Mechanism, PartNode
@@ -81,7 +89,6 @@ def _extract_placement_plan(
 
     Returns a dict mapping body labels (or part names) to plan entries.
     """
-    from server.design_models import DesignBrief  # noqa: C0415
 
     plan: dict[str, dict[str, Any]] = {}
     layout = brief.parameters.get("layout", {})

@@ -35,7 +35,7 @@ class TestCapabilityManifest(unittest.TestCase):
     def test_backend_op_capability_structure(self) -> None:
         caps = load_geometry_capabilities()
 
-        for backend_key, backend in caps.backends.items():
+        for _backend_key, backend in caps.backends.items():
             self.assertIsNotNone(backend.backend_name)
             self.assertIsNotNone(backend.backend_version)
             self.assertIsInstance(backend.operations, dict)

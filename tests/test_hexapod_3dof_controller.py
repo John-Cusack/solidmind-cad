@@ -5,7 +5,7 @@ import math
 import unittest
 
 from isaac_bridge.controllers import Hexapod3DOFController
-from isaac_bridge.hexapod_ik import LegGeometry, forward_kinematics, LegAngles
+from isaac_bridge.hexapod_ik import LegAngles, LegGeometry, forward_kinematics
 from isaac_bridge.models import Controller, TeleopConfig, TeleopState
 
 
@@ -337,7 +337,7 @@ class TestStaticStability(unittest.TestCase):
         phase = 0.0
         # Just check the phase math — no controller internals needed
         min_stance = 6
-        for tick in range(500):
+        for _tick in range(500):
             phase_norm = (phase / (2.0 * math.pi))
             stance_count = 0
             for leg_idx in range(6):

@@ -5,7 +5,7 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import MagicMock, patch, PropertyMock
+from unittest.mock import MagicMock, patch
 
 from server.knowledge_store import (
     ExtractResult,
@@ -241,7 +241,6 @@ class TestSingleton(unittest.TestCase):
     def test_returns_none_when_lancedb_missing(self):
         with patch.dict("sys.modules", {"lancedb": None}):
             reset_knowledge_store()
-            import importlib
             # Simulate ImportError for lancedb
             with patch("builtins.__import__", side_effect=_import_blocker("lancedb")):
                 reset_knowledge_store()

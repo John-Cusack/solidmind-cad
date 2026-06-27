@@ -18,8 +18,6 @@ from __future__ import annotations
 
 import argparse
 import importlib.util
-import sys
-from pathlib import Path
 from types import ModuleType
 
 
@@ -54,9 +52,9 @@ def main() -> int:
     launcher = AppLauncher(headless=args.headless)
     simulation_app = launcher.app
 
+    import isaaclab.envs.mdp as mdp
     import torch
     from isaaclab.envs import ManagerBasedRLEnv
-    import isaaclab.envs.mdp as mdp
 
     from rl_training.isaaclab_cfg import make_hexapod_flat_env_cfg
 
@@ -114,13 +112,13 @@ def main() -> int:
     }
 
     # Create environment
-    import sys as _sys
     print("Creating environment...", flush=True)
     try:
         env = ManagerBasedRLEnv(cfg=env_cfg)
     except Exception as exc:
         print(f"FATAL: env creation failed: {exc}", flush=True)
-        import traceback; traceback.print_exc()
+        import traceback
+        traceback.print_exc()
         simulation_app.close()
         return 1
     n_joints = len(getattr(mod, "JOINT_NAMES", []))
@@ -158,7 +156,7 @@ def main() -> int:
     h_min_overall = min(heights)
     h_mean = statistics.mean(heights)
 
-    print(f"\nResults:", flush=True)
+    print("\nResults:", flush=True)
     print(f"  Height at start:  {heights[0]:.4f} m", flush=True)
     print(f"  Height at end:    {h_final:.4f} m", flush=True)
     print(f"  Minimum height:   {h_min_overall:.4f} m", flush=True)

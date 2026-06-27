@@ -8,7 +8,6 @@ import json
 import socket
 import threading
 import unittest
-from typing import Any
 
 from server.chrono_client import ChronoClient, ChronoCommandError, ChronoConnectionError
 
@@ -66,7 +65,7 @@ def _make_chrono_echo_server(host: str, port: int) -> tuple[socket.socket, threa
                         resp = {"ok": True, "result": {"echo": cmd}}
                     conn.sendall((json.dumps(resp) + "\n").encode())
             conn.close()
-        except (socket.timeout, OSError):
+        except (TimeoutError, OSError):
             pass
         finally:
             srv.close()

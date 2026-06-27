@@ -11,8 +11,6 @@ import socket
 import time
 import unittest
 
-from tests.conftest import unused_tcp_port
-
 from server.sim_engine_manager import (
     EngineStatus,
     _engines,
@@ -24,6 +22,7 @@ from server.sim_engine_manager import (
     stop_engine,
     stop_monitor,
 )
+from tests.conftest import unused_tcp_port
 
 
 class SubprocessLifecycleBase(unittest.TestCase):
@@ -68,7 +67,7 @@ class TestStopEngineGraceful(SubprocessLifecycleBase):
         port = unused_tcp_port()
         start_result = start_engine("gazebo", port=port, runtime="stub", timeout_s=15.0)
         self.assertTrue(start_result["ok"], start_result)
-        pid = start_result["pid"]
+        start_result["pid"]
 
         stop_result = stop_engine("gazebo", drain_timeout_s=5.0)
         self.assertTrue(stop_result["ok"], stop_result)

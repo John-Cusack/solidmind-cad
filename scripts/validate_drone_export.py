@@ -17,7 +17,6 @@ Exit codes:
 from __future__ import annotations
 
 import argparse
-import math
 import re
 import sys
 import xml.etree.ElementTree as ET
@@ -52,7 +51,9 @@ def stl_bbox(path: Path) -> tuple[tuple[float, float, float], tuple[float, float
                 vx = struct_unpack_float(data, offset + 12 + j * 12)
                 vy = struct_unpack_float(data, offset + 16 + j * 12)
                 vz = struct_unpack_float(data, offset + 20 + j * 12)
-                xs.append(vx); ys.append(vy); zs.append(vz)
+                xs.append(vx)
+                ys.append(vy)
+                zs.append(vz)
             offset += 50
         triangles = n
     else:
@@ -109,15 +110,20 @@ def parse_airframe_params(airframe_path: Path) -> dict:
     txt = airframe_path.read_text()
     # @name, mass, hover throttle from comment
     m = re.search(r"Mass\s*=\s*([\d.]+)\s*kg", txt)
-    if m: out["mass_kg"] = float(m.group(1))
+    if m:
+        out["mass_kg"] = float(m.group(1))
     m = re.search(r"hover throttle\s*=\s*(\d+\.\d+)", txt)
-    if m: out["hover_throttle"] = float(m.group(1))
+    if m:
+        out["hover_throttle"] = float(m.group(1))
     m = re.search(r"arm length\s*=\s*([\d.]+)", txt)
-    if m: out["arm_length_m"] = float(m.group(1))
+    if m:
+        out["arm_length_m"] = float(m.group(1))
     m = re.search(r"rotor count\s*=\s*(\d+)", txt)
-    if m: out["rotor_count"] = int(m.group(1))
+    if m:
+        out["rotor_count"] = int(m.group(1))
     m = re.search(r"MPC_THR_HOVER\s+([\d.]+)", txt)
-    if m: out["mpc_thr_hover"] = float(m.group(1))
+    if m:
+        out["mpc_thr_hover"] = float(m.group(1))
     # Rotor positions in FRD (PX4 convention)
     rotors = []
     for ri in range(8):
@@ -245,7 +251,7 @@ def main() -> int:
     sdf_rotors = parse_sdf_rotors(sdf)
     if not sdf_rotors:
         findings.append(Finding("warn", "sdf.no_rotors",
-            f"No rotor* links found in SDF — not a multirotor model?"))
+            "No rotor* links found in SDF — not a multirotor model?"))
 
     for rotor in sdf_rotors:
         check_prop_completeness(rotor, findings)

@@ -13,7 +13,6 @@ Usage:
 """
 from __future__ import annotations
 
-import copy
 import math
 import sys
 import xml.etree.ElementTree as ET
@@ -91,7 +90,7 @@ def merge_fixed_joints(urdf_path: str, output_path: str) -> None:
     root = tree.getroot()
 
     # Index links and joints
-    links = {l.get("name"): l for l in root.findall("link")}
+    links = {link_el.get("name"): link_el for link_el in root.findall("link")}
     joints = list(root.findall("joint"))
 
     # Find fixed joints

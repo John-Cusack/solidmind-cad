@@ -14,7 +14,6 @@ from isaac_bridge.hexapod_ik import (
     inverse_kinematics,
 )
 
-
 _DEFAULT_GEOM = LegGeometry()
 
 

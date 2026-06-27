@@ -3,12 +3,7 @@ import unittest
 from server.geometry_ir import (
     GIR,
     GIRBuilder,
-    LoftIntent,
-    PatternIntent,
-    PrimitiveIntent,
     Quantity,
-    SketchProfileIntent,
-    SweepIntent,
     compute_gir_hash,
 )
 

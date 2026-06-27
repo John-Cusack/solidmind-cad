@@ -11,7 +11,9 @@ import socket
 import time
 from typing import Any
 
-from server.jsonutil import dumps as json_dumps, dumps_str as json_dumps_str, loads as json_loads
+from server.jsonutil import dumps as json_dumps
+from server.jsonutil import dumps_str as json_dumps_str
+from server.jsonutil import loads as json_loads
 
 logger = logging.getLogger("solidmind.gazebo_client")
 
@@ -374,7 +376,7 @@ class GazeboClient:
         while b"\n" not in self._buffer:
             try:
                 data = self._sock.recv(65536)
-            except socket.timeout as exc:
+            except TimeoutError as exc:
                 raise GazeboConnectionError(
                     f"Timed out waiting for Gazebo bridge response ({timeout}s)"
                 ) from exc

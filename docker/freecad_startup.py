@@ -12,13 +12,13 @@ this main-thread loop.
 import os
 import queue
 import sys
-import time
 import traceback
 
 # Add the solidmind-cad repo root to FreeCAD's Python path
 sys.path.insert(0, "/app")
 
 import logging
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)-5s %(name)s: %(message)s",
@@ -35,12 +35,13 @@ os.environ.pop("SOLIDMIND_HEADLESS", None)
 # Start the socket server. QTimer will be created but won't fire
 # because FreeCADCmd has no event loop. That's OK — we poll the
 # job queue manually below.
-import freecad_addon.socket_server as _ss_mod
+import freecad_addon.socket_server as _ss_mod  # noqa: E402  interleaved with boot steps
+
 _ss_mod.start_server(host=host, port=port)
 logger.info("Socket server started on %s:%d", host, port)
 
 # Get a reference to the server's job queue and response type
-from freecad_addon.protocol import Response
+from freecad_addon.protocol import Response  # noqa: E402,I001  interleaved with boot steps
 
 server = _ss_mod._server
 if server is None:

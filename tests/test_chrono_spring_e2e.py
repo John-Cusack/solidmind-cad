@@ -107,7 +107,7 @@ class TestSpringEnergyBalanceE2E(unittest.TestCase):
         ts = result["time_series"]
         samples = [(s["t"], s["parts"]["plunger"]["pos"][2]) for s in ts]
         peak = 0.0
-        for (t1, z1), (t2, z2) in zip(samples, samples[1:]):
+        for (t1, z1), (t2, z2) in zip(samples, samples[1:], strict=False):
             if t2 > t1:
                 peak = max(peak, abs((z2 - z1) / (t2 - t1)))
         return peak

@@ -403,8 +403,8 @@ class TestMCPToolWrappers(unittest.TestCase):
         clear()
 
     def test_spur_gear_tool(self):
-        from server.tools_geometry import geometry_spur_gear
         from server.geometry_store import retrieve
+        from server.tools_geometry import geometry_spur_gear
 
         result = geometry_spur_gear(module=1.25, teeth=18)
         self.assertTrue(result["ok"])
@@ -433,8 +433,8 @@ class TestMCPToolWrappers(unittest.TestCase):
         self.assertEqual(len(result["points"]), 20)
 
     def test_planetary_layout_tool(self):
-        from server.tools_geometry import geometry_planetary_layout
         from server.geometry_store import retrieve
+        from server.tools_geometry import geometry_planetary_layout
 
         result = geometry_planetary_layout(module=1.0, sun_teeth=18, planet_teeth=9)
         self.assertTrue(result["ok"])
@@ -451,8 +451,8 @@ class TestMCPToolWrappers(unittest.TestCase):
             self.assertEqual(len(elems), result[gear_key]["element_count"])
 
     def test_tooth_slot_tool(self):
-        from server.tools_geometry import geometry_tooth_slot
         from server.geometry_store import retrieve
+        from server.tools_geometry import geometry_tooth_slot
 
         result = geometry_tooth_slot(module=1.0, teeth=18)
         self.assertTrue(result["ok"])
@@ -465,8 +465,8 @@ class TestMCPToolWrappers(unittest.TestCase):
         self.assertEqual(len(elems), 6)
 
     def test_planetary_layout_tool_ring_blank_and_slot(self):
-        from server.tools_geometry import geometry_planetary_layout
         from server.geometry_store import retrieve
+        from server.tools_geometry import geometry_planetary_layout
 
         result = geometry_planetary_layout(module=2.0, sun_teeth=18, planet_teeth=9)
         self.assertTrue(result["ok"])
@@ -486,8 +486,8 @@ class TestMCPToolWrappers(unittest.TestCase):
         self.assertIn("ring_outer_radius", result)
 
     def test_epicycloidal_tooth_slot_tool(self):
-        from server.tools_geometry import geometry_epicycloidal_tooth_slot
         from server.geometry_store import retrieve
+        from server.tools_geometry import geometry_epicycloidal_tooth_slot
 
         result = geometry_epicycloidal_tooth_slot(module=0.1, teeth=8, mating_teeth=80)
         self.assertTrue(result["ok"])
@@ -518,8 +518,8 @@ class TestMCPToolWrappers(unittest.TestCase):
         self.assertIn("spiral_ref", result)
 
     def test_spoke_pattern_tool(self):
-        from server.tools_geometry import geometry_spoke_pattern
         from server.geometry_store import retrieve
+        from server.tools_geometry import geometry_spoke_pattern
 
         result = geometry_spoke_pattern(
             hub_diameter=3.0, rim_inner_diameter=10.0, rim_outer_diameter=12.0,
@@ -530,8 +530,8 @@ class TestMCPToolWrappers(unittest.TestCase):
         self.assertIsNotNone(elems)
 
     def test_ratchet_tooth_tool(self):
-        from server.tools_geometry import geometry_ratchet_tooth
         from server.geometry_store import retrieve
+        from server.tools_geometry import geometry_ratchet_tooth
 
         result = geometry_ratchet_tooth(pitch_diameter=10.0, teeth=20)
         self.assertTrue(result["ok"])
@@ -895,8 +895,8 @@ class TestNewMCPToolWrappers(unittest.TestCase):
         clear()
 
     def test_keyway_profile_tool(self):
-        from server.tools_geometry import geometry_keyway_profile
         from server.geometry_store import retrieve
+        from server.tools_geometry import geometry_keyway_profile
 
         result = geometry_keyway_profile(shaft_diameter=25.0)
         self.assertTrue(result["ok"])
@@ -908,8 +908,8 @@ class TestNewMCPToolWrappers(unittest.TestCase):
         self.assertIsNotNone(elems)
 
     def test_oring_groove_tool(self):
-        from server.tools_geometry import geometry_oring_groove
         from server.geometry_store import retrieve
+        from server.tools_geometry import geometry_oring_groove
 
         result = geometry_oring_groove(dash_number=210)
         self.assertTrue(result["ok"])
@@ -928,8 +928,8 @@ class TestNewMCPToolWrappers(unittest.TestCase):
         self.assertAlmostEqual(result["area"], 5000.0)
 
     def test_belt_drive_tool(self):
-        from server.tools_geometry import geometry_belt_drive
         from server.geometry_store import retrieve
+        from server.tools_geometry import geometry_belt_drive
 
         result = geometry_belt_drive(
             driver_diameter=50.0, driven_diameter=100.0, center_distance=200.0,
@@ -943,8 +943,8 @@ class TestNewMCPToolWrappers(unittest.TestCase):
         self.assertIsNotNone(elems)
 
     def test_four_bar_tool(self):
-        from server.tools_geometry import geometry_four_bar
         from server.geometry_store import retrieve
+        from server.tools_geometry import geometry_four_bar
 
         result = geometry_four_bar(
             ground_length=4.0, input_length=2.0,
@@ -1244,8 +1244,8 @@ class TestRustMCPToolWrappers(unittest.TestCase):
 
     @unittest.skipUnless(HAS_GEOM, "solidmind_geometry not built")
     def test_bevel_gear_tool(self):
-        from server.tools_geometry import geometry_bevel_gear
         from server.geometry_store import retrieve
+        from server.tools_geometry import geometry_bevel_gear
 
         result = geometry_bevel_gear(module=2.0, teeth=20, mate_teeth=30)
         self.assertTrue(result["ok"])
@@ -1257,8 +1257,8 @@ class TestRustMCPToolWrappers(unittest.TestCase):
 
     @unittest.skipUnless(HAS_GEOM, "solidmind_geometry not built")
     def test_worm_gear_tool(self):
-        from server.tools_geometry import geometry_worm_gear
         from server.geometry_store import retrieve
+        from server.tools_geometry import geometry_worm_gear
 
         result = geometry_worm_gear(axial_module=2.0, worm_starts=1, wheel_teeth=40)
         self.assertTrue(result["ok"])
@@ -1274,8 +1274,8 @@ class TestRustMCPToolWrappers(unittest.TestCase):
 
     @unittest.skipUnless(HAS_GEOM, "solidmind_geometry not built")
     def test_thread_profile_tool(self):
-        from server.tools_geometry import geometry_thread_profile
         from server.geometry_store import retrieve
+        from server.tools_geometry import geometry_thread_profile
 
         result = geometry_thread_profile(designation="M8")
         self.assertTrue(result["ok"])
@@ -1288,8 +1288,8 @@ class TestRustMCPToolWrappers(unittest.TestCase):
 
     @unittest.skipUnless(HAS_GEOM, "solidmind_geometry not built")
     def test_helical_spring_tool(self):
-        from server.tools_geometry import geometry_helical_spring
         from server.geometry_store import retrieve
+        from server.tools_geometry import geometry_helical_spring
 
         result = geometry_helical_spring(
             spring_type="compression", wire_diameter=1.5,
@@ -1306,8 +1306,8 @@ class TestRustMCPToolWrappers(unittest.TestCase):
 
     @unittest.skipUnless(HAS_GEOM, "solidmind_geometry not built")
     def test_cam_profile_tool(self):
-        from server.tools_geometry import geometry_cam_profile
         from server.geometry_store import retrieve
+        from server.tools_geometry import geometry_cam_profile
 
         result = geometry_cam_profile(
             base_radius=30.0,

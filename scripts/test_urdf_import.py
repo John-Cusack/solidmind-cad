@@ -43,7 +43,7 @@ def connect_bridge(host: str = "localhost", port: int = 9878, timeout: float = 5
         sock.connect((host, port))
     except (ConnectionRefusedError, OSError) as exc:
         print(f"ERROR: Cannot connect to Isaac bridge at {host}:{port}")
-        print(f"  Start it with: scripts/run_isaac_bridge.sh")
+        print("  Start it with: scripts/run_isaac_bridge.sh")
         print(f"  ({exc})")
         sys.exit(1)
 
@@ -126,15 +126,15 @@ def validate_import(result: dict, expected_joints: int = 18, expected_links: int
     joint_count = result.get("joint_count", result.get("dof_count", 0))
     link_count = result.get("link_count", 0)
 
-    print(f"\n--- Import Validation ---")
+    print("\n--- Import Validation ---")
     print(f"  Joints: {joint_count} (expected: {expected_joints})")
     print(f"  Links:  {link_count} (expected: >= {expected_links})")
 
     if joint_count != expected_joints:
-        print(f"  FAIL: Joint count mismatch")
+        print("  FAIL: Joint count mismatch")
         ok = False
     if link_count < expected_links:
-        print(f"  FAIL: Too few links")
+        print("  FAIL: Too few links")
         ok = False
 
     # Print joint details if available
@@ -164,7 +164,7 @@ def main() -> None:
         print(f"ERROR: URDF file not found: {args.urdf_path}")
         sys.exit(1)
 
-    print(f"=== URDF Import Test ===")
+    print("=== URDF Import Test ===")
     print(f"URDF: {args.urdf_path}")
     print(f"Output: {args.output_dir}")
     print()
@@ -182,12 +182,12 @@ def main() -> None:
         passed = validate_import(result, args.expected_joints, args.expected_links)
 
         # Take screenshots
-        print(f"\n--- Screenshots (default pose) ---")
+        print("\n--- Screenshots (default pose) ---")
         take_screenshots(sock, args.output_dir, prefix="default")
 
         # Pose test
         if args.pose_test:
-            print(f"\n--- Zero Pose ---")
+            print("\n--- Zero Pose ---")
             # Build zero position dict
             joint_names = result.get("joint_names", [])
             if joint_names:
@@ -196,7 +196,7 @@ def main() -> None:
                 time.sleep(0.5)
                 take_screenshots(sock, args.output_dir, prefix="zero_pose")
 
-                print(f"\n--- Standing Pose ---")
+                print("\n--- Standing Pose ---")
                 import math
                 standing_pos = {}
                 for jn in joint_names:
@@ -213,9 +213,9 @@ def main() -> None:
         # Final report
         print(f"\n{'='*40}")
         if passed:
-            print(f"RESULT: PASS")
+            print("RESULT: PASS")
         else:
-            print(f"RESULT: FAIL")
+            print("RESULT: FAIL")
         print(f"Screenshots saved to: {args.output_dir}")
         print(f"{'='*40}")
 

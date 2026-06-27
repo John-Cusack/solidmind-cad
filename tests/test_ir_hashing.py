@@ -58,14 +58,14 @@ class TestIRHashing(unittest.TestCase):
         from server.geometry_ir import GIRBuilder
 
         builder1 = GIRBuilder()
-        frame1 = builder1.add_global_frame()
+        builder1.add_global_frame()
         builder1.add_primitive("box", {"length": Quantity(10.0, "mm")})
         builder1.add_primitive(
             "cylinder", {"radius": Quantity(5.0, "mm"), "height": Quantity(20.0, "mm")}
         )
 
         builder2 = GIRBuilder()
-        frame2 = builder2.add_global_frame()
+        builder2.add_global_frame()
         builder2.add_primitive("box", {"length": Quantity(10.0, "mm")})
         builder2.add_primitive(
             "cylinder", {"radius": Quantity(5.0, "mm"), "height": Quantity(20.0, "mm")}

@@ -1,17 +1,13 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Any
-
+from server.feature_support import BackendCapabilities, load_geometry_capabilities
 from server.geometry_ir import (
+    EIR,
+    CompiledOp,
     CompilerResult,
     CompilerStatus,
-    CompiledOp,
-    EIR,
-    Invariant,
     Notice,
 )
-from server.feature_support import BackendCapabilities, load_geometry_capabilities
 
 
 class FreeCADCompiler:

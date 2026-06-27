@@ -1,7 +1,6 @@
 import unittest
 
 from server.geometry_constraints import ConstraintGraphBuilder
-from server.geometry_ir import GIRBuilder, Quantity
 from server.geometry_planner import StrategyPlanner
 
 

@@ -3,13 +3,9 @@ from __future__ import annotations
 import unittest
 
 from server.geometry_ir import (
-    EIRBuilder,
     GIRBuilder,
-    Invariant,
-    Quantity,
-    Vector3D,
 )
-from server.geometry_planning import plan_geometry, _generate_eir
+from server.geometry_planning import _generate_eir, plan_geometry
 
 
 class TestPlanGeometryBoxBasic(unittest.TestCase):
@@ -75,7 +71,7 @@ class TestPlanGeometryBoxBasic(unittest.TestCase):
         }
         result = plan_geometry(spec)
         eir = result["eir"]
-        ops = {op["id"]: op for op in eir["operations"]}
+        {op["id"]: op for op in eir["operations"]}
 
         pad_ops = [op for op in eir["operations"] if op["op_type"] == "pad"]
         sketch_ops = [op for op in eir["operations"] if op["op_type"] == "create_sketch"]

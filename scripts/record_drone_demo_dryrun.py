@@ -40,7 +40,6 @@ import sys
 import time
 from pathlib import Path
 
-
 REPO_ROOT = Path(__file__).resolve().parent.parent
 RUN_SCRIPT = REPO_ROOT / "examples" / "quadrotor_camera_drone" / "run.py"
 

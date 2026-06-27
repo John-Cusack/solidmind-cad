@@ -126,7 +126,7 @@ def _planetary_3to1(
     )
 
 
-def _four_bar(s: float, p: float, q: float, l: float) -> Mechanism:
+def _four_bar(s: float, p: float, q: float, length: float) -> Mechanism:
     """Four-bar linkage with given link lengths."""
     return Mechanism(
         name="four_bar",
@@ -140,7 +140,7 @@ def _four_bar(s: float, p: float, q: float, l: float) -> Mechanism:
             JointEdge(id="j1", joint_type=JointType.REVOLUTE, parent_part="ground", child_part="crank", link_length_mm=s),
             JointEdge(id="j2", joint_type=JointType.REVOLUTE, parent_part="crank", child_part="coupler", link_length_mm=p),
             JointEdge(id="j3", joint_type=JointType.REVOLUTE, parent_part="coupler", child_part="rocker", link_length_mm=q),
-            JointEdge(id="j4", joint_type=JointType.REVOLUTE, parent_part="rocker", child_part="ground", link_length_mm=l),
+            JointEdge(id="j4", joint_type=JointType.REVOLUTE, parent_part="rocker", child_part="ground", link_length_mm=length),
         ),
         drives=(),
     )
@@ -224,14 +224,14 @@ class TestValidators(unittest.TestCase):
 
     def test_linkage_grashof_pass(self):
         # s+l=10+40=50 <= p+q=20+30=50 → Grashof
-        mech = _four_bar(s=10, p=20, q=30, l=40)
+        mech = _four_bar(s=10, p=20, q=30, length=40)
         results = run_validators(mech, ["linkage_grashof"])
         self.assertEqual(results[0].status, "pass")
         self.assertTrue(results[0].measured["grashof"])
 
     def test_linkage_grashof_fail(self):
         # s+l=10+50=60 > p+q=15+20=35 → NOT Grashof
-        mech = _four_bar(s=10, p=15, q=20, l=50)
+        mech = _four_bar(s=10, p=15, q=20, length=50)
         results = run_validators(mech, ["linkage_grashof"])
         self.assertEqual(results[0].status, "warn")
         self.assertFalse(results[0].measured["grashof"])

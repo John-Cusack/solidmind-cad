@@ -13,14 +13,12 @@ than RANS CFD for rotor-on-rotor interaction studies.
 """
 from __future__ import annotations
 
-import json
 import logging
 import math
 import shutil
 import subprocess
 import time
 from pathlib import Path
-from typing import Any
 
 from server.analysis_models import (
     AeroReference,
@@ -33,7 +31,6 @@ from server.analysis_models import (
     FlowConditions,
     MeshInfo,
     RotorSpec,
-    ScalarFieldSummary,
 )
 from server.analysis_solvers import FieldSolver
 
@@ -99,7 +96,7 @@ class DUSTSolver(FieldSolver):
         lines.append("&reference_parameters")
         lines.append(f"  u_inf = {flow.velocity_m_s}")
         lines.append(f"  rho_inf = {flow.density_kg_m3}")
-        lines.append(f"  a_inf = 340.3")
+        lines.append("  a_inf = 340.3")
         lines.append(f"  mu_inf = {flow.viscosity_pa_s}")
         lines.append(f"  ref_area = {ref.area_m2 if ref.area_m2 > 0 else 1.0}")
         lines.append(f"  ref_length = {ref.chord_m if ref.chord_m > 0 else 1.0}")
@@ -135,7 +132,7 @@ class DUSTSolver(FieldSolver):
         # Components — airframe body
         lines.append("&component")
         lines.append(f"  comp_name = '{spec.body}'")
-        lines.append(f"  geo_file = 'body.stl'")
+        lines.append("  geo_file = 'body.stl'")
         lines.append("  comp_type = 'surface_panel'")
         lines.append("  trailing_edge = .false.")
         lines.append("/")
@@ -148,7 +145,7 @@ class DUSTSolver(FieldSolver):
             ax, ay, az = rotor.axis
             lines.append("&component")
             lines.append(f"  comp_name = '{rotor.rotor_id}'")
-            lines.append(f"  comp_type = 'lifting_line_rotor'")
+            lines.append("  comp_type = 'lifting_line_rotor'")
             lines.append(f"  n_blades = {rotor.num_blades}")
             lines.append(f"  radius = {rotor.radius_m}")
             lines.append(f"  omega = {omega_rad_s:.4f}")

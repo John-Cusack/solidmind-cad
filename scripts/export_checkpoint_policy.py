@@ -37,7 +37,6 @@ def main() -> int:
 
     import torch
     from isaaclab.envs import ManagerBasedRLEnv
-    from rsl_rl.modules import ActorCritic
     from rsl_rl.runners import OnPolicyRunner
 
     from rl_training.isaaclab_cfg import make_hexapod_flat_env_cfg

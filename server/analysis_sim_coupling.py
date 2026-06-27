@@ -12,8 +12,6 @@ import logging
 import math
 from typing import Any
 
-from server.analysis_models import BoundaryCondition
-
 log = logging.getLogger("solidmind.analysis_sim_coupling")
 
 

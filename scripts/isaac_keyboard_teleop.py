@@ -40,7 +40,6 @@ import time
 import tty
 from typing import Any
 
-
 # ── TCP helpers ──────────────────────────────────────────────────────
 
 class BridgeConnection:

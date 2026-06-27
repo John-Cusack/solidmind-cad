@@ -1,8 +1,9 @@
 import unittest
-from server.geometry_ir import GIRBuilder, Quantity, compute_gir_hash, CompilerStatus
-from server.geometry_constraints import ConstraintGraphBuilder
-from server.geometry_planner import StrategyPlanner
+
 from server.geometry_compiler_freecad import FreeCADCompiler
+from server.geometry_constraints import ConstraintGraphBuilder
+from server.geometry_ir import GIRBuilder, Quantity, compute_gir_hash
+from server.geometry_planner import StrategyPlanner
 from server.geometry_planning import plan_geometry
 
 
@@ -47,7 +48,7 @@ class TestPhase0Phase1Integration(unittest.TestCase):
 
     def test_compiler(self) -> None:
         compiler = FreeCADCompiler()
-        from server.geometry_ir import EIRBuilder, CompiledOp
+        from server.geometry_ir import EIRBuilder
 
         eir_builder = EIRBuilder()
         eir_builder.add_operation("pad", {"sketch": "S1"})

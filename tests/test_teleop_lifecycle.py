@@ -204,8 +204,8 @@ class TestJointMapFailFast(unittest.TestCase):
 
     def test_resolve_dof_map_partial_match(self) -> None:
         """Partial matches return only the matched joints."""
-        from isaac_bridge.runtime_isaac import _resolve_dof_map
         from isaac_bridge.models import TeleopConfig
+        from isaac_bridge.runtime_isaac import _resolve_dof_map
 
         mock_art = MagicMock()
         # Only 2 of the 6 default joint names present
@@ -253,8 +253,9 @@ class TestJointMapFailFast(unittest.TestCase):
 
     def test_resolve_dof_map_with_limits(self) -> None:
         """Joint limits are extracted from dof_properties."""
-        from isaac_bridge.runtime_isaac import _resolve_dof_map
         import numpy as np
+
+        from isaac_bridge.runtime_isaac import _resolve_dof_map
 
         mock_art = MagicMock()
         mock_art.dof_names = ["hip_lf", "hip_rf"]

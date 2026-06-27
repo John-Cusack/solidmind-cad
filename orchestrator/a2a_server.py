@@ -6,11 +6,9 @@ a sub-spec, launches Claude Code, streams progress, returns artifacts.
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import uuid
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any
 
 log = logging.getLogger(__name__)

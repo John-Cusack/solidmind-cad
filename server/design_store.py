@@ -6,7 +6,7 @@ motion_store.py.  Briefs persist for the lifetime of the MCP server process.
 from __future__ import annotations
 
 import secrets
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from server.design_models import DesignBrief, InterfaceEntry, PartEntry
@@ -16,7 +16,7 @@ _store: dict[str, DesignBrief] = {}
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+    return datetime.now(UTC).isoformat(timespec="seconds")
 
 
 def store_brief(

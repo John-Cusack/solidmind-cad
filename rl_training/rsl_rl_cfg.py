@@ -6,7 +6,11 @@ format RSL-RL v5 expects via ``.to_dict()``.
 from __future__ import annotations
 
 from isaaclab.utils import configclass  # type: ignore[import-not-found]
-from isaaclab_rl.rsl_rl import RslRlOnPolicyRunnerCfg, RslRlPpoActorCriticCfg, RslRlPpoAlgorithmCfg  # type: ignore[import-not-found]
+from isaaclab_rl.rsl_rl import (  # type: ignore[import-not-found]
+    RslRlOnPolicyRunnerCfg,
+    RslRlPpoActorCriticCfg,
+    RslRlPpoAlgorithmCfg,
+)
 
 
 @configclass

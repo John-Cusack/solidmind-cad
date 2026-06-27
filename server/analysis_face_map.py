@@ -111,13 +111,13 @@ def match_faces_geometric(
 
         for gf in gmsh_face_data:
             gc = gf.get("center", [0, 0, 0])
-            dist = math.sqrt(sum((a - b) ** 2 for a, b in zip(fc_center, gc)))
+            dist = math.sqrt(sum((a - b) ** 2 for a, b in zip(fc_center, gc, strict=False)))
             if dist > tolerance:
                 continue
 
             # Check normal alignment (dot product close to ±1)
             gn = gf.get("normal", [0, 0, 1])
-            dot = abs(sum(a * b for a, b in zip(fc_normal, gn)))
+            dot = abs(sum(a * b for a, b in zip(fc_normal, gn, strict=False)))
             if dot < 0.9:
                 continue
 

@@ -470,7 +470,7 @@ def export_sim_package() -> str | None:
 
 def verify_model() -> int:
     """Step 14: Print model tree summary. Returns body count."""
-    t0 = _step(14, "Verifying model tree")
+    _step(14, "Verifying model tree")
     result = _send("get_model_tree", detail="bodies")
     bodies = result.get("bodies", [])
     count = len(bodies)
@@ -686,7 +686,7 @@ def main() -> None:
     print(f"  Chassis: r={CHASSIS_RADIUS}mm, h={CHASSIS_THICKNESS}mm at z={CHASSIS_Z:.0f}mm")
     print(f"  Segments: coxa={COXA_LEN}mm, femur={FEMUR_LEN}mm, tibia={TIBIA_LEN}mm")
     print(f"  Pose: femur {math.degrees(FEMUR_PITCH):.0f}° down, tibia {math.degrees(TIBIA_PITCH):.0f}° down")
-    print(f"  Expected bodies: 1 chassis + 6×(3 links + 3 servos) = 37")
+    print("  Expected bodies: 1 chassis + 6×(3 links + 3 servos) = 37")
     print()
 
     t_start = time.monotonic()
@@ -696,7 +696,7 @@ def main() -> None:
         _send("ping")
     except (ConnectionRefusedError, OSError):
         print(f"  {RED}Cannot connect to FreeCAD addon on {HOST}:{PORT}{RESET}")
-        print(f"  Start FreeCAD and run: import freecad_addon; freecad_addon.start()")
+        print("  Start FreeCAD and run: import freecad_addon; freecad_addon.start()")
         sys.exit(1)
 
     # Phase 1: Chassis plate (rich PartDesign features)

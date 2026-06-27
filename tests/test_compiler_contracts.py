@@ -1,8 +1,8 @@
 import unittest
 
-from server.geometry_ir import EIRBuilder, CompiledOp, Quantity
-from server.geometry_compiler_freecad import FreeCADCompiler, CompilerStatus
 from server.feature_support import load_geometry_capabilities
+from server.geometry_compiler_freecad import CompilerStatus, FreeCADCompiler
+from server.geometry_ir import EIRBuilder
 
 
 class TestCompilerContracts(unittest.TestCase):
@@ -141,7 +141,7 @@ class TestCompilerContracts(unittest.TestCase):
         freecad_ops = list(self.caps.backends["freecad"].operations.keys())
 
         builder = EIRBuilder()
-        for idx, op in enumerate(freecad_ops[:5]):
+        for _idx, op in enumerate(freecad_ops[:5]):
             builder.add_operation(op, {})
 
         eir = builder.build()

@@ -11,7 +11,6 @@ import unittest
 from pathlib import Path
 
 from orchestrator.runner import (
-    OrchestratorRun,
     build_release,
     build_worker_prompts,
     check_gate_g0,
@@ -32,7 +31,6 @@ from orchestrator.spec import (
     AssemblySkeleton,
     CoordinateFrame,
     Interface,
-    MasterSpec,
     MatingSemantic,
     Objective,
     SpecStatus,

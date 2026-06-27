@@ -5,7 +5,7 @@ import unittest
 from server.geometry_executor import ExecutionStep, ExecutionTrace
 from server.geometry_ir import CompiledOp
 from server.geometry_repair import recommend_repairs
-from server.geometry_verify import VerificationResult, VerificationReport
+from server.geometry_verify import VerificationReport, VerificationResult
 
 
 class TestGeometryRepair(unittest.TestCase):

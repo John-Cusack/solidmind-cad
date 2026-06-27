@@ -9,7 +9,6 @@ import math
 from dataclasses import dataclass
 from typing import Any
 
-
 # ---------------------------------------------------------------------------
 # V-belt cross-section lookup (ISO 4184 / RMA)
 # ---------------------------------------------------------------------------

@@ -1,13 +1,13 @@
-import unittest
 import json
+import unittest
 
 try:
     import jsonschema
 except ModuleNotFoundError:
     jsonschema = None
 
-from server.paths import repo_root
 from server.geometry_planning import plan_geometry
+from server.paths import repo_root
 
 
 @unittest.skipIf(jsonschema is None, "jsonschema not installed")

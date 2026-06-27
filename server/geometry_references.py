@@ -116,7 +116,7 @@ class ReferenceResolver:
     ) -> ResolvedReference:
         """Resolve using the selector field of the token."""
         selector = token.selector or {}
-        selector_type = selector.get("type", "")
+        selector.get("type", "")
 
         # Positional resolution for common cases
         if "top_face" in token.token:

@@ -26,8 +26,6 @@ from __future__ import annotations
 
 import os
 import shutil
-import subprocess
-import time
 import unittest
 from pathlib import Path
 
@@ -67,8 +65,8 @@ class TestQuadrotorSmoke(unittest.TestCase):
         assert self.px4 is not None  # guarded by skipUnless
 
     def test_x500_like_takes_off_and_holds(self) -> None:
-        from server.airframes.presets import x500_like
         from server.airframes.multicopter import MulticopterAirframe
+        from server.airframes.presets import x500_like
 
         # Replace the stock x500_like with our test mass to keep
         # MIS_TAKEOFF_ALT achievable in a short test window.
@@ -90,7 +88,6 @@ class TestQuadrotorSmoke(unittest.TestCase):
         })
         # 2. Airframe init script
         from server.px4_airframe_generator import (
-            format_airframe_init_script,
             register_airframe,
         )
         params = af.to_px4_airframe_params()

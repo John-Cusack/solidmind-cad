@@ -3,11 +3,11 @@ from __future__ import annotations
 from typing import Any
 
 from server.feature_support import load_geometry_capabilities, load_planning_policy
-from server.geometry_constraints import ConstraintGraphBuilder, ConstraintGraph
+from server.geometry_constraints import ConstraintGraph, ConstraintGraphBuilder
 from server.geometry_ir import (
     EIR,
-    EIRBuilder,
     GIR,
+    EIRBuilder,
     GIRBuilder,
     Invariant,
     Point3D,
@@ -31,7 +31,6 @@ from server.planning_types import (
     planning_plan_to_dict,
 )
 from server.spec_planning_context import normalize_spec_for_planning
-
 
 _PHASE_GOALS: dict[str, str] = {
     "BASE": "Create datum frame, master parameters, and base envelope geometry.",
@@ -900,11 +899,11 @@ def _gir_to_dict(gir: GIR) -> dict[str, Any]:
         if hasattr(f, "traces_to") and f.traces_to:
             feat["traces_to"] = list(f.traces_to)
         if getattr(f, "phase_id", None) is not None:
-            feat["phase_id"] = getattr(f, "phase_id")
+            feat["phase_id"] = f.phase_id
         if getattr(f, "reference_support_type", None) is not None:
-            feat["reference_support_type"] = getattr(f, "reference_support_type")
+            feat["reference_support_type"] = f.reference_support_type
         if getattr(f, "topology_sensitive", None) is not None:
-            feat["topology_sensitive"] = bool(getattr(f, "topology_sensitive"))
+            feat["topology_sensitive"] = bool(f.topology_sensitive)
 
         if f.type == "sketch_profile":
             feat["plane"] = f.plane

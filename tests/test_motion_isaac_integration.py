@@ -8,12 +8,10 @@ from __future__ import annotations
 import json
 import socket
 import threading
-import time
 import unittest
 
-from server import isaac_client
+from server import isaac_client, motion_store
 from server import main as mcp_main
-from server import motion_store
 from server.tools_motion import _active_sessions
 
 
@@ -46,7 +44,7 @@ class _FakeIsaacBridge:
             while not self._stop.is_set():
                 try:
                     conn, _ = srv.accept()
-                except socket.timeout:
+                except TimeoutError:
                     continue
                 except OSError:
                     break
@@ -57,7 +55,7 @@ class _FakeIsaacBridge:
                     while not self._stop.is_set():
                         try:
                             data = conn.recv(65536)
-                        except socket.timeout:
+                        except TimeoutError:
                             continue
                         except OSError:
                             break

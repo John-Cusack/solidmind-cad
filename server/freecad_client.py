@@ -10,7 +10,8 @@ import socket
 import time
 from typing import Any
 
-from server.jsonutil import dumps as json_dumps, loads as json_loads
+from server.jsonutil import dumps as json_dumps
+from server.jsonutil import loads as json_loads
 
 logger = logging.getLogger("solidmind.freecad_client")
 
@@ -163,7 +164,7 @@ class FreeCADClient:
         while b"\n" not in self._buffer:
             try:
                 data = self._sock.recv(4096)
-            except socket.timeout as e:
+            except TimeoutError as e:
                 raise FreeCADConnectionError(
                     f"Timed out waiting for response ({timeout}s)"
                 ) from e

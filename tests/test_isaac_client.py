@@ -130,7 +130,7 @@ def _make_isaac_echo_server(host: str, port: int) -> tuple[socket.socket, thread
                         resp = {"ok": True, "result": {"echo": cmd}}
                     conn.sendall((json.dumps(resp) + "\n").encode())
             conn.close()
-        except (socket.timeout, OSError):
+        except (TimeoutError, OSError):
             pass
         finally:
             srv.close()

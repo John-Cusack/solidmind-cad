@@ -16,11 +16,9 @@ import unittest
 from typing import Any
 from unittest.mock import patch
 
-from tests.conftest import GazeboStubBridge, mechanism_factory, unused_tcp_port
-
 from server import motion_store
-from server.analysis_models import CheckStatus, MeshInfo
-from server.analysis_sim_coupling import bcs_from_propagation, bcs_from_simulation
+from server.analysis_models import MeshInfo
+from server.analysis_sim_coupling import bcs_from_propagation
 from server.design_store import clear as clear_briefs
 from server.tools_design import (
     design_add_interface,
@@ -29,6 +27,7 @@ from server.tools_design import (
     design_save_brief,
     design_update_brief,
 )
+from tests.conftest import GazeboStubBridge, mechanism_factory, unused_tcp_port
 
 
 def _send_command(host: str, port: int, cmd: str, args: dict | None = None) -> dict:

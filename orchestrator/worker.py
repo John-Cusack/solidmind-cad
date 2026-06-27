@@ -174,7 +174,7 @@ async def _dispatch_docker(
     from orchestrator.a2a_client import A2AClient
 
     worker_port = kwargs.get("worker_port", 8080)
-    docker_image = kwargs.get("docker_image", "solidmind-worker:latest")
+    kwargs.get("docker_image", "solidmind-worker:latest")
 
     client = A2AClient(timeout_sec=900)
     sem = asyncio.Semaphore(max_parallel)

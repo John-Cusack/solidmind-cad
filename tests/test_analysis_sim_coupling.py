@@ -241,10 +241,11 @@ class TestStressFromSimulationTool(unittest.TestCase):
         self.assertIn(result["error"]["code"], ("NO_FORCES", "NO_LOAD"))
 
     def test_with_propagation_has_forces(self) -> None:
-        from server.tools_analysis import analysis_stress_from_simulation
-        from unittest.mock import patch, MagicMock
-        from server.analysis_models import MeshInfo
+        from unittest.mock import patch
+
         import server.tools_analysis as mod
+        from server.analysis_models import MeshInfo
+        from server.tools_analysis import analysis_stress_from_simulation
 
         with (
             patch.object(mod, "cad_export_body") as mock_export,

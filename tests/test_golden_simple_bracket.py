@@ -2,12 +2,11 @@ from __future__ import annotations
 
 import unittest
 
-from server.geometry_planning import plan_geometry
-from server.geometry_compiler_freecad import FreeCADCompiler, CompilerStatus
+from server.geometry_compiler_freecad import CompilerStatus, FreeCADCompiler
 from server.geometry_executor import Executor, compute_execution_trace_hash
-from server.geometry_verify import VerificationEngine
 from server.geometry_ir import EIRBuilder, Invariant
-
+from server.geometry_planning import plan_geometry
+from server.geometry_verify import VerificationEngine
 
 # Golden fixture 1: Simple bracket
 # 100x50x20mm box, 4x M5 holes on 80x30 pattern, 2mm fillet

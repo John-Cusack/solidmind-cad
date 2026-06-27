@@ -23,7 +23,6 @@ import os
 import socket
 import subprocess
 import sys
-import time
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
@@ -191,7 +190,7 @@ def check_isaac_bridge() -> bool:
 
 def check_isaac_urdf_import() -> bool:
     """Import the hexapod URDF into Isaac (slow ~60-180s)."""
-    print(f"    Importing URDF (this takes ~60-180s)...")
+    print("    Importing URDF (this takes ~60-180s)...")
     resp = _tcp_command(ISAAC_HOST, ISAAC_PORT, "import_urdf",
                         {"urdf_path": str(URDF_PATH.resolve())}, timeout=300)
     if resp and resp.get("ok"):
@@ -233,10 +232,11 @@ def check_gear_engine() -> None:
 def check_hexapod_3dof_controller() -> None:
     """Check that Hexapod3DOFController and IK module are importable."""
     try:
-        from isaac_bridge.controllers import Hexapod3DOFController  # noqa: F401
-        from isaac_bridge.hexapod_ik import inverse_kinematics, LegGeometry  # noqa: F401
         # Quick IK smoke test: solve for a point and verify angles are finite
         import math
+
+        from isaac_bridge.controllers import Hexapod3DOFController  # noqa: F401
+        from isaac_bridge.hexapod_ik import LegGeometry, inverse_kinematics  # noqa: F401
         geom = LegGeometry(l_coxa=0.052, l_femur=0.066, l_tibia=0.133)
         angles = inverse_kinematics(0.15, 0.0, -0.10, geom)
         ok = all(math.isfinite(a) for a in (angles.coxa, angles.femur, angles.tibia))
@@ -325,7 +325,7 @@ def main() -> None:
     # ── 18-DOF build script ──
     print(f"{BOLD}18-DOF Hexapod{RESET}")
     check_18dof_build_script()
-    assets_18dof_ok = check_18dof_hexapod_assets()
+    check_18dof_hexapod_assets()
     print()
 
     # ── Hexapod assets (1-DOF legacy) ──
@@ -340,7 +340,7 @@ def main() -> None:
         print()
     else:
         print(f"{BOLD}Isaac Sim{RESET}")
-        isaac_py = check_isaac_python()
+        check_isaac_python()
         bridge_ok = check_isaac_bridge()
 
         if args.full and bridge_ok and assets_ok:
@@ -355,7 +355,7 @@ def main() -> None:
         print()
 
     # ── Summary ──
-    total = passed + failed + skipped
+    passed + failed + skipped
     print(f"{BOLD}{'=' * 50}{RESET}")
     color = GREEN if failed == 0 else RED
     print(f"{color}{BOLD}{passed} passed, {failed} failed, {skipped} skipped{RESET}")

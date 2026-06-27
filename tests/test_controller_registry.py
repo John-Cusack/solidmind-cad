@@ -12,15 +12,13 @@ import math
 import unittest
 
 from isaac_bridge.controllers import (
+    _CONTROLLER_REGISTRY,
     Hexapod3DOFController,
     HexapodTripodController,
     PolicyController,
-    _CONTROLLER_REGISTRY,
-    clamp_targets,
     create_controller,
 )
 from isaac_bridge.models import Controller, TeleopConfig, TeleopState
-
 
 _DEG2RAD = math.pi / 180.0
 
@@ -225,6 +223,7 @@ class TestRuntimeRegistryIntegration(unittest.TestCase):
 
     def test_bridge_unknown_controller_returns_error(self) -> None:
         import json
+
         from isaac_bridge.bridge_server import BridgeServer
         server = BridgeServer(host="127.0.0.1", port=0, headless=True)
         result = server._handle_line(json.dumps({

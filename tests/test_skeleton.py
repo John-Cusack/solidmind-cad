@@ -14,7 +14,6 @@ from orchestrator.spec import (
     AssemblySkeleton,
     MasterSpec,
     Subsystem,
-    SubsystemKind,
 )
 
 

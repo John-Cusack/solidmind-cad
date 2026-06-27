@@ -10,7 +10,6 @@ from __future__ import annotations
 import json
 import os
 import shutil
-import signal
 import socket
 import subprocess
 import threading
@@ -519,7 +518,7 @@ class TestRealIsaacWithGPU(unittest.TestCase):
 
     def test_start_and_health(self):
         """Start Isaac bridge with full Isaac Sim and verify health check."""
-        from server.sim_engine_manager import shutdown_all, start_engine, _engines, _lock
+        from server.sim_engine_manager import _engines, _lock, shutdown_all, start_engine
 
         port = unused_tcp_port()
         try:
@@ -799,12 +798,12 @@ class TestRealChrono(unittest.TestCase):
         end-to-end, the same path as motion.simulate(backend='chrono').
         """
         from server import motion_store
-        from server.tools_motion import motion_define_mechanism
         from server.simulation_spec_builder import (
             add_derived_speeds,
             build_simulation_spec,
             validate_simulation_spec,
         )
+        from server.tools_motion import motion_define_mechanism
 
         motion_store.clear()
         try:

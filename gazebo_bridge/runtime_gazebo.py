@@ -11,7 +11,6 @@ import os
 import secrets
 import shutil
 import subprocess
-import time
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -146,7 +145,7 @@ class StubGazeboRuntime:
 
         # Build peak joint forces from final sample
         peak_joint_forces: dict[str, float] = {}
-        for i, jid in enumerate(joint_ids):
+        for _i, jid in enumerate(joint_ids):
             peak_joint_forces[jid] = 5.0  # stub steady-state effort
 
         return {

@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import json
-import math
 import os
 import tempfile
 import unittest
@@ -96,7 +95,7 @@ class TestPolicyControllerWithMockPolicy(unittest.TestCase):
         )
         # For indexing [0, i]
         row_mock = MagicMock()
-        for i, val in enumerate(output_values):
+        for _i, _val in enumerate(output_values):
             row_mock.__getitem__ = self._make_getitem(output_values)
         mock_output.__getitem__ = self._make_2d_getitem(output_values)
         mock.return_value = mock_output

@@ -289,8 +289,8 @@ def _run_static_clearance(
 ) -> dict[str, Any]:
     """Stage 3: cad_check_clearance with policy filtering."""
     try:
-        from server.tools_cad import cad_check_clearance
         from server.collision_policy import filter_violations
+        from server.tools_cad import cad_check_clearance
 
         result = cad_check_clearance(doc=doc)
         if not result.get("ok"):
@@ -349,8 +349,8 @@ def _run_assembly_interference(
             "suppressed_count": 0,
         }
     try:
-        from server.tools_motion import motion_check_interference
         from server.collision_policy import filter_violations
+        from server.tools_motion import motion_check_interference
 
         result = motion_check_interference(mechanism_id, doc=doc)
         if not result.get("ok"):

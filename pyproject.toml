@@ -102,8 +102,8 @@ extend-exclude = [
 ]
 
 [tool.ruff.lint]
-# Start conservative — these rules catch real bugs without being noisy.
-# Expand once the codebase has been cleaned up.
+# Cleaned up and enforcing. Suppressions below are reserved for genuine false
+# positives and one deliberate codebase convention — everything else is fixed.
 select = [
   "E",   # pycodestyle errors
   "F",   # pyflakes
@@ -115,10 +115,19 @@ select = [
 ignore = [
   "E501",  # line length handled by formatter
   "B008",  # function calls in argument defaults (common in dataclass fields)
+  "UP042", # keep the repo-wide `class X(str, Enum)` convention: switching to
+           # StrEnum changes str(member) output ("X.PASS" -> "pass"), which would
+           # silently alter logging and JSON serialization across the codebase.
 ]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["B011"]  # assert False is fine in tests
+# FreeCAD injects `FreeCAD`, `Gui`, `App`, etc. as runtime globals into addon
+# modules; pyflakes can't see them, so undefined-name here is a false positive.
+"freecad_addon/*" = ["F821"]
+# Entry point deliberately configures logging + loads .env before importing the
+# server tool modules, so import-time log output lands in the document log.
+"server/main.py" = ["E402"]
 
 [tool.maturin]
 manifest-path = "geometry/Cargo.toml"

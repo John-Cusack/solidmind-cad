@@ -1,10 +1,10 @@
 import unittest
 
-from server.geometry_ir import GIRBuilder, GIR, Quantity, compute_gir_hash, EIRBuilder
+from server.geometry_compiler_freecad import CompilerStatus, FreeCADCompiler
 from server.geometry_constraints import ConstraintGraphBuilder
-from server.geometry_planner import StrategyPlanner
-from server.geometry_compiler_freecad import FreeCADCompiler, CompilerStatus
 from server.geometry_executor import Executor
+from server.geometry_ir import EIRBuilder, GIRBuilder, Quantity, compute_gir_hash
+from server.geometry_planner import StrategyPlanner
 from server.geometry_planning import plan_geometry
 
 
@@ -153,8 +153,8 @@ class TestE2ECADFlow(unittest.TestCase):
     def test_full_pipeline_plan_compile_execute_verify(self) -> None:
         """Full pipeline: plan → compile → execute → verify."""
         from server.geometry_executor import compute_execution_trace_hash
-        from server.geometry_verify import VerificationEngine
         from server.geometry_ir import Invariant
+        from server.geometry_verify import VerificationEngine
 
         spec = {
             "envelope": {

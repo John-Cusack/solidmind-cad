@@ -11,7 +11,7 @@ from server.motion_models import (
     Mechanism,
     PartNode,
 )
-from server.motion_planetary import PlanetarySet, detect_planetary_sets
+from server.motion_planetary import detect_planetary_sets
 from server.simulation_spec_builder import (
     add_derived_speeds,
     build_simulation_spec,
@@ -66,7 +66,7 @@ def _make_planetary_mechanism(
 
     drives = [
         DriveCondition(
-            joint_id=f"sun_planet_1_mesh",
+            joint_id="sun_planet_1_mesh",
             speed_rpm=motor_rpm,
         ),
     ]

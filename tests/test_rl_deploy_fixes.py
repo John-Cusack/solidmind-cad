@@ -2,14 +2,11 @@
 from __future__ import annotations
 
 import json
-import math
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import MagicMock
 
 from isaac_bridge.controllers import DirectPolicyController
-from isaac_bridge.models import TeleopConfig, TeleopState, SimulationSession
 
 
 class TestDirectPolicyActionScales(unittest.TestCase):

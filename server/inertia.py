@@ -11,10 +11,9 @@ re-deriving formulas inline.
 """
 from __future__ import annotations
 
-import math
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Iterable, Literal
-
+from typing import Literal
 
 _Axis = Literal["x", "y", "z"]
 
@@ -40,7 +39,7 @@ class Inertia6:
         """Return the canonical 6-tuple (ixx, ixy, ixz, iyy, iyz, izz)."""
         return (self.ixx, self.ixy, self.ixz, self.iyy, self.iyz, self.izz)
 
-    def __add__(self, other: "Inertia6") -> "Inertia6":
+    def __add__(self, other: Inertia6) -> Inertia6:
         return Inertia6(
             ixx=self.ixx + other.ixx,
             ixy=self.ixy + other.ixy,

@@ -18,7 +18,7 @@ import os
 import re
 import struct
 import xml.etree.ElementTree as ET
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -381,7 +381,7 @@ def _get_ascii_stl_extent(stl_path: str) -> tuple[int, tuple[float, float, float
     xmin = ymin = zmin = float("inf")
     xmax = ymax = zmax = float("-inf")
     vertex_count = 0
-    with open(stl_path, "r") as f:
+    with open(stl_path) as f:
         for line in f:
             m = _VERTEX_RE_SIMPLE.match(line)
             if m:
@@ -479,7 +479,7 @@ def _transform_ascii_stl(
         r"(\s*)$"
     )
 
-    with open(stl_path, "r") as f:
+    with open(stl_path) as f:
         lines = f.readlines()
 
     out_lines: list[str] = []
@@ -1383,7 +1383,7 @@ def _emit_mesh_collision(link_el: ET.Element, link_name: str, mesh_uri: str) -> 
 def _emit_primitive_collision(
     link_el: ET.Element,
     link_name: str,
-    shape: "CollisionShape",
+    shape: CollisionShape,
 ) -> None:
     """Emit a ``<collision>`` block with primitive geometry.
 
@@ -1424,7 +1424,7 @@ def _emit_primitive_collision(
 def _emit_primitive_visual(
     link_el: ET.Element,
     link_name: str,
-    shape: "CollisionShape",
+    shape: CollisionShape,
 ) -> None:
     """Emit a ``<visual>`` block with primitive geometry, matching the
     collision shape.  Without a visual, mesh-less drones (chassis +
@@ -2639,7 +2639,7 @@ def validate_urdf_fk(
             left_sorted = sorted(left_legs.values(), key=lambda p: (p[0], p[1]))
             right_sorted = sorted(right_legs.values(), key=lambda p: (p[0], -p[1]))
 
-            for lp, rp in zip(left_sorted, right_sorted):
+            for lp, rp in zip(left_sorted, right_sorted, strict=False):
                 dx = abs(lp[0] - rp[0])
                 dy = abs(lp[1] - (-rp[1]))  # mirror about XZ
                 dz = abs(lp[2] - rp[2])

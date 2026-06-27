@@ -15,12 +15,10 @@ from __future__ import annotations
 
 import csv
 import logging
-import math
 import shutil
 import subprocess
 import time
 from pathlib import Path
-from typing import Any
 
 from server.analysis_models import (
     AeroReference,
@@ -92,11 +90,11 @@ class SU2Solver(FieldSolver):
         if mach < 0.3:
             lines.append("SOLVER= INC_RANS")
             lines.append("KIND_TURB_MODEL= SA")
-            lines.append(f"INC_DENSITY_MODEL= CONSTANT")
+            lines.append("INC_DENSITY_MODEL= CONSTANT")
             lines.append(f"INC_DENSITY_INIT= {flow.density_kg_m3}")
             lines.append(f"INC_VELOCITY_INIT= ({flow.velocity_m_s}, 0.0, 0.0)")
-            lines.append(f"INC_TEMPERATURE_INIT= 288.15")
-            lines.append(f"VISCOSITY_MODEL= CONSTANT_VISCOSITY")
+            lines.append("INC_TEMPERATURE_INIT= 288.15")
+            lines.append("VISCOSITY_MODEL= CONSTANT_VISCOSITY")
             lines.append(f"MU_CONSTANT= {flow.viscosity_pa_s}")
         else:
             lines.append("SOLVER= RANS")
@@ -112,9 +110,9 @@ class SU2Solver(FieldSolver):
         # Reference values
         lines.append("")
         lines.append("% Reference values")
-        lines.append(f"REF_ORIGIN_MOMENT_X= 0.0")
-        lines.append(f"REF_ORIGIN_MOMENT_Y= 0.0")
-        lines.append(f"REF_ORIGIN_MOMENT_Z= 0.0")
+        lines.append("REF_ORIGIN_MOMENT_X= 0.0")
+        lines.append("REF_ORIGIN_MOMENT_Y= 0.0")
+        lines.append("REF_ORIGIN_MOMENT_Z= 0.0")
         lines.append(f"REF_LENGTH= {ref.chord_m if ref.chord_m > 0 else 1.0}")
         lines.append(f"REF_AREA= {ref.area_m2 if ref.area_m2 > 0 else 1.0}")
 
@@ -181,12 +179,12 @@ class SU2Solver(FieldSolver):
         lines.append("CONV_STARTITER= 10")
         lines.append("CONV_CAUCHY_ELEMS= 100")
         lines.append("CONV_CAUCHY_EPS= 1e-6")
-        lines.append(f"CONV_FIELD= DRAG")
+        lines.append("CONV_FIELD= DRAG")
 
         # I/O
         lines.append("")
         lines.append("% I/O")
-        lines.append(f"MESH_FILENAME= mesh.su2")
+        lines.append("MESH_FILENAME= mesh.su2")
         lines.append("MESH_FORMAT= SU2")
         lines.append("SOLUTION_FILENAME= restart.dat")
         lines.append("RESTART_FILENAME= restart.dat")

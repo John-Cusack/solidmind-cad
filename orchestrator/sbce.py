@@ -11,7 +11,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any
 
-from orchestrator.spec import MasterSpec, Objective
+from orchestrator.spec import MasterSpec
 
 log = logging.getLogger(__name__)
 

@@ -31,7 +31,6 @@ import math
 import os
 import signal
 import subprocess
-import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -91,7 +90,7 @@ def cmd_status(_args: argparse.Namespace) -> None:
     if _sitl_running():
         print(f"\n  airframe: {AIRFRAME}")
         print(f"  model:    {MODEL_NAME}")
-        print(f"  mavlink:  udp:127.0.0.1:14540")
+        print("  mavlink:  udp:127.0.0.1:14540")
 
 
 def cmd_start(args: argparse.Namespace) -> None:
@@ -118,7 +117,7 @@ def cmd_start(args: argparse.Namespace) -> None:
     print(f"booting PX4 SITL + Gazebo (model={AIRFRAME})")
     SITL_LOG.write_text("")
     sitl = subprocess.Popen(
-        ["make", f"px4_sitl_default", AIRFRAME],
+        ["make", "px4_sitl_default", AIRFRAME],
         cwd=str(PX4_INSTALL),
         stdin=subprocess.DEVNULL,
         stdout=open(SITL_LOG, "w"),

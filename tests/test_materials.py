@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import unittest
 
-from orchestrator.materials import MATERIAL_DB, Material, resolve_material
+from orchestrator.materials import MATERIAL_DB, resolve_material
 
 
 class TestResolveMaterial(unittest.TestCase):

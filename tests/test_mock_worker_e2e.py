@@ -17,7 +17,6 @@ from pathlib import Path
 from typing import Any
 
 from orchestrator.runner import (
-    build_worker_prompts,
     check_gate_g0,
     check_gate_g1,
     check_gate_g3,
@@ -311,7 +310,7 @@ class TestMockWorkerE2E(unittest.TestCase):
         doc_name = meta_a.get("doc_name")
 
         output_dir = self.run.run_dir / "cube_b_0" / "output"
-        metadata = _build_cube_with_hole(output_dir, doc_name=doc_name)
+        _build_cube_with_hole(output_dir, doc_name=doc_name)
 
         step_files = list(output_dir.glob("*.step"))
         self.assertGreaterEqual(len(step_files), 1)

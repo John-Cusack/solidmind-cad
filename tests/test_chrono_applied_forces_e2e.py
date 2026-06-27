@@ -10,7 +10,6 @@ Skipped when the daemon binary isn't built.
 """
 from __future__ import annotations
 
-import math
 import os
 import socket
 import subprocess
@@ -28,7 +27,6 @@ from server.motion_models import (
     PartNode,
 )
 from server.simulation_spec_builder import build_simulation_spec
-
 
 _DAEMON_PATH = Path(__file__).resolve().parents[1] / "chrono_daemon" / "build" / "chrono_daemon"
 _TEST_PORT = 19877  # not the default 9877; avoid colliding with a running instance

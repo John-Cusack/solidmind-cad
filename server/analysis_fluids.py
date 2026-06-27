@@ -8,7 +8,6 @@ from typing import Any
 
 from server.analysis_models import FlowConditions
 
-
 # Fluids at 20°C, 1 atm unless noted
 _FLUIDS: dict[str, dict[str, float]] = {
     "air": {

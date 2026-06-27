@@ -38,6 +38,7 @@ from __future__ import annotations
 import json
 import logging
 import math
+import re as _re
 import shutil
 import struct
 import subprocess
@@ -119,7 +120,7 @@ class MockSolver(SolverAdapter):
     ) -> dict[str, float]:
         # Simple parabolic objective: maximize when all params near their midpoints
         total = 0.0
-        for k, v in params.items():
+        for _k, v in params.items():
             if isinstance(v, (int, float)):
                 total += float(v)
         return {"objective": -((total - 50) ** 2) + 2500, "total_param": total}
@@ -219,10 +220,10 @@ def _run_xfoil(
             "OPER",
             f"VISC {Re:.0f}",
             f"ITER {max_iter}",
-            f"VPAR",
+            "VPAR",
             f"N {ncrit:.1f}",
             "",  # back to OPER
-            f"PACC",
+            "PACC",
             polar_path,
             "",  # no dump file
             f"ALFA {alpha_deg:.4f}",
@@ -1783,8 +1784,6 @@ def _parse_force_coefficients(
 # ---------------------------------------------------------------------------
 # OpenFOAM ASCII field parsers (for force computation without function objects)
 # ---------------------------------------------------------------------------
-
-import re as _re
 
 
 def _skip_foam_header(text: str) -> str:

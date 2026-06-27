@@ -4,7 +4,7 @@ from __future__ import annotations
 import unittest
 from unittest.mock import MagicMock, patch
 
-from server.fastener_data import SUPPORTED_HEAD_TYPES, SUPPORTED_SIZES, lookup
+from server.fastener_data import SUPPORTED_SIZES, lookup
 from server.tools_fastener import cad_fastener_spec
 
 
@@ -259,7 +259,7 @@ class TestFastenerFreeCADBuild(unittest.TestCase):
     @patch("server.tools_cad.get_client")
     def test_countersunk_hole_workflow(self, mock_get: MagicMock) -> None:
         """Simulate building a countersunk M6 bolt hole."""
-        from server.tools_cad import cad_hole, cad_sketch
+        from server.tools_cad import cad_hole
 
         # Look up countersunk M6
         spec_result = cad_fastener_spec(size="M6", length=25.0, head_type="countersunk")

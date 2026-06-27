@@ -14,7 +14,6 @@ from typing import Any
 from server.models import ValidatorResult
 from server.motion_models import JointType, Mechanism
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -864,7 +863,6 @@ def _check_dof_analysis(mech: Mechanism) -> ValidatorResult:
 
 def _check_center_distance(mech: Mechanism) -> ValidatorResult:
     """Verify mesh center distance matches (d1+d2)/2 for gear meshes with known origins."""
-    issues = []
     checked = 0
     for j in _gear_joints(mech):
         p1 = mech.get_part(j.parent_part)

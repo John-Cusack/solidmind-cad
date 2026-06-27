@@ -17,7 +17,8 @@ import queue
 import socket
 import threading
 import traceback
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from freecad_addon.commands import COMMAND_HANDLERS
 from freecad_addon.protocol import Command, Response, encode_message
@@ -222,7 +223,7 @@ class AddonSocketServer:
                     name=f"solidmind-client-{addr[1]}",
                 )
                 client_thread.start()
-            except socket.timeout:
+            except TimeoutError:
                 continue
             except OSError:
                 if self._running:

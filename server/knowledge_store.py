@@ -16,10 +16,10 @@ import hashlib
 import logging
 import os
 import re
-import textwrap
-from dataclasses import dataclass, field as dc_field
+from dataclasses import dataclass
+from dataclasses import field as dc_field
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 # Load .env from project root if present (python-dotenv is a transitive dep)
 try:
@@ -386,7 +386,7 @@ class KnowledgeStore:
             # Generate embeddings
             texts = [c["text"] for c in chunks]
             vectors = self._embed(texts)
-            for chunk, vec in zip(chunks, vectors):
+            for chunk, vec in zip(chunks, vectors, strict=False):
                 chunk["vector"] = vec
 
             table = self._db.open_table(_TABLE_NAME)

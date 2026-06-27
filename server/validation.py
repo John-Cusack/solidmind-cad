@@ -3,9 +3,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import Any
+
 from jsonschema import Draft202012Validator
 
-from server.constants import COVERAGE_THRESHOLDS, MATURITY_LEVELS, SUPPORTED_PROCESSES, SUPPORTED_SPEC_MAJOR
+from server.constants import (
+    COVERAGE_THRESHOLDS,
+    MATURITY_LEVELS,
+    SUPPORTED_PROCESSES,
+    SUPPORTED_SPEC_MAJOR,
+)
 from server.jsonutil import loads as json_loads
 from server.models import Finding, Severity, ToolError
 from server.paths import data_path

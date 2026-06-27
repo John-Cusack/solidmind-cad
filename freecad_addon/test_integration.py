@@ -96,7 +96,7 @@ def test_sbvec3f_default_setvalue() -> None:
 def test_sbvec3f_from_ints() -> None:
     """SbVec3f with int args — may fail, documents pivy behavior."""
     from pivy.coin import SbVec3f
-    v = SbVec3f(1, 2, 3)  # noqa: might TypeError on some pivy builds
+    v = SbVec3f(1, 2, 3)  # may TypeError on some pivy builds
     assert abs(v[0] - 1.0) < 1e-6
 
 
@@ -118,7 +118,7 @@ def test_sbvec3f_from_bbox_division() -> None:
     from pivy.coin import SbVec3f
     # Try raw — this is the original failure path
     try:
-        v = SbVec3f(cx, cy, cz)
+        SbVec3f(cx, cy, cz)
         _record("test_sbvec3f_from_bbox_division (3-arg raw)", True,
                 f"type={type(cx).__name__}")
     except TypeError as e:
@@ -126,18 +126,18 @@ def test_sbvec3f_from_bbox_division() -> None:
                 f"type={type(cx).__name__}: {e}")
     # Try with float() cast
     try:
-        v = SbVec3f(float(cx), float(cy), float(cz))
+        SbVec3f(float(cx), float(cy), float(cz))
         _record("test_sbvec3f_from_bbox_division (3-arg float())", True)
     except TypeError as e:
         _record("test_sbvec3f_from_bbox_division (3-arg float())", False, str(e))
     # Try list form
     try:
-        v = SbVec3f([float(cx), float(cy), float(cz)])
+        SbVec3f([float(cx), float(cy), float(cz)])
         _record("test_sbvec3f_from_bbox_division (list float())", True)
     except TypeError as e:
         _record("test_sbvec3f_from_bbox_division (list float())", False, str(e))
     # Raise to mark the outer test — at least one form must work
-    v = SbVec3f([float(cx), float(cy), float(cz)])  # will raise if broken
+    SbVec3f([float(cx), float(cy), float(cz)])  # will raise if broken
 
 
 # ---------------------------------------------------------------------------
@@ -174,6 +174,7 @@ def test_camera_position_set() -> None:
     """Setting camera position via Coin3D should not crash."""
     import FreeCAD
     import FreeCADGui
+
     from freecad_addon.commands import _sb_vec3f
 
     # Ensure we have a document open
@@ -192,6 +193,7 @@ def test_camera_point_at() -> None:
     """cam.pointAt(target, up) should not crash."""
     import FreeCAD
     import FreeCADGui
+
     from freecad_addon.commands import _sb_vec3f
 
     if FreeCAD.ActiveDocument is None:
@@ -214,7 +216,7 @@ def test_near_distance_set() -> None:
 
     view = FreeCADGui.ActiveDocument.ActiveView
     cam = view.getCameraNode()
-    cam.nearDistance.setValue(float(0.1))
+    cam.nearDistance.setValue(0.1)
     val = cam.nearDistance.getValue()
     assert abs(val - 0.1) < 1e-6
 
@@ -230,7 +232,7 @@ def _ensure_partdesign_body(doc: Any) -> Any:
         if obj.TypeId == "PartDesign::Body":
             return obj
 
-    import FreeCAD  # noqa: already imported, but explicit
+    import FreeCAD  # already imported at module load; re-imported here for clarity
 
     body = doc.addObject("PartDesign::Body", "TestBody")
 
@@ -335,7 +337,7 @@ def test_screenshot_empty_document() -> None:
     """Screenshot of empty document (no geometry) — must not NaN."""
     import FreeCAD
 
-    doc = FreeCAD.newDocument("EmptyDocTest")
+    FreeCAD.newDocument("EmptyDocTest")
     from freecad_addon.commands import screenshot
     result = screenshot(target="iso", width=256, height=256, doc="EmptyDocTest")
     # Should produce a valid image even with no geometry
@@ -347,8 +349,9 @@ def test_screenshot_empty_document() -> None:
 
 def test_screenshot_image_dimensions() -> None:
     """Screenshot image should have the requested dimensions."""
-    import FreeCAD
     import struct
+
+    import FreeCAD
 
     doc = FreeCAD.ActiveDocument
     if doc is None:

@@ -11,7 +11,6 @@ from __future__ import annotations
 import logging
 import math
 from pathlib import Path
-from typing import Any
 
 from server.analysis_models import (
     AnalysisCheck,
@@ -204,7 +203,7 @@ def _parse_displacement_block(
     displacements: dict[int, tuple[float, float, float]] = {}
     in_disp_block = False
 
-    for i, line in enumerate(lines):
+    for _i, line in enumerate(lines):
         stripped = line.strip()
         if not in_disp_block and stripped.startswith("-4") and "DISP" in line:
             in_disp_block = True

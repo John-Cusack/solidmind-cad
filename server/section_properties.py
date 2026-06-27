@@ -187,11 +187,11 @@ def c_channel(
     # Centroid X: web centroid at tw/2, flange centroid at tw + (bf-tw)/2
     # (flanges include the web corner region for simplicity — standard
     #  decomposition: web is tw×hw, each flange is bf×tf)
-    x_web = tw / 2.0
-    x_flange = (tw + bf) / 2.0  # flange extends from 0 to tw+bf... actually:
+    tw / 2.0
+    (tw + bf) / 2.0  # flange extends from 0 to tw+bf... actually:
     # Better decomposition: web = tw × hw, flanges = bf × tf with flange
     # starting at x=0.  Flange centroid at bf/2.
-    x_flange = bf / 2.0
+    bf / 2.0
     cx = (a_web * (tw / 2.0) + 2.0 * a_flange * (bf / 2.0)) / a_total
 
     # Ixx about centroidal horizontal axis (symmetric)
