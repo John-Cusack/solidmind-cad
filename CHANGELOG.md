@@ -21,6 +21,18 @@ and this project aims to follow [Semantic Versioning](https://semver.org/).
   example to close the autonomous iteration test for a part class
   (`tests/test_iteration_loop_foam_dart_e2e.py`). `--smoke` runs solver-free
   for CI.
+- **Foam-dart launcher: real structural FEA + kinematic Tier-2 rungs.** The
+  Simulate step now drives a real `analysis.stress_check` (CalculiX) on an
+  enriched latch — the builder grows a real cantilever tooth with a V1
+  sharp / V2 filleted root (`orchestrator/worker_builds/foam_dart_launcher.py`
+  `build_latch_variant`/`latch_profile`) so FEA reproduces the screen's stress
+  concentration; the report shows screen-vs-FEA agreement within ±25%. A motion
+  Tier-2 rung reports plunger travel, binding, and moving clearance (analytical
+  from the brief, with a best-effort FreeCAD geometric confirmation). Both rungs
+  report `SKIPPED` when a backend is absent and emit nothing under `--smoke`.
+  New guarded e2e tests plus CI-safe unit coverage for the profile, face
+  selection, and screen-vs-FEA classification (`tests/test_foam_dart_fea_e2e.py`,
+  `tests/test_foam_dart_kinematics_e2e.py`).
 - **Analytical structural screening tier (`analysis.screen_stress`).** Beam
   bending (σ=Mc/I) + handbook stress-concentration-factor lookup + Euler
   buckling bound, returning an `AnalysisCheck` that gates Tier-3 FEA — the

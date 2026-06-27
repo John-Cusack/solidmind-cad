@@ -98,6 +98,124 @@ def _block(
     return _export(part, doc, out_dir, log)
 
 
+# --------------------------------------------------------------------------- #
+# Enriched latch: a cantilever tooth on a stubby base, with an optional root
+# fillet. This is the one part where geometry fidelity matters — the structural
+# screen models the tooth as a rectangular cantilever with a fillet stress
+# concentration, so the *built* geometry must carry the same tooth + root for a
+# faithful screen-vs-FEA comparison (a plain block would have no root SCF).
+#
+# The profile is an L (base column + thin tooth) drawn in the XY plane and padded
+# along +Z by the tooth width. The reflex corner where the tooth meets the column
+# is the root; for V2 it is rounded by a tangent arc (radius = fillet_mm). All
+# coordinates are computed here in Python so the build needs no fragile
+# vertex-index fillet or face-based sketch — only lines, one arc, and coincidence
+# constraints. ``latch_profile`` is pure and unit-tested; ``build_latch_variant``
+# is the thin addon-driving wrapper.
+# --------------------------------------------------------------------------- #
+LATCH_BASE_W_MM = 8.0  # column depth in X (the stiff anchor)
+LATCH_BASE_H_MM = 12.0  # column height in Y
+
+
+def latch_profile(
+    *,
+    root_mm: float,
+    fillet_mm: float,
+    tooth_len_mm: float,
+    base_w_mm: float = LATCH_BASE_W_MM,
+    base_h_mm: float = LATCH_BASE_H_MM,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Return (elements, constraints) for the latch L-profile in the XY plane.
+
+    Vertices, counter-clockwise: A(0,0) B(w,0) C(w,h-root) D(w+len,h-root)
+    E(w+len,h) F(0,h). C is the concave tooth root. When ``fillet_mm > 0`` the
+    corner at C is replaced by a tangent quarter-arc (the fillet), tangent to the
+    column right face (x=w) and the tooth underside (y=h-root).
+    """
+    w, h, t, r = base_w_mm, base_h_mm, root_mm, fillet_mm
+    a = (0.0, 0.0)
+    b = (w, 0.0)
+    d = (w + tooth_len_mm, h - t)
+    e = (w + tooth_len_mm, h)
+    f = (0.0, h)
+
+    def line(p1: tuple[float, float], p2: tuple[float, float]) -> dict[str, Any]:
+        return {"type": "line", "x1": p1[0], "y1": p1[1], "x2": p2[0], "y2": p2[1]}
+
+    def coincident(i: int, ipos: int, j: int, jpos: int) -> dict[str, Any]:
+        return {
+            "type": "Coincident",
+            "first": i,
+            "first_pos": ipos,
+            "second": j,
+            "second_pos": jpos,
+        }
+
+    # A fillet only fits if it is smaller than both adjoining edges.
+    use_fillet = r > 1e-6 and r < min(t, w, tooth_len_mm) - 1e-6
+    if not use_fillet:
+        c = (w, h - t)
+        elements = [line(a, b), line(b, c), line(c, d), line(d, e), line(e, f), line(f, a)]
+        # End of each line coincides with the start of the next; last closes to first.
+        constraints = [coincident(i, 2, (i + 1) % 6, 1) for i in range(6)]
+        return elements, constraints
+
+    # Filleted root: shorten B->C to the lower tangent point, arc up to the side
+    # tangent point, then continue C->D. Arc center sits r inside the corner.
+    c1 = (w, h - t - r)  # tangent point on the column right face (angle 180 deg)
+    c2 = (w + r, h - t)  # tangent point on the tooth underside (angle 90 deg)
+    arc = {
+        "type": "arc",
+        "cx": w + r,
+        "cy": h - t - r,
+        "r": r,
+        "start_angle": 90.0,  # arc pos 1 -> c2
+        "end_angle": 180.0,  # arc pos 2 -> c1
+    }
+    # Emission order / indices: 0:A-B 1:B-C1 2:arc 3:C2-D 4:D-E 5:E-F 6:F-A
+    elements = [line(a, b), line(b, c1), arc, line(c2, d), line(d, e), line(e, f), line(f, a)]
+    constraints = [
+        coincident(0, 2, 1, 1),  # A-B end  -> B-C1 start
+        coincident(1, 2, 2, 2),  # B-C1 end -> arc end (c1)
+        coincident(2, 1, 3, 1),  # arc start (c2) -> C2-D start
+        coincident(3, 2, 4, 1),  # C2-D end -> D-E start
+        coincident(4, 2, 5, 1),  # D-E end  -> E-F start
+        coincident(5, 2, 6, 1),  # E-F end  -> F-A start
+        coincident(6, 2, 0, 1),  # F-A end  -> A-B start (close)
+    ]
+    return elements, constraints
+
+
+def build_latch_variant(
+    out_dir: Path,
+    *,
+    root_mm: float,
+    fillet_mm: float,
+    tooth_len_mm: float,
+    tooth_width_mm: float,
+    label: str,
+    log: Callable[[str], None],
+) -> dict[str, Any]:
+    """Build one latch variant and leave its body live for in-session FEA.
+
+    Returns ``{"part", "doc", "body", "step"}``. The body persists in its own
+    document (named ``latch_sear_<label>``) so ``analysis.stress_check`` can run
+    against it via ``doc=`` immediately after the build.
+    """
+    part = f"latch_sear_{label}"
+    elements, constraints = latch_profile(
+        root_mm=root_mm, fillet_mm=fillet_mm, tooth_len_mm=tooth_len_mm
+    )
+    doc = _send("new_document", name=part).get("name", part)
+    body = _send("new_body", name=part, doc=doc)["name"]
+    sk = _send("new_sketch", body=body, plane="XY", doc=doc)["sketch"]
+    _send("sketch_populate", sketch=sk, doc=doc, elements=elements, constraints=constraints)
+    _send("close_sketch", sketch=sk, doc=doc)
+    _send("pad", sketch=sk, length=tooth_width_mm, doc=doc)
+    step = _export(part, doc, out_dir, log)
+    return {"part": part, "doc": doc, "body": body, "step": step}
+
+
 def _export(part: str, doc: str, out_dir: Path, log: Callable[[str], None]) -> Path:
     step_path = out_dir / "step" / f"{part}.step"
     stl_path = out_dir / "stl" / f"{part}.stl"

@@ -26,7 +26,7 @@ between the diagnosis and the re-check:
 | **Synthesize** | Drive FreeCAD → real STEP per part (skipped if the addon isn't running). |
 | **Reflect** | File a `ReflectExpectations` per part class from `failure_modes.yaml`. |
 | **Screen** | `analysis.screen_stress` — beam theory + stress-concentration factor. V1 latch **FAILs** on `stress_concentration`, no FEA needed. |
-| **Simulate** | CalculiX FEA on any *marginal* part; **Chrono** for the spring-plunger dynamics. |
+| **Simulate** | Real **CalculiX FEA** confirms the latch screen on the enriched tooth geometry (screen-vs-FEA agree within ±25%); **Chrono** for the spring-plunger dynamics; motion **Tier-2** checks plunger travel, binding, and clearance. |
 | **Interpret** | Compare to expectations, classify with a typed `FailureMode`. |
 | **Decide** | `decide.from_failure` → "add a root fillet". |
 | **Act** | Thicken the root + add the fillet, **re-screen → PASS**. |
@@ -87,8 +87,10 @@ as `SKIPPED` — never faked.
 | --- | --- | --- |
 | Synthesize → STEP | FreeCAD addon on :9876 | addon is launched |
 | Screen | none (analytical) | always |
-| Simulate (structural) | CalculiX + gmsh | installed and a part is marginal |
+| Simulate (structural FEA) | FreeCAD + CalculiX + gmsh | addon up **and** `ccx`/`gmsh` installed (else SKIPPED) |
 | Simulate (dynamic) | Chrono daemon | `chrono_daemon` is built |
+| Simulate (kinematic clearance) | none (analytical, from brief) | always |
+| Simulate (kinematic geometric) | FreeCAD Assembly | addon up (best-effort; SKIPPED otherwise) |
 | Learn | LanceDB | knowledge store available |
 
 `--smoke` runs a **no-solver CI path** and prints a loud

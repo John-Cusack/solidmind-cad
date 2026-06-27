@@ -51,6 +51,17 @@ PULLBACKS_MM = [10.0, 20.0, 30.0]
 MAX_COMPRESSION_M = 0.030
 M_TO_FT = 3.28084
 
+# Latch geometry — single source of truth shared by the structural screen and the
+# FreeCAD builder so the screened section and the meshed part describe the SAME
+# tooth. width/length are the screen's section width and bending moment arm.
+LATCH_TOOTH_WIDTH_MM = 6.0
+LATCH_TOOTH_LEN_MM = 2.5
+LATCH_V1 = {"root_mm": 1.0, "fillet_ratio": 0.0}  # deliberately under-dimensioned
+LATCH_V2 = {"root_mm": 2.2, "fillet_ratio": 0.3}  # thicker root + real fillet
+# Analytical beam theory vs meshed FEA legitimately diverge at a stress
+# concentration; flag (don't fail) a screen-vs-FEA gap wider than this.
+FEA_SCREEN_TOL = 0.25
+
 _CHRONO_DAEMON = Path(__file__).resolve().parents[2] / "chrono_daemon" / "build" / "chrono_daemon"
 
 # PETG isn't in the core material DB — supply an inline fallback.
@@ -125,8 +136,8 @@ def screen_parts(
     # Latch tooth: cantilever under the spring hold force, root is the hotspot.
     checks["latch_sear"] = screen_stress(
         name="latch tooth_root",
-        section={"type": "rectangle", "width_mm": 6.0, "height_mm": latch_root_mm},
-        load={"force_n": hold_force_n, "length_mm": 2.5},
+        section={"type": "rectangle", "width_mm": LATCH_TOOTH_WIDTH_MM, "height_mm": latch_root_mm},
+        load={"force_n": hold_force_n, "length_mm": LATCH_TOOTH_LEN_MM},
         yield_strength_mpa=yield_mpa,
         stress_concentration={"feature": "fillet", "ratio": latch_fillet_ratio},
         target_fos=2.0,
@@ -305,6 +316,271 @@ def chrono_plunger_velocity(
 
 
 # --------------------------------------------------------------------------- #
+# Simulate (structural): real CalculiX FEA on the enriched latch
+# --------------------------------------------------------------------------- #
+def select_latch_faces(faces: list[dict[str, Any]]) -> tuple[str | None, str | None]:
+    """Pick (fixed_base, load_tip) face names from a get_body_topology face list.
+
+    The latch is built (see foam_dart_launcher.latch_profile) with its column
+    foot at min Y and the tooth tip at max X. Fixed = the foot face (min center
+    Y); load = the tooth-tip face (max center X). Pure, so it is unit-tested with
+    a synthetic topology.
+    """
+    named = [f for f in faces if f.get("name") and f.get("center")]
+    if not named:
+        return None, None
+    fixed = min(named, key=lambda f: f["center"][1])
+    load = max(named, key=lambda f: f["center"][0])
+    return fixed["name"], load["name"]
+
+
+def build_latch_variants(out: Path, log: StepLog) -> dict[str, dict[str, Any]] | None:
+    """Build the V1/V2 latch bodies (real STEP) and leave them live for FEA.
+
+    Returns ``{"v1": {...}, "v2": {...}}`` (each with doc/body/step) or None if
+    FreeCAD isn't reachable / the build fails — the caller then reports SKIPPED.
+    """
+    try:
+        from orchestrator.worker_builds import common
+        from orchestrator.worker_builds import foam_dart_launcher as fdl
+    except Exception as exc:  # pragma: no cover - import guard
+        log.say("Simulate", f"FEA SKIPPED (orchestrator unavailable: {exc})")
+        return None
+    if not common.freecad_ready():
+        log.say("Simulate", "FEA SKIPPED (FreeCAD addon not reachable; latch not built)")
+        return None
+    variants: dict[str, dict[str, Any]] = {}
+    for label, cfg in (("v1", LATCH_V1), ("v2", LATCH_V2)):
+        try:
+            variants[label] = fdl.build_latch_variant(
+                out,
+                root_mm=cfg["root_mm"],
+                fillet_mm=cfg["fillet_ratio"] * cfg["root_mm"],
+                tooth_len_mm=LATCH_TOOTH_LEN_MM,
+                tooth_width_mm=LATCH_TOOTH_WIDTH_MM,
+                label=label,
+                log=lambda m: log.say("Synthesize", m),
+            )
+        except Exception as exc:  # any builder error → no FEA on that variant
+            log.say("Simulate", f"FEA SKIPPED ({label} latch build failed: {exc})")
+            return None
+    return variants
+
+
+def fea_latch(
+    *,
+    variant: dict[str, Any],
+    material: str | dict[str, Any],
+    hold_force_n: float,
+    log: StepLog,
+    tag: str,
+) -> dict[str, Any] | None:
+    """Run a real CalculiX stress check on one latch body; return the result dict.
+
+    Returns the serialized FieldResult (``{"max_von_mises_mpa", "safety_factor",
+    "status", "failure_mode", ...}``) or None on any missing-backend / solver /
+    geometry failure — SKIPPED, never faked.
+    """
+    try:
+        from orchestrator.worker_builds import foam_dart_launcher as fdl
+        from server.tools_analysis import analysis_stress_check
+
+        topo = fdl._send("get_body_topology", body=variant["body"], doc=variant["doc"])
+        fixed_name, load_name = select_latch_faces(topo.get("faces", []))
+        if not fixed_name or not load_name:
+            log.say("Simulate", f"FEA SKIPPED ({tag}: could not resolve latch faces)")
+            return None
+        res = analysis_stress_check(
+            body=variant["body"],
+            doc=variant["doc"],
+            material=material,
+            mesh_size=0.4,
+            boundary_conditions=[
+                {"bc_type": "fixed", "faces": [fixed_name]},
+                {"bc_type": "force", "faces": [load_name], "value": {"fy": -hold_force_n}},
+            ],
+        )
+    except Exception as exc:  # solver/mesh/connection error → degrade, don't crash
+        log.say("Simulate", f"FEA SKIPPED ({tag}: {exc})")
+        return None
+    if not res.get("ok"):
+        code = res.get("error", {}).get("code", "?")
+        log.say("Simulate", f"FEA SKIPPED ({tag}: {code})")
+        return None
+    log.say(
+        "Simulate",
+        f"FEA {tag}: max vM = {res['max_von_mises_mpa']:.1f} MPa, "
+        f"SF = {res['safety_factor']:.2f} (real CalculiX run)",
+    )
+    return res
+
+
+def screen_vs_fea(screen_mpa: float, fea_mpa: float | None) -> tuple[bool | None, float | None]:
+    """Relative agreement between the analytical screen peak and the FEA peak."""
+    if not fea_mpa or fea_mpa <= 0.0:
+        return None, None
+    rel = abs(fea_mpa - screen_mpa) / fea_mpa
+    return rel <= FEA_SCREEN_TOL, rel
+
+
+# --------------------------------------------------------------------------- #
+# Simulate (kinematic): motion Tier-2 — plunger travel, binding, clearance
+# --------------------------------------------------------------------------- #
+def _geometric_interference(out: Path, log: StepLog) -> dict[str, Any] | None:
+    """Best-effort FreeCAD geometric interference confirmation.
+
+    Imports the guide-tube + plunger-head STEPs into one document and runs the
+    motion Tier-2 assembly + interference check. Returns ``{"clear": bool}`` or
+    None (SKIPPED). The assembly path needs a live addon (and the imported STEPs
+    resolved as assembly parts), so this commonly degrades — the analytical
+    clearance result stands either way; nothing is faked.
+    """
+    try:
+        from orchestrator.worker_builds import common
+        from orchestrator.worker_builds import foam_dart_launcher as fdl
+
+        if not common.freecad_ready():
+            return None
+        guide = out / "step" / "guide_tube.step"
+        head = out / "step" / "plunger_head.step"
+        if not (guide.is_file() and head.is_file()):
+            return None
+        from server.tools_motion import (
+            motion_check_interference,
+            motion_create_assembly,
+            motion_define_mechanism,
+        )
+
+        doc = fdl._send("new_document", name="kin_assembly").get("name", "kin_assembly")
+        g = fdl._send("import_step", path=str(guide), doc=doc, object_name="guide_tube")
+        h = fdl._send("import_step", path=str(head), doc=doc, object_name="plunger_head")
+        mech = {
+            "name": "plunger_in_guide_geom",
+            "parts": [
+                {"id": "frame", "is_ground": True, "body_name": g.get("object", "guide_tube")},
+                {"id": "plunger", "body_name": h.get("object", "plunger_head")},
+            ],
+            "joints": [
+                {
+                    "id": "slide",
+                    "joint_type": "prismatic",
+                    "parent_part": "frame",
+                    "child_part": "plunger",
+                    "axis": (0.0, 0.0, 1.0),
+                    "origin": (0.0, 0.0, 0.0),
+                }
+            ],
+            "drives": [],
+        }
+        defined = motion_define_mechanism(mechanism=mech)
+        mid = defined.get("mechanism_id") if defined.get("ok") else None
+        if not mid:
+            return None
+        asm = motion_create_assembly(mechanism_id=mid, doc=doc)
+        if not asm.get("ok"):
+            log.say(
+                "Simulate",
+                f"Kinematic geometric check SKIPPED ({asm.get('error', {}).get('code', '?')})",
+            )
+            return None
+        chk = motion_check_interference(mechanism_id=mid, doc=doc)
+        if not chk.get("ok"):
+            return None
+        return {"clear": bool(chk.get("clear"))}
+    except Exception as exc:  # any addon/assembly failure → analytical result stands
+        log.say("Simulate", f"Kinematic geometric check SKIPPED ({exc})")
+        return None
+
+
+def kinematic_tier2(
+    *, brief: dict[str, Any], out: Path, smoke: bool, log: StepLog
+) -> dict[str, Any]:
+    """Validate plunger travel / binding / moving clearance.
+
+    Moving clearance is analytical from the brief specs (always runs). Travel is
+    validated by defining the prismatic mechanism and running the structural
+    motion validators. Binding follows analytically from clearance over the
+    coaxial travel, with an optional FreeCAD geometric confirmation. Nothing is
+    faked: unavailable backends report SKIPPED.
+    """
+    parts = {p["name"]: p.get("specs", {}) for p in brief["parts"]}
+    bore = float(parts.get("guide_tube", {}).get("bore_dia_mm", 16.0))
+    head = float(parts.get("plunger_head", {}).get("dia_mm", 15.2))
+    min_clear = float(brief["parameters"]["constraints"]["min_moving_clearance_mm"])
+    travel_mm = 0.0
+    for ifc in brief.get("interfaces", []):
+        if ifc.get("spec", {}).get("type") == "prismatic":
+            travel_mm = float(ifc["spec"].get("travel_mm", MAX_COMPRESSION_M * 1000.0))
+    clear = (bore - head) / 2.0
+    out_rows: dict[str, Any] = {
+        "clearance": {
+            "value_mm": clear,
+            "target_mm": min_clear,
+            "pass": clear >= min_clear - 1e-9,
+            "mode": "analytical (from brief specs)",
+        }
+    }
+
+    if smoke:
+        out_rows["travel"] = {"status": "SKIPPED", "reason": "smoke"}
+        out_rows["binding"] = {"status": "SKIPPED", "reason": "smoke"}
+        log.say("Simulate", "Kinematic SKIPPED (smoke); clearance computed analytically only")
+        return out_rows
+
+    # Plunger travel: define the prismatic mechanism and run the analytical
+    # structural validators (pure Python — no FreeCAD needed).
+    try:
+        from server.tools_motion import motion_define_mechanism, motion_validate
+
+        mech = {
+            "name": "plunger_in_guide",
+            "parts": [
+                {"id": "frame", "is_ground": True, "body_name": "guide_tube"},
+                {"id": "plunger", "body_name": "plunger_head"},
+            ],
+            "joints": [
+                {
+                    "id": "slide",
+                    "joint_type": "prismatic",
+                    "parent_part": "frame",
+                    "child_part": "plunger",
+                    "axis": (0.0, 0.0, 1.0),
+                    "origin": (0.0, 0.0, 0.0),
+                    "min_travel_mm": 0.0,
+                    "max_travel_mm": travel_mm,
+                }
+            ],
+            "drives": [],
+        }
+        defined = motion_define_mechanism(mechanism=mech)
+        mid = defined.get("mechanism_id") if defined.get("ok") else None
+        validated = motion_validate(mechanism_id=mid) if mid else {"blockers": ["undefined"]}
+        travel_ok = mid is not None and not validated.get("blockers")
+        out_rows["travel"] = {
+            "status": "PASS" if travel_ok else "FAIL",
+            "range_mm": [0.0, travel_mm],
+            "mode": "analytical (mechanism validated)",
+        }
+        log.say(
+            "Simulate",
+            f"Kinematic: prismatic travel 0–{travel_mm:.0f} mm "
+            f"{'valid' if travel_ok else 'INVALID'} (analytical)",
+        )
+    except Exception as exc:
+        out_rows["travel"] = {"status": "SKIPPED", "reason": str(exc)}
+
+    # Binding follows from clearance for coaxial cylinders over the full travel.
+    out_rows["binding"] = {
+        "status": "PASS" if clear > 0.0 else "FAIL",
+        "mode": "analytical (clearance > 0 over coaxial travel)",
+    }
+    geom = _geometric_interference(out, log)
+    if geom is not None:
+        out_rows["binding"]["geometric_clear"] = geom.get("clear")
+    return out_rows
+
+
+# --------------------------------------------------------------------------- #
 # Outputs
 # --------------------------------------------------------------------------- #
 def write_range_csv(path: Path, rows: list[dict[str, Any]]) -> None:
@@ -396,6 +672,9 @@ def write_report(
     smoke: bool,
     k_is_placeholder: bool,
     mass_is_placeholder: bool,
+    fea_v1: dict[str, Any] | None = None,
+    fea_v2: dict[str, Any] | None = None,
+    kin: dict[str, Any] | None = None,
 ) -> None:
     v2_latch = v2["latch_sear"]
     L: list[str] = []
@@ -493,6 +772,68 @@ def write_report(
         f"{v2['plunger_rod'].status.value.upper()} |"
     )
     A("")
+
+    # Screen-vs-FEA: does the real solver confirm the analytical screen?
+    A("## Screen vs FEA (latch tooth)\n")
+    if fea_v1 is None and fea_v2 is None:
+        A(
+            "_FEA SKIPPED_ — no CalculiX/FreeCAD this run. The analytical screen "
+            "above stands on its own; run with the addon + `ccx`/`gmsh` to confirm "
+            f"it against a real solve (agreement target ±{FEA_SCREEN_TOL * 100:.0f}%).\n"
+        )
+    else:
+        A("| Variant | Screen peak σ | FEA peak σ | Residual | Within ±25% | FoS (FEA) |")
+        A("| --- | ---: | ---: | ---: | :--: | ---: |")
+        for tag, scr, fea in (
+            ("V1 (illustrative)", lv1, fea_v1),
+            ("V2 (confirmatory)", v2_latch, fea_v2),
+        ):
+            if fea is None:
+                A(f"| {tag} | {scr.measured:.1f} MPa | SKIPPED | — | — | — |")
+                continue
+            fea_mpa = fea.get("max_von_mises_mpa", 0.0)
+            within, rel = screen_vs_fea(scr.measured, fea_mpa)
+            mark = "✓" if within else "⚠"
+            rel_s = f"{rel * 100:.0f}%" if rel is not None else "—"
+            A(
+                f"| {tag} | {scr.measured:.1f} MPa | {fea_mpa:.1f} MPa | {rel_s} | {mark} | "
+                f"{fea.get('safety_factor', 0.0):.2f} |"
+            )
+        A(
+            "\nBeam theory and a meshed solve legitimately diverge at a stress "
+            "concentration; a gap beyond ±25% is flagged (⚠), not failed. V1's screen "
+            "FAIL is already definitive — its FEA is shown only to reproduce the root "
+            "SCF the screen predicts.\n"
+        )
+
+    # Kinematic Tier-2: plunger travel / binding / clearance.
+    A("## Kinematic checks (plunger in guide)\n")
+    if not kin:
+        A("_SKIPPED._\n")
+    else:
+        cl = kin.get("clearance", {})
+        tv = kin.get("travel", {})
+        bd = kin.get("binding", {})
+
+        def _kstat(d: dict[str, Any]) -> str:
+            return str(d.get("status", "PASS" if d.get("pass") else "FAIL"))
+
+        A("| Check | Target | Result | Mode |")
+        A("| --- | ---: | :--: | --- |")
+        tv_range = tv.get("range_mm")
+        tv_target = f"full {tv_range[1]:.0f} mm" if tv_range else "full release"
+        A(
+            f"| Plunger travel | {tv_target} | {_kstat(tv)} | {tv.get('mode', tv.get('reason', '—'))} |"
+        )
+        A(
+            f"| Plunger binding/interference | none | {_kstat(bd)} | {bd.get('mode', bd.get('reason', '—'))} |"
+        )
+        if cl:
+            A(
+                f"| Moving clearance | ≥ {cl['target_mm']:.2f} mm | "
+                f"{cl['value_mm']:.2f} mm {'PASS' if cl['pass'] else 'FAIL'} | {cl.get('mode', '—')} |"
+            )
+        A("")
 
     A("## V1 failure → V2 fix\n")
     A(
@@ -593,8 +934,8 @@ def run(argv: list[str] | None = None) -> int:
         hold_force_n=hold_force_n,
         yield_mpa=mat.yield_strength_mpa,
         youngs_mpa=mat.youngs_modulus_mpa,
-        latch_root_mm=1.0,
-        latch_fillet_ratio=0.0,
+        latch_root_mm=LATCH_V1["root_mm"],
+        latch_fillet_ratio=LATCH_V1["fillet_ratio"],
     )
     log.say(
         "Screen",
@@ -603,16 +944,37 @@ def run(argv: list[str] | None = None) -> int:
         f"plunger_rod={v1['plunger_rod'].status.value}",
     )
 
-    # 5. SIMULATE — structural (FEA, guarded) + dynamic (Chrono)
+    # 5. SIMULATE — structural (real CalculiX FEA on the enriched latch) + dynamic
     from server.analysis_solvers import list_solvers
 
     fea_ok = any(s["name"] == "calculix" and s["available"] for s in list_solvers())
-    if v1["latch_sear"].status is CheckStatus.WARN and fea_ok and not args.smoke:
-        log.say("Simulate", "latch marginal → would run CalculiX FEA (available)")
-    elif v1["latch_sear"].status is CheckStatus.FAIL:
-        log.say("Simulate", "latch screen FAIL is definitive — no FEA needed to reject V1")
+    fea_v1: dict[str, Any] | None = None
+    fea_v2: dict[str, Any] | None = None
+    material_arg: str | dict[str, Any] = _PETG if args.material == "petg" else args.material
+    if args.smoke:
+        log.say("Simulate", "FEA SKIPPED (smoke)")
+    elif not fea_ok:
+        log.say("Simulate", "FEA SKIPPED (CalculiX/gmsh not available)")
     else:
-        log.say("Simulate", "FEA SKIPPED (no marginal part, or CalculiX absent)")
+        variants = build_latch_variants(out, log)
+        if variants:
+            # V1's screen FAIL is definitive (no FEA needed to reject it); we still
+            # solve it to *illustrate* the root SCF the screen predicts.
+            fea_v1 = fea_latch(
+                variant=variants["v1"],
+                material=material_arg,
+                hold_force_n=hold_force_n,
+                log=log,
+                tag="V1 latch (illustrative)",
+            )
+            # V2 passed the screen — FEA confirms the redesign with a real solve.
+            fea_v2 = fea_latch(
+                variant=variants["v2"],
+                material=material_arg,
+                hold_force_n=hold_force_n,
+                log=log,
+                tag="V2 latch (confirmatory)",
+            )
 
     plunger_mass_kg = brief["parameters"]["physical_defaults"]["plunger_mass_g"] / 1000.0
     dyn_v, trace = (None, [])
@@ -625,6 +987,9 @@ def run(argv: list[str] | None = None) -> int:
         )
     else:
         log.say("Simulate", "Chrono SKIPPED (smoke)")
+
+    # Kinematic Tier-2: plunger travel / binding / moving clearance.
+    kin = kinematic_tier2(brief=brief, out=out, smoke=args.smoke, log=log)
 
     # Lossless analytical plunger velocity for the head-to-head with Chrono:
     # sqrt(k x^2 / m_plunger) — same body the MBS run accelerates.
@@ -667,8 +1032,8 @@ def run(argv: list[str] | None = None) -> int:
         hold_force_n=hold_force_n,
         yield_mpa=mat.yield_strength_mpa,
         youngs_mpa=mat.youngs_modulus_mpa,
-        latch_root_mm=2.2,
-        latch_fillet_ratio=0.3,
+        latch_root_mm=LATCH_V2["root_mm"],
+        latch_fillet_ratio=LATCH_V2["fillet_ratio"],
     )
     v2_latch = v2["latch_sear"]
     log.say(
@@ -736,6 +1101,9 @@ def run(argv: list[str] | None = None) -> int:
         smoke=args.smoke,
         k_is_placeholder=k_is_placeholder,
         mass_is_placeholder=mass_is_placeholder,
+        fea_v1=fea_v1,
+        fea_v2=fea_v2,
+        kin=kin,
     )
 
     print(f"\nOutputs written to {out}")
