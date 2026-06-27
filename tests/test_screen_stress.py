@@ -3,6 +3,7 @@
 Pure-math tests for the screening core plus the MCP wrapper. No solver is ever
 invoked — the whole point of the tier is to gate FEA cheaply.
 """
+
 from __future__ import annotations
 
 import unittest
@@ -22,7 +23,7 @@ class TestAnalyticalCore(unittest.TestCase):
         # 10 mm wide x 5 mm deep cantilever, 1000 N·mm moment.
         # I = b h^3 / 12 = 10*125/12 = 104.1667 mm^4 ; c = 2.5 mm
         # sigma = M c / I = 1000*2.5/104.1667 = 24.0 MPa
-        i_mm4 = 10 * 5 ** 3 / 12.0
+        i_mm4 = 10 * 5**3 / 12.0
         sigma = beam_bending_stress_mpa(1000.0, 2.5, i_mm4)
         self.assertAlmostEqual(sigma, 24.0, places=2)
 
@@ -45,7 +46,7 @@ class TestAnalyticalCore(unittest.TestCase):
     def test_euler_buckling_load(self) -> None:
         # P_cr = pi^2 E I / (K L)^2
         p = euler_buckling_load_n(70000.0, 100.0, 50.0, end_fixity=1.0)
-        self.assertAlmostEqual(p, 3.14159265 ** 2 * 70000.0 * 100.0 / (50.0 ** 2), places=1)
+        self.assertAlmostEqual(p, 3.14159265**2 * 70000.0 * 100.0 / (50.0**2), places=1)
 
 
 class TestScreenStress(unittest.TestCase):
@@ -85,7 +86,7 @@ class TestScreenStress(unittest.TestCase):
     def test_buckling_governs_when_lower_fos(self) -> None:
         check = screen_stress(
             section={"type": "circle", "diameter_mm": 4.0},
-            load={"moment_nmm": 50.0},      # trivial bending
+            load={"moment_nmm": 50.0},  # trivial bending
             yield_strength_mpa=200.0,
             youngs_modulus_mpa=200000.0,
             buckling={"length_mm": 300.0, "compressive_force_n": 500.0},
@@ -135,8 +136,7 @@ class TestSectionReuse(unittest.TestCase):
     def test_hollow_circle_section_now_supported(self) -> None:
         # Previously raised 'unknown section type'; now routed via section_properties.
         check = screen_stress(
-            section={"type": "hollow_circle", "outer_diameter_mm": 10.0,
-                     "inner_diameter_mm": 8.0},
+            section={"type": "hollow_circle", "outer_diameter_mm": 10.0, "inner_diameter_mm": 8.0},
             load={"moment_nmm": 500.0},
             yield_strength_mpa=200.0,
         )
@@ -154,19 +154,26 @@ class TestSectionReuse(unittest.TestCase):
 class TestFailureModeInference(unittest.TestCase):
     def _result(self, status, checks):
         from server.analysis_models import FieldResult
+
         return FieldResult(
-            analysis_id="a", status=status, safety_factor=0.5,
-            max_von_mises_mpa=300.0, max_displacement_mm=1.0,
-            checks=checks, scalar_fields=(),
+            analysis_id="a",
+            status=status,
+            safety_factor=0.5,
+            max_von_mises_mpa=300.0,
+            max_displacement_mm=1.0,
+            checks=checks,
+            scalar_fields=(),
         )
 
     def test_pass_infers_none(self) -> None:
         from server.tools_analysis import _infer_failure_mode
+
         self.assertIsNone(_infer_failure_mode(self._result(CheckStatus.PASS, ())))
 
     def test_displacement_failure_infers_deflection(self) -> None:
         from server.analysis_models import AnalysisCheck
         from server.tools_analysis import _infer_failure_mode
+
         chk = AnalysisCheck(name="max displacement", status=CheckStatus.FAIL, message="x")
         self.assertEqual(
             _infer_failure_mode(self._result(CheckStatus.FAIL, (chk,))),
@@ -176,6 +183,7 @@ class TestFailureModeInference(unittest.TestCase):
     def test_stress_failure_infers_yield(self) -> None:
         from server.analysis_models import AnalysisCheck
         from server.tools_analysis import _infer_failure_mode
+
         chk = AnalysisCheck(name="von Mises stress", status=CheckStatus.FAIL, message="x")
         self.assertEqual(
             _infer_failure_mode(self._result(CheckStatus.FAIL, (chk,))),

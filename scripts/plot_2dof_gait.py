@@ -5,6 +5,7 @@ so you can compare gait behavior.
 
 Run:  python3 scripts/plot_2dof_gait.py
 """
+
 from __future__ import annotations
 
 import math
@@ -21,12 +22,18 @@ except ImportError:
 
 # ── Shared params ────────────────────────────────────────────────────
 JOINT_NAMES = [
-    "hip_yaw_L1", "hip_pitch_L1",
-    "hip_yaw_L2", "hip_pitch_L2",
-    "hip_yaw_L3", "hip_pitch_L3",
-    "hip_yaw_R1", "hip_pitch_R1",
-    "hip_yaw_R2", "hip_pitch_R2",
-    "hip_yaw_R3", "hip_pitch_R3",
+    "hip_yaw_L1",
+    "hip_pitch_L1",
+    "hip_yaw_L2",
+    "hip_pitch_L2",
+    "hip_yaw_L3",
+    "hip_pitch_L3",
+    "hip_yaw_R1",
+    "hip_pitch_R1",
+    "hip_yaw_R2",
+    "hip_pitch_R2",
+    "hip_yaw_R3",
+    "hip_pitch_R3",
 ]
 
 SHARED_PROFILE = {
@@ -62,8 +69,7 @@ RUN_S = 2.0
 VX = 0.3
 
 LEG_IDS = ["L1", "L2", "L3", "R1", "R2", "R3"]
-LEG_LABELS = ["L1 (front)", "L2 (mid)", "L3 (rear)",
-              "R1 (front)", "R2 (mid)", "R3 (rear)"]
+LEG_LABELS = ["L1 (front)", "L2 (mid)", "L3 (rear)", "R1 (front)", "R2 (mid)", "R3 (rear)"]
 
 
 def run_controller(profile_overrides: dict) -> tuple[list[float], dict[str, list[float]]]:
@@ -92,10 +98,11 @@ def run_controller(profile_overrides: dict) -> tuple[list[float], dict[str, list
 
 # ── Plot ─────────────────────────────────────────────────────────────
 n_shapes = len(SHAPES)
-fig, axes = plt.subplots(6, n_shapes, figsize=(6 * n_shapes, 14),
-                         sharex=True, sharey=True)
-fig.suptitle(f"2-DOF Hexapod Gait — vx={VX} m/s, stride=2 Hz\n"
-             f"Blue = coxa yaw, Red = femur pitch (lift)", fontsize=14)
+fig, axes = plt.subplots(6, n_shapes, figsize=(6 * n_shapes, 14), sharex=True, sharey=True)
+fig.suptitle(
+    f"2-DOF Hexapod Gait — vx={VX} m/s, stride=2 Hz\nBlue = coxa yaw, Red = femur pitch (lift)",
+    fontsize=14,
+)
 
 for col, (shape_name, overrides) in enumerate(SHAPES.items()):
     times, history = run_controller(overrides)
@@ -106,10 +113,20 @@ for col, (shape_name, overrides) in enumerate(SHAPES.items()):
         coxa_key = f"hip_yaw_{leg_id}"
         femur_key = f"hip_pitch_{leg_id}"
 
-        ax.plot(times, history[coxa_key], color="#2196F3", linewidth=1.5,
-                label="coxa" if row == 0 else None)
-        ax.plot(times, history[femur_key], color="#FF5722", linewidth=1.5,
-                label="femur" if row == 0 else None)
+        ax.plot(
+            times,
+            history[coxa_key],
+            color="#2196F3",
+            linewidth=1.5,
+            label="coxa" if row == 0 else None,
+        )
+        ax.plot(
+            times,
+            history[femur_key],
+            color="#FF5722",
+            linewidth=1.5,
+            label="femur" if row == 0 else None,
+        )
         ax.axhline(0, color="gray", linewidth=0.5, linestyle="--")
         ax.grid(True, alpha=0.3)
 

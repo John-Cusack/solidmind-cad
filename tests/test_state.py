@@ -1,4 +1,5 @@
 """Tests for orchestrator.state — state machine transitions with v3 states."""
+
 from __future__ import annotations
 
 import unittest
@@ -25,13 +26,17 @@ class TestTransitionTable(unittest.TestCase):
 
     def test_every_failure_code_has_retry_target(self) -> None:
         for code in FailureCode:
-            self.assertIn(code, _FAILURE_RETRY_TARGET,
-                          f"FailureCode.{code.name} missing from _FAILURE_RETRY_TARGET")
+            self.assertIn(
+                code,
+                _FAILURE_RETRY_TARGET,
+                f"FailureCode.{code.name} missing from _FAILURE_RETRY_TARGET",
+            )
 
     def test_every_retry_target_is_valid_state(self) -> None:
         for code, target in _FAILURE_RETRY_TARGET.items():
-            self.assertIsInstance(target, SpecStatus,
-                                 f"Retry target for {code} is not a SpecStatus")
+            self.assertIsInstance(
+                target, SpecStatus, f"Retry target for {code} is not a SpecStatus"
+            )
 
 
 class TestNewTransitions(unittest.TestCase):

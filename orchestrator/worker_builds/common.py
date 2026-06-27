@@ -16,6 +16,7 @@ Three responsibilities:
    that fills in the thread/event-loop plumbing so pytest callers can
    just write ``step_path = build_geometry(sub_spec, output_dir)``.
 """
+
 from __future__ import annotations
 
 import json
@@ -55,6 +56,7 @@ class TaskStub:
     stub satisfies that interface for in-process test callers without
     pulling in the A2A server or asyncio machinery.
     """
+
     progress: list[str] = field(default_factory=list)
 
     def log(self) -> None:
@@ -137,7 +139,12 @@ def freecad_ready_with_import_step(
             except FreeCADCommandError as exc:
                 msg = str(exc).lower()
                 # "unknown command" / "no such command" => not registered
-                if "unknown command" in msg or "no such" in msg or "not found" in msg and "step" not in msg:
+                if (
+                    "unknown command" in msg
+                    or "no such" in msg
+                    or "not found" in msg
+                    and "step" not in msg
+                ):
                     return False
                 # Any other error (FILE_NOT_FOUND, IMPORT_FAILED, etc.)
                 # means the command is registered and ran. Good enough.
@@ -147,7 +154,9 @@ def freecad_ready_with_import_step(
     except (FreeCADConnectionError, OSError) as exc:
         logger.debug(
             "freecad_ready_with_import_step: probe failed for %s:%d: %s",
-            h, p, exc,
+            h,
+            p,
+            exc,
         )
         return False
 
@@ -205,12 +214,7 @@ def build_geometry(
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    name = (
-        part_name
-        or sub_spec.get("name")
-        or sub_spec.get("subsystem")
-        or "part"
-    )
+    name = part_name or sub_spec.get("name") or sub_spec.get("subsystem") or "part"
     envelope = sub_spec.get("envelope_mm", [20, 20, 10])
     task = TaskStub()
 
@@ -228,8 +232,7 @@ def build_geometry(
     step_path = output_dir / f"{name}.step"
     if not step_path.exists():
         raise FileNotFoundError(
-            f"Build completed but STEP file missing: {step_path}. "
-            f"Progress: {task.progress}"
+            f"Build completed but STEP file missing: {step_path}. Progress: {task.progress}"
         )
     return step_path
 

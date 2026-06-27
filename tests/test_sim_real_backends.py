@@ -5,6 +5,7 @@ Skipped in CI — only run when actual simulation engines are installed.
 Real Gazebo tests launch a headless Gazebo world, start the bridge with
 runtime='real', then exercise spawn/step/diagnose through actual gz services.
 """
+
 from __future__ import annotations
 
 import json
@@ -85,7 +86,9 @@ class _GazeboWorld:
                 )
             result = subprocess.run(
                 ["gz", "service", "-l"],
-                capture_output=True, text=True, timeout=5,
+                capture_output=True,
+                text=True,
+                timeout=5,
             )
             if f"/world/{self.world_name}/create" in result.stdout:
                 return
@@ -200,11 +203,16 @@ class TestRealGazebo(unittest.TestCase):
 
         port = unused_tcp_port()
         with _RealGazeboBridge(port, world_name="empty") as bridge:
-            resp = _send_command(bridge.host, bridge.port, "spawn_model", {
-                "urdf_path": str(_URDF_PATH),
-                "model_name": "test_2body_spawn",
-                "world_name": "empty",
-            })
+            resp = _send_command(
+                bridge.host,
+                bridge.port,
+                "spawn_model",
+                {
+                    "urdf_path": str(_URDF_PATH),
+                    "model_name": "test_2body_spawn",
+                    "world_name": "empty",
+                },
+            )
 
         self.assertTrue(resp["ok"], resp)
         result = resp["result"]
@@ -237,15 +245,20 @@ class TestRealGazebo(unittest.TestCase):
 
         port = unused_tcp_port()
         with _RealGazeboBridge(port, world_name="empty") as bridge:
-            resp = _send_command(bridge.host, bridge.port, "simulate", {
-                "mechanism": mech,
-                "urdf_path": str(_URDF_PATH),
-                "model_name": "test_2body_sim",
-                "duration_s": 0.5,
-                "dt_s": 0.01,
-                "output_interval": 0.1,
-                "world_name": "empty",
-            })
+            resp = _send_command(
+                bridge.host,
+                bridge.port,
+                "simulate",
+                {
+                    "mechanism": mech,
+                    "urdf_path": str(_URDF_PATH),
+                    "model_name": "test_2body_sim",
+                    "duration_s": 0.5,
+                    "dt_s": 0.01,
+                    "output_interval": 0.1,
+                    "world_name": "empty",
+                },
+            )
 
         self.assertTrue(resp["ok"], resp)
         result = resp["result"]
@@ -277,9 +290,14 @@ class TestRealGazebo(unittest.TestCase):
         """Diagnose lists real Gazebo worlds via gz service -l."""
         port = unused_tcp_port()
         with _RealGazeboBridge(port, world_name="empty") as bridge:
-            resp = _send_command(bridge.host, bridge.port, "diagnose", {
-                "world_name": "empty",
-            })
+            resp = _send_command(
+                bridge.host,
+                bridge.port,
+                "diagnose",
+                {
+                    "world_name": "empty",
+                },
+            )
 
         self.assertTrue(resp["ok"], resp)
         worlds = resp["result"].get("worlds", [])
@@ -299,8 +317,11 @@ class _IsaacBridge:
     def start(self, timeout_s: float = 10.0) -> None:
         self._proc = subprocess.Popen(
             [
-                "python3", "-m", "isaac_bridge.bridge_server",
-                "--port", str(self.port),
+                "python3",
+                "-m",
+                "isaac_bridge.bridge_server",
+                "--port",
+                str(self.port),
                 "--headless",
             ],
             stdout=subprocess.PIPE,
@@ -400,11 +421,14 @@ class TestIsaacBridgeDegraded(unittest.TestCase):
                 },
             ],
         }
-        resp = self._bridge.send("simulate", {
-            "mechanism": mech,
-            "duration_s": 0.5,
-            "dt_s": 0.01,
-        })
+        resp = self._bridge.send(
+            "simulate",
+            {
+                "mechanism": mech,
+                "duration_s": 0.5,
+                "dt_s": 0.01,
+            },
+        )
         self.assertTrue(resp["ok"], resp)
         result = resp["result"]
         self.assertIn("time_series", result)
@@ -419,37 +443,49 @@ class TestIsaacBridgeDegraded(unittest.TestCase):
     def test_teleop_full_lifecycle(self):
         """Start → command → state → stop through real Isaac bridge."""
         # Start
-        start_resp = self._bridge.send("teleop_start", {
-            "profile": {
-                "controller_type": "hexapod_3dof_tripod",
-                "num_legs": 6,
-                "dof_per_leg": 3,
+        start_resp = self._bridge.send(
+            "teleop_start",
+            {
+                "profile": {
+                    "controller_type": "hexapod_3dof_tripod",
+                    "num_legs": 6,
+                    "dof_per_leg": 3,
+                },
+                "mechanism": {"name": "hex", "parts": [], "joints": []},
             },
-            "mechanism": {"name": "hex", "parts": [], "joints": []},
-        })
+        )
         self.assertTrue(start_resp["ok"], start_resp)
         session_id = start_resp["result"]["session_id"]
         self.assertIsInstance(session_id, str)
         self.assertEqual(start_resp["result"]["status"], "started")
 
         # Command
-        cmd_resp = self._bridge.send("teleop_command", {
-            "session_id": session_id,
-            "vx_mps": 0.3,
-            "dt_s": 0.02,
-        })
+        cmd_resp = self._bridge.send(
+            "teleop_command",
+            {
+                "session_id": session_id,
+                "vx_mps": 0.3,
+                "dt_s": 0.02,
+            },
+        )
         self.assertTrue(cmd_resp["ok"], cmd_resp)
 
         # State
-        state_resp = self._bridge.send("teleop_state", {
-            "session_id": session_id,
-        })
+        state_resp = self._bridge.send(
+            "teleop_state",
+            {
+                "session_id": session_id,
+            },
+        )
         self.assertTrue(state_resp["ok"], state_resp)
 
         # Stop
-        stop_resp = self._bridge.send("teleop_stop", {
-            "session_id": session_id,
-        })
+        stop_resp = self._bridge.send(
+            "teleop_stop",
+            {
+                "session_id": session_id,
+            },
+        )
         self.assertTrue(stop_resp["ok"], stop_resp)
         self.assertTrue(stop_resp["result"]["stopped"])
 
@@ -461,9 +497,12 @@ class TestIsaacBridgeDegraded(unittest.TestCase):
 
     def test_import_urdf_graceful_without_isaac(self):
         """import_urdf returns clear error when Isaac Sim is not available."""
-        resp = self._bridge.send("import_urdf", {
-            "urdf_path": "/nonexistent/robot.urdf",
-        })
+        resp = self._bridge.send(
+            "import_urdf",
+            {
+                "urdf_path": "/nonexistent/robot.urdf",
+            },
+        )
         self.assertFalse(resp["ok"])
         # Should get a clear error, not a crash
         self.assertIn("code", resp["error"])
@@ -484,14 +523,28 @@ class TestIsaacBridgeDegraded(unittest.TestCase):
 
     def test_concurrent_teleop_sessions(self):
         """Two teleop sessions on same bridge are independent."""
-        s1 = self._bridge.send("teleop_start", {
-            "profile": {"controller_type": "hexapod_3dof_tripod", "num_legs": 6, "dof_per_leg": 3},
-            "mechanism": {"name": "hex1", "parts": [], "joints": []},
-        })
-        s2 = self._bridge.send("teleop_start", {
-            "profile": {"controller_type": "hexapod_3dof_tripod", "num_legs": 6, "dof_per_leg": 3},
-            "mechanism": {"name": "hex2", "parts": [], "joints": []},
-        })
+        s1 = self._bridge.send(
+            "teleop_start",
+            {
+                "profile": {
+                    "controller_type": "hexapod_3dof_tripod",
+                    "num_legs": 6,
+                    "dof_per_leg": 3,
+                },
+                "mechanism": {"name": "hex1", "parts": [], "joints": []},
+            },
+        )
+        s2 = self._bridge.send(
+            "teleop_start",
+            {
+                "profile": {
+                    "controller_type": "hexapod_3dof_tripod",
+                    "num_legs": 6,
+                    "dof_per_leg": 3,
+                },
+                "mechanism": {"name": "hex2", "parts": [], "joints": []},
+            },
+        )
         self.assertTrue(s1["ok"])
         self.assertTrue(s2["ok"])
         sid1 = s1["result"]["session_id"]
@@ -642,17 +695,31 @@ class TestRealChrono(unittest.TestCase):
                 {"type": "shaft", "id": "gear_a", "inertia": 0.01, "fixed": False},
                 {"type": "shaft", "id": "gear_b", "inertia": 0.01, "fixed": False},
                 {"type": "shaft", "id": "frame", "inertia": 0.01, "fixed": True},
-                {"type": "shafts_gear", "id": "mesh_ab", "shaft_1": "gear_a", "shaft_2": "gear_b", "ratio": -0.5},
-                {"type": "motor_shaft_speed", "id": "motor_a", "shaft": "gear_a", "speed_rpm": 1000},
+                {
+                    "type": "shafts_gear",
+                    "id": "mesh_ab",
+                    "shaft_1": "gear_a",
+                    "shaft_2": "gear_b",
+                    "ratio": -0.5,
+                },
+                {
+                    "type": "motor_shaft_speed",
+                    "id": "motor_a",
+                    "shaft": "gear_a",
+                    "speed_rpm": 1000,
+                },
             ],
             "derived_outputs": {},
         }
-        resp = self._daemon.send("simulate", {
-            "simulation_spec": spec,
-            "duration_s": 0.5,
-            "dt_s": 0.001,
-            "output_interval": 0.05,
-        })
+        resp = self._daemon.send(
+            "simulate",
+            {
+                "simulation_spec": spec,
+                "duration_s": 0.5,
+                "dt_s": 0.001,
+                "output_interval": 0.05,
+            },
+        )
         self.assertTrue(resp["ok"], resp)
         result = resp["result"]
 
@@ -693,20 +760,26 @@ class TestRealChrono(unittest.TestCase):
                 {"type": "shaft", "id": "carrier", "inertia": 0.01, "fixed": False},
                 {"type": "shaft", "id": "ring", "inertia": 0.01, "fixed": True},
                 {
-                    "type": "shafts_planetary", "id": "epcy_1",
-                    "shaft_sun": "sun", "shaft_carrier": "carrier", "shaft_ring": "ring",
+                    "type": "shafts_planetary",
+                    "id": "epcy_1",
+                    "shaft_sun": "sun",
+                    "shaft_carrier": "carrier",
+                    "shaft_ring": "ring",
                     "t0": -2.0,
                 },
                 {"type": "motor_shaft_speed", "id": "sun_motor", "shaft": "sun", "speed_rpm": 1000},
             ],
             "derived_outputs": {},
         }
-        resp = self._daemon.send("simulate", {
-            "simulation_spec": spec,
-            "duration_s": 1.0,
-            "dt_s": 0.001,
-            "output_interval": 0.1,
-        })
+        resp = self._daemon.send(
+            "simulate",
+            {
+                "simulation_spec": spec,
+                "duration_s": 1.0,
+                "dt_s": 0.001,
+                "output_interval": 0.1,
+            },
+        )
         self.assertTrue(resp["ok"], resp)
 
         ss = resp["result"]["summary"]["steady_state_speeds"]
@@ -729,28 +802,49 @@ class TestRealChrono(unittest.TestCase):
                 {"type": "shaft", "id": "s4", "inertia": 0.01, "fixed": False},
                 {"type": "shaft", "id": "frame", "inertia": 0.01, "fixed": True},
                 # Stage 1: s1 → s2, ratio = -(20/40) = -0.5
-                {"type": "shafts_gear", "id": "g12", "shaft_1": "s1", "shaft_2": "s2", "ratio": -0.5},
+                {
+                    "type": "shafts_gear",
+                    "id": "g12",
+                    "shaft_1": "s1",
+                    "shaft_2": "s2",
+                    "ratio": -0.5,
+                },
                 # Stage 2: s2 → s3, ratio = -(20/60) = -0.333
-                {"type": "shafts_gear", "id": "g23", "shaft_1": "s2", "shaft_2": "s3", "ratio": -0.3333},
+                {
+                    "type": "shafts_gear",
+                    "id": "g23",
+                    "shaft_1": "s2",
+                    "shaft_2": "s3",
+                    "ratio": -0.3333,
+                },
                 # Stage 3: s3 → s4, ratio = -(20/80) = -0.25
-                {"type": "shafts_gear", "id": "g34", "shaft_1": "s3", "shaft_2": "s4", "ratio": -0.25},
+                {
+                    "type": "shafts_gear",
+                    "id": "g34",
+                    "shaft_1": "s3",
+                    "shaft_2": "s4",
+                    "ratio": -0.25,
+                },
                 {"type": "motor_shaft_speed", "id": "motor_1", "shaft": "s1", "speed_rpm": 1000},
             ],
             "derived_outputs": {},
         }
-        resp = self._daemon.send("simulate", {
-            "simulation_spec": spec,
-            "duration_s": 1.0,
-            "dt_s": 0.001,
-            "output_interval": 0.1,
-        })
+        resp = self._daemon.send(
+            "simulate",
+            {
+                "simulation_spec": spec,
+                "duration_s": 1.0,
+                "dt_s": 0.001,
+                "output_interval": 0.1,
+            },
+        )
         self.assertTrue(resp["ok"], resp)
         ss = resp["result"]["summary"]["steady_state_speeds"]
 
         self.assertAlmostEqual(ss["s1"], 1000.0, places=0)
-        self.assertAlmostEqual(ss["s2"], -500.0, places=0)        # ×-0.5
-        self.assertAlmostEqual(ss["s3"], 166.67, delta=1.0)       # ×-0.333
-        self.assertAlmostEqual(ss["s4"], -41.67, delta=1.0)       # ×-0.25
+        self.assertAlmostEqual(ss["s2"], -500.0, places=0)  # ×-0.5
+        self.assertAlmostEqual(ss["s3"], 166.67, delta=1.0)  # ×-0.333
+        self.assertAlmostEqual(ss["s4"], -41.67, delta=1.0)  # ×-0.25
 
     def test_torque_conservation(self):
         """Verify power conservation: T1*w1 ≈ T2*w2 (no friction in shaft model).
@@ -764,17 +858,26 @@ class TestRealChrono(unittest.TestCase):
                 {"type": "shaft", "id": "input", "inertia": 0.01, "fixed": False},
                 {"type": "shaft", "id": "output", "inertia": 0.01, "fixed": False},
                 {"type": "shaft", "id": "frame", "inertia": 0.01, "fixed": True},
-                {"type": "shafts_gear", "id": "gear_io", "shaft_1": "input", "shaft_2": "output", "ratio": -0.5},
+                {
+                    "type": "shafts_gear",
+                    "id": "gear_io",
+                    "shaft_1": "input",
+                    "shaft_2": "output",
+                    "ratio": -0.5,
+                },
                 {"type": "motor_shaft_speed", "id": "drive", "shaft": "input", "speed_rpm": 600},
             ],
             "derived_outputs": {},
         }
-        resp = self._daemon.send("simulate", {
-            "simulation_spec": spec,
-            "duration_s": 2.0,
-            "dt_s": 0.001,
-            "output_interval": 0.2,
-        })
+        resp = self._daemon.send(
+            "simulate",
+            {
+                "simulation_spec": spec,
+                "duration_s": 2.0,
+                "dt_s": 0.001,
+                "output_interval": 0.2,
+            },
+        )
         self.assertTrue(resp["ok"], resp)
         ss = resp["result"]["summary"]["steady_state_speeds"]
 
@@ -822,12 +925,15 @@ class TestRealChrono(unittest.TestCase):
             self.assertEqual(issues, [], f"Spec validation failed: {issues}")
 
             # Step 4: Simulate via real Chrono daemon
-            resp = self._daemon.send("simulate", {
-                "simulation_spec": spec,
-                "duration_s": 0.5,
-                "dt_s": 0.001,
-                "output_interval": 0.05,
-            })
+            resp = self._daemon.send(
+                "simulate",
+                {
+                    "simulation_spec": spec,
+                    "duration_s": 0.5,
+                    "dt_s": 0.001,
+                    "output_interval": 0.05,
+                },
+            )
             self.assertTrue(resp["ok"], resp)
 
             # Step 5: Post-process derived speeds

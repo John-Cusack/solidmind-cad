@@ -11,6 +11,7 @@ Implements Proximal Policy Optimization with:
 Designed to run inside Isaac Sim's Python (with PyTorch + CUDA).
 Falls back to CPU if CUDA is unavailable.
 """
+
 from __future__ import annotations
 
 import logging
@@ -74,6 +75,7 @@ class _NormalizedActor:
 
 class _NormalizedActorImpl:
     """Placeholder — replaced at import time by a real nn.Module subclass."""
+
     pass
 
 
@@ -143,9 +145,7 @@ class ActorCritic:
         # Learned action log-std (one per action dimension).
         # Initialize to log(0.3) ≈ -1.2 so initial std ~ 0.3 rad,
         # reasonable exploration within action_scale range.
-        self.log_std = nn.Parameter(
-            torch.full((action_dim,), math.log(0.3), device=device)
-        )
+        self.log_std = nn.Parameter(torch.full((action_dim,), math.log(0.3), device=device))
 
         # Initialize weights
         self._init_weights()
@@ -162,8 +162,9 @@ class ActorCritic:
 
         # Output layers with smaller gain
         actor_last = list(self.actor.modules())[-1]
-        if hasattr(actor_last, 'weight'):
+        if hasattr(actor_last, "weight"):
             import torch.nn as nn
+
             nn.init.orthogonal_(actor_last.weight, gain=0.01)
 
     def act(self, obs: Any) -> tuple[Any, Any, Any, Any]:
@@ -203,6 +204,7 @@ class ActorCritic:
     def parameters(self) -> Any:
         """All trainable parameters."""
         import itertools
+
         return itertools.chain(
             self.actor.parameters(),
             self.critic.parameters(),
@@ -278,7 +280,7 @@ class RunningMeanStd:
         self.mean = self.mean + delta * batch_count / total_count
         m_a = self.var * self.count
         m_b = batch_var * batch_count
-        m2 = m_a + m_b + delta ** 2 * self.count * batch_count / total_count
+        m2 = m_a + m_b + delta**2 * self.count * batch_count / total_count
         self.var = m2 / total_count
 
         self.count = total_count
@@ -425,7 +427,8 @@ class PPOTrainer:
 
         # Observation normalization
         self.obs_normalizer = RunningMeanStd(
-            shape=(env.obs_dim,), device=device,
+            shape=(env.obs_dim,),
+            device=device,
         )
 
         # Rollout storage
@@ -440,7 +443,9 @@ class PPOTrainer:
         # Pre-allocated buffer for raw (un-normalized) observations
         # used to update the normalizer after each rollout without cloning.
         self._raw_obs_buf = torch.zeros(
-            self.params.num_steps_per_env, env.num_envs, env.obs_dim,
+            self.params.num_steps_per_env,
+            env.num_envs,
+            env.obs_dim,
             device=device,
         )
 
@@ -535,7 +540,12 @@ class PPOTrainer:
 
         for _epoch in range(self.params.num_epochs):
             for (
-                mb_obs, mb_actions, mb_old_log_probs, mb_returns, mb_advantages, mb_old_values,
+                mb_obs,
+                mb_actions,
+                mb_old_log_probs,
+                mb_returns,
+                mb_advantages,
+                mb_old_values,
             ) in self.storage.mini_batch_generator(self.params.num_mini_batches):
                 # Evaluate actions under current policy
                 new_log_probs, values, entropy = self.actor_critic.evaluate(mb_obs, mb_actions)
@@ -546,7 +556,10 @@ class PPOTrainer:
                 # Policy loss (clipped surrogate)
                 ratio = torch.exp(new_log_probs - mb_old_log_probs)
                 surr1 = ratio * advantages
-                surr2 = torch.clamp(ratio, 1.0 - self.params.clip_param, 1.0 + self.params.clip_param) * advantages
+                surr2 = (
+                    torch.clamp(ratio, 1.0 - self.params.clip_param, 1.0 + self.params.clip_param)
+                    * advantages
+                )
                 policy_loss = -torch.min(surr1, surr2).mean()
 
                 # Clipped value loss (#11) — prevent value function overshooting
@@ -647,12 +660,15 @@ class PPOTrainer:
             saved_actor = tuple(hp.get("actor_hidden_dims", list(self.params.actor_hidden_dims)))
             saved_critic = tuple(hp.get("critic_hidden_dims", list(self.params.critic_hidden_dims)))
             saved_activation = hp.get("activation", self.params.activation)
-            if (saved_actor != self.params.actor_hidden_dims
-                    or saved_critic != self.params.critic_hidden_dims
-                    or saved_activation != self.params.activation):
+            if (
+                saved_actor != self.params.actor_hidden_dims
+                or saved_critic != self.params.critic_hidden_dims
+                or saved_activation != self.params.activation
+            ):
                 log.info(
                     "Rebuilding actor-critic to match checkpoint: actor=%s critic=%s",
-                    saved_actor, saved_critic,
+                    saved_actor,
+                    saved_critic,
                 )
                 rebuilt_params = PPOHyperparams(
                     actor_hidden_dims=saved_actor,

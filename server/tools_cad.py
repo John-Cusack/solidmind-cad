@@ -3,6 +3,7 @@
 Each function corresponds to a ``cad.*`` MCP tool.  They translate MCP tool
 arguments into FreeCAD addon socket commands via ``freecad_client``.
 """
+
 from __future__ import annotations
 
 import logging
@@ -31,6 +32,7 @@ def _wrap(fn: Any) -> Any:
     When ``SOLIDMIND_TOOL_LOG=1``, also logs CALL/OK/FAIL with timing.
     Errors are always logged regardless of the toggle.
     """
+
     def wrapper(*args: Any, **kwargs: Any) -> dict[str, Any]:
         if not _TOOL_LOG:
             try:
@@ -70,8 +72,10 @@ def _wrap(fn: Any) -> Any:
             err = result.get("error", {})
             log.warning(
                 "FAIL %s %.3fs code=%s msg=%s",
-                fn.__name__, elapsed,
-                err.get("code", "?"), err.get("message", "?"),
+                fn.__name__,
+                elapsed,
+                err.get("code", "?"),
+                err.get("message", "?"),
             )
         else:
             log.info("OK   %s %.3fs", fn.__name__, elapsed)
@@ -122,10 +126,13 @@ def cad_new_body(name: str = "Body", doc: str | None = None) -> dict[str, Any]:
     # Soft guardrail: warn when body count reaches threshold without a design brief
     response: dict[str, Any] = {"ok": True, **result}
     try:
-        tree = client.send_command("get_model_tree", detail="bodies", **({"doc": doc} if doc else {}))
+        tree = client.send_command(
+            "get_model_tree", detail="bodies", **({"doc": doc} if doc else {})
+        )
         body_count = tree.get("body_count", 0)
         if body_count >= _PIPELINE_WARNING_THRESHOLD:
             from server.design_store import _briefs  # noqa: PLC0415
+
             if not _briefs:
                 response["pipeline_warning"] = (
                     f"You now have {body_count} bodies but no design brief. "
@@ -1115,7 +1122,8 @@ def cad_export_sim_package(
         pkg_dir = result.get("output_dir", output_dir or ".")
         urdf_path = os.path.join(pkg_dir, f"{sim_model.name}.urdf")
         urdf_path = write_urdf(
-            sim_model, urdf_path,
+            sim_model,
+            urdf_path,
             base_dir=pkg_dir,
             absolute_mesh_paths=True,
         )
@@ -1171,7 +1179,8 @@ def cad_export_sim_package(
         if emit_sdf:
             sdf_path = os.path.join(pkg_dir, f"{sim_model.name}.sdf")
             sdf_path = write_sdf(
-                sim_model, sdf_path,
+                sim_model,
+                sdf_path,
                 base_dir=pkg_dir,
                 absolute_mesh_paths=True,
                 drone_config=drone_config,
@@ -1193,6 +1202,7 @@ def cad_export_sim_package(
                     generate_airframe_params,
                     register_airframe,
                 )
+
                 try:
                     airframe_params = generate_airframe_params(
                         model_name=sim_model.name,

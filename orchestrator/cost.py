@@ -1,4 +1,5 @@
 """Cost tracking and budget enforcement for orchestrator runs."""
+
 from __future__ import annotations
 
 import json
@@ -47,7 +48,10 @@ class CostTracker:
         self.entries.append(entry)
         log.debug(
             "Cost: +$%.4f (%s/%s) total=$%.4f",
-            entry.cost_usd, entry.stage, entry.subsystem, self.total_cost_usd,
+            entry.cost_usd,
+            entry.stage,
+            entry.subsystem,
+            self.total_cost_usd,
         )
 
     def check_budget(self) -> tuple[bool, list[str]]:
@@ -62,9 +66,7 @@ class CostTracker:
 
         # Hard limit
         if total > max_run:
-            issues.append(
-                f"Run cost ${total:.2f} exceeds budget ${max_run:.2f}"
-            )
+            issues.append(f"Run cost ${total:.2f} exceeds budget ${max_run:.2f}")
             return False, issues
 
         # Warning threshold
@@ -128,15 +130,17 @@ class CostTracker:
         data = json.loads(path.read_text())
         tracker = cls(policy=policy or CostPolicy())
         for ed in data.get("entries", []):
-            tracker.entries.append(CostEntry(
-                stage=ed.get("stage", ""),
-                subsystem=ed.get("subsystem", ""),
-                provider=ed.get("provider", ""),
-                prompt_tokens=ed.get("prompt_tokens", 0),
-                completion_tokens=ed.get("completion_tokens", 0),
-                cost_usd=ed.get("cost_usd", 0.0),
-                description=ed.get("description", ""),
-            ))
+            tracker.entries.append(
+                CostEntry(
+                    stage=ed.get("stage", ""),
+                    subsystem=ed.get("subsystem", ""),
+                    provider=ed.get("provider", ""),
+                    prompt_tokens=ed.get("prompt_tokens", 0),
+                    completion_tokens=ed.get("completion_tokens", 0),
+                    cost_usd=ed.get("cost_usd", 0.0),
+                    description=ed.get("description", ""),
+                )
+            )
         return tracker
 
 

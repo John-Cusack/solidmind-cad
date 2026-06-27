@@ -33,6 +33,7 @@ Example geometry script::
 
 The solver calls: ``FreeCADCmd geometry.py /tmp/params.json /tmp/variant.stl``
 """
+
 from __future__ import annotations
 
 import json
@@ -129,6 +130,7 @@ class MockSolver(SolverAdapter):
 # ---------------------------------------------------------------------------
 # BEMT + XFOIL helpers
 # ---------------------------------------------------------------------------
+
 
 def _flat_plate_polar(alpha_deg: float, Re: float) -> tuple[float, float]:
     """Flat-plate aerodynamic model used as fallback when XFOIL fails.
@@ -449,7 +451,10 @@ def _bemt_solve(
         if _bt_r is not None:
             # Interpolate from blade_table
             chord_mm, twist_deg = _interp_blade_table(
-                r_frac, _bt_r, _bt_chord, _bt_twist,  # type: ignore[arg-type]
+                r_frac,
+                _bt_r,
+                _bt_chord,
+                _bt_twist,  # type: ignore[arg-type]
             )
         else:
             chord_mm, twist_deg = _blade_geometry(
@@ -469,7 +474,11 @@ def _bemt_solve(
         # Local Reynolds number scaling
         V_tip = omega * r_m
         V_local = math.sqrt(V * V + V_tip * V_tip)
-        Re_local = Re * (V_local * chord_m) / (max(V_tip, 0.1) * (chord_root_mm / 1000.0)) if chord_root_mm > 0 else Re
+        Re_local = (
+            Re * (V_local * chord_m) / (max(V_tip, 0.1) * (chord_root_mm / 1000.0))
+            if chord_root_mm > 0
+            else Re
+        )
 
         # BEM iteration — initialize a with small value in hover to
         # avoid the phi=0 singularity when V_axial starts at zero.
@@ -548,7 +557,7 @@ def _bemt_solve(
         # Integrate forces at this station using final induction factors
         V_axial_final = V * (1.0 + a) if V > 0.1 else V_tip * a
         V_tan_final = omega * r_m * (1.0 - a_p)
-        W_sq = V_axial_final ** 2 + V_tan_final ** 2
+        W_sq = V_axial_final**2 + V_tan_final**2
 
         dT = 0.5 * rho * W_sq * chord_m * Cn * num_blades * dr
         dQ = 0.5 * rho * W_sq * chord_m * Ct_local * num_blades * r_m * dr
@@ -572,8 +581,8 @@ def _bemt_solve(
     power = max(power, 1e-12)  # avoid division by zero
 
     # Non-dimensional coefficients: Ct = T / (rho * n^2 * D^4)
-    n_sq_D4 = n_rps * n_rps * D_m ** 4 if n_rps > 0 else 1.0
-    n_sq_D5 = n_rps * n_rps * D_m ** 5 if n_rps > 0 else 1.0
+    n_sq_D4 = n_rps * n_rps * D_m**4 if n_rps > 0 else 1.0
+    n_sq_D5 = n_rps * n_rps * D_m**5 if n_rps > 0 else 1.0
     Ct = total_thrust / (rho * n_sq_D4) if n_sq_D4 > 1e-12 else 0.0
     Cq = total_torque / (rho * n_sq_D5) if n_sq_D5 > 1e-12 else 0.0
 
@@ -584,7 +593,7 @@ def _bemt_solve(
     else:
         # Hover: figure of merit  FM = Ct^(3/2) / (sqrt(2) * Cq)
         if abs(Cq) > 1e-12 and Ct > 0:
-            efficiency = Ct ** 1.5 / (math.sqrt(2.0) * abs(Cq))
+            efficiency = Ct**1.5 / (math.sqrt(2.0) * abs(Cq))
         else:
             efficiency = 0.0
 
@@ -723,7 +732,10 @@ class BEMTXfoilSolver(SolverAdapter):
 # STL utilities
 # ---------------------------------------------------------------------------
 
-def _read_stl_bounds(stl_path: str) -> tuple[tuple[float, float, float], tuple[float, float, float]]:
+
+def _read_stl_bounds(
+    stl_path: str,
+) -> tuple[tuple[float, float, float], tuple[float, float, float]]:
     """Read bounding box from a binary STL file.
 
     Returns (min_xyz, max_xyz) tuples.
@@ -789,6 +801,7 @@ def _scale_stl_to_meters(src_path: str, dst_path: str) -> None:
 # ---------------------------------------------------------------------------
 # Domain sizing
 # ---------------------------------------------------------------------------
+
 
 def _compute_domain(
     bounds_min: tuple[float, float, float],
@@ -1569,23 +1582,29 @@ def _write_openfoam_case(
     (case / "system" / "fvSolution").write_text(_FV_SOLUTION)
     (case / "system" / "blockMeshDict").write_text(
         _BLOCK_MESH_DICT.format(
-            x_min=domain["x_min"], x_max=domain["x_max"],
-            y_min=domain["y_min"], y_max=domain["y_max"],
-            z_min=domain["z_min"], z_max=domain["z_max"],
-            nx=nx, ny=ny, nz=nz,
+            x_min=domain["x_min"],
+            x_max=domain["x_max"],
+            y_min=domain["y_min"],
+            y_max=domain["y_max"],
+            z_min=domain["z_min"],
+            z_max=domain["z_max"],
+            nx=nx,
+            ny=ny,
+            nz=nz,
         )
     )
     (case / "system" / "snappyHexMeshDict").write_text(
         _SNAPPY_HEX_MESH_DICT.format(
-            surf_min=surf_min, surf_max=surf_max,
-            loc_x=loc_x, loc_y=loc_y, loc_z=loc_z,
+            surf_min=surf_min,
+            surf_max=surf_max,
+            loc_x=loc_x,
+            loc_y=loc_y,
+            loc_z=loc_z,
         )
     )
 
     # 0/ boundary conditions
-    (case / "0" / "U").write_text(
-        _U_FIELD.format(vx=vx, vy=vy, vz=vz)
-    )
+    (case / "0" / "U").write_text(_U_FIELD.format(vx=vx, vy=vy, vz=vz))
     (case / "0" / "p").write_text(_P_FIELD)
     (case / "0" / "nut").write_text(_NUT_FIELD.format())
 
@@ -1598,24 +1617,19 @@ def _write_openfoam_case(
         (case / "0" / "k").write_text(_K_FIELD.format(k_val=k_val))
         if turbulence_model == "kOmegaSST":
             omega_val = k_val / (nu * 10)  # approximate
-            (case / "0" / "omega").write_text(
-                _OMEGA_FIELD.format(omega_val=omega_val)
-            )
+            (case / "0" / "omega").write_text(_OMEGA_FIELD.format(omega_val=omega_val))
         else:
-            epsilon_val = 0.09 * k_val ** 1.5 / (0.1 * ref_length)
-            (case / "0" / "epsilon").write_text(
-                _EPSILON_FIELD.format(epsilon_val=epsilon_val)
-            )
+            epsilon_val = 0.09 * k_val**1.5 / (0.1 * ref_length)
+            (case / "0" / "epsilon").write_text(_EPSILON_FIELD.format(epsilon_val=epsilon_val))
     elif turbulence_model == "SpalartAllmaras":
         nu_tilda_val = 3 * nu
-        (case / "0" / "nuTilda").write_text(
-            _NU_TILDA_FIELD.format(nu_tilda_val=nu_tilda_val)
-        )
+        (case / "0" / "nuTilda").write_text(_NU_TILDA_FIELD.format(nu_tilda_val=nu_tilda_val))
 
 
 # ---------------------------------------------------------------------------
 # Subprocess runners
 # ---------------------------------------------------------------------------
+
 
 def _run_openfoam_cmd(
     cmd: list[str],
@@ -1650,7 +1664,10 @@ def _run_meshing(case_dir: str, timeout_s: float) -> None:
         raise RuntimeError("blockMesh produced no mesh")
 
     _run_openfoam_cmd(
-        ["snappyHexMesh", "-overwrite"], case_dir, "snappyHexMesh", timeout_s,
+        ["snappyHexMesh", "-overwrite"],
+        case_dir,
+        "snappyHexMesh",
+        timeout_s,
     )
 
     if not poly_mesh.exists():
@@ -1669,6 +1686,7 @@ def _run_solver(case_dir: str, timeout_s: float) -> None:
 # ---------------------------------------------------------------------------
 # Result parser
 # ---------------------------------------------------------------------------
+
 
 def _parse_force_coefficients(
     case_dir: str,
@@ -1763,8 +1781,8 @@ def _parse_force_coefficients(
                 std_cd = (sum((v - mean_cd) ** 2 for v in tail_cd) / len(tail_cd)) ** 0.5
                 if std_cd / abs(mean_cd) > 0.01:
                     log.warning(
-                        "Force coefficients may not be converged "
-                        "(Cd std/mean = %.4f)", std_cd / abs(mean_cd),
+                        "Force coefficients may not be converged (Cd std/mean = %.4f)",
+                        std_cd / abs(mean_cd),
                     )
 
     # Dimensional forces
@@ -1791,7 +1809,7 @@ def _skip_foam_header(text: str) -> str:
     # Find end of FoamFile block — first "}" after "FoamFile"
     m = _re.search(r"FoamFile\s*\{[^}]*\}", text)
     if m:
-        return text[m.end():]
+        return text[m.end() :]
     return text
 
 
@@ -1872,7 +1890,9 @@ def _parse_openfoam_scalar_field(path: str) -> list[float]:
         return [float(um.group(1))]
 
     # nonuniform List<scalar>
-    m = _re.search(r"internalField\s+nonuniform\s+List<scalar>\s*\n?\s*(\d+)\s*\(([^)]*)\)", text, _re.DOTALL)
+    m = _re.search(
+        r"internalField\s+nonuniform\s+List<scalar>\s*\n?\s*(\d+)\s*\(([^)]*)\)", text, _re.DOTALL
+    )
     if m:
         return [float(x) for x in m.group(2).split()]
 
@@ -1902,6 +1922,7 @@ def _find_latest_time_dir(case_dir: str) -> str:
 # ---------------------------------------------------------------------------
 # Face area vector (Newell's method) and force computation
 # ---------------------------------------------------------------------------
+
 
 def _face_area_vector(
     vertices: list[tuple[float, float, float]],
@@ -1958,8 +1979,7 @@ def _compute_forces_from_fields(
     boundary = _parse_openfoam_boundary(str(poly / "boundary"))
     if patch_name not in boundary:
         raise RuntimeError(
-            f"Patch '{patch_name}' not found in boundary. "
-            f"Available: {list(boundary)}"
+            f"Patch '{patch_name}' not found in boundary. Available: {list(boundary)}"
         )
     patch = boundary[patch_name]
     start = patch["startFace"]
@@ -2058,7 +2078,9 @@ def _run_geometry_script(
     # Write merged params to a temp JSON file
     merged = {**fixed, **params}
     with tempfile.NamedTemporaryFile(
-        mode="w", suffix=".json", delete=False,
+        mode="w",
+        suffix=".json",
+        delete=False,
     ) as f:
         json.dump(merged, f)
         params_path = f.name
@@ -2072,8 +2094,7 @@ def _run_geometry_script(
         )
         if result.returncode != 0:
             raise RuntimeError(
-                f"Geometry script failed (exit {result.returncode}):\n"
-                f"stderr: {result.stderr[:500]}"
+                f"Geometry script failed (exit {result.returncode}):\nstderr: {result.stderr[:500]}"
             )
         if not Path(output_stl).exists():
             raise RuntimeError(f"Geometry script did not produce {output_stl}")
@@ -2103,9 +2124,9 @@ class OpenFOAMSolver(SolverAdapter):
 
     # Rough time estimates by mesh refinement level
     _TIME_BY_REFINEMENT: dict[int, float] = {
-        1: 120.0,   # ~2 min — coarse mesh, quick feasibility
-        2: 300.0,   # ~5 min — standard
-        3: 900.0,   # ~15 min — fine mesh
+        1: 120.0,  # ~2 min — coarse mesh, quick feasibility
+        2: 300.0,  # ~5 min — standard
+        3: 900.0,  # ~15 min — fine mesh
         4: 2400.0,  # ~40 min — very fine
     }
 
@@ -2148,8 +2169,7 @@ class OpenFOAMSolver(SolverAdapter):
         turb = config_params.get("turbulence_model", "kOmegaSST")
         if turb not in _SUPPORTED_TURBULENCE_MODELS:
             errors.append(
-                f"turbulence_model must be one of {_SUPPORTED_TURBULENCE_MODELS}, "
-                f"got {turb!r}"
+                f"turbulence_model must be one of {_SUPPORTED_TURBULENCE_MODELS}, got {turb!r}"
             )
         n_proc = config_params.get("n_processors", 1)
         if n_proc > 1:
@@ -2244,7 +2264,11 @@ class OpenFOAMSolver(SolverAdapter):
             # Step 5: Parse results — compute forces from raw fields
             # (avoids OpenFOAM forces library sha1 bug on some packaged builds)
             return _compute_forces_from_fields(
-                case_dir, rho, velocity_mps, ref_area, ref_length,
+                case_dir,
+                rho,
+                velocity_mps,
+                ref_area,
+                ref_length,
                 lift_dir=(0, 0, 1),
                 drag_dir=(1, 0, 0),
             )
@@ -2277,6 +2301,7 @@ class ChronoSolver(SolverAdapter):
     def available(self) -> bool:
         try:
             from server.chrono_client import ChronoClient
+
             client = ChronoClient()
             client.connect(timeout=1.0)
             ok = client.ping()
@@ -2323,6 +2348,7 @@ class ChronoSolver(SolverAdapter):
 
         # Deep copy and apply study params to the mechanism template
         import copy
+
         mechanism = copy.deepcopy(template)
 
         # Apply param overrides: e.g., "sun_teeth" → find joint with sun, update teeth

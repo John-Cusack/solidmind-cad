@@ -1,4 +1,5 @@
 """Tests for direct-solver fallback helpers in analysis tools."""
+
 from __future__ import annotations
 
 import unittest
@@ -86,7 +87,9 @@ class TestDirectFallbackHelpers(unittest.TestCase):
                     density_kg_m3=7800,
                     yield_strength_mpa=250,
                 ),
-                boundary_conditions=(BoundaryCondition(bc_type="fixed", faces=("Face1",), value={}),),
+                boundary_conditions=(
+                    BoundaryCondition(bc_type="fixed", faces=("Face1",), value={}),
+                ),
                 mesh_size=1.0,
                 mesh_info=MeshInfo(
                     path="/tmp/m.msh",

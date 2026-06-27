@@ -8,6 +8,7 @@ The profile is a half-section drawn in the XY plane, where X is the axial
 direction and Y is the radial direction (positive = away from axis).  The
 revolution axis is the X axis at ``y = center_y``.
 """
+
 from __future__ import annotations
 
 import math
@@ -18,6 +19,7 @@ from server.geometry_helpers import _arc, _line
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _seg_end_r(seg: dict[str, Any]) -> float:
     """End radius of a segment (accounts for taper)."""
@@ -35,11 +37,15 @@ def _clamp_transition(seg: dict[str, Any], step: float) -> tuple[float, float]:
 # Transition emitters
 # ---------------------------------------------------------------------------
 
+
 def _emit_step_up(
     elements: list[dict[str, Any]],
-    x_j: float, cy: float,
-    r_prev: float, r_curr: float,
-    fillet: float, chamfer: float,
+    x_j: float,
+    cy: float,
+    r_prev: float,
+    r_curr: float,
+    fillet: float,
+    chamfer: float,
 ) -> None:
     """Emit transition geometry for a step UP (r_curr > r_prev).
 
@@ -63,9 +69,12 @@ def _emit_step_up(
 
 def _emit_step_down(
     elements: list[dict[str, Any]],
-    x_j: float, cy: float,
-    r_prev: float, r_curr: float,
-    fillet: float, chamfer: float,
+    x_j: float,
+    cy: float,
+    r_prev: float,
+    r_curr: float,
+    fillet: float,
+    chamfer: float,
 ) -> None:
     """Emit transition geometry for a step DOWN (r_curr < r_prev).
 
@@ -90,6 +99,7 @@ def _emit_step_down(
 # ---------------------------------------------------------------------------
 # Main generator
 # ---------------------------------------------------------------------------
+
 
 def turned_profile(
     segments: list[dict[str, Any]],
@@ -145,9 +155,7 @@ def turned_profile(
         if "diameter" not in seg or "length" not in seg:
             raise ValueError(f"segment {i}: 'diameter' and 'length' required")
         if seg["diameter"] <= 0 or seg["length"] <= 0:
-            raise ValueError(
-                f"segment {i}: diameter and length must be positive"
-            )
+            raise ValueError(f"segment {i}: diameter and length must be positive")
         r_start = seg["diameter"] / 2.0
         r_end = _seg_end_r(seg)
         if r_start <= r_bore or r_end <= r_bore:
@@ -156,9 +164,7 @@ def turned_profile(
                 f"exceed bore radius ({r_bore:.3f})"
             )
         if seg.get("fillet", 0) > 0 and seg.get("chamfer", 0) > 0:
-            raise ValueError(
-                f"segment {i}: specify fillet or chamfer, not both"
-            )
+            raise ValueError(f"segment {i}: specify fillet or chamfer, not both")
 
     # --- cumulative x positions ---
     x_pos = [0.0]
@@ -181,7 +187,7 @@ def turned_profile(
         f, c = _clamp_transition(segments[j], step)
         t = max(f, c)
         if r_curr > r_prev:
-            eat_left[j] = t   # step up: eats from previous end
+            eat_left[j] = t  # step up: eats from previous end
         else:
             eat_right[j] = t  # step down: eats from current start
 
@@ -198,9 +204,7 @@ def turned_profile(
     # =================================================================
     if lead_c > 0:
         elements.append(_line(cx, cy + r_axis, cx, cy + r_first - lead_c))
-        elements.append(
-            _line(cx, cy + r_first - lead_c, cx + lead_c, cy + r_first)
-        )
+        elements.append(_line(cx, cy + r_first - lead_c, cx + lead_c, cy + r_first))
     else:
         elements.append(_line(cx, cy + r_axis, cx, cy + r_first))
 
@@ -246,35 +250,24 @@ def turned_profile(
     if trail_c > 0:
         x_right = cx + total_length
         elements.append(
-            _line(x_right - trail_c, cy + r_last_end,
-                  x_right, cy + r_last_end - trail_c)
+            _line(x_right - trail_c, cy + r_last_end, x_right, cy + r_last_end - trail_c)
         )
         if r_last_end - trail_c > r_axis + 1e-9:
-            elements.append(
-                _line(x_right, cy + r_last_end - trail_c,
-                      x_right, cy + r_axis)
-            )
+            elements.append(_line(x_right, cy + r_last_end - trail_c, x_right, cy + r_axis))
     else:
-        elements.append(
-            _line(cx + total_length, cy + r_last_end,
-                  cx + total_length, cy + r_axis)
-        )
+        elements.append(_line(cx + total_length, cy + r_last_end, cx + total_length, cy + r_axis))
 
     # =================================================================
     # BOTTOM EDGE  (right → left along bore / axis)
     # =================================================================
-    elements.append(
-        _line(cx + total_length, cy + r_axis, cx, cy + r_axis)
-    )
+    elements.append(_line(cx + total_length, cy + r_axis, cx, cy + r_axis))
 
     # --- metadata ---
     max_d = max(
-        max(seg["diameter"], seg.get("taper_diameter", seg["diameter"]))
-        for seg in segments
+        max(seg["diameter"], seg.get("taper_diameter", seg["diameter"])) for seg in segments
     )
     min_d = min(
-        min(seg["diameter"], seg.get("taper_diameter", seg["diameter"]))
-        for seg in segments
+        min(seg["diameter"], seg.get("taper_diameter", seg["diameter"])) for seg in segments
     )
 
     # Approximate volume (frustum sum minus bore)

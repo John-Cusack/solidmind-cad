@@ -3,6 +3,7 @@
 Tests the pure-function key mapping logic without requiring a terminal
 or bridge connection.
 """
+
 from __future__ import annotations
 
 import unittest
@@ -108,10 +109,12 @@ class TestModuleImport(unittest.TestCase):
 
     def test_import_bridge_connection(self) -> None:
         from scripts.isaac_keyboard_teleop import BridgeConnection
+
         self.assertTrue(callable(BridgeConnection))
 
     def test_import_main(self) -> None:
         from scripts.isaac_keyboard_teleop import main
+
         self.assertTrue(callable(main))
 
 

@@ -1,4 +1,5 @@
 """Resilience tests for simulation bridge client and failure scenarios."""
+
 from __future__ import annotations
 
 import json
@@ -195,15 +196,20 @@ class TestLargeMechanismNoOverflow(unittest.TestCase):
             sock.settimeout(30.0)
             sock.connect((bridge.host, bridge.port))
             try:
-                msg = json.dumps({
-                    "cmd": "simulate",
-                    "args": {
-                        "mechanism": big_mech,
-                        "duration_s": 0.1,
-                        "dt_s": 0.01,
-                        "output_interval": 0.05,
-                    },
-                }) + "\n"
+                msg = (
+                    json.dumps(
+                        {
+                            "cmd": "simulate",
+                            "args": {
+                                "mechanism": big_mech,
+                                "duration_s": 0.1,
+                                "dt_s": 0.01,
+                                "output_interval": 0.05,
+                            },
+                        }
+                    )
+                    + "\n"
+                )
                 sock.sendall(msg.encode())
                 data = b""
                 while b"\n" not in data:
@@ -235,6 +241,7 @@ class TestTwoEnginesSamePort(unittest.TestCase):
 
             # Try to manually check port availability - it should be taken
             from server.sim_engine_manager import _port_available
+
             self.assertFalse(_port_available("127.0.0.1", port))
         finally:
             shutdown_all()

@@ -1,4 +1,5 @@
 """Tests for orchestrator.council."""
+
 from __future__ import annotations
 
 import unittest
@@ -23,13 +24,15 @@ class TestValidateDecomposition(unittest.TestCase):
     def _make_spec(self) -> MasterSpec:
         spec = MasterSpec(name="test")
         spec.interfaces.append(Interface(id="ifc1", name="shaft_bore"))
-        spec.subsystems.append(Subsystem(
-            name="gear",
-            kind=SubsystemKind.GENERATED,
-            envelope_mm=[10, 10, 5],
-            material="steel",
-            interfaces=["ifc1"],
-        ))
+        spec.subsystems.append(
+            Subsystem(
+                name="gear",
+                kind=SubsystemKind.GENERATED,
+                envelope_mm=[10, 10, 5],
+                material="steel",
+                interfaces=["ifc1"],
+            )
+        )
         return spec
 
     def test_valid_passes(self) -> None:
@@ -45,39 +48,55 @@ class TestValidateDecomposition(unittest.TestCase):
 
     def test_duplicate_name_fails(self) -> None:
         spec = self._make_spec()
-        spec.subsystems.append(Subsystem(
-            name="gear", kind=SubsystemKind.GENERATED,
-            envelope_mm=[5, 5, 5], material="steel",
-        ))
+        spec.subsystems.append(
+            Subsystem(
+                name="gear",
+                kind=SubsystemKind.GENERATED,
+                envelope_mm=[5, 5, 5],
+                material="steel",
+            )
+        )
         ok, issues = validate_decomposition(spec)
         self.assertFalse(ok)
         self.assertTrue(any("Duplicate" in i for i in issues))
 
     def test_missing_envelope_fails(self) -> None:
         spec = MasterSpec(name="test")
-        spec.subsystems.append(Subsystem(
-            name="gear", kind=SubsystemKind.GENERATED, material="steel",
-        ))
+        spec.subsystems.append(
+            Subsystem(
+                name="gear",
+                kind=SubsystemKind.GENERATED,
+                material="steel",
+            )
+        )
         ok, issues = validate_decomposition(spec)
         self.assertFalse(ok)
         self.assertTrue(any("envelope" in i for i in issues))
 
     def test_missing_material_fails(self) -> None:
         spec = MasterSpec(name="test")
-        spec.subsystems.append(Subsystem(
-            name="gear", kind=SubsystemKind.GENERATED, envelope_mm=[10, 10, 5],
-        ))
+        spec.subsystems.append(
+            Subsystem(
+                name="gear",
+                kind=SubsystemKind.GENERATED,
+                envelope_mm=[10, 10, 5],
+            )
+        )
         ok, issues = validate_decomposition(spec)
         self.assertFalse(ok)
         self.assertTrue(any("material" in i for i in issues))
 
     def test_dangling_interface_ref_fails(self) -> None:
         spec = MasterSpec(name="test")
-        spec.subsystems.append(Subsystem(
-            name="gear", kind=SubsystemKind.GENERATED,
-            envelope_mm=[10, 10, 5], material="steel",
-            interfaces=["nonexistent"],
-        ))
+        spec.subsystems.append(
+            Subsystem(
+                name="gear",
+                kind=SubsystemKind.GENERATED,
+                envelope_mm=[10, 10, 5],
+                material="steel",
+                interfaces=["nonexistent"],
+            )
+        )
         ok, issues = validate_decomposition(spec)
         self.assertFalse(ok)
         self.assertTrue(any("unknown interface" in i for i in issues))
@@ -89,10 +108,13 @@ class TestValidateDecomposition(unittest.TestCase):
 
     def test_catalog_skips_envelope_check(self) -> None:
         spec = MasterSpec(name="test")
-        spec.subsystems.append(Subsystem(
-            name="bearing", kind=SubsystemKind.CATALOG,
-            supplier_part="SKF 6201",
-        ))
+        spec.subsystems.append(
+            Subsystem(
+                name="bearing",
+                kind=SubsystemKind.CATALOG,
+                supplier_part="SKF 6201",
+            )
+        )
         ok, issues = validate_decomposition(spec)
         self.assertTrue(ok, issues)
 
@@ -103,21 +125,32 @@ class TestValidateSizing(unittest.TestCase):
             name="test",
             global_constraints={"max_mass_kg": 0.5},
         )
-        spec.subsystems.append(Subsystem(
-            name="a", kind=SubsystemKind.GENERATED, mass_budget_kg=0.4,
-        ))
-        spec.subsystems.append(Subsystem(
-            name="b", kind=SubsystemKind.GENERATED, mass_budget_kg=0.3,
-        ))
+        spec.subsystems.append(
+            Subsystem(
+                name="a",
+                kind=SubsystemKind.GENERATED,
+                mass_budget_kg=0.4,
+            )
+        )
+        spec.subsystems.append(
+            Subsystem(
+                name="b",
+                kind=SubsystemKind.GENERATED,
+                mass_budget_kg=0.3,
+            )
+        )
         ok, issues = validate_sizing(spec)
         self.assertFalse(ok)
         self.assertTrue(any("budget" in i.lower() for i in issues))
 
     def test_missing_mass_budget(self) -> None:
         spec = MasterSpec(name="test")
-        spec.subsystems.append(Subsystem(
-            name="gear", kind=SubsystemKind.GENERATED,
-        ))
+        spec.subsystems.append(
+            Subsystem(
+                name="gear",
+                kind=SubsystemKind.GENERATED,
+            )
+        )
         ok, issues = validate_sizing(spec)
         self.assertFalse(ok)
         self.assertTrue(any("mass_budget" in i for i in issues))
@@ -155,6 +188,7 @@ class TestApplyComplexityDefaults(unittest.TestCase):
 
     def test_does_not_overwrite(self) -> None:
         from orchestrator.spec import RuntimePolicy
+
         sub = Subsystem(
             name="gear",
             runtime_policy=RuntimePolicy(timeout_sec=999),

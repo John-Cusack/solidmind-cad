@@ -3,6 +3,7 @@
 These tests mock the FreeCAD client to verify correct command sequences
 without a live FreeCAD instance.
 """
+
 from __future__ import annotations
 
 import math
@@ -127,15 +128,15 @@ class TestCadBolt(unittest.TestCase):
     def test_socket_head_bolt(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         client.send_command.side_effect = [
-            {"body": "Bolt_M4_socket_head"},   # new_body
-            {"sketch": "Sketch"},               # new_sketch (head)
-            {"element_count": 1},               # sketch_populate
-            {"fully_constrained": True},         # close_sketch
-            {"feature": "Pad"},                  # pad (head)
-            {"sketch": "Sketch001"},             # new_sketch (shaft)
-            {"element_count": 1},               # sketch_populate
-            {"fully_constrained": True},         # close_sketch
-            {"feature": "Pad001"},               # pad (shaft)
+            {"body": "Bolt_M4_socket_head"},  # new_body
+            {"sketch": "Sketch"},  # new_sketch (head)
+            {"element_count": 1},  # sketch_populate
+            {"fully_constrained": True},  # close_sketch
+            {"feature": "Pad"},  # pad (head)
+            {"sketch": "Sketch001"},  # new_sketch (shaft)
+            {"element_count": 1},  # sketch_populate
+            {"fully_constrained": True},  # close_sketch
+            {"feature": "Pad001"},  # pad (shaft)
         ]
         mock_get.return_value = client
 
@@ -261,7 +262,8 @@ class TestCadBolt(unittest.TestCase):
         mock_get.return_value = client
 
         result = cad_bolt(
-            size="M4", length=10.0,
+            size="M4",
+            length=10.0,
             position=[50, 30, 0],
             rotation_axis=[1, 0, 0],
             rotation_angle_deg=90.0,
@@ -295,7 +297,8 @@ class TestCadBolt(unittest.TestCase):
         mock_get.return_value = client
 
         result = cad_bolt(
-            size="M4", length=10.0,
+            size="M4",
+            length=10.0,
             rotation_axis=[0, 1, 0],
             rotation_angle_deg=180.0,
         )
@@ -344,15 +347,15 @@ class TestCadNut(unittest.TestCase):
     def test_hex_nut(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         client.send_command.side_effect = [
-            {"body": "Nut_M6_hex"},             # new_body
-            {"sketch": "Sketch"},                # new_sketch (hex)
-            {"element_count": 6},                # sketch_populate
-            {"fully_constrained": True},          # close_sketch
-            {"feature": "Pad"},                   # pad
-            {"sketch": "Sketch001"},              # new_sketch (hole)
-            {"element_count": 1},                # sketch_populate
-            {"fully_constrained": True},          # close_sketch
-            {"feature": "Pocket"},                # pocket
+            {"body": "Nut_M6_hex"},  # new_body
+            {"sketch": "Sketch"},  # new_sketch (hex)
+            {"element_count": 6},  # sketch_populate
+            {"fully_constrained": True},  # close_sketch
+            {"feature": "Pad"},  # pad
+            {"sketch": "Sketch001"},  # new_sketch (hole)
+            {"element_count": 1},  # sketch_populate
+            {"fully_constrained": True},  # close_sketch
+            {"feature": "Pocket"},  # pocket
         ]
         mock_get.return_value = client
 
@@ -550,7 +553,9 @@ class TestCadFindHoles(unittest.TestCase):
     def test_find_holes_passes_filter_params(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         client.send_command.return_value = {
-            "body": "Body", "hole_count": 0, "holes": [],
+            "body": "Body",
+            "hole_count": 0,
+            "holes": [],
         }
         mock_get.return_value = client
 
@@ -565,21 +570,25 @@ class TestCadFindHoles(unittest.TestCase):
 class TestToolSchemas(unittest.TestCase):
     def test_bolt_tool_registered(self) -> None:
         from server import main as mcp_main
+
         names = {entry.get("name") for entry in mcp_main._tool_list()}
         self.assertIn("cad.bolt", names)
 
     def test_nut_tool_registered(self) -> None:
         from server import main as mcp_main
+
         names = {entry.get("name") for entry in mcp_main._tool_list()}
         self.assertIn("cad.nut", names)
 
     def test_find_holes_tool_registered(self) -> None:
         from server import main as mcp_main
+
         names = {entry.get("name") for entry in mcp_main._tool_list()}
         self.assertIn("cad.find_holes", names)
 
     def test_bolt_schema_has_rotation(self) -> None:
         from server import main as mcp_main
+
         tool = next(t for t in mcp_main._tool_list() if t["name"] == "cad.bolt")
         props = tool["inputSchema"]["properties"]
         self.assertIn("size", props)
@@ -593,6 +602,7 @@ class TestToolSchemas(unittest.TestCase):
 
     def test_nut_schema_has_rotation(self) -> None:
         from server import main as mcp_main
+
         tool = next(t for t in mcp_main._tool_list() if t["name"] == "cad.nut")
         props = tool["inputSchema"]["properties"]
         self.assertIn("size", props)
@@ -605,6 +615,7 @@ class TestToolSchemas(unittest.TestCase):
 
     def test_find_holes_schema(self) -> None:
         from server import main as mcp_main
+
         tool = next(t for t in mcp_main._tool_list() if t["name"] == "cad.find_holes")
         props = tool["inputSchema"]["properties"]
         self.assertIn("body", props)

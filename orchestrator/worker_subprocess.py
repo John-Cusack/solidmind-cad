@@ -5,6 +5,7 @@ Claude Code). Each worker is an independent `claude --print` session,
 so there is no nested-session restriction. Max plan users pay nothing
 extra for worker sessions.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -91,7 +92,9 @@ def build_worker_prompt(
 
     from orchestrator.skeleton import build_skeleton_section
 
-    specs_yaml = yaml.dump(subsystem.specs, default_flow_style=False) if subsystem.specs else "(none)"
+    specs_yaml = (
+        yaml.dump(subsystem.specs, default_flow_style=False) if subsystem.specs else "(none)"
+    )
 
     ifc_parts = []
     for ifc in interfaces:
@@ -123,7 +126,6 @@ def build_worker_prompt(
         output_dir=output_dir,
         skeleton_section=skeleton_section,
     )
-
 
 
 # ---------------------------------------------------------------------------
@@ -182,7 +184,9 @@ async def launch_worker(
 
     log.info(
         "Launching worker %s_%d (timeout=%ds)",
-        subsystem.name, worker_index, policy.timeout_sec,
+        subsystem.name,
+        worker_index,
+        policy.timeout_sec,
     )
 
     start = time.monotonic()
@@ -191,8 +195,10 @@ async def launch_worker(
         proc = await asyncio.create_subprocess_exec(
             claude_binary,
             "--print",
-            "-p", prompt,
-            "--allowedTools", "mcp__solidmind-cad__*",
+            "-p",
+            prompt,
+            "--allowedTools",
+            "mcp__solidmind-cad__*",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=str(worker_dir),
@@ -203,7 +209,9 @@ async def launch_worker(
         )
         returncode = proc.returncode or 0
     except TimeoutError:
-        log.warning("Worker %s_%d timed out after %ds", subsystem.name, worker_index, policy.timeout_sec)
+        log.warning(
+            "Worker %s_%d timed out after %ds", subsystem.name, worker_index, policy.timeout_sec
+        )
         proc.kill()
         stdout_bytes, stderr_bytes = await proc.communicate()
         returncode = -1
@@ -252,10 +260,13 @@ async def dispatch_workers(
     log.info("Dispatching %d worker(s) (max_parallel=%d)", len(tasks), max_parallel)
 
     sem = asyncio.Semaphore(max_parallel)
+
     async def _run(sub: Subsystem, ifcs: list[Interface], idx: int) -> SubprocessResult:
         async with sem:
             return await launch_worker(
-                spec, sub, ifcs,
+                spec,
+                sub,
+                ifcs,
                 run_dir=run_dir,
                 worker_index=idx,
                 claude_binary=claude_binary,

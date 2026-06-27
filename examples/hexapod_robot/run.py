@@ -24,6 +24,7 @@ Output: a directory containing 7 STEP files (chassis + 6 legs), one
 STL per part, a metadata.json per part, and an
 ``orchestrator_report.txt`` summarizing the gate walk + validation.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -44,9 +45,9 @@ from pathlib import Path
 # Chassis
 CHASSIS_RADIUS_MM = 75.0
 CHASSIS_THICKNESS_MM = 5.0
-LEG_MOUNT_PCD_MM = 110.0          # = 2 × COXA_SERVO_RADIUS=55 from v3 model
-LEG_MOUNT_HOLE_DIA_MM = 4.0       # M4 clearance
-CENTRAL_BORE_DIA_MM = 12.0        # cable routing
+LEG_MOUNT_PCD_MM = 110.0  # = 2 × COXA_SERVO_RADIUS=55 from v3 model
+LEG_MOUNT_HOLE_DIA_MM = 4.0  # M4 clearance
+CENTRAL_BORE_DIA_MM = 12.0  # cable routing
 
 # Leg segments
 COXA_LENGTH_MM = 52.0
@@ -57,9 +58,9 @@ SEGMENT_THICKNESS_MM = 8.0
 
 # Pivot bores — distinct sizes so _measure_bore_diameter's expected_mm
 # hint can disambiguate them on the imported STEP
-HIP_YAW_BORE_MM = 4.0    # M4 (matches chassis mount holes)
+HIP_YAW_BORE_MM = 4.0  # M4 (matches chassis mount holes)
 HIP_PITCH_BORE_MM = 5.0  # M5
-KNEE_BORE_MM = 6.0       # M6
+KNEE_BORE_MM = 6.0  # M6
 
 NUM_LEGS = 6
 LEG_ANGLES_DEG = [0, 60, 120, 180, 240, 300]
@@ -101,10 +102,10 @@ def _make_spec(run_dir: Path):
     transition(run, SpecStatus.NORMALIZING, reason="example start")
 
     run.spec.objectives = [
-        Objective(name="standing_height", direction="maximize", unit="mm",
-                  weight=1.0, threshold=200.0),
-        Objective(name="mass", direction="minimize", unit="kg",
-                  weight=0.5, threshold=2.0),
+        Objective(
+            name="standing_height", direction="maximize", unit="mm", weight=1.0, threshold=200.0
+        ),
+        Objective(name="mass", direction="minimize", unit="kg", weight=0.5, threshold=2.0),
     ]
     run.spec.global_constraints = {
         "max_mass_kg": 2.0,
@@ -116,9 +117,11 @@ def _make_spec(run_dir: Path):
         reserved_volumes={
             "body_envelope": {
                 "origin": [0, 0, 0],
-                "size": [side_mm + TOTAL_LEG_LENGTH * 1.5,
-                         side_mm + TOTAL_LEG_LENGTH * 1.5,
-                         CHASSIS_THICKNESS_MM + SEGMENT_THICKNESS_MM + 10],
+                "size": [
+                    side_mm + TOTAL_LEG_LENGTH * 1.5,
+                    side_mm + TOTAL_LEG_LENGTH * 1.5,
+                    CHASSIS_THICKNESS_MM + SEGMENT_THICKNESS_MM + 10,
+                ],
             },
         },
     )
@@ -148,11 +151,13 @@ def _make_spec(run_dir: Path):
             frame_a=CoordinateFrame(origin_mm=[0, 0, CHASSIS_THICKNESS_MM / 2]),
             frame_b=CoordinateFrame(origin_mm=[0, 0, 0]),
             mating=MatingSemantic(type="cylindrical_fit"),
-            validation=ValidationMethod(check_points=[
-                ValidationCheckPoint(feature="bore_dia",
-                                     expected_mm=CENTRAL_BORE_DIA_MM,
-                                     tolerance_mm=0.3),
-            ]),
+            validation=ValidationMethod(
+                check_points=[
+                    ValidationCheckPoint(
+                        feature="bore_dia", expected_mm=CENTRAL_BORE_DIA_MM, tolerance_mm=0.3
+                    ),
+                ]
+            ),
         ),
         Interface(
             id="ifc_chassis_mounts",
@@ -165,33 +170,36 @@ def _make_spec(run_dir: Path):
             frame_a=CoordinateFrame(origin_mm=[0, 0, CHASSIS_THICKNESS_MM / 2]),
             frame_b=CoordinateFrame(origin_mm=[0, 0, 0]),
             mating=MatingSemantic(type="bolt_pattern"),
-            validation=ValidationMethod(check_points=[
-                ValidationCheckPoint(feature="motor_mount_pcd",
-                                     expected_mm=LEG_MOUNT_PCD_MM,
-                                     tolerance_mm=0.5),
-            ]),
+            validation=ValidationMethod(
+                check_points=[
+                    ValidationCheckPoint(
+                        feature="motor_mount_pcd", expected_mm=LEG_MOUNT_PCD_MM, tolerance_mm=0.5
+                    ),
+                ]
+            ),
         ),
     ]
 
     # 6 legs as separate subsystems — each gets its own worker dispatch.
     for i, _ in enumerate(LEG_ANGLES_DEG, start=1):
         leg_name = f"leg_{i}"
-        subsystems.append(Subsystem(
-            id=f"s_leg_{i}",
-            name=leg_name,
-            kind=SubsystemKind.GENERATED,
-            envelope_mm=[TOTAL_LEG_LENGTH + 1, SEGMENT_WIDTH_MM + 1,
-                         SEGMENT_THICKNESS_MM + 1],
-            mass_budget_kg=0.15,
-            material="aluminum",
-            interfaces=[
-                f"ifc_leg_{i}_hip_yaw",
-                f"ifc_leg_{i}_hip_pitch",
-                f"ifc_leg_{i}_knee",
-            ],
-            worker_count=1,
-            assembly_constraints={"datum": "body_origin"},
-        ))
+        subsystems.append(
+            Subsystem(
+                id=f"s_leg_{i}",
+                name=leg_name,
+                kind=SubsystemKind.GENERATED,
+                envelope_mm=[TOTAL_LEG_LENGTH + 1, SEGMENT_WIDTH_MM + 1, SEGMENT_THICKNESS_MM + 1],
+                mass_budget_kg=0.15,
+                material="aluminum",
+                interfaces=[
+                    f"ifc_leg_{i}_hip_yaw",
+                    f"ifc_leg_{i}_hip_pitch",
+                    f"ifc_leg_{i}_knee",
+                ],
+                worker_count=1,
+                assembly_constraints={"datum": "body_origin"},
+            )
+        )
         # Three pivot bores per leg, each a distinct interface so
         # _measure_bore_diameter's expected_mm hint can disambiguate.
         for label, dia in (
@@ -199,23 +207,27 @@ def _make_spec(run_dir: Path):
             ("hip_pitch", HIP_PITCH_BORE_MM),
             ("knee", KNEE_BORE_MM),
         ):
-            interfaces.append(Interface(
-                id=f"ifc_leg_{i}_{label}",
-                name=f"leg_{i}_{label}_pivot",
-                subsystem_a=leg_name,
-                port_a=label,
-                subsystem_b="adjacent_segment" if label != "hip_yaw" else "chassis",
-                port_b="pivot",
-                geometry={"diameter_mm": dia},
-                frame_a=CoordinateFrame(origin_mm=[0, 0, SEGMENT_THICKNESS_MM / 2]),
-                frame_b=CoordinateFrame(origin_mm=[0, 0, 0]),
-                mating=MatingSemantic(type="cylindrical_fit"),
-                validation=ValidationMethod(check_points=[
-                    ValidationCheckPoint(feature="bore_dia",
-                                         expected_mm=dia,
-                                         tolerance_mm=0.2),
-                ]),
-            ))
+            interfaces.append(
+                Interface(
+                    id=f"ifc_leg_{i}_{label}",
+                    name=f"leg_{i}_{label}_pivot",
+                    subsystem_a=leg_name,
+                    port_a=label,
+                    subsystem_b="adjacent_segment" if label != "hip_yaw" else "chassis",
+                    port_b="pivot",
+                    geometry={"diameter_mm": dia},
+                    frame_a=CoordinateFrame(origin_mm=[0, 0, SEGMENT_THICKNESS_MM / 2]),
+                    frame_b=CoordinateFrame(origin_mm=[0, 0, 0]),
+                    mating=MatingSemantic(type="cylindrical_fit"),
+                    validation=ValidationMethod(
+                        check_points=[
+                            ValidationCheckPoint(
+                                feature="bore_dia", expected_mm=dia, tolerance_mm=0.2
+                            ),
+                        ]
+                    ),
+                )
+            )
 
     run.spec.subsystems = subsystems
     run.spec.interfaces = interfaces
@@ -286,8 +298,10 @@ def _dispatch_workers(run) -> dict[str, Path]:
     # what places them at the 6 mount positions)
     for i, (px, py) in enumerate(_leg_mount_positions(), start=1):
         leg_name = f"leg_{i}"
-        print(f"  building {leg_name} (mount at +{px:+.1f},{py:+.1f}, "
-              f"angle={LEG_ANGLES_DEG[i-1]}°)...")
+        print(
+            f"  building {leg_name} (mount at +{px:+.1f},{py:+.1f}, "
+            f"angle={LEG_ANGLES_DEG[i - 1]}°)..."
+        )
         results[leg_name] = leg_mod.build_hexapod_leg(
             sub_spec={
                 "name": leg_name,
@@ -313,43 +327,61 @@ def _dispatch_workers(run) -> dict[str, Path]:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n", 1)[0])
-    ap.add_argument("--out", type=Path, default=Path("/tmp/hexapod_robot_run"),
-                    help="Directory to write the run output into")
+    ap.add_argument(
+        "--out",
+        type=Path,
+        default=Path("/tmp/hexapod_robot_run"),
+        help="Directory to write the run output into",
+    )
     ap.add_argument("--quiet", action="store_true")
     args = ap.parse_args()
 
     if not args.quiet:
-        logging.basicConfig(level=logging.WARNING,
-                            format="%(asctime)s %(levelname)-5s %(name)s: %(message)s")
+        logging.basicConfig(
+            level=logging.WARNING, format="%(asctime)s %(levelname)-5s %(name)s: %(message)s"
+        )
 
     out = args.out
     out.mkdir(parents=True, exist_ok=True)
 
     print(f"Hexapod robot — {NUM_LEGS} legs at {LEG_ANGLES_DEG}°")
-    print(f"  chassis: {2*CHASSIS_RADIUS_MM}×{2*CHASSIS_RADIUS_MM}×{CHASSIS_THICKNESS_MM} mm, "
-          f"PCD={LEG_MOUNT_PCD_MM}")
-    print(f"  leg: coxa={COXA_LENGTH_MM} + femur={FEMUR_LENGTH_MM} + tibia={TIBIA_LENGTH_MM} = "
-          f"{TOTAL_LEG_LENGTH} mm")
-    print(f"  pivot bores: hip_yaw={HIP_YAW_BORE_MM}, hip_pitch={HIP_PITCH_BORE_MM}, "
-          f"knee={KNEE_BORE_MM} mm")
+    print(
+        f"  chassis: {2 * CHASSIS_RADIUS_MM}×{2 * CHASSIS_RADIUS_MM}×{CHASSIS_THICKNESS_MM} mm, "
+        f"PCD={LEG_MOUNT_PCD_MM}"
+    )
+    print(
+        f"  leg: coxa={COXA_LENGTH_MM} + femur={FEMUR_LENGTH_MM} + tibia={TIBIA_LENGTH_MM} = "
+        f"{TOTAL_LEG_LENGTH} mm"
+    )
+    print(
+        f"  pivot bores: hip_yaw={HIP_YAW_BORE_MM}, hip_pitch={HIP_PITCH_BORE_MM}, "
+        f"knee={KNEE_BORE_MM} mm"
+    )
     print(f"Run output: {out}\n")
 
     from orchestrator.worker_builds import common
+
     if not common.freecad_ready():
-        print(f"ERROR: FreeCAD addon not reachable at "
-              f"{common.fc_host()}:{common.fc_port()}.", file=sys.stderr)
+        print(
+            f"ERROR: FreeCAD addon not reachable at {common.fc_host()}:{common.fc_port()}.",
+            file=sys.stderr,
+        )
         return 1
     if not common.freecad_ready_with_import_step():
-        print("ERROR: FreeCAD addon is running but cad_import_step is not "
-              "registered. Reload the addon.", file=sys.stderr)
+        print(
+            "ERROR: FreeCAD addon is running but cad_import_step is not "
+            "registered. Reload the addon.",
+            file=sys.stderr,
+        )
         return 1
 
     print("[1/4] G0 → G3 gate walk")
     run = _make_spec(out / "run")
     _walk_to_building(run)
 
-    print(f"\n[2/4] Dispatch {len(run.spec.subsystems)} worker builds "
-          f"(1 chassis + {NUM_LEGS} legs)")
+    print(
+        f"\n[2/4] Dispatch {len(run.spec.subsystems)} worker builds (1 chassis + {NUM_LEGS} legs)"
+    )
     t0 = time.monotonic()
     step_paths = _dispatch_workers(run)
     print(f"  built {len(step_paths)} parts in {time.monotonic() - t0:.1f}s")
@@ -357,6 +389,7 @@ def main() -> int:
     print("\n[3/4] G4 (artifact check)")
     from orchestrator.runner import check_gate_g4, transition, validate_results
     from orchestrator.spec import SpecStatus
+
     ok_g4, issues = check_gate_g4(run)
     print(f"  G4: {'✓' if ok_g4 else '✗'}", issues if issues else "")
     if not ok_g4:
@@ -371,29 +404,35 @@ def main() -> int:
         print(f"    {status} {r.subsystem_name} (source={r.measurement_source})")
         for dc in r.dimension_checks:
             mark = "✓" if dc.passed else "✗"
-            print(f"        {mark} {dc.interface_id}.{dc.feature}: "
-                  f"measured={dc.measured_mm}, expected={dc.expected_mm}±{dc.tolerance_mm}")
+            print(
+                f"        {mark} {dc.interface_id}.{dc.feature}: "
+                f"measured={dc.measured_mm}, expected={dc.expected_mm}±{dc.tolerance_mm}"
+            )
         if r.failure_codes:
             print(f"        failure_codes: {[fc.value for fc in r.failure_codes]}")
 
     all_pass = all(r.overall_pass for r in reports)
     print(f"\nResult: {'ALL PARTS PASS' if all_pass else 'AT LEAST ONE PART FAILED'}")
-    print(f"Total leg DOF in this hexapod (3 per leg × {NUM_LEGS} legs): "
-          f"{3 * NUM_LEGS} revolute joints when assembled")
+    print(
+        f"Total leg DOF in this hexapod (3 per leg × {NUM_LEGS} legs): "
+        f"{3 * NUM_LEGS} revolute joints when assembled"
+    )
 
     summary = out / "orchestrator_report.txt"
     summary.write_text(
         f"Hexapod Robot — orchestrator run summary\n"
         f"========================================\n\n"
-        f"chassis: {2*CHASSIS_RADIUS_MM}×{2*CHASSIS_RADIUS_MM}×{CHASSIS_THICKNESS_MM} mm, "
+        f"chassis: {2 * CHASSIS_RADIUS_MM}×{2 * CHASSIS_RADIUS_MM}×{CHASSIS_THICKNESS_MM} mm, "
         f"PCD={LEG_MOUNT_PCD_MM}\n"
         f"legs: {NUM_LEGS}× hexapod_leg "
         f"({COXA_LENGTH_MM}+{FEMUR_LENGTH_MM}+{TIBIA_LENGTH_MM}={TOTAL_LEG_LENGTH} mm)\n"
         f"pivot bores: hip_yaw={HIP_YAW_BORE_MM}, hip_pitch={HIP_PITCH_BORE_MM}, "
         f"knee={KNEE_BORE_MM}\n\n"
         f"Parts built and validated:\n"
-        + "\n".join(f"  {'✓' if r.overall_pass else '✗'} {r.subsystem_name} "
-                   f"(source={r.measurement_source})" for r in reports)
+        + "\n".join(
+            f"  {'✓' if r.overall_pass else '✗'} {r.subsystem_name} (source={r.measurement_source})"
+            for r in reports
+        )
         + f"\n\nAll parts passing: {all_pass}\n"
         f"DOF count when assembled: {3 * NUM_LEGS}\n"
     )

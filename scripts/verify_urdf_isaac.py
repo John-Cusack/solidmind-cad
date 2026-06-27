@@ -8,6 +8,7 @@ Usage::
         --env-config training_runs/Hexapod18DOF_env_config.py \
         --num-steps 1000
 """
+
 from __future__ import annotations
 
 import argparse
@@ -33,6 +34,7 @@ def main() -> int:
 
     # Boot Isaac Sim with GUI
     from isaaclab.app import AppLauncher
+
     launcher = AppLauncher(headless=False)
     simulation_app = launcher.app
 
@@ -63,6 +65,7 @@ def main() -> int:
     except Exception as exc:
         print(f"FATAL: env creation failed: {exc}", flush=True)
         import traceback
+
         traceback.print_exc()
         simulation_app.close()
         return 1
@@ -73,6 +76,7 @@ def main() -> int:
     except Exception as exc:
         print(f"FATAL: env.reset() failed: {exc}", flush=True)
         import traceback
+
         traceback.print_exc()
         env.close()
         simulation_app.close()

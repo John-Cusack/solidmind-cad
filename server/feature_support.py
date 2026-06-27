@@ -117,9 +117,7 @@ def load_manifest(path: Path) -> list[dict[str, Any]]:
             )
 
         if feature["common_usage"] not in VALID_USAGE:
-            raise ValueError(
-                f"features[{idx}] common_usage must be one of {sorted(VALID_USAGE)}"
-            )
+            raise ValueError(f"features[{idx}] common_usage must be one of {sorted(VALID_USAGE)}")
 
         checks = feature.get("checks")
         if not isinstance(checks, list) or not checks:
@@ -160,11 +158,7 @@ def _parse_python(path: Path) -> ast.Module:
 def _find_top_level_def(path: Path, name: str, kind: str) -> bool:
     tree = _parse_python(path)
     for node in tree.body:
-        if (
-            kind == "function"
-            and isinstance(node, ast.FunctionDef)
-            and node.name == name
-        ):
+        if kind == "function" and isinstance(node, ast.FunctionDef) and node.name == name:
             return True
         if kind == "class" and isinstance(node, ast.ClassDef) and node.name == name:
             return True
@@ -195,9 +189,7 @@ def _mcp_tools() -> set[str]:
     if _MCP_TOOL_CACHE is None:
         from server.main import _tool_list
 
-        _MCP_TOOL_CACHE = {
-            str(t.get("name")) for t in _tool_list() if isinstance(t, dict)
-        }
+        _MCP_TOOL_CACHE = {str(t.get("name")) for t in _tool_list() if isinstance(t, dict)}
     return _MCP_TOOL_CACHE
 
 
@@ -243,9 +235,7 @@ def _eval_check(check: dict[str, Any]) -> CheckResult:
     if ctype == "file_exists":
         path = _resolve_repo_path(str(check["path"]))
         passed = path.exists()
-        return CheckResult(
-            ctype, str(path), passed, "file exists" if passed else "file missing"
-        )
+        return CheckResult(ctype, str(path), passed, "file exists" if passed else "file missing")
 
     if ctype == "text_contains":
         path = _resolve_repo_path(str(check["path"]))
@@ -272,9 +262,7 @@ def _eval_check(check: dict[str, Any]) -> CheckResult:
             raise ValueError(f"Invalid py_def kind: {kind!r}")
         passed = _find_top_level_def(path, name, kind)
         target = f"{path}:{name}"
-        return CheckResult(
-            ctype, target, passed, "symbol found" if passed else "symbol not found"
-        )
+        return CheckResult(ctype, target, passed, "symbol found" if passed else "symbol not found")
 
     if ctype == "py_class_method":
         path = _resolve_repo_path(str(check["path"]))
@@ -370,15 +358,11 @@ def load_geometry_capabilities(
         GeometryCapabilities object containing backend capability matrix
     """
     if capabilities_path is None:
-        capabilities_path = (
-            repo_root() / "feature_support" / "geometry_capabilities.yml"
-        )
+        capabilities_path = repo_root() / "feature_support" / "geometry_capabilities.yml"
 
     data = yaml.safe_load(capabilities_path.read_text(encoding="utf-8"))
     if not isinstance(data, dict):
-        raise ValueError(
-            f"Capabilities manifest must be a mapping: {capabilities_path}"
-        )
+        raise ValueError(f"Capabilities manifest must be a mapping: {capabilities_path}")
 
     version = data.get("version")
     if not isinstance(version, str):
@@ -523,21 +507,13 @@ def load_verification_policy(policy_path: Path | None = None) -> VerificationMan
 
         try:
             thresholds = Thresholds(
-                wall_thickness_min_mm=float(
-                    thresholds_data.get("wall_thickness_min_mm", 0)
-                ),
+                wall_thickness_min_mm=float(thresholds_data.get("wall_thickness_min_mm", 0)),
                 wall_thickness_nominal_mm=float(
                     thresholds_data.get("wall_thickness_nominal_mm", 0)
                 ),
-                hole_diameter_min_mm=float(
-                    thresholds_data.get("hole_diameter_min_mm", 0)
-                ),
-                internal_radius_min_mm=float(
-                    thresholds_data.get("internal_radius_min_mm", 0)
-                ),
-                edge_spacing_min_mm=float(
-                    thresholds_data.get("edge_spacing_min_mm", 0)
-                ),
+                hole_diameter_min_mm=float(thresholds_data.get("hole_diameter_min_mm", 0)),
+                internal_radius_min_mm=float(thresholds_data.get("internal_radius_min_mm", 0)),
+                edge_spacing_min_mm=float(thresholds_data.get("edge_spacing_min_mm", 0)),
                 feature_remove_angle_max_deg=float(
                     thresholds_data.get("feature_remove_angle_max_deg", 0)
                 ),
@@ -561,9 +537,7 @@ def load_verification_policy(policy_path: Path | None = None) -> VerificationMan
             check_id = check_dict.get("check_id")
             check_type = check_dict.get("check_type")
             if not check_id or not check_type:
-                raise ValueError(
-                    f"Policy {policy_key} check missing check_id or check_type"
-                )
+                raise ValueError(f"Policy {policy_key} check missing check_id or check_type")
 
             baseline_checks.append(
                 BaselineCheck(
@@ -692,11 +666,19 @@ def load_planning_policy(policy_path: Path | None = None) -> PlanningPolicyManif
                     severity=str(row.get("severity", "")),
                     metric=str(row.get("metric", "")),
                     operator=str(row.get("operator", "")),
-                    value=float(row["value"]) if "value" in row and row.get("value") is not None else None,
-                    min_value=float(row["min"]) if "min" in row and row.get("min") is not None else None,
-                    max_value=float(row["max"]) if "max" in row and row.get("max") is not None else None,
+                    value=float(row["value"])
+                    if "value" in row and row.get("value") is not None
+                    else None,
+                    min_value=float(row["min"])
+                    if "min" in row and row.get("min") is not None
+                    else None,
+                    max_value=float(row["max"])
+                    if "max" in row and row.get("max") is not None
+                    else None,
                     rationale=str(row.get("rationale", "")),
-                    playbook_id=str(row.get("playbook_id")) if row.get("playbook_id") is not None else None,
+                    playbook_id=str(row.get("playbook_id"))
+                    if row.get("playbook_id") is not None
+                    else None,
                 )
             )
 

@@ -3,6 +3,7 @@
 Runs run.py's --smoke path (no solvers, CI-safe) and asserts the orchestration
 produces a complete, correctly-shaped set of outputs and the V1→V2 improvement.
 """
+
 from __future__ import annotations
 
 import csv
@@ -32,8 +33,12 @@ class TestFoamDartSmokeE2E(unittest.TestCase):
 
     def test_smoke_produces_all_outputs(self) -> None:
         self._run_smoke()
-        for name in ("validation_report.md", "range_prediction.csv",
-                     "motion_trace.csv", "bom.json"):
+        for name in (
+            "validation_report.md",
+            "range_prediction.csv",
+            "motion_trace.csv",
+            "bom.json",
+        ):
             self.assertTrue((self.out / name).is_file(), f"missing {name}")
         for sub in ("launcher_v1", "launcher_v2", "step", "stl"):
             self.assertTrue((self.out / sub).is_dir(), f"missing dir {sub}")
@@ -41,9 +46,16 @@ class TestFoamDartSmokeE2E(unittest.TestCase):
     def test_report_has_required_sections_and_banner(self) -> None:
         self._run_smoke()
         report = (self.out / "validation_report.md").read_text()
-        for section in ("Project summary", "Assumptions", "Sim-to-real chain",
-                        "Predicted ranges", "Inner-loop trace", "Structural checks",
-                        "V1 failure", "Print / test instructions"):
+        for section in (
+            "Project summary",
+            "Assumptions",
+            "Sim-to-real chain",
+            "Predicted ranges",
+            "Inner-loop trace",
+            "Structural checks",
+            "V1 failure",
+            "Print / test instructions",
+        ):
             self.assertIn(section, report)
         self.assertIn("PHYSICS NOT VALIDATED", report)  # smoke banner
 

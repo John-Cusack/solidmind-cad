@@ -3,6 +3,7 @@
 Runs verification in increasing cost order (L1 analytic → L2 coarse FEA → L3 high-fidelity),
 then uses SBCE to rank assembly-level candidates.
 """
+
 from __future__ import annotations
 
 import json
@@ -34,8 +35,8 @@ log = logging.getLogger(__name__)
 
 class VerificationLevel:
     L0_DIMENSIONAL = "L0"  # geometry measurement (always runs)
-    L1_ANALYTIC = "L1"     # handbook equations
-    L2_COARSE_FEA = "L2"   # auto-meshed CalculiX
+    L1_ANALYTIC = "L1"  # handbook equations
+    L2_COARSE_FEA = "L2"  # auto-meshed CalculiX
     L3_HIGH_FIDELITY = "L3"  # refined mesh, nonlinear, MBS
 
 
@@ -146,21 +147,21 @@ def run_l1_checks(
             mass = v.measured.get("mass_kg")
             if mass is not None and sub.mass_budget_kg is not None:
                 passed = mass <= sub.mass_budget_kg
-                results.append(VerificationResult(
-                    level=VerificationLevel.L1_ANALYTIC,
-                    check_name="mass_budget",
-                    subsystem_name=sub_name,
-                    value=mass,
-                    unit="kg",
-                    threshold=sub.mass_budget_kg,
-                    passed=passed,
-                    notes=f"variant_{v.variant_index}",
-                ))
+                results.append(
+                    VerificationResult(
+                        level=VerificationLevel.L1_ANALYTIC,
+                        check_name="mass_budget",
+                        subsystem_name=sub_name,
+                        value=mass,
+                        unit="kg",
+                        threshold=sub.mass_budget_kg,
+                        passed=passed,
+                        notes=f"variant_{v.variant_index}",
+                    )
+                )
                 if not passed:
                     v.feasible = False
-                    v.elimination_reason = (
-                        f"Mass {mass:.4f} > budget {sub.mass_budget_kg:.4f} kg"
-                    )
+                    v.elimination_reason = f"Mass {mass:.4f} > budget {sub.mass_budget_kg:.4f} kg"
 
     return results
 
@@ -196,18 +197,14 @@ def score_run(
 
     # Re-filter after L1
     for sub_name in list(variants_by_sub.keys()):
-        variants_by_sub[sub_name] = [
-            v for v in variants_by_sub[sub_name] if v.feasible
-        ]
+        variants_by_sub[sub_name] = [v for v in variants_by_sub[sub_name] if v.feasible]
 
     # L2: Coarse FEA (only if objectives require stress/deflection)
     if _needs_fea(spec) and run_dir is not None:
         l2_results = _run_l2_checks(spec, variants_by_sub, run_dir)
         report.verification_results.extend(l2_results)
         for sub_name in list(variants_by_sub.keys()):
-            variants_by_sub[sub_name] = [
-                v for v in variants_by_sub[sub_name] if v.feasible
-            ]
+            variants_by_sub[sub_name] = [v for v in variants_by_sub[sub_name] if v.feasible]
 
     # Flatten variants for report
     for variants in variants_by_sub.values():
@@ -302,65 +299,79 @@ def _run_l2_checks(
 
             try:
                 report: FEAReport = run_l2_fea(
-                    step_path, sub, interfaces, material, work_dir,
+                    step_path,
+                    sub,
+                    interfaces,
+                    material,
+                    work_dir,
                 )
             except Exception:
                 log.exception("L2 FEA failed for %s variant %d", sub_name, v.variant_index)
-                results.append(VerificationResult(
-                    level=VerificationLevel.L2_COARSE_FEA,
-                    check_name="fea_error",
-                    subsystem_name=sub_name,
-                    passed=False,
-                    notes=f"variant_{v.variant_index}: FEA pipeline error",
-                ))
+                results.append(
+                    VerificationResult(
+                        level=VerificationLevel.L2_COARSE_FEA,
+                        check_name="fea_error",
+                        subsystem_name=sub_name,
+                        passed=False,
+                        notes=f"variant_{v.variant_index}: FEA pipeline error",
+                    )
+                )
                 continue
 
             # Record results
             variant_tag = f"variant_{v.variant_index}"
 
-            results.append(VerificationResult(
-                level=VerificationLevel.L2_COARSE_FEA,
-                check_name="max_von_mises",
-                subsystem_name=sub_name,
-                value=report.filtered_max_stress_mpa,
-                unit="MPa",
-                threshold=material.yield_strength_mpa,
-                passed=report.safety_factor >= 1.0,
-                notes=variant_tag,
-            ))
+            results.append(
+                VerificationResult(
+                    level=VerificationLevel.L2_COARSE_FEA,
+                    check_name="max_von_mises",
+                    subsystem_name=sub_name,
+                    value=report.filtered_max_stress_mpa,
+                    unit="MPa",
+                    threshold=material.yield_strength_mpa,
+                    passed=report.safety_factor >= 1.0,
+                    notes=variant_tag,
+                )
+            )
 
             if report.fine:
-                results.append(VerificationResult(
+                results.append(
+                    VerificationResult(
+                        level=VerificationLevel.L2_COARSE_FEA,
+                        check_name="max_displacement",
+                        subsystem_name=sub_name,
+                        value=report.fine.max_displacement_mm,
+                        unit="mm",
+                        passed=True,  # informational unless objective sets threshold
+                        notes=variant_tag,
+                    )
+                )
+
+            results.append(
+                VerificationResult(
                     level=VerificationLevel.L2_COARSE_FEA,
-                    check_name="max_displacement",
+                    check_name="convergence",
                     subsystem_name=sub_name,
-                    value=report.fine.max_displacement_mm,
-                    unit="mm",
-                    passed=True,  # informational unless objective sets threshold
+                    value=report.convergence_pct,
+                    unit="%",
+                    threshold=10.0,
+                    passed=report.converged,
                     notes=variant_tag,
-                ))
+                )
+            )
 
-            results.append(VerificationResult(
-                level=VerificationLevel.L2_COARSE_FEA,
-                check_name="convergence",
-                subsystem_name=sub_name,
-                value=report.convergence_pct,
-                unit="%",
-                threshold=10.0,
-                passed=report.converged,
-                notes=variant_tag,
-            ))
-
-            results.append(VerificationResult(
-                level=VerificationLevel.L2_COARSE_FEA,
-                check_name="safety_factor",
-                subsystem_name=sub_name,
-                value=report.safety_factor,
-                unit="",
-                threshold=1.0,
-                passed=report.safety_factor >= 1.0,
-                notes=variant_tag,
-            ))
+            results.append(
+                VerificationResult(
+                    level=VerificationLevel.L2_COARSE_FEA,
+                    check_name="safety_factor",
+                    subsystem_name=sub_name,
+                    value=report.safety_factor,
+                    unit="",
+                    threshold=1.0,
+                    passed=report.safety_factor >= 1.0,
+                    notes=variant_tag,
+                )
+            )
 
             # Store in variant measured/scores
             v.measured["max_von_mises_mpa"] = report.filtered_max_stress_mpa

@@ -7,6 +7,7 @@ Always-run: design pipeline, Tier 1 (ratio/torque/DOF), Gazebo stub coupling,
             FEA coupling with mock solver.
 Conditionally-run: Chrono daemon (skip if not built).
 """
+
 from __future__ import annotations
 
 import json
@@ -84,7 +85,12 @@ class TestPlanetaryGearboxDesign(unittest.TestCase):
             ("planet1_a", "custom", 1, {"teeth": 27, "module": 1.5, "pitch_diameter_mm": 40.5}),
             ("planet1_b", "custom", 1, {"teeth": 27, "module": 1.5, "pitch_diameter_mm": 40.5}),
             ("planet1_c", "custom", 1, {"teeth": 27, "module": 1.5, "pitch_diameter_mm": 40.5}),
-            ("ring1", "custom", 1, {"teeth": 72, "module": 1.5, "pitch_diameter_mm": 108.0, "internal": True}),
+            (
+                "ring1",
+                "custom",
+                1,
+                {"teeth": 72, "module": 1.5, "pitch_diameter_mm": 108.0, "internal": True},
+            ),
             ("carrier1", "custom", 1, {"pin_count": 3}),
         ]
         # Stage 2 parts
@@ -93,7 +99,12 @@ class TestPlanetaryGearboxDesign(unittest.TestCase):
             ("planet2_a", "custom", 1, {"teeth": 28, "module": 1.5, "pitch_diameter_mm": 42.0}),
             ("planet2_b", "custom", 1, {"teeth": 28, "module": 1.5, "pitch_diameter_mm": 42.0}),
             ("planet2_c", "custom", 1, {"teeth": 28, "module": 1.5, "pitch_diameter_mm": 42.0}),
-            ("ring2", "custom", 1, {"teeth": 72, "module": 1.5, "pitch_diameter_mm": 108.0, "internal": True}),
+            (
+                "ring2",
+                "custom",
+                1,
+                {"teeth": 72, "module": 1.5, "pitch_diameter_mm": 108.0, "internal": True},
+            ),
             ("carrier2", "custom", 1, {"pin_count": 3}),
         ]
         # Common parts
@@ -112,34 +123,69 @@ class TestPlanetaryGearboxDesign(unittest.TestCase):
 
         # Stage 1 interfaces
         for planet in ("planet1_a", "planet1_b", "planet1_c"):
-            design_add_interface(bid, part_a="sun1", port_a="teeth",
-                                 part_b=planet, port_b="teeth",
-                                 spec={"type": "gear_mesh", "z_layer": 1})
-        design_add_interface(bid, part_a="planet1_a", port_a="teeth",
-                             part_b="ring1", port_b="teeth",
-                             spec={"type": "gear_mesh", "z_layer": 1})
+            design_add_interface(
+                bid,
+                part_a="sun1",
+                port_a="teeth",
+                part_b=planet,
+                port_b="teeth",
+                spec={"type": "gear_mesh", "z_layer": 1},
+            )
+        design_add_interface(
+            bid,
+            part_a="planet1_a",
+            port_a="teeth",
+            part_b="ring1",
+            port_b="teeth",
+            spec={"type": "gear_mesh", "z_layer": 1},
+        )
 
         # Stage 2 interfaces
         for planet in ("planet2_a", "planet2_b", "planet2_c"):
-            design_add_interface(bid, part_a="sun2", port_a="teeth",
-                                 part_b=planet, port_b="teeth",
-                                 spec={"type": "gear_mesh", "z_layer": 2})
-        design_add_interface(bid, part_a="planet2_a", port_a="teeth",
-                             part_b="ring2", port_b="teeth",
-                             spec={"type": "gear_mesh", "z_layer": 2})
+            design_add_interface(
+                bid,
+                part_a="sun2",
+                port_a="teeth",
+                part_b=planet,
+                port_b="teeth",
+                spec={"type": "gear_mesh", "z_layer": 2},
+            )
+        design_add_interface(
+            bid,
+            part_a="planet2_a",
+            port_a="teeth",
+            part_b="ring2",
+            port_b="teeth",
+            spec={"type": "gear_mesh", "z_layer": 2},
+        )
 
         # Shaft interfaces
-        design_add_interface(bid, part_a="input_shaft", port_a="end",
-                             part_b="sun1", port_b="bore",
-                             spec={"type": "keyway"})
-        design_add_interface(bid, part_a="carrier2", port_a="hub",
-                             part_b="output_shaft", port_b="bore",
-                             spec={"type": "keyway"})
+        design_add_interface(
+            bid,
+            part_a="input_shaft",
+            port_a="end",
+            part_b="sun1",
+            port_b="bore",
+            spec={"type": "keyway"},
+        )
+        design_add_interface(
+            bid,
+            part_a="carrier2",
+            port_a="hub",
+            part_b="output_shaft",
+            port_b="bore",
+            spec={"type": "keyway"},
+        )
 
         # Carrier coupling
-        design_add_interface(bid, part_a="carrier1", port_a="hub",
-                             part_b="sun2", port_b="bore",
-                             spec={"type": "spline"})
+        design_add_interface(
+            bid,
+            part_a="carrier1",
+            port_a="hub",
+            part_b="sun2",
+            port_b="bore",
+            spec={"type": "spline"},
+        )
 
         # Approve
         design_update_brief(bid, status="approved")
@@ -238,12 +284,17 @@ class TestPlanetaryGazeboSim(unittest.TestCase):
         port = unused_tcp_port()
         mech = mechanism_factory("planetary_2stage")
         with GazeboStubBridge(port) as bridge:
-            resp = _send_command(bridge.host, bridge.port, "simulate", {
-                "mechanism": mech,
-                "duration_s": 0.5,
-                "dt_s": 0.01,
-                "output_interval": 0.1,
-            })
+            resp = _send_command(
+                bridge.host,
+                bridge.port,
+                "simulate",
+                {
+                    "mechanism": mech,
+                    "duration_s": 0.5,
+                    "dt_s": 0.01,
+                    "output_interval": 0.1,
+                },
+            )
         self.assertTrue(resp["ok"], resp)
         result = resp["result"]
         self.assertIn("time_series", result)
@@ -257,12 +308,17 @@ class TestPlanetaryGazeboSim(unittest.TestCase):
         port = unused_tcp_port()
         mech = mechanism_factory("planetary_2stage")
         with GazeboStubBridge(port) as bridge:
-            sim_resp = _send_command(bridge.host, bridge.port, "simulate", {
-                "mechanism": mech,
-                "duration_s": 0.5,
-                "dt_s": 0.01,
-                "output_interval": 0.1,
-            })
+            sim_resp = _send_command(
+                bridge.host,
+                bridge.port,
+                "simulate",
+                {
+                    "mechanism": mech,
+                    "duration_s": 0.5,
+                    "dt_s": 0.01,
+                    "output_interval": 0.1,
+                },
+            )
         self.assertTrue(sim_resp["ok"])
 
         with (
@@ -356,18 +412,28 @@ class TestPlanetaryDesignIterations(unittest.TestCase):
                     {"id": "ring"},
                 ],
                 "joints": [
-                    {"id": "sun_rev", "joint_type": "revolute",
-                     "parent_part": "frame", "child_part": "sun"},
                     {
-                        "id": "sp", "joint_type": "gear_mesh",
-                        "parent_part": "sun", "child_part": "planet",
-                        "teeth_parent": 20, "teeth_child": 25,
+                        "id": "sun_rev",
+                        "joint_type": "revolute",
+                        "parent_part": "frame",
+                        "child_part": "sun",
+                    },
+                    {
+                        "id": "sp",
+                        "joint_type": "gear_mesh",
+                        "parent_part": "sun",
+                        "child_part": "planet",
+                        "teeth_parent": 20,
+                        "teeth_child": 25,
                         "gear_ratio": 20.0 / 25.0,
                     },
                     {
-                        "id": "pr", "joint_type": "gear_mesh",
-                        "parent_part": "planet", "child_part": "ring",
-                        "teeth_parent": 25, "teeth_child": 70,
+                        "id": "pr",
+                        "joint_type": "gear_mesh",
+                        "parent_part": "planet",
+                        "child_part": "ring",
+                        "teeth_parent": 25,
+                        "teeth_child": 70,
                         "gear_ratio": 25.0 / 70.0,
                     },
                 ],

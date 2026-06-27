@@ -9,6 +9,7 @@ Or start the bridge first:
         scripts/run_isaac_bridge.sh &
     python3 scripts/demo_rl_walk.py
 """
+
 from __future__ import annotations
 
 import json
@@ -94,30 +95,57 @@ def main() -> int:
         "controller_type": "rl_direct",
         "policy_path": policy_pt,
         "joint_names": [
-            "hip_yaw_L1", "hip_pitch_L1", "knee_L1",
-            "hip_yaw_L2", "hip_pitch_L2", "knee_L2",
-            "hip_yaw_L3", "hip_pitch_L3", "knee_L3",
-            "hip_yaw_R1", "hip_pitch_R1", "knee_R1",
-            "hip_yaw_R2", "hip_pitch_R2", "knee_R2",
-            "hip_yaw_R3", "hip_pitch_R3", "knee_R3",
+            "hip_yaw_L1",
+            "hip_pitch_L1",
+            "knee_L1",
+            "hip_yaw_L2",
+            "hip_pitch_L2",
+            "knee_L2",
+            "hip_yaw_L3",
+            "hip_pitch_L3",
+            "knee_L3",
+            "hip_yaw_R1",
+            "hip_pitch_R1",
+            "knee_R1",
+            "hip_yaw_R2",
+            "hip_pitch_R2",
+            "knee_R2",
+            "hip_yaw_R3",
+            "hip_pitch_R3",
+            "knee_R3",
         ],
         "leg_joint_names": [
-            "hip_yaw_L1", "hip_pitch_L1", "knee_L1",
-            "hip_yaw_L2", "hip_pitch_L2", "knee_L2",
-            "hip_yaw_L3", "hip_pitch_L3", "knee_L3",
-            "hip_yaw_R1", "hip_pitch_R1", "knee_R1",
-            "hip_yaw_R2", "hip_pitch_R2", "knee_R2",
-            "hip_yaw_R3", "hip_pitch_R3", "knee_R3",
+            "hip_yaw_L1",
+            "hip_pitch_L1",
+            "knee_L1",
+            "hip_yaw_L2",
+            "hip_pitch_L2",
+            "knee_L2",
+            "hip_yaw_L3",
+            "hip_pitch_L3",
+            "knee_L3",
+            "hip_yaw_R1",
+            "hip_pitch_R1",
+            "knee_R1",
+            "hip_yaw_R2",
+            "hip_pitch_R2",
+            "knee_R2",
+            "hip_yaw_R3",
+            "hip_pitch_R3",
+            "knee_R3",
         ],
         "dofs_per_leg": 3,
     }
 
     print("Starting teleop session with rl_direct controller...")
-    resp = conn.send("teleop_start", {
-        "mechanism": mechanism,
-        "profile": profile,
-        "urdf_path": urdf_path,
-    })
+    resp = conn.send(
+        "teleop_start",
+        {
+            "mechanism": mechanism,
+            "profile": profile,
+            "urdf_path": urdf_path,
+        },
+    )
     if not resp.get("ok"):
         err = resp.get("error", {})
         print(f"ERROR: teleop_start failed — {err.get('code', '?')}: {err.get('message', '?')}")
@@ -139,12 +167,15 @@ def main() -> int:
     t_start = time.time()
 
     while time.time() - t_start < walk_duration:
-        resp = conn.send("teleop_command", {
-            "session_id": session_id,
-            "vx_mps": 0.2,
-            "yaw_rate_rps": 0.0,
-            "body_height_m": 0.0,
-        })
+        resp = conn.send(
+            "teleop_command",
+            {
+                "session_id": session_id,
+                "vx_mps": 0.2,
+                "yaw_rate_rps": 0.0,
+                "body_height_m": 0.0,
+            },
+        )
         if not resp.get("ok"):
             print(f"  Command error: {resp.get('error', {}).get('message', '?')}")
             break
@@ -152,34 +183,43 @@ def main() -> int:
 
     # Stop
     print("Stopping...")
-    conn.send("teleop_command", {
-        "session_id": session_id,
-        "vx_mps": 0.0,
-        "yaw_rate_rps": 0.0,
-        "body_height_m": 0.0,
-    })
+    conn.send(
+        "teleop_command",
+        {
+            "session_id": session_id,
+            "vx_mps": 0.0,
+            "yaw_rate_rps": 0.0,
+            "body_height_m": 0.0,
+        },
+    )
     time.sleep(2.0)
 
     # Turn in place for 5 seconds
     print("Turning at 0.5 rad/s for 5 seconds...")
     t_start = time.time()
     while time.time() - t_start < 5.0:
-        conn.send("teleop_command", {
-            "session_id": session_id,
-            "vx_mps": 0.0,
-            "yaw_rate_rps": 0.5,
-            "body_height_m": 0.0,
-        })
+        conn.send(
+            "teleop_command",
+            {
+                "session_id": session_id,
+                "vx_mps": 0.0,
+                "yaw_rate_rps": 0.5,
+                "body_height_m": 0.0,
+            },
+        )
         time.sleep(1.0 / cmd_hz)
 
     # Stop and hold
     print("Stopping — holding position for 3 seconds...")
-    conn.send("teleop_command", {
-        "session_id": session_id,
-        "vx_mps": 0.0,
-        "yaw_rate_rps": 0.0,
-        "body_height_m": 0.0,
-    })
+    conn.send(
+        "teleop_command",
+        {
+            "session_id": session_id,
+            "vx_mps": 0.0,
+            "yaw_rate_rps": 0.0,
+            "body_height_m": 0.0,
+        },
+    )
     time.sleep(3.0)
 
     # End session

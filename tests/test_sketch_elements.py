@@ -1,4 +1,5 @@
 """Pure-Python tests for sketch element parameter normalization."""
+
 from __future__ import annotations
 
 import unittest
@@ -71,16 +72,23 @@ class TestLineNormalization(unittest.TestCase):
 
 class TestArcNormalization(unittest.TestCase):
     def test_center_array(self) -> None:
-        elems = [{"type": "arc", "center": [10, 20], "r": 5,
-                  "start_angle": 0, "end_angle": 90}]
+        elems = [{"type": "arc", "center": [10, 20], "r": 5, "start_angle": 0, "end_angle": 90}]
         normalize_elements(elems)
         self.assertEqual(elems[0]["cx"], 10)
         self.assertEqual(elems[0]["cy"], 20)
         self.assertNotIn("center", elems[0])
 
     def test_center_x_y_aliases(self) -> None:
-        elems = [{"type": "arc", "center_x": 3, "center_y": 4, "radius": 8,
-                  "start_angle": 0, "end_angle": 180}]
+        elems = [
+            {
+                "type": "arc",
+                "center_x": 3,
+                "center_y": 4,
+                "radius": 8,
+                "start_angle": 0,
+                "end_angle": 180,
+            }
+        ]
         normalize_elements(elems)
         self.assertEqual(elems[0]["cx"], 3)
         self.assertEqual(elems[0]["cy"], 4)
@@ -95,8 +103,7 @@ class TestPassthrough(unittest.TestCase):
         self.assertEqual(elems[0]["bar"], "baz")
 
     def test_extra_keys_preserved(self) -> None:
-        elems = [{"type": "circle", "center": [1, 2], "r": 5,
-                  "construction": True}]
+        elems = [{"type": "circle", "center": [1, 2], "r": 5, "construction": True}]
         normalize_elements(elems)
         self.assertTrue(elems[0]["construction"])
         self.assertEqual(elems[0]["cx"], 1)

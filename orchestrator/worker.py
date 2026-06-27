@@ -4,6 +4,7 @@ Unifies subagent, claude_code (subprocess), and docker (A2A) execution
 behind a single interface. The runner calls this module; it delegates
 to the right backend.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -59,13 +60,15 @@ def plan_tasks(spec: MasterSpec, run_dir: Path) -> list[WorkerTask]:
             output_dir = run_dir / f"{sub.name}_{vi}" / "output"
             output_dir.mkdir(parents=True, exist_ok=True)
             prompt = build_worker_prompt(spec, sub, interfaces, str(output_dir))
-            tasks.append(WorkerTask(
-                subsystem=sub,
-                interfaces=interfaces,
-                variant_index=vi,
-                output_dir=output_dir,
-                prompt=prompt,
-            ))
+            tasks.append(
+                WorkerTask(
+                    subsystem=sub,
+                    interfaces=interfaces,
+                    variant_index=vi,
+                    output_dir=output_dir,
+                    prompt=prompt,
+                )
+            )
     return tasks
 
 
@@ -94,9 +97,13 @@ async def dispatch_all(
     if mode == WorkerMode.SUBAGENT:
         return _dispatch_subagent(tasks)
     elif mode == WorkerMode.CLAUDE_CODE:
-        return await _dispatch_claude_code(spec, tasks, run_dir=run_dir, max_parallel=max_parallel, **kwargs)
+        return await _dispatch_claude_code(
+            spec, tasks, run_dir=run_dir, max_parallel=max_parallel, **kwargs
+        )
     elif mode == WorkerMode.DOCKER:
-        return await _dispatch_docker(spec, tasks, run_dir=run_dir, max_parallel=max_parallel, **kwargs)
+        return await _dispatch_docker(
+            spec, tasks, run_dir=run_dir, max_parallel=max_parallel, **kwargs
+        )
     else:
         raise ValueError(f"Unsupported worker mode: {mode}")
 
@@ -110,11 +117,13 @@ def _dispatch_subagent(tasks: list[WorkerTask]) -> list[WorkerResult]:
     """
     results: list[WorkerResult] = []
     for task in tasks:
-        results.append(WorkerResult(
-            subsystem_name=task.subsystem.name,
-            worker_id=f"{task.subsystem.name}_{task.variant_index}",
-            status="pending",
-        ))
+        results.append(
+            WorkerResult(
+                subsystem_name=task.subsystem.name,
+                worker_id=f"{task.subsystem.name}_{task.variant_index}",
+                status="pending",
+            )
+        )
     return results
 
 
@@ -139,8 +148,10 @@ async def _dispatch_claude_code(
     results: list[WorkerResult] = []
     for sr in subprocess_results:
         status = "timeout" if sr.timed_out else ("success" if sr.returncode == 0 else "failed")
-        failure_code = FailureCode.WORKER_TIMEOUT if sr.timed_out else (
-            FailureCode.WORKER_TOOL_ERROR if sr.returncode != 0 else None
+        failure_code = (
+            FailureCode.WORKER_TIMEOUT
+            if sr.timed_out
+            else (FailureCode.WORKER_TOOL_ERROR if sr.returncode != 0 else None)
         )
         result = WorkerResult(
             subsystem_name=sr.subsystem_name,

@@ -6,6 +6,7 @@ The .frd format is CalculiX's native results format.  This parser extracts:
 
 Reference: CalculiX documentation, section on .frd file format.
 """
+
 from __future__ import annotations
 
 import logging
@@ -78,48 +79,58 @@ def parse_frd(frd_path: Path, spec: AnalysisSpec) -> FieldResult:
     checks: list[AnalysisCheck] = []
 
     if max_vm > yield_mpa:
-        checks.append(AnalysisCheck(
-            name="yield_check",
-            status=CheckStatus.FAIL,
-            message=f"Max von Mises {max_vm:.1f} MPa EXCEEDS yield {yield_mpa:.1f} MPa",
-            measured=max_vm,
-            limit=yield_mpa,
-            suggestion="Increase cross-section, add fillets at stress concentration, or use stronger material",
-        ))
+        checks.append(
+            AnalysisCheck(
+                name="yield_check",
+                status=CheckStatus.FAIL,
+                message=f"Max von Mises {max_vm:.1f} MPa EXCEEDS yield {yield_mpa:.1f} MPa",
+                measured=max_vm,
+                limit=yield_mpa,
+                suggestion="Increase cross-section, add fillets at stress concentration, or use stronger material",
+            )
+        )
     elif max_vm > yield_mpa * 0.8:
-        checks.append(AnalysisCheck(
-            name="yield_check",
-            status=CheckStatus.WARN,
-            message=f"Max von Mises {max_vm:.1f} MPa is within 20% of yield {yield_mpa:.1f} MPa (SF={safety_factor:.2f})",
-            measured=max_vm,
-            limit=yield_mpa,
-            suggestion="Consider increasing thickness or adding reinforcement",
-        ))
+        checks.append(
+            AnalysisCheck(
+                name="yield_check",
+                status=CheckStatus.WARN,
+                message=f"Max von Mises {max_vm:.1f} MPa is within 20% of yield {yield_mpa:.1f} MPa (SF={safety_factor:.2f})",
+                measured=max_vm,
+                limit=yield_mpa,
+                suggestion="Consider increasing thickness or adding reinforcement",
+            )
+        )
     else:
-        checks.append(AnalysisCheck(
-            name="yield_check",
-            status=CheckStatus.PASS,
-            message=f"Max von Mises {max_vm:.1f} MPa < yield {yield_mpa:.1f} MPa (SF={safety_factor:.2f})",
-            measured=max_vm,
-            limit=yield_mpa,
-        ))
+        checks.append(
+            AnalysisCheck(
+                name="yield_check",
+                status=CheckStatus.PASS,
+                message=f"Max von Mises {max_vm:.1f} MPa < yield {yield_mpa:.1f} MPa (SF={safety_factor:.2f})",
+                measured=max_vm,
+                limit=yield_mpa,
+            )
+        )
 
     # Displacement check (warn if > 1% of typical part dimension)
     if max_disp > 1.0:
-        checks.append(AnalysisCheck(
-            name="displacement_check",
-            status=CheckStatus.WARN,
-            message=f"Max displacement {max_disp:.3f} mm may be excessive",
-            measured=max_disp,
-            suggestion="Increase stiffness or add supports",
-        ))
+        checks.append(
+            AnalysisCheck(
+                name="displacement_check",
+                status=CheckStatus.WARN,
+                message=f"Max displacement {max_disp:.3f} mm may be excessive",
+                measured=max_disp,
+                suggestion="Increase stiffness or add supports",
+            )
+        )
     else:
-        checks.append(AnalysisCheck(
-            name="displacement_check",
-            status=CheckStatus.PASS,
-            message=f"Max displacement {max_disp:.3f} mm",
-            measured=max_disp,
-        ))
+        checks.append(
+            AnalysisCheck(
+                name="displacement_check",
+                status=CheckStatus.PASS,
+                message=f"Max displacement {max_disp:.3f} mm",
+                measured=max_disp,
+            )
+        )
 
     overall = CheckStatus.PASS
     for c in checks:
@@ -261,10 +272,14 @@ def _parse_stress_block(
 
 
 def _von_mises(
-    sxx: float, syy: float, szz: float,
-    sxy: float, syz: float, szx: float,
+    sxx: float,
+    syy: float,
+    szz: float,
+    sxy: float,
+    syz: float,
+    szx: float,
 ) -> float:
     """Compute von Mises equivalent stress from 6 stress components."""
     term1 = (sxx - syy) ** 2 + (syy - szz) ** 2 + (szz - sxx) ** 2
-    term2 = 6 * (sxy ** 2 + syz ** 2 + szx ** 2)
+    term2 = 6 * (sxy**2 + syz**2 + szx**2)
     return math.sqrt(0.5 * (term1 + term2))

@@ -3,6 +3,7 @@
 These tests mock the FreeCAD client to test tool logic without a live
 FreeCAD instance.
 """
+
 from __future__ import annotations
 
 import unittest
@@ -142,6 +143,7 @@ class TestCadSketch(unittest.TestCase):
     @patch("server.tools_cad.get_client")
     def test_sketch_invalid_element_type(self, mock_get: MagicMock) -> None:
         from server.freecad_client import FreeCADCommandError
+
         client = _mock_client()
         client.send_command.side_effect = [
             {"sketch": "Sketch"},  # new_sketch
@@ -162,20 +164,24 @@ class TestCadSketchGeometryRef(unittest.TestCase):
 
     def setUp(self) -> None:
         from server.geometry_store import clear
+
         clear()
 
     def tearDown(self) -> None:
         from server.geometry_store import clear
+
         clear()
 
     @patch("server.tools_cad.get_client")
     def test_sketch_with_geometry_ref(self, mock_get: MagicMock) -> None:
         from server.geometry_store import store
 
-        ref = store([
-            {"type": "arc", "cx": 0, "cy": 0, "r": 10, "start_angle": 0, "end_angle": 90},
-            {"type": "arc", "cx": 0, "cy": 0, "r": 12, "start_angle": 0, "end_angle": 90},
-        ])
+        ref = store(
+            [
+                {"type": "arc", "cx": 0, "cy": 0, "r": 10, "start_angle": 0, "end_angle": 90},
+                {"type": "arc", "cx": 0, "cy": 0, "r": 12, "start_angle": 0, "end_angle": 90},
+            ]
+        )
         client = _mock_client()
         client.send_command.side_effect = [
             {"sketch": "Sketch"},  # new_sketch
@@ -260,7 +266,9 @@ class TestCadPad(unittest.TestCase):
     def test_pad(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         client.send_command.return_value = {
-            "name": "Pad", "label": "Pad", "type": "PartDesign::Pad",
+            "name": "Pad",
+            "label": "Pad",
+            "type": "PartDesign::Pad",
             "bounding_box": {"x_len": 100, "y_len": 50, "z_len": 20},
             "volume": 100000,
         }
@@ -276,7 +284,9 @@ class TestCadRevolution(unittest.TestCase):
     def test_revolution_defaults(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         client.send_command.return_value = {
-            "name": "Revolution", "label": "Revolution", "type": "PartDesign::Revolution",
+            "name": "Revolution",
+            "label": "Revolution",
+            "type": "PartDesign::Revolution",
             "bounding_box": {"x_len": 60, "y_len": 60, "z_len": 35},
             "volume": 50000,
         }
@@ -286,34 +296,54 @@ class TestCadRevolution(unittest.TestCase):
         self.assertTrue(result["ok"])
         self.assertEqual(result["name"], "Revolution")
         client.send_command.assert_called_once_with(
-            "revolution", sketch="Sketch", axis="V", angle=360.0,
-            symmetric=False, reversed=False, subtractive=False, verify=True,
+            "revolution",
+            sketch="Sketch",
+            axis="V",
+            angle=360.0,
+            symmetric=False,
+            reversed=False,
+            subtractive=False,
+            verify=True,
         )
 
     @patch("server.tools_cad.get_client")
     def test_revolution_with_all_params(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         client.send_command.return_value = {
-            "name": "Revolution", "label": "Revolution", "type": "PartDesign::Revolution",
+            "name": "Revolution",
+            "label": "Revolution",
+            "type": "PartDesign::Revolution",
         }
         mock_get.return_value = client
 
         result = cad_revolution(
-            sketch="Sketch", axis="Base_Z", angle=180.0,
-            symmetric=True, reversed=True, doc="MyDoc",
+            sketch="Sketch",
+            axis="Base_Z",
+            angle=180.0,
+            symmetric=True,
+            reversed=True,
+            doc="MyDoc",
         )
         self.assertTrue(result["ok"])
         client.send_command.assert_called_once_with(
-            "revolution", sketch="Sketch", axis="Base_Z", angle=180.0,
-            symmetric=True, reversed=True, subtractive=False, verify=True, doc="MyDoc",
+            "revolution",
+            sketch="Sketch",
+            axis="Base_Z",
+            angle=180.0,
+            symmetric=True,
+            reversed=True,
+            subtractive=False,
+            verify=True,
+            doc="MyDoc",
         )
-
 
     @patch("server.tools_cad.get_client")
     def test_revolution_subtractive(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         client.send_command.return_value = {
-            "name": "Groove", "label": "Groove", "type": "PartDesign::Groove",
+            "name": "Groove",
+            "label": "Groove",
+            "type": "PartDesign::Groove",
             "bounding_box": {"x_len": 60, "y_len": 60, "z_len": 35},
         }
         mock_get.return_value = client
@@ -322,8 +352,14 @@ class TestCadRevolution(unittest.TestCase):
         self.assertTrue(result["ok"])
         self.assertEqual(result["name"], "Groove")
         client.send_command.assert_called_once_with(
-            "revolution", sketch="TrimSketch", axis="V", angle=360.0,
-            symmetric=False, reversed=False, subtractive=True, verify=True,
+            "revolution",
+            sketch="TrimSketch",
+            axis="V",
+            angle=360.0,
+            symmetric=False,
+            reversed=False,
+            subtractive=True,
+            verify=True,
         )
 
 
@@ -332,7 +368,8 @@ class TestCadPolarPattern(unittest.TestCase):
     def test_polar_pattern_defaults(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         client.send_command.return_value = {
-            "name": "PolarPattern", "label": "PolarPattern",
+            "name": "PolarPattern",
+            "label": "PolarPattern",
             "type": "PartDesign::PolarPattern",
         }
         mock_get.return_value = client
@@ -341,28 +378,46 @@ class TestCadPolarPattern(unittest.TestCase):
         self.assertTrue(result["ok"])
         self.assertEqual(result["name"], "PolarPattern")
         client.send_command.assert_called_once_with(
-            "polar_pattern", timeout=120.0, features=["Pocket"], axis="Base_Z",
-            occurrences=6, angle=360.0, reversed=False, verify=True,
+            "polar_pattern",
+            timeout=120.0,
+            features=["Pocket"],
+            axis="Base_Z",
+            occurrences=6,
+            angle=360.0,
+            reversed=False,
+            verify=True,
         )
 
     @patch("server.tools_cad.get_client")
     def test_polar_pattern_with_all_params(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         client.send_command.return_value = {
-            "name": "PolarPattern", "label": "PolarPattern",
+            "name": "PolarPattern",
+            "label": "PolarPattern",
             "type": "PartDesign::PolarPattern",
         }
         mock_get.return_value = client
 
         result = cad_polar_pattern(
-            features=["Pocket", "Pocket001"], axis="Base_X",
-            occurrences=11, angle=360.0, body="Body", doc="MyDoc",
+            features=["Pocket", "Pocket001"],
+            axis="Base_X",
+            occurrences=11,
+            angle=360.0,
+            body="Body",
+            doc="MyDoc",
         )
         self.assertTrue(result["ok"])
         client.send_command.assert_called_once_with(
-            "polar_pattern", timeout=120.0, features=["Pocket", "Pocket001"],
-            axis="Base_X", occurrences=11, angle=360.0, reversed=False,
-            verify=True, body="Body", doc="MyDoc",
+            "polar_pattern",
+            timeout=120.0,
+            features=["Pocket", "Pocket001"],
+            axis="Base_X",
+            occurrences=11,
+            angle=360.0,
+            reversed=False,
+            verify=True,
+            body="Body",
+            doc="MyDoc",
         )
 
 
@@ -371,15 +426,21 @@ class TestCadPocket(unittest.TestCase):
     def test_pocket_explicit_reversed(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         client.send_command.return_value = {
-            "name": "Pocket", "label": "Pocket", "type": "PartDesign::Pocket",
+            "name": "Pocket",
+            "label": "Pocket",
+            "type": "PartDesign::Pocket",
         }
         mock_get.return_value = client
 
         result = cad_pocket(sketch="Sketch", length=5, reversed=True)
         self.assertTrue(result["ok"])
         client.send_command.assert_called_once_with(
-            "pocket", sketch="Sketch", length=5, pocket_type="Dimension",
-            reversed=True, verify=True,
+            "pocket",
+            sketch="Sketch",
+            length=5,
+            pocket_type="Dimension",
+            reversed=True,
+            verify=True,
         )
 
     @patch("server.tools_cad.get_client")
@@ -387,9 +448,12 @@ class TestCadPocket(unittest.TestCase):
         """Default reversed='auto' is passed to addon for resolution."""
         client = _mock_client()
         client.send_command.return_value = {
-            "name": "Pocket", "label": "Pocket", "type": "PartDesign::Pocket",
+            "name": "Pocket",
+            "label": "Pocket",
+            "type": "PartDesign::Pocket",
             "auto_reversed": {
-                "reversed": True, "confidence": "high",
+                "reversed": True,
+                "confidence": "high",
                 "reason": "solid centroid is above sketch plane",
             },
         }
@@ -447,6 +511,7 @@ class TestPocketDirectionAlgorithm(unittest.TestCase):
     def test_tilted_normal(self) -> None:
         """Tilted sketch: normal=(0.707, 0, 0.707), body offset along that direction."""
         import math
+
         n = 1.0 / math.sqrt(2)
         # Body centroid at (10, 0, 10) from origin (0,0,0) — positive dot with (n,0,n)
         self.assertTrue(self._resolve([0, 0, 0], [n, 0, n], [10, 0, 10]))
@@ -467,7 +532,9 @@ class TestPocketDirectionResolver(unittest.TestCase):
         """Default reversed='auto' is sent to the addon."""
         client = _mock_client()
         client.send_command.return_value = {
-            "name": "Pocket", "label": "Pocket", "type": "PartDesign::Pocket",
+            "name": "Pocket",
+            "label": "Pocket",
+            "type": "PartDesign::Pocket",
             "auto_reversed": {
                 "reversed": True,
                 "confidence": "high",
@@ -490,7 +557,9 @@ class TestPocketDirectionResolver(unittest.TestCase):
         """Explicit reversed=True bypasses auto-resolution."""
         client = _mock_client()
         client.send_command.return_value = {
-            "name": "Pocket", "label": "Pocket", "type": "PartDesign::Pocket",
+            "name": "Pocket",
+            "label": "Pocket",
+            "type": "PartDesign::Pocket",
         }
         mock_get.return_value = client
 
@@ -506,7 +575,9 @@ class TestPocketDirectionResolver(unittest.TestCase):
         """Explicit reversed=False bypasses auto-resolution."""
         client = _mock_client()
         client.send_command.return_value = {
-            "name": "Pocket", "label": "Pocket", "type": "PartDesign::Pocket",
+            "name": "Pocket",
+            "label": "Pocket",
+            "type": "PartDesign::Pocket",
         }
         mock_get.return_value = client
 
@@ -521,7 +592,9 @@ class TestCadHole(unittest.TestCase):
     def test_hole(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         client.send_command.return_value = {
-            "name": "Hole", "label": "Hole", "type": "PartDesign::Hole",
+            "name": "Hole",
+            "label": "Hole",
+            "type": "PartDesign::Hole",
         }
         mock_get.return_value = client
 
@@ -534,7 +607,9 @@ class TestCadFillet(unittest.TestCase):
     def test_fillet(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         client.send_command.return_value = {
-            "name": "Fillet", "label": "Fillet", "type": "PartDesign::Fillet",
+            "name": "Fillet",
+            "label": "Fillet",
+            "type": "PartDesign::Fillet",
         }
         mock_get.return_value = client
 
@@ -547,7 +622,9 @@ class TestCadChamfer(unittest.TestCase):
     def test_chamfer(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         client.send_command.return_value = {
-            "name": "Chamfer", "label": "Chamfer", "type": "PartDesign::Chamfer",
+            "name": "Chamfer",
+            "label": "Chamfer",
+            "type": "PartDesign::Chamfer",
         }
         mock_get.return_value = client
 
@@ -562,9 +639,15 @@ class TestCadGetDimensions(unittest.TestCase):
         client.send_command.return_value = {
             "object": "Pad",
             "bounding_box": {
-                "x_min": 0, "y_min": 0, "z_min": 0,
-                "x_max": 100, "y_max": 50, "z_max": 20,
-                "x_len": 100, "y_len": 50, "z_len": 20,
+                "x_min": 0,
+                "y_min": 0,
+                "z_min": 0,
+                "x_max": 100,
+                "y_max": 50,
+                "z_max": 20,
+                "x_len": 100,
+                "y_len": 50,
+                "z_len": 20,
             },
             "num_faces": 6,
             "num_edges": 12,
@@ -584,12 +667,19 @@ class TestCadGetDimensions(unittest.TestCase):
     @patch("server.tools_cad.get_client")
     def test_get_dimensions_with_doc(self, mock_get: MagicMock) -> None:
         client = _mock_client()
-        client.send_command.return_value = {"object": "Pad", "num_faces": 6, "num_edges": 12, "num_vertices": 8}
+        client.send_command.return_value = {
+            "object": "Pad",
+            "num_faces": 6,
+            "num_edges": 12,
+            "num_vertices": 8,
+        }
         mock_get.return_value = client
 
         result = cad_get_dimensions(object_name="Pad", doc="MyDoc")
         self.assertTrue(result["ok"])
-        client.send_command.assert_called_once_with("get_dimensions", object_name="Pad", doc="MyDoc")
+        client.send_command.assert_called_once_with(
+            "get_dimensions", object_name="Pad", doc="MyDoc"
+        )
 
 
 class TestCadGetBodyTopology(unittest.TestCase):
@@ -602,12 +692,36 @@ class TestCadGetBodyTopology(unittest.TestCase):
             "num_faces": 6,
             "num_edges": 12,
             "faces": [
-                {"name": "Face1", "surface_type": "Plane", "normal": [0, 0, 1], "center": [50, 25, 20], "area": 5000.0},
-                {"name": "Face2", "surface_type": "Plane", "normal": [0, 0, -1], "center": [50, 25, 0], "area": 5000.0},
+                {
+                    "name": "Face1",
+                    "surface_type": "Plane",
+                    "normal": [0, 0, 1],
+                    "center": [50, 25, 20],
+                    "area": 5000.0,
+                },
+                {
+                    "name": "Face2",
+                    "surface_type": "Plane",
+                    "normal": [0, 0, -1],
+                    "center": [50, 25, 0],
+                    "area": 5000.0,
+                },
             ],
             "edges": [
-                {"name": "Edge1", "curve_type": "Line", "length": 100.0, "start": [0, 0, 20], "end": [100, 0, 20]},
-                {"name": "Edge2", "curve_type": "Line", "length": 50.0, "start": [100, 0, 20], "end": [100, 50, 20]},
+                {
+                    "name": "Edge1",
+                    "curve_type": "Line",
+                    "length": 100.0,
+                    "start": [0, 0, 20],
+                    "end": [100, 0, 20],
+                },
+                {
+                    "name": "Edge2",
+                    "curve_type": "Line",
+                    "length": 50.0,
+                    "start": [100, 0, 20],
+                    "end": [100, 50, 20],
+                },
             ],
         }
         mock_get.return_value = client
@@ -627,7 +741,12 @@ class TestCadGetBodyTopology(unittest.TestCase):
     def test_get_body_topology_with_body(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         client.send_command.return_value = {
-            "body": "Body2", "tip_feature": "Pad", "num_faces": 6, "num_edges": 12, "faces": [], "edges": [],
+            "body": "Body2",
+            "tip_feature": "Pad",
+            "num_faces": 6,
+            "num_edges": 12,
+            "faces": [],
+            "edges": [],
         }
         mock_get.return_value = client
 
@@ -665,7 +784,13 @@ class TestCadGetModelTree(unittest.TestCase):
             "doc": "MyDoc",
             "body_count": 1,
             "bodies": [
-                {"name": "Body", "label": "Body", "size": [10.0, 20.0, 5.0], "feature_count": 2, "tip": "Pad"},
+                {
+                    "name": "Body",
+                    "label": "Body",
+                    "size": [10.0, 20.0, 5.0],
+                    "feature_count": 2,
+                    "tip": "Pad",
+                },
             ],
             "other_objects": [],
         }
@@ -725,6 +850,7 @@ class TestRecomputeFailure(unittest.TestCase):
     @patch("server.tools_cad.get_client")
     def test_fillet_recompute_failure_returns_error(self, mock_get: MagicMock) -> None:
         from server.freecad_client import FreeCADCommandError
+
         client = _mock_client()
         client.send_command.side_effect = FreeCADCommandError(
             "ValueError: Fillet failed: recompute error "
@@ -742,6 +868,7 @@ class TestRecomputeFailure(unittest.TestCase):
     @patch("server.tools_cad.get_client")
     def test_pad_recompute_failure_returns_error(self, mock_get: MagicMock) -> None:
         from server.freecad_client import FreeCADCommandError
+
         client = _mock_client()
         client.send_command.side_effect = FreeCADCommandError(
             "ValueError: Pad failed: recompute error "
@@ -971,7 +1098,9 @@ class TestCadDeleteObjects(unittest.TestCase):
         self.assertTrue(result["ok"])
         self.assertEqual(result["deleted"], ["Assembly", "Assembly001"])
         self.assertEqual(result["not_found"], [])
-        client.send_command.assert_called_once_with("delete_objects", names=["Assembly", "Assembly001"])
+        client.send_command.assert_called_once_with(
+            "delete_objects", names=["Assembly", "Assembly001"]
+        )
 
     @patch("server.tools_cad.get_client")
     def test_delete_objects_with_not_found(self, mock_get: MagicMock) -> None:
@@ -1008,6 +1137,7 @@ class TestCadSetPlacement(unittest.TestCase):
         mock_get.return_value = client
 
         from server.tools_cad import cad_set_placement
+
         result = cad_set_placement(
             object_name="Body_Sun",
             position=[10.0, 20.0, 0.0],
@@ -1037,6 +1167,7 @@ class TestCadSetPlacement(unittest.TestCase):
         mock_get.return_value = client
 
         from server.tools_cad import cad_set_placement
+
         result = cad_set_placement(object_name="Body")
         self.assertTrue(result["ok"])
         client.send_command.assert_called_once_with(
@@ -1057,6 +1188,7 @@ class TestCadSetPlacement(unittest.TestCase):
         mock_get.return_value = client
 
         from server.tools_cad import cad_set_placement
+
         result = cad_set_placement(
             object_name="Link",
             position=[5.0, 0.0, 0.0],
@@ -1091,14 +1223,19 @@ class TestCadFilletWithSelection(unittest.TestCase):
     def test_fillet_with_selection(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         client.send_command.return_value = {
-            "name": "Fillet", "label": "Fillet", "type": "PartDesign::Fillet",
+            "name": "Fillet",
+            "label": "Fillet",
+            "type": "PartDesign::Fillet",
         }
         mock_get.return_value = client
 
         result = cad_fillet(selection="outer_corners", radius=5.0)
         self.assertTrue(result["ok"])
         client.send_command.assert_called_once_with(
-            "fillet", radius=5.0, verify=True, selection="outer_corners",
+            "fillet",
+            radius=5.0,
+            verify=True,
+            selection="outer_corners",
         )
 
 
@@ -1107,14 +1244,19 @@ class TestCadChamferWithSelection(unittest.TestCase):
     def test_chamfer_with_selection(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         client.send_command.return_value = {
-            "name": "Chamfer", "label": "Chamfer", "type": "PartDesign::Chamfer",
+            "name": "Chamfer",
+            "label": "Chamfer",
+            "type": "PartDesign::Chamfer",
         }
         mock_get.return_value = client
 
         result = cad_chamfer(selection="top_edges", size=2.0)
         self.assertTrue(result["ok"])
         client.send_command.assert_called_once_with(
-            "chamfer", size=2.0, verify=True, selection="top_edges",
+            "chamfer",
+            size=2.0,
+            verify=True,
+            selection="top_edges",
         )
 
 
@@ -1125,7 +1267,9 @@ class TestShapeDigest(unittest.TestCase):
     def test_pad_response_includes_digest(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         client.send_command.return_value = {
-            "name": "Pad", "label": "Pad", "type": "PartDesign::Pad",
+            "name": "Pad",
+            "label": "Pad",
+            "type": "PartDesign::Pad",
             "bounding_box": {"x_len": 100, "y_len": 50, "z_len": 20},
             "volume": 100000,
             "digest": {
@@ -1150,7 +1294,9 @@ class TestShapeDigest(unittest.TestCase):
     def test_pocket_response_includes_delta(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         client.send_command.return_value = {
-            "name": "Pocket", "label": "Pocket", "type": "PartDesign::Pocket",
+            "name": "Pocket",
+            "label": "Pocket",
+            "type": "PartDesign::Pocket",
             "digest": {
                 "volume": 80000.0,
                 "surface_area": 24000.0,
@@ -1181,7 +1327,9 @@ class TestShapeDigest(unittest.TestCase):
     def test_fillet_response_includes_digest(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         client.send_command.return_value = {
-            "name": "Fillet", "label": "Fillet", "type": "PartDesign::Fillet",
+            "name": "Fillet",
+            "label": "Fillet",
+            "type": "PartDesign::Fillet",
             "digest": {
                 "volume": 99000.0,
                 "surface_area": 22500.0,
@@ -1213,14 +1361,29 @@ class TestSelectionDrift(unittest.TestCase):
     def test_pad_response_includes_selection_drift(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         client.send_command.return_value = {
-            "name": "Pad", "label": "Pad", "type": "PartDesign::Pad",
+            "name": "Pad",
+            "label": "Pad",
+            "type": "PartDesign::Pad",
             "bounding_box": {"x_len": 100, "y_len": 50, "z_len": 20},
-            "digest": {"volume": 100000.0, "surface_area": 22000.0, "bbox": [100, 50, 20], "faces": 6, "edges": 12, "vertices": 8},
+            "digest": {
+                "volume": 100000.0,
+                "surface_area": 22000.0,
+                "bbox": [100, 50, 20],
+                "faces": 6,
+                "edges": 12,
+                "vertices": 8,
+            },
             "delta": None,
             "selection_drift": [
                 {"name": "outer_corners", "status": "ok", "count": 4},
-                {"name": "pocket_rim", "status": "DRIFT", "count": 6, "expected_count": 4, "actual_count": 6,
-                 "violations": ["expected_count: expected 4, got 6"]},
+                {
+                    "name": "pocket_rim",
+                    "status": "DRIFT",
+                    "count": 6,
+                    "expected_count": 4,
+                    "actual_count": 6,
+                    "violations": ["expected_count: expected 4, got 6"],
+                },
             ],
         }
         mock_get.return_value = client
@@ -1238,9 +1401,24 @@ class TestSelectionDrift(unittest.TestCase):
     def test_fillet_response_includes_selection_drift(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         client.send_command.return_value = {
-            "name": "Fillet", "label": "Fillet", "type": "PartDesign::Fillet",
-            "digest": {"volume": 99000.0, "surface_area": 22500.0, "bbox": [100, 50, 20], "faces": 10, "edges": 24, "vertices": 16},
-            "delta": {"volume": -1000.0, "surface_area": 500.0, "faces": 4, "edges": 12, "vertices": 8},
+            "name": "Fillet",
+            "label": "Fillet",
+            "type": "PartDesign::Fillet",
+            "digest": {
+                "volume": 99000.0,
+                "surface_area": 22500.0,
+                "bbox": [100, 50, 20],
+                "faces": 10,
+                "edges": 24,
+                "vertices": 16,
+            },
+            "delta": {
+                "volume": -1000.0,
+                "surface_area": 500.0,
+                "faces": 4,
+                "edges": 12,
+                "vertices": 8,
+            },
             "selection_drift": [],
         }
         mock_get.return_value = client
@@ -1296,13 +1474,15 @@ class TestCadSketchSpline(unittest.TestCase):
 
         result = cad_sketch(
             body="Body",
-            elements=[{
-                "type": "spline",
-                "points": [[0, 0], [5, 10], [10, 10], [15, 0]],
-                "degree": 2,
-                "periodic": True,
-                "weights": [1.0, 2.0, 1.0, 1.0],
-            }],
+            elements=[
+                {
+                    "type": "spline",
+                    "points": [[0, 0], [5, 10], [10, 10], [15, 0]],
+                    "degree": 2,
+                    "periodic": True,
+                    "weights": [1.0, 2.0, 1.0, 1.0],
+                }
+            ],
         )
         self.assertTrue(result["ok"])
         populate_call = client.send_command.call_args_list[1]
@@ -1376,7 +1556,13 @@ class TestCadSketchBatching(unittest.TestCase):
         client = _mock_client()
         # 200 constraints (like a gear profile)
         many_constraints = [
-            {"type": "Coincident", "first": i, "first_pos": 2, "second": (i + 1) % 200, "second_pos": 1}
+            {
+                "type": "Coincident",
+                "first": i,
+                "first_pos": 2,
+                "second": (i + 1) % 200,
+                "second_pos": 1,
+            }
             for i in range(200)
         ]
         client.send_command.side_effect = [
@@ -1403,7 +1589,9 @@ class TestCadSweep(unittest.TestCase):
     def test_sweep_additive(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         client.send_command.return_value = {
-            "name": "Pipe", "label": "Pipe", "type": "PartDesign::AdditivePipe",
+            "name": "Pipe",
+            "label": "Pipe",
+            "type": "PartDesign::AdditivePipe",
             "bounding_box": {"x_len": 50, "y_len": 50, "z_len": 100},
         }
         mock_get.return_value = client
@@ -1423,7 +1611,9 @@ class TestCadSweep(unittest.TestCase):
     def test_sweep_subtractive(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         client.send_command.return_value = {
-            "name": "Pipe", "label": "Pipe", "type": "PartDesign::SubtractivePipe",
+            "name": "Pipe",
+            "label": "Pipe",
+            "type": "PartDesign::SubtractivePipe",
         }
         mock_get.return_value = client
 
@@ -1449,7 +1639,9 @@ class TestCadLoft(unittest.TestCase):
     def test_loft_additive(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         client.send_command.return_value = {
-            "name": "Loft", "label": "Loft", "type": "PartDesign::AdditiveLoft",
+            "name": "Loft",
+            "label": "Loft",
+            "type": "PartDesign::AdditiveLoft",
             "bounding_box": {"x_len": 100, "y_len": 50, "z_len": 80},
         }
         mock_get.return_value = client
@@ -1470,7 +1662,9 @@ class TestCadLoft(unittest.TestCase):
     def test_loft_subtractive_with_options(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         client.send_command.return_value = {
-            "name": "Loft", "label": "Loft", "type": "PartDesign::SubtractiveLoft",
+            "name": "Loft",
+            "label": "Loft",
+            "type": "PartDesign::SubtractiveLoft",
         }
         mock_get.return_value = client
 
@@ -1498,7 +1692,9 @@ class TestCadHelix(unittest.TestCase):
     def test_helix_pitch_height(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         client.send_command.return_value = {
-            "name": "Helix", "label": "Helix", "type": "PartDesign::AdditiveHelix",
+            "name": "Helix",
+            "label": "Helix",
+            "type": "PartDesign::AdditiveHelix",
             "bounding_box": {"x_len": 20, "y_len": 20, "z_len": 30},
         }
         mock_get.return_value = client
@@ -1507,61 +1703,111 @@ class TestCadHelix(unittest.TestCase):
         self.assertTrue(result["ok"])
         self.assertEqual(result["name"], "Helix")
         client.send_command.assert_called_once_with(
-            "helix", sketch="Sketch", pitch=2.0, height=20.0, turns=0.0,
-            axis="V", angle=0.0, growth=0.0, left_handed=False,
-            reversed=False, mode="pitch-height", verify=True,
+            "helix",
+            sketch="Sketch",
+            pitch=2.0,
+            height=20.0,
+            turns=0.0,
+            axis="V",
+            angle=0.0,
+            growth=0.0,
+            left_handed=False,
+            reversed=False,
+            mode="pitch-height",
+            verify=True,
         )
 
     @patch("server.tools_cad.get_client")
     def test_helix_pitch_turns(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         client.send_command.return_value = {
-            "name": "Helix", "label": "Helix", "type": "PartDesign::AdditiveHelix",
+            "name": "Helix",
+            "label": "Helix",
+            "type": "PartDesign::AdditiveHelix",
         }
         mock_get.return_value = client
 
         result = cad_helix(sketch="Sketch", pitch=3.0, turns=5.0, mode="pitch-turns")
         self.assertTrue(result["ok"])
         client.send_command.assert_called_once_with(
-            "helix", sketch="Sketch", pitch=3.0, height=0.0, turns=5.0,
-            axis="V", angle=0.0, growth=0.0, left_handed=False,
-            reversed=False, mode="pitch-turns", verify=True,
+            "helix",
+            sketch="Sketch",
+            pitch=3.0,
+            height=0.0,
+            turns=5.0,
+            axis="V",
+            angle=0.0,
+            growth=0.0,
+            left_handed=False,
+            reversed=False,
+            mode="pitch-turns",
+            verify=True,
         )
 
     @patch("server.tools_cad.get_client")
     def test_helix_height_turns(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         client.send_command.return_value = {
-            "name": "Helix", "label": "Helix", "type": "PartDesign::AdditiveHelix",
+            "name": "Helix",
+            "label": "Helix",
+            "type": "PartDesign::AdditiveHelix",
         }
         mock_get.return_value = client
 
         result = cad_helix(sketch="Sketch", height=30.0, turns=10.0, mode="height-turns")
         self.assertTrue(result["ok"])
         client.send_command.assert_called_once_with(
-            "helix", sketch="Sketch", pitch=0.0, height=30.0, turns=10.0,
-            axis="V", angle=0.0, growth=0.0, left_handed=False,
-            reversed=False, mode="height-turns", verify=True,
+            "helix",
+            sketch="Sketch",
+            pitch=0.0,
+            height=30.0,
+            turns=10.0,
+            axis="V",
+            angle=0.0,
+            growth=0.0,
+            left_handed=False,
+            reversed=False,
+            mode="height-turns",
+            verify=True,
         )
 
     @patch("server.tools_cad.get_client")
     def test_helix_all_params(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         client.send_command.return_value = {
-            "name": "Helix", "label": "Helix", "type": "PartDesign::AdditiveHelix",
+            "name": "Helix",
+            "label": "Helix",
+            "type": "PartDesign::AdditiveHelix",
         }
         mock_get.return_value = client
 
         result = cad_helix(
-            sketch="Sketch", pitch=2.0, height=20.0, axis="Base_Z",
-            angle=5.0, growth=1.0, left_handed=True, reversed=True,
-            verify=False, doc="MyDoc",
+            sketch="Sketch",
+            pitch=2.0,
+            height=20.0,
+            axis="Base_Z",
+            angle=5.0,
+            growth=1.0,
+            left_handed=True,
+            reversed=True,
+            verify=False,
+            doc="MyDoc",
         )
         self.assertTrue(result["ok"])
         client.send_command.assert_called_once_with(
-            "helix", sketch="Sketch", pitch=2.0, height=20.0, turns=0.0,
-            axis="Base_Z", angle=5.0, growth=1.0, left_handed=True,
-            reversed=True, mode="pitch-height", verify=False, doc="MyDoc",
+            "helix",
+            sketch="Sketch",
+            pitch=2.0,
+            height=20.0,
+            turns=0.0,
+            axis="Base_Z",
+            angle=5.0,
+            growth=1.0,
+            left_handed=True,
+            reversed=True,
+            mode="pitch-height",
+            verify=False,
+            doc="MyDoc",
         )
 
 
@@ -1585,7 +1831,11 @@ class TestCadScreenshot(unittest.TestCase):
         self.assertIn("image_base64", result)
         self.assertEqual(result["width"], 512)
         client.send_command.assert_called_once_with(
-            "screenshot", target="iso", distance=2.0, width=512, height=512,
+            "screenshot",
+            target="iso",
+            distance=2.0,
+            width=512,
+            height=512,
         )
 
     @patch("server.tools_cad.get_client")
@@ -1605,7 +1855,11 @@ class TestCadScreenshot(unittest.TestCase):
         result = cad_screenshot(target="Face3", distance=1.5)
         self.assertTrue(result["ok"])
         client.send_command.assert_called_once_with(
-            "screenshot", target="Face3", distance=1.5, width=512, height=512,
+            "screenshot",
+            target="Face3",
+            distance=1.5,
+            width=512,
+            height=512,
         )
 
     @patch("server.tools_cad.get_client")
@@ -1728,7 +1982,9 @@ class TestVerifyParam(unittest.TestCase):
     def test_pad_passes_verify_true(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         client.send_command.return_value = {
-            "name": "Pad", "label": "Pad", "type": "PartDesign::Pad",
+            "name": "Pad",
+            "label": "Pad",
+            "type": "PartDesign::Pad",
         }
         mock_get.return_value = client
 
@@ -1740,7 +1996,9 @@ class TestVerifyParam(unittest.TestCase):
     def test_pad_passes_verify_false(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         client.send_command.return_value = {
-            "name": "Pad", "label": "Pad", "type": "PartDesign::Pad",
+            "name": "Pad",
+            "label": "Pad",
+            "type": "PartDesign::Pad",
         }
         mock_get.return_value = client
 
@@ -1752,7 +2010,9 @@ class TestVerifyParam(unittest.TestCase):
     def test_pocket_passes_verify(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         client.send_command.return_value = {
-            "name": "Pocket", "label": "Pocket", "type": "PartDesign::Pocket",
+            "name": "Pocket",
+            "label": "Pocket",
+            "type": "PartDesign::Pocket",
         }
         mock_get.return_value = client
 
@@ -1764,7 +2024,9 @@ class TestVerifyParam(unittest.TestCase):
     def test_fillet_passes_verify(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         client.send_command.return_value = {
-            "name": "Fillet", "label": "Fillet", "type": "PartDesign::Fillet",
+            "name": "Fillet",
+            "label": "Fillet",
+            "type": "PartDesign::Fillet",
         }
         mock_get.return_value = client
 
@@ -1776,7 +2038,9 @@ class TestVerifyParam(unittest.TestCase):
     def test_chamfer_passes_verify(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         client.send_command.return_value = {
-            "name": "Chamfer", "label": "Chamfer", "type": "PartDesign::Chamfer",
+            "name": "Chamfer",
+            "label": "Chamfer",
+            "type": "PartDesign::Chamfer",
         }
         mock_get.return_value = client
 
@@ -1788,7 +2052,9 @@ class TestVerifyParam(unittest.TestCase):
     def test_revolution_passes_verify(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         client.send_command.return_value = {
-            "name": "Revolution", "label": "Revolution", "type": "PartDesign::Revolution",
+            "name": "Revolution",
+            "label": "Revolution",
+            "type": "PartDesign::Revolution",
         }
         mock_get.return_value = client
 
@@ -1800,7 +2066,9 @@ class TestVerifyParam(unittest.TestCase):
     def test_sweep_passes_verify(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         client.send_command.return_value = {
-            "name": "Pipe", "label": "Pipe", "type": "PartDesign::AdditivePipe",
+            "name": "Pipe",
+            "label": "Pipe",
+            "type": "PartDesign::AdditivePipe",
         }
         mock_get.return_value = client
 
@@ -1812,7 +2080,9 @@ class TestVerifyParam(unittest.TestCase):
     def test_loft_passes_verify(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         client.send_command.return_value = {
-            "name": "Loft", "label": "Loft", "type": "PartDesign::AdditiveLoft",
+            "name": "Loft",
+            "label": "Loft",
+            "type": "PartDesign::AdditiveLoft",
         }
         mock_get.return_value = client
 
@@ -1824,7 +2094,9 @@ class TestVerifyParam(unittest.TestCase):
     def test_hole_passes_verify(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         client.send_command.return_value = {
-            "name": "Hole", "label": "Hole", "type": "PartDesign::Hole",
+            "name": "Hole",
+            "label": "Hole",
+            "type": "PartDesign::Hole",
         }
         mock_get.return_value = client
 
@@ -1836,7 +2108,8 @@ class TestVerifyParam(unittest.TestCase):
     def test_polar_pattern_passes_verify(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         client.send_command.return_value = {
-            "name": "PolarPattern", "label": "PolarPattern",
+            "name": "PolarPattern",
+            "label": "PolarPattern",
             "type": "PartDesign::PolarPattern",
         }
         mock_get.return_value = client
@@ -1852,6 +2125,7 @@ class TestImageContentBlocks(unittest.TestCase):
     def test_verification_images_extracted(self) -> None:
         """Simulate what main.py does: extract verification_images from result."""
         import json
+
         out: dict[str, Any] = {
             "ok": True,
             "name": "Pad",
@@ -1866,18 +2140,22 @@ class TestImageContentBlocks(unittest.TestCase):
             images = out.pop("verification_images")
             out["verification_views"] = [img.get("view", "unknown") for img in images]
             for img in images:
-                content.append({
-                    "type": "image",
-                    "data": img["image_base64"],
-                    "mimeType": img["mime_type"],
-                })
+                content.append(
+                    {
+                        "type": "image",
+                        "data": img["image_base64"],
+                        "mimeType": img["mime_type"],
+                    }
+                )
 
         if isinstance(out, dict) and "image_base64" in out:
-            content.append({
-                "type": "image",
-                "data": out.pop("image_base64"),
-                "mimeType": out.pop("mime_type", "image/png"),
-            })
+            content.append(
+                {
+                    "type": "image",
+                    "data": out.pop("image_base64"),
+                    "mimeType": out.pop("mime_type", "image/png"),
+                }
+            )
 
         content.append({"type": "text", "text": json.dumps(out)})
 
@@ -1894,6 +2172,7 @@ class TestImageContentBlocks(unittest.TestCase):
     def test_screenshot_image_extracted(self) -> None:
         """Simulate screenshot result handling."""
         import json
+
         out: dict[str, Any] = {
             "ok": True,
             "width": 512,
@@ -1908,14 +2187,18 @@ class TestImageContentBlocks(unittest.TestCase):
         if isinstance(out, dict) and "verification_images" in out:
             images = out.pop("verification_images")
             for img in images:
-                content.append({"type": "image", "data": img["image_base64"], "mimeType": img["mime_type"]})
+                content.append(
+                    {"type": "image", "data": img["image_base64"], "mimeType": img["mime_type"]}
+                )
 
         if isinstance(out, dict) and "image_base64" in out:
-            content.append({
-                "type": "image",
-                "data": out.pop("image_base64"),
-                "mimeType": out.pop("mime_type", "image/png"),
-            })
+            content.append(
+                {
+                    "type": "image",
+                    "data": out.pop("image_base64"),
+                    "mimeType": out.pop("mime_type", "image/png"),
+                }
+            )
 
         content.append({"type": "text", "text": json.dumps(out)})
 
@@ -1929,16 +2212,25 @@ class TestImageContentBlocks(unittest.TestCase):
     def test_no_images_text_only(self) -> None:
         """Regular tool results without images."""
         import json
+
         out: dict[str, Any] = {"ok": True, "name": "Body"}
 
         content: list[dict[str, Any]] = []
         if isinstance(out, dict) and "verification_images" in out:
             images = out.pop("verification_images")
             for img in images:
-                content.append({"type": "image", "data": img["image_base64"], "mimeType": img["mime_type"]})
+                content.append(
+                    {"type": "image", "data": img["image_base64"], "mimeType": img["mime_type"]}
+                )
 
         if isinstance(out, dict) and "image_base64" in out:
-            content.append({"type": "image", "data": out.pop("image_base64"), "mimeType": out.pop("mime_type", "image/png")})
+            content.append(
+                {
+                    "type": "image",
+                    "data": out.pop("image_base64"),
+                    "mimeType": out.pop("mime_type", "image/png"),
+                }
+            )
 
         content.append({"type": "text", "text": json.dumps(out)})
 
@@ -1953,15 +2245,36 @@ class TestFaceMapAndOperationSummary(unittest.TestCase):
     def test_pad_response_includes_face_map(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         client.send_command.return_value = {
-            "name": "Pad", "label": "Pad", "type": "PartDesign::Pad",
+            "name": "Pad",
+            "label": "Pad",
+            "type": "PartDesign::Pad",
             "bounding_box": {"x_len": 100, "y_len": 50, "z_len": 20},
             "volume": 100000,
-            "digest": {"volume": 100000.0, "surface_area": 22000.0, "bbox": [100, 50, 20], "faces": 6, "edges": 12, "vertices": 8},
+            "digest": {
+                "volume": 100000.0,
+                "surface_area": 22000.0,
+                "bbox": [100, 50, 20],
+                "faces": 6,
+                "edges": 12,
+                "vertices": 8,
+            },
             "delta": None,
             "face_map": {
                 "faces": [
-                    {"name": "Face1", "surface_type": "Plane", "normal": [0, 0, 1], "center": [50, 25, 20], "area": 5000.0},
-                    {"name": "Face2", "surface_type": "Plane", "normal": [0, 0, -1], "center": [50, 25, 0], "area": 5000.0},
+                    {
+                        "name": "Face1",
+                        "surface_type": "Plane",
+                        "normal": [0, 0, 1],
+                        "center": [50, 25, 20],
+                        "area": 5000.0,
+                    },
+                    {
+                        "name": "Face2",
+                        "surface_type": "Plane",
+                        "normal": [0, 0, -1],
+                        "center": [50, 25, 0],
+                        "area": 5000.0,
+                    },
                 ],
                 "total_faces": 6,
             },
@@ -1980,9 +2293,24 @@ class TestFaceMapAndOperationSummary(unittest.TestCase):
     def test_pocket_response_includes_operation_summary(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         client.send_command.return_value = {
-            "name": "Pocket", "label": "Pocket", "type": "PartDesign::Pocket",
-            "digest": {"volume": 80000.0, "surface_area": 24000.0, "bbox": [100, 50, 20], "faces": 10, "edges": 24, "vertices": 16},
-            "delta": {"volume": -20000.0, "surface_area": 2000.0, "faces": 4, "edges": 12, "vertices": 8},
+            "name": "Pocket",
+            "label": "Pocket",
+            "type": "PartDesign::Pocket",
+            "digest": {
+                "volume": 80000.0,
+                "surface_area": 24000.0,
+                "bbox": [100, 50, 20],
+                "faces": 10,
+                "edges": 24,
+                "vertices": 16,
+            },
+            "delta": {
+                "volume": -20000.0,
+                "surface_area": 2000.0,
+                "faces": 4,
+                "edges": 12,
+                "vertices": 8,
+            },
             "face_map": {"faces": [], "total_faces": 10},
             "operation_summary": "Pocketed 5mm deep",
         }
@@ -1997,9 +2325,24 @@ class TestFaceMapAndOperationSummary(unittest.TestCase):
     def test_fillet_response_includes_face_map_and_summary(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         client.send_command.return_value = {
-            "name": "Fillet", "label": "Fillet", "type": "PartDesign::Fillet",
-            "digest": {"volume": 99000.0, "surface_area": 22500.0, "bbox": [100, 50, 20], "faces": 10, "edges": 24, "vertices": 16},
-            "delta": {"volume": -1000.0, "surface_area": 500.0, "faces": 4, "edges": 12, "vertices": 8},
+            "name": "Fillet",
+            "label": "Fillet",
+            "type": "PartDesign::Fillet",
+            "digest": {
+                "volume": 99000.0,
+                "surface_area": 22500.0,
+                "bbox": [100, 50, 20],
+                "faces": 10,
+                "edges": 24,
+                "vertices": 16,
+            },
+            "delta": {
+                "volume": -1000.0,
+                "surface_area": 500.0,
+                "faces": 4,
+                "edges": 12,
+                "vertices": 8,
+            },
             "face_map": {"faces": [], "total_faces": 10},
             "operation_summary": "Filleted 2 edge(s) with r=2mm",
         }
@@ -2015,7 +2358,9 @@ class TestFaceMapAndOperationSummary(unittest.TestCase):
     def test_revolution_response_includes_summary(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         client.send_command.return_value = {
-            "name": "Revolution", "label": "Revolution", "type": "PartDesign::Revolution",
+            "name": "Revolution",
+            "label": "Revolution",
+            "type": "PartDesign::Revolution",
             "face_map": {"faces": [], "total_faces": 3},
             "operation_summary": "Revolved 360° around V",
         }
@@ -2033,6 +2378,7 @@ class TestVerificationViewCount(unittest.TestCase):
     def test_verification_images_two_views(self) -> None:
         """Simulate the new 2-view verification output with view labels."""
         import json
+
         out: dict[str, Any] = {
             "ok": True,
             "name": "Pad",
@@ -2049,11 +2395,13 @@ class TestVerificationViewCount(unittest.TestCase):
             images = out.pop("verification_images")
             out["verification_views"] = [img.get("view", "unknown") for img in images]
             for img in images:
-                content.append({
-                    "type": "image",
-                    "data": img["image_base64"],
-                    "mimeType": img["mime_type"],
-                })
+                content.append(
+                    {
+                        "type": "image",
+                        "data": img["image_base64"],
+                        "mimeType": img["mime_type"],
+                    }
+                )
         content.append({"type": "text", "text": json.dumps(out)})
 
         self.assertEqual(len(content), 3)  # 2 images + 1 text
@@ -2108,7 +2456,9 @@ class TestCadAnimate(unittest.TestCase):
             "fps": 60,
         }
 
-        frames = [{"Link_A": {"position": [0, 0, 0], "rotation_axis": [0, 0, 1], "rotation_angle_deg": 0}}]
+        frames = [
+            {"Link_A": {"position": [0, 0, 0], "rotation_axis": [0, 0, 1], "rotation_angle_deg": 0}}
+        ]
         result = cad_animate(frames=frames, assembly="MyAsm", doc="Doc1", fps=60)
 
         self.assertTrue(result["ok"])
@@ -2145,7 +2495,11 @@ class TestCadExportBody(unittest.TestCase):
     @patch("server.tools_cad.get_client")
     def test_export_body(self, mock_get: MagicMock) -> None:
         client = _mock_client()
-        client.send_command.return_value = {"path": "/tmp/Body_Plate.stl", "format": "stl", "body": "Body_Plate"}
+        client.send_command.return_value = {
+            "path": "/tmp/Body_Plate.stl",
+            "format": "stl",
+            "body": "Body_Plate",
+        }
         mock_get.return_value = client
 
         result = cad_export_body(body="Body_Plate", format="stl")
@@ -2157,13 +2511,23 @@ class TestCadExportBody(unittest.TestCase):
     @patch("server.tools_cad.get_client")
     def test_export_body_with_path_and_doc(self, mock_get: MagicMock) -> None:
         client = _mock_client()
-        client.send_command.return_value = {"path": "/out/leg.step", "format": "step", "body": "Body_Leg"}
+        client.send_command.return_value = {
+            "path": "/out/leg.step",
+            "format": "step",
+            "body": "Body_Leg",
+        }
         mock_get.return_value = client
 
-        result = cad_export_body(body="Body_Leg", format="step", path="/out/leg.step", doc="Hexapod")
+        result = cad_export_body(
+            body="Body_Leg", format="step", path="/out/leg.step", doc="Hexapod"
+        )
         self.assertTrue(result["ok"])
         client.send_command.assert_called_once_with(
-            "export_body", body="Body_Leg", format="step", path="/out/leg.step", doc="Hexapod",
+            "export_body",
+            body="Body_Leg",
+            format="step",
+            path="/out/leg.step",
+            doc="Hexapod",
         )
 
 
@@ -2205,7 +2569,13 @@ class TestCadGetModelTreeDetail(unittest.TestCase):
             "doc": "MyDoc",
             "body_count": 1,
             "bodies": [
-                {"name": "Body", "label": "Body", "size": [10.0, 10.0, 10.0], "feature_count": 1, "tip": "Pad"},
+                {
+                    "name": "Body",
+                    "label": "Body",
+                    "size": [10.0, 10.0, 10.0],
+                    "feature_count": 1,
+                    "tip": "Pad",
+                },
             ],
             "other_objects": ["Assembly"],
         }
@@ -2249,7 +2619,9 @@ class TestCadExportSimPackage(unittest.TestCase):
 
     @patch("server.motion_store.get")
     @patch("server.tools_cad.get_client")
-    def test_export_sim_package_with_mechanism(self, mock_get: MagicMock, mock_mech_get: MagicMock) -> None:
+    def test_export_sim_package_with_mechanism(
+        self, mock_get: MagicMock, mock_mech_get: MagicMock
+    ) -> None:
         import tempfile
 
         from server.motion_models import JointEdge, JointType, Mechanism, PartNode
@@ -2305,7 +2677,9 @@ class TestCadExportSimPackage(unittest.TestCase):
 
     @patch("server.motion_store.get")
     @patch("server.tools_cad.get_client")
-    def test_export_sim_package_invalid_mechanism(self, mock_get: MagicMock, mock_mech_get: MagicMock) -> None:
+    def test_export_sim_package_invalid_mechanism(
+        self, mock_get: MagicMock, mock_mech_get: MagicMock
+    ) -> None:
         client = _mock_client()
         client.send_command.return_value = {
             "output_dir": "/tmp/sim_pkg_abc",
@@ -2322,7 +2696,9 @@ class TestCadExportSimPackage(unittest.TestCase):
 
     @patch("server.motion_store.get")
     @patch("server.tools_cad.get_client")
-    def test_export_sim_package_emit_sdf(self, mock_get: MagicMock, mock_mech_get: MagicMock) -> None:
+    def test_export_sim_package_emit_sdf(
+        self, mock_get: MagicMock, mock_mech_get: MagicMock
+    ) -> None:
         import tempfile
 
         from server.motion_models import JointEdge, JointType, Mechanism, PartNode
@@ -2555,9 +2931,7 @@ class TestCadExportSimPackage(unittest.TestCase):
                 break
         self.assertIsNotNone(root_link, "root link 'base' not found in SDF")
 
-        sensor_types = {
-            s.get("type") for s in root_link.findall("sensor")
-        }
+        sensor_types = {s.get("type") for s in root_link.findall("sensor")}
         self.assertEqual(
             sensor_types,
             {"imu", "navsat", "air_pressure", "magnetometer"},
@@ -2625,19 +2999,18 @@ class TestCadExportSimPackage(unittest.TestCase):
             PartNode(id="base", body_name="Body_Base", is_ground=True),
         ]
         joints: list[JointEdge] = []
-        for i, (px, py) in enumerate(
-            [(130, 130), (-130, 130), (-130, -130), (130, -130)]
-        ):
-            parts.append(PartNode(id=f"r{i}", body_name=f"Body_Rotor_{i}",
-                                  mass_kg=0.05))
-            joints.append(JointEdge(
-                id=f"r{i}_joint",
-                joint_type=JointType.CONTINUOUS,
-                parent_part="base",
-                child_part=f"r{i}",
-                origin=(float(px), float(py), 0.0),
-                axis=(0.0, 0.0, 1.0),
-            ))
+        for i, (px, py) in enumerate([(130, 130), (-130, 130), (-130, -130), (130, -130)]):
+            parts.append(PartNode(id=f"r{i}", body_name=f"Body_Rotor_{i}", mass_kg=0.05))
+            joints.append(
+                JointEdge(
+                    id=f"r{i}_joint",
+                    joint_type=JointType.CONTINUOUS,
+                    parent_part="base",
+                    child_part=f"r{i}",
+                    origin=(float(px), float(py), 0.0),
+                    axis=(0.0, 0.0, 1.0),
+                )
+            )
         mechanism = Mechanism(
             name="px4_test_quad",
             parts=tuple(parts),
@@ -2661,10 +3034,7 @@ class TestCadExportSimPackage(unittest.TestCase):
 
         # Use a temp directory as a fake PX4 install with the right layout.
         px4_install = tempfile.mkdtemp()
-        airframes_dir = (
-            Path(px4_install) / "ROMFS" / "px4fmu_common"
-            / "init.d-posix" / "airframes"
-        )
+        airframes_dir = Path(px4_install) / "ROMFS" / "px4fmu_common" / "init.d-posix" / "airframes"
         airframes_dir.mkdir(parents=True)
 
         drone_cfg = {
@@ -2679,7 +3049,9 @@ class TestCadExportSimPackage(unittest.TestCase):
             "px4_install_path": px4_install,
         }
         result = cad_export_sim_package(
-            mechanism_id="mech_px4_test", emit_sdf=True, drone_config=drone_cfg,
+            mechanism_id="mech_px4_test",
+            emit_sdf=True,
+            drone_config=drone_cfg,
         )
         self.assertTrue(result["ok"], f"export failed: {result.get('error')}")
 
@@ -2705,7 +3077,8 @@ class TestCadMirror(unittest.TestCase):
     def test_mirror_defaults(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         client.send_command.return_value = {
-            "name": "Mirrored", "label": "Mirrored",
+            "name": "Mirrored",
+            "label": "Mirrored",
             "type": "PartDesign::Mirrored",
         }
         mock_get.return_value = client
@@ -2714,26 +3087,36 @@ class TestCadMirror(unittest.TestCase):
         self.assertTrue(result["ok"])
         self.assertEqual(result["name"], "Mirrored")
         client.send_command.assert_called_once_with(
-            "mirror", features=["Pad"], plane="Base_X", verify=True,
+            "mirror",
+            features=["Pad"],
+            plane="Base_X",
+            verify=True,
         )
 
     @patch("server.tools_cad.get_client")
     def test_mirror_with_all_params(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         client.send_command.return_value = {
-            "name": "Mirrored", "label": "Mirrored",
+            "name": "Mirrored",
+            "label": "Mirrored",
             "type": "PartDesign::Mirrored",
         }
         mock_get.return_value = client
 
         result = cad_mirror(
-            features=["Pad", "Pocket"], plane="Base_Y",
-            body="Body", doc="MyDoc",
+            features=["Pad", "Pocket"],
+            plane="Base_Y",
+            body="Body",
+            doc="MyDoc",
         )
         self.assertTrue(result["ok"])
         client.send_command.assert_called_once_with(
-            "mirror", features=["Pad", "Pocket"], plane="Base_Y",
-            verify=True, body="Body", doc="MyDoc",
+            "mirror",
+            features=["Pad", "Pocket"],
+            plane="Base_Y",
+            verify=True,
+            body="Body",
+            doc="MyDoc",
         )
 
 
@@ -2742,7 +3125,8 @@ class TestCadLinearPattern(unittest.TestCase):
     def test_linear_pattern_defaults(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         client.send_command.return_value = {
-            "name": "LinearPattern", "label": "LinearPattern",
+            "name": "LinearPattern",
+            "label": "LinearPattern",
             "type": "PartDesign::LinearPattern",
         }
         mock_get.return_value = client
@@ -2751,28 +3135,45 @@ class TestCadLinearPattern(unittest.TestCase):
         self.assertTrue(result["ok"])
         self.assertEqual(result["name"], "LinearPattern")
         client.send_command.assert_called_once_with(
-            "linear_pattern", features=["Pocket"], axis="Base_X",
-            length=100.0, occurrences=3, reversed=False, verify=True,
+            "linear_pattern",
+            features=["Pocket"],
+            axis="Base_X",
+            length=100.0,
+            occurrences=3,
+            reversed=False,
+            verify=True,
         )
 
     @patch("server.tools_cad.get_client")
     def test_linear_pattern_with_all_params(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         client.send_command.return_value = {
-            "name": "LinearPattern", "label": "LinearPattern",
+            "name": "LinearPattern",
+            "label": "LinearPattern",
             "type": "PartDesign::LinearPattern",
         }
         mock_get.return_value = client
 
         result = cad_linear_pattern(
-            features=["Pocket"], axis="Base_Y", length=200.0,
-            occurrences=5, reversed=True, body="Body", doc="MyDoc",
+            features=["Pocket"],
+            axis="Base_Y",
+            length=200.0,
+            occurrences=5,
+            reversed=True,
+            body="Body",
+            doc="MyDoc",
         )
         self.assertTrue(result["ok"])
         client.send_command.assert_called_once_with(
-            "linear_pattern", features=["Pocket"], axis="Base_Y",
-            length=200.0, occurrences=5, reversed=True, verify=True,
-            body="Body", doc="MyDoc",
+            "linear_pattern",
+            features=["Pocket"],
+            axis="Base_Y",
+            length=200.0,
+            occurrences=5,
+            reversed=True,
+            verify=True,
+            body="Body",
+            doc="MyDoc",
         )
 
 
@@ -2781,7 +3182,8 @@ class TestCadThickness(unittest.TestCase):
     def test_thickness_defaults(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         client.send_command.return_value = {
-            "name": "Thickness", "label": "Thickness",
+            "name": "Thickness",
+            "label": "Thickness",
             "type": "PartDesign::Thickness",
         }
         mock_get.return_value = client
@@ -2790,28 +3192,42 @@ class TestCadThickness(unittest.TestCase):
         self.assertTrue(result["ok"])
         self.assertEqual(result["name"], "Thickness")
         client.send_command.assert_called_once_with(
-            "thickness", faces=["Face6"], thickness_value=2.0,
-            join_type="Arc", reversed=False, verify=True,
+            "thickness",
+            faces=["Face6"],
+            thickness_value=2.0,
+            join_type="Arc",
+            reversed=False,
+            verify=True,
         )
 
     @patch("server.tools_cad.get_client")
     def test_thickness_with_all_params(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         client.send_command.return_value = {
-            "name": "Thickness", "label": "Thickness",
+            "name": "Thickness",
+            "label": "Thickness",
             "type": "PartDesign::Thickness",
         }
         mock_get.return_value = client
 
         result = cad_thickness(
-            faces=["Face1", "Face6"], thickness=3.0,
-            join_type="Tangent", reversed=True, body="Body", doc="MyDoc",
+            faces=["Face1", "Face6"],
+            thickness=3.0,
+            join_type="Tangent",
+            reversed=True,
+            body="Body",
+            doc="MyDoc",
         )
         self.assertTrue(result["ok"])
         client.send_command.assert_called_once_with(
-            "thickness", faces=["Face1", "Face6"], thickness_value=3.0,
-            join_type="Tangent", reversed=True, verify=True,
-            body="Body", doc="MyDoc",
+            "thickness",
+            faces=["Face1", "Face6"],
+            thickness_value=3.0,
+            join_type="Tangent",
+            reversed=True,
+            verify=True,
+            body="Body",
+            doc="MyDoc",
         )
 
 
@@ -2820,7 +3236,8 @@ class TestCadDraft(unittest.TestCase):
     def test_draft_defaults(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         client.send_command.return_value = {
-            "name": "Draft", "label": "Draft",
+            "name": "Draft",
+            "label": "Draft",
             "type": "PartDesign::Draft",
         }
         mock_get.return_value = client
@@ -2829,28 +3246,42 @@ class TestCadDraft(unittest.TestCase):
         self.assertTrue(result["ok"])
         self.assertEqual(result["name"], "Draft")
         client.send_command.assert_called_once_with(
-            "draft", faces=["Face2"], angle=3.0,
-            neutral_plane="Face1", reversed=False, verify=True,
+            "draft",
+            faces=["Face2"],
+            angle=3.0,
+            neutral_plane="Face1",
+            reversed=False,
+            verify=True,
         )
 
     @patch("server.tools_cad.get_client")
     def test_draft_with_all_params(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         client.send_command.return_value = {
-            "name": "Draft", "label": "Draft",
+            "name": "Draft",
+            "label": "Draft",
             "type": "PartDesign::Draft",
         }
         mock_get.return_value = client
 
         result = cad_draft(
-            faces=["Face2", "Face4"], angle=5.0,
-            neutral_plane="Face3", reversed=True, body="Body", doc="MyDoc",
+            faces=["Face2", "Face4"],
+            angle=5.0,
+            neutral_plane="Face3",
+            reversed=True,
+            body="Body",
+            doc="MyDoc",
         )
         self.assertTrue(result["ok"])
         client.send_command.assert_called_once_with(
-            "draft", faces=["Face2", "Face4"], angle=5.0,
-            neutral_plane="Face3", reversed=True, verify=True,
-            body="Body", doc="MyDoc",
+            "draft",
+            faces=["Face2", "Face4"],
+            angle=5.0,
+            neutral_plane="Face3",
+            reversed=True,
+            verify=True,
+            body="Body",
+            doc="MyDoc",
         )
 
 
@@ -2939,14 +3370,16 @@ class TestCheckClearance(unittest.TestCase):
             "pairs_checked": 3,
             "threshold_mm": 0.5,
             "violation_count": 1,
-            "violations": [{
-                "body_a": "Body",
-                "body_b": "Body001",
-                "distance_mm": 0.2,
-                "intersecting": False,
-                "point_a": [10.0, 0.0, 0.0],
-                "point_b": [10.2, 0.0, 0.0],
-            }],
+            "violations": [
+                {
+                    "body_a": "Body",
+                    "body_b": "Body001",
+                    "distance_mm": 0.2,
+                    "intersecting": False,
+                    "point_a": [10.0, 0.0, 0.0],
+                    "point_b": [10.2, 0.0, 0.0],
+                }
+            ],
             "all_clear": False,
         }
         result = cad_check_clearance(threshold_mm=0.5)
@@ -2969,7 +3402,9 @@ class TestCheckClearance(unittest.TestCase):
         result = cad_check_clearance(bodies=["Body", "Body001"], threshold_mm=1.0)
         self.assertTrue(result["ok"])
         client.send_command.assert_called_once_with(
-            "check_clearance", threshold_mm=1.0, bodies=["Body", "Body001"],
+            "check_clearance",
+            threshold_mm=1.0,
+            bodies=["Body", "Body001"],
         )
 
     @patch("server.tools_cad.get_client")
@@ -2980,14 +3415,16 @@ class TestCheckClearance(unittest.TestCase):
             "pairs_checked": 1,
             "threshold_mm": 0.5,
             "violation_count": 1,
-            "violations": [{
-                "body_a": "Body",
-                "body_b": "Body001",
-                "distance_mm": 0.0,
-                "intersecting": True,
-                "point_a": [5.0, 0.0, 0.0],
-                "point_b": [5.0, 0.0, 0.0],
-            }],
+            "violations": [
+                {
+                    "body_a": "Body",
+                    "body_b": "Body001",
+                    "distance_mm": 0.0,
+                    "intersecting": True,
+                    "point_a": [5.0, 0.0, 0.0],
+                    "point_b": [5.0, 0.0, 0.0],
+                }
+            ],
             "all_clear": False,
         }
         result = cad_check_clearance()
@@ -3087,14 +3524,16 @@ class TestCheckSweptClearance(unittest.TestCase):
             "angle_deg": 360.0,
             "pairs_checked": 5,
             "violation_count": 1,
-            "violations": [{
-                "other_body": "Bolt003",
-                "min_distance_mm": 0.3,
-                "worst_angle_deg": 130.0,
-                "intersecting": False,
-                "point_a": [10.0, 5.0, 0.0],
-                "point_b": [10.3, 5.0, 0.0],
-            }],
+            "violations": [
+                {
+                    "other_body": "Bolt003",
+                    "min_distance_mm": 0.3,
+                    "worst_angle_deg": 130.0,
+                    "intersecting": False,
+                    "point_a": [10.0, 5.0, 0.0],
+                    "point_b": [10.3, 5.0, 0.0],
+                }
+            ],
             "all_clear": False,
         }
         result = cad_check_swept_clearance(
@@ -3383,6 +3822,7 @@ class TestConnectionError(unittest.TestCase):
     @patch("server.tools_cad.get_client")
     def test_connection_error_returns_error_dict(self, mock_get: MagicMock) -> None:
         from server.freecad_client import FreeCADConnectionError
+
         mock_get.side_effect = FreeCADConnectionError("Not connected")
 
         result = cad_new_document(name="Test")

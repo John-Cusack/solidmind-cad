@@ -43,6 +43,7 @@ Usage in a test::
     step_path = sun_gear.build_sun_gear(sub_spec, output_dir)
     assert step_path.exists() and step_path.stat().st_size > 0
 """
+
 from __future__ import annotations
 
 __all__ = ["common"]

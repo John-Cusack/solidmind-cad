@@ -96,8 +96,7 @@ class TestBoreDimensions(unittest.TestCase):
     def test_h7_bore_range_25mm(self):
         """H7 at 25mm: tolerance = 21μm."""
         r = press_fit_bore(25.0, fit="sliding", depth=0)
-        self.assertAlmostEqual(r["bore_diameter_max"] - r["bore_diameter_min"],
-                               0.021, places=4)
+        self.assertAlmostEqual(r["bore_diameter_max"] - r["bore_diameter_min"], 0.021, places=4)
 
     def test_small_bore(self):
         """H7 at 2mm (0-3 range): tolerance = 10μm."""
@@ -129,14 +128,16 @@ class TestBoreProfile(unittest.TestCase):
 
     def test_counterbore_adds_elements(self):
         r_plain = press_fit_bore(10.0, fit="press", depth=15.0)
-        r_cb = press_fit_bore(10.0, fit="press", depth=15.0,
-                              counterbore_diameter=14.0, counterbore_depth=3.0)
+        r_cb = press_fit_bore(
+            10.0, fit="press", depth=15.0, counterbore_diameter=14.0, counterbore_depth=3.0
+        )
         self.assertGreater(len(r_cb["elements"]), len(r_plain["elements"]))
 
     def test_counterbore_must_exceed_nominal(self):
         with self.assertRaises(ValueError):
-            press_fit_bore(10.0, fit="press", depth=15.0,
-                           counterbore_diameter=8.0, counterbore_depth=3.0)
+            press_fit_bore(
+                10.0, fit="press", depth=15.0, counterbore_diameter=8.0, counterbore_depth=3.0
+            )
 
     def test_profile_closure(self):
         """Profile elements should form a closed contour."""
@@ -152,8 +153,7 @@ class TestBoreProfile(unittest.TestCase):
                 pts[i][1][0] - pts[i + 1][0][0],
                 pts[i][1][1] - pts[i + 1][0][1],
             )
-            self.assertLess(dist, 0.01,
-                            f"Gap between element {i} and {i + 1}: {dist}")
+            self.assertLess(dist, 0.01, f"Gap between element {i} and {i + 1}: {dist}")
         # Check closure
         dist = math.hypot(
             pts[-1][1][0] - pts[0][0][0],
@@ -167,8 +167,11 @@ class TestCounterboreProfileClosure(unittest.TestCase):
 
     def test_counterbore_profile_closure(self):
         r = press_fit_bore(
-            10.0, fit="press", depth=15.0,
-            counterbore_diameter=14.0, counterbore_depth=3.0,
+            10.0,
+            fit="press",
+            depth=15.0,
+            counterbore_diameter=14.0,
+            counterbore_depth=3.0,
         )
         elements = r["elements"]
         self.assertGreater(len(elements), 0)
@@ -181,8 +184,7 @@ class TestCounterboreProfileClosure(unittest.TestCase):
                 pts[i][1][0] - pts[i + 1][0][0],
                 pts[i][1][1] - pts[i + 1][0][1],
             )
-            self.assertLess(dist, 0.01,
-                            f"Gap between element {i} and {i + 1}: {dist}")
+            self.assertLess(dist, 0.01, f"Gap between element {i} and {i + 1}: {dist}")
         # Closure
         dist = math.hypot(
             pts[-1][1][0] - pts[0][0][0],
@@ -204,6 +206,7 @@ class TestMCPWrapper(unittest.TestCase):
 
     def test_returns_ref_with_depth(self):
         from server.tools_geometry import geometry_press_fit_bore
+
         r = geometry_press_fit_bore(nominal_diameter=10.0, depth=15.0)
         self.assertTrue(r["ok"])
         self.assertIn("geometry_ref", r)
@@ -211,6 +214,7 @@ class TestMCPWrapper(unittest.TestCase):
 
     def test_no_ref_without_depth(self):
         from server.tools_geometry import geometry_press_fit_bore
+
         r = geometry_press_fit_bore(nominal_diameter=10.0, depth=0)
         self.assertTrue(r["ok"])
         self.assertNotIn("geometry_ref", r)

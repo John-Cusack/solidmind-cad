@@ -1,4 +1,5 @@
 """JSON line protocol helpers for the Isaac bridge sidecar."""
+
 from __future__ import annotations
 
 import json
@@ -43,7 +44,9 @@ def ok_response(result: Any) -> dict[str, Any]:
     return {"ok": True, "result": result}
 
 
-def error_response(code: str, message: str, *, details: dict[str, Any] | None = None) -> dict[str, Any]:
+def error_response(
+    code: str, message: str, *, details: dict[str, Any] | None = None
+) -> dict[str, Any]:
     """Build an error envelope."""
     err: dict[str, Any] = {"code": code, "message": message}
     if details:

@@ -1,4 +1,5 @@
 """Tests for analysis data models — construction and serialization round-trips."""
+
 from __future__ import annotations
 
 import unittest

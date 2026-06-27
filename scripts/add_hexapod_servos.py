@@ -8,6 +8,7 @@ a 32×24×24mm rectangular block at each of the 18 joint locations
 Usage:
     python3 scripts/add_hexapod_servos.py
 """
+
 from __future__ import annotations
 
 import json
@@ -23,8 +24,8 @@ COXA_LEN = 52
 FEMUR_LEN = 66
 TIBIA_LEN = 133
 
-FEMUR_PITCH = math.radians(30)   # 30° below horizontal
-TIBIA_PITCH = math.radians(70)   # 70° below horizontal
+FEMUR_PITCH = math.radians(30)  # 30° below horizontal
+TIBIA_PITCH = math.radians(70)  # 70° below horizontal
 
 # Chassis height so feet touch ground (z = 0)
 total_drop = FEMUR_LEN * math.sin(FEMUR_PITCH) + TIBIA_LEN * math.sin(TIBIA_PITCH)
@@ -33,18 +34,18 @@ CHASSIS_Z = total_drop  # ~158 mm
 # Leg attachment points on chassis (x, y) in mm
 # R=60mm at 60° intervals — all fit within the 75mm chassis disc.
 LEGS: dict[str, tuple[float, float]] = {
-    "L1": (52, 30),    # front-left   (30°)
-    "L2": (0, 60),     # mid-left     (90°)
-    "L3": (-52, 30),   # rear-left    (150°)
-    "R1": (52, -30),   # front-right  (330°)
-    "R2": (0, -60),    # mid-right    (270°)
+    "L1": (52, 30),  # front-left   (30°)
+    "L2": (0, 60),  # mid-left     (90°)
+    "L3": (-52, 30),  # rear-left    (150°)
+    "R1": (52, -30),  # front-right  (330°)
+    "R2": (0, -60),  # mid-right    (270°)
     "R3": (-52, -30),  # rear-right   (210°)
 }
 
 # Servo block dimensions (mm) — AX-12A proportional
-SERVO_W = 32   # along shaft axis
-SERVO_H = 24   # width
-SERVO_D = 24   # depth
+SERVO_W = 32  # along shaft axis
+SERVO_H = 24  # width
+SERVO_D = 24  # depth
 
 # ---------------------------------------------------------------------------
 # TCP helpers
@@ -95,18 +96,22 @@ def create_servo(
     sketch_name = resp["result"]["sketch"]
 
     # 3. sketch_populate — centered rectangle SERVO_W × SERVO_H
-    resp = send_cmd(sock, "sketch_populate", {
-        "sketch": sketch_name,
-        "elements": [
-            {
-                "type": "rect",
-                "x": -SERVO_W / 2,
-                "y": -SERVO_H / 2,
-                "w": SERVO_W,
-                "h": SERVO_H,
-            }
-        ],
-    })
+    resp = send_cmd(
+        sock,
+        "sketch_populate",
+        {
+            "sketch": sketch_name,
+            "elements": [
+                {
+                    "type": "rect",
+                    "x": -SERVO_W / 2,
+                    "y": -SERVO_H / 2,
+                    "w": SERVO_W,
+                    "h": SERVO_H,
+                }
+            ],
+        },
+    )
     if not resp.get("ok"):
         return
 
@@ -116,22 +121,30 @@ def create_servo(
         return
 
     # 5. pad — SERVO_D height, symmetric so the block is centered on Z
-    resp = send_cmd(sock, "pad", {
-        "sketch": sketch_name,
-        "length": SERVO_D,
-        "symmetric": True,
-        "verify": False,
-    })
+    resp = send_cmd(
+        sock,
+        "pad",
+        {
+            "sketch": sketch_name,
+            "length": SERVO_D,
+            "symmetric": True,
+            "verify": False,
+        },
+    )
     if not resp.get("ok"):
         return
 
     # 6. set_placement — move to joint location
-    resp = send_cmd(sock, "set_placement", {
-        "object_name": body_name,
-        "position": [round(p, 2) for p in position],
-        "rotation_axis": [round(a, 6) for a in rotation_axis],
-        "rotation_angle_deg": round(rotation_angle_deg, 4),
-    })
+    resp = send_cmd(
+        sock,
+        "set_placement",
+        {
+            "object_name": body_name,
+            "position": [round(p, 2) for p in position],
+            "rotation_axis": [round(a, 6) for a in rotation_axis],
+            "rotation_angle_deg": round(rotation_angle_deg, 4),
+        },
+    )
     if not resp.get("ok"):
         return
 
@@ -141,6 +154,7 @@ def create_servo(
 # ---------------------------------------------------------------------------
 # Compute servo positions for all 18 joints
 # ---------------------------------------------------------------------------
+
 
 def compute_servo_placements() -> list[dict]:
     """Return a list of 18 servo placement specs."""
@@ -153,13 +167,15 @@ def compute_servo_placements() -> list[dict]:
         sin_a = math.sin(angle)
 
         # --- Hip yaw servo: at chassis attachment, shaft along Z ---
-        servos.append({
-            "name": f"Servo_hip_yaw_{leg_id}",
-            "position": [ax, ay, CHASSIS_Z],
-            # Rotate so the servo's long axis (local X) points outward
-            "rotation_axis": [0.0, 0.0, 1.0],
-            "rotation_angle_deg": math.degrees(angle),
-        })
+        servos.append(
+            {
+                "name": f"Servo_hip_yaw_{leg_id}",
+                "position": [ax, ay, CHASSIS_Z],
+                # Rotate so the servo's long axis (local X) points outward
+                "rotation_axis": [0.0, 0.0, 1.0],
+                "rotation_angle_deg": math.degrees(angle),
+            }
+        )
 
         # --- Hip pitch servo: at coxa-femur junction ---
         # Coxa extends outward from attachment point
@@ -170,12 +186,14 @@ def compute_servo_placements() -> list[dict]:
         # Pitch axis is perpendicular to the outward direction, horizontal
         # pitch_axis = (-sin_a, cos_a, 0)
         # We orient the servo so its long axis aligns with pitch axis
-        servos.append({
-            "name": f"Servo_hip_pitch_{leg_id}",
-            "position": [hp_x, hp_y, hp_z],
-            "rotation_axis": [0.0, 0.0, 1.0],
-            "rotation_angle_deg": math.degrees(angle) + 90,
-        })
+        servos.append(
+            {
+                "name": f"Servo_hip_pitch_{leg_id}",
+                "position": [hp_x, hp_y, hp_z],
+                "rotation_axis": [0.0, 0.0, 1.0],
+                "rotation_angle_deg": math.degrees(angle) + 90,
+            }
+        )
 
         # --- Knee pitch servo: at femur-tibia junction ---
         # Femur extends outward and downward from hip pitch position
@@ -185,12 +203,14 @@ def compute_servo_placements() -> list[dict]:
         kp_y = hp_y + sin_a * femur_horiz
         kp_z = hp_z - femur_vert
 
-        servos.append({
-            "name": f"Servo_knee_{leg_id}",
-            "position": [kp_x, kp_y, kp_z],
-            "rotation_axis": [0.0, 0.0, 1.0],
-            "rotation_angle_deg": math.degrees(angle) + 90,
-        })
+        servos.append(
+            {
+                "name": f"Servo_knee_{leg_id}",
+                "position": [kp_x, kp_y, kp_z],
+                "rotation_axis": [0.0, 0.0, 1.0],
+                "rotation_angle_deg": math.degrees(angle) + 90,
+            }
+        )
 
     return servos
 
@@ -198,6 +218,7 @@ def compute_servo_placements() -> list[dict]:
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
+
 
 def main() -> None:
     placements = compute_servo_placements()

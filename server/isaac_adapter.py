@@ -1,4 +1,5 @@
 """Adapter layer between motion tools and optional Isaac bridge client."""
+
 from __future__ import annotations
 
 import logging
@@ -256,7 +257,9 @@ def teleop_start(
 
     session_id = str(result.get("session_id", "")).strip()
     if not session_id:
-        return _error("ISAAC_PROTOCOL_ERROR", "Isaac teleop_start response missing required session_id")
+        return _error(
+            "ISAAC_PROTOCOL_ERROR", "Isaac teleop_start response missing required session_id"
+        )
 
     result["session_id"] = session_id
     result.setdefault(
@@ -509,7 +512,10 @@ def launch_bridge(
         if _ping_bridge(host, port):
             logger.info(
                 "Isaac bridge ready on %s:%d (pid=%d, %.1fs)",
-                host, port, proc.pid, time.monotonic() - start,
+                host,
+                port,
+                proc.pid,
+                time.monotonic() - start,
             )
             # Reset client so subsequent calls connect to the new bridge
             reset_client()

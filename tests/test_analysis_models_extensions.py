@@ -4,6 +4,7 @@ Covers the FailureMode enum, the ReflectExpectations dataclass, and the new
 result fields (failure_mode / candidates / factor_of_safety) that the
 iteration-loop test depends on.
 """
+
 from __future__ import annotations
 
 import dataclasses
@@ -38,8 +39,7 @@ class TestFailureMode(unittest.TestCase):
     def test_is_str_enum(self) -> None:
         # str, Enum → compares/serialises as its value
         self.assertEqual(FailureMode.YIELD, "yield")
-        self.assertEqual(FailureMode("stress_concentration"),
-                         FailureMode.STRESS_CONCENTRATION)
+        self.assertEqual(FailureMode("stress_concentration"), FailureMode.STRESS_CONCENTRATION)
 
 
 class TestReflectExpectations(unittest.TestCase):

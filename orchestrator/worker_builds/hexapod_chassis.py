@@ -10,6 +10,7 @@ optional central cable-routing bore. Routes through ``_build_envelope``
 via ``sub_spec["envelope_holes"]`` so all the leg-mount positions are
 carved as ThroughAll pockets in a single pass.
 """
+
 from __future__ import annotations
 
 import math
@@ -72,17 +73,25 @@ def build_hexapod_chassis(
 
     envelope_holes: list[dict[str, Any]] = []
     if central_bore_dia > 0:
-        envelope_holes.append({
-            "cx": 0.0, "cy": 0.0,
-            "diameter_mm": central_bore_dia,
-            "type": "pocket", "depth_mm": 0.0,
-        })
+        envelope_holes.append(
+            {
+                "cx": 0.0,
+                "cy": 0.0,
+                "diameter_mm": central_bore_dia,
+                "type": "pocket",
+                "depth_mm": 0.0,
+            }
+        )
     for cx, cy in _leg_mount_positions(leg_count, mount_pcd_mm):
-        envelope_holes.append({
-            "cx": cx, "cy": cy,
-            "diameter_mm": mount_hole_dia,
-            "type": "pocket", "depth_mm": 0.0,
-        })
+        envelope_holes.append(
+            {
+                "cx": cx,
+                "cy": cy,
+                "diameter_mm": mount_hole_dia,
+                "type": "pocket",
+                "depth_mm": 0.0,
+            }
+        )
 
     build_spec: dict[str, Any] = dict(sub_spec)
     build_spec["name"] = part_name

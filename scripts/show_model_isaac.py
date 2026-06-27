@@ -9,6 +9,7 @@ Usage (run with regular Python — connects to Isaac bridge via TCP):
     # Terminal 2: send import command
     python3 scripts/show_model_isaac.py
 """
+
 from __future__ import annotations
 
 import json
@@ -34,7 +35,9 @@ def send_cmd(sock: socket.socket, cmd: str, args: dict | None = None) -> dict:
 def main() -> int:
     host = "127.0.0.1"
     port = 9878
-    urdf_path = str(Path(__file__).resolve().parent.parent / "hexapod_18dof_v2_pkg" / "Hexapod_18DOF.urdf")
+    urdf_path = str(
+        Path(__file__).resolve().parent.parent / "hexapod_18dof_v2_pkg" / "Hexapod_18DOF.urdf"
+    )
 
     print(f"Connecting to Isaac bridge at {host}:{port}...")
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -55,13 +58,17 @@ def main() -> int:
 
     # Import URDF
     print(f"\nImporting URDF: {urdf_path}")
-    resp = send_cmd(sock, "import_urdf", {
-        "urdf_path": urdf_path,
-        "import_config": {
-            "merge_fixed_joints": True,
-            "fix_base": False,
+    resp = send_cmd(
+        sock,
+        "import_urdf",
+        {
+            "urdf_path": urdf_path,
+            "import_config": {
+                "merge_fixed_joints": True,
+                "fix_base": False,
+            },
         },
-    })
+    )
     if resp.get("ok"):
         result = resp.get("result", {})
         print(f"OK — prim_path: {result.get('prim_path')}")
@@ -77,11 +84,15 @@ def main() -> int:
 
     # Take a screenshot so it shows in the terminal too
     print("\nTaking screenshot...")
-    resp = send_cmd(sock, "screenshot", {
-        "width": 1280,
-        "height": 720,
-        "preset": "iso",
-    })
+    resp = send_cmd(
+        sock,
+        "screenshot",
+        {
+            "width": 1280,
+            "height": 720,
+            "preset": "iso",
+        },
+    )
     if resp.get("ok"):
         path = resp["result"].get("path", "")
         print(f"Screenshot saved: {path}")

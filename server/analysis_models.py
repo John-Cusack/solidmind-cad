@@ -4,6 +4,7 @@ All models are frozen dataclasses with __slots__ for consistency with the rest
 of the codebase.  Every model has ``to_dict()`` / ``from_dict()`` for JSON
 round-tripping.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -41,6 +42,7 @@ class FailureMode(str, Enum):
     Lets the Interpret step dispatch on a value instead of parsing a free-text
     ``name`` string.  Set drawn from the ROADMAP §Interpret taxonomy.
     """
+
     STRESS_CONCENTRATION = "stress_concentration"
     YIELD = "yield"
     FATIGUE = "fatigue"
@@ -77,6 +79,7 @@ class ReflectExpectations:
     the plausible peak-stress band.  Interpret later compares the real result
     against it.  Tuples are used so the model stays frozen + hashable.
     """
+
     part_class: str
     failure_modes_to_check: tuple[FailureMode, ...]
     expected_hotspot: str
@@ -95,9 +98,7 @@ class ReflectExpectations:
         band = d["expected_peak_stress_mpa"]
         return cls(
             part_class=d["part_class"],
-            failure_modes_to_check=tuple(
-                FailureMode(m) for m in d["failure_modes_to_check"]
-            ),
+            failure_modes_to_check=tuple(FailureMode(m) for m in d["failure_modes_to_check"]),
             expected_hotspot=d["expected_hotspot"],
             expected_peak_stress_mpa=(band[0], band[1]),
         )
@@ -152,6 +153,7 @@ class Material:
 @dataclass(frozen=True, slots=True)
 class FaceGroup:
     """A named group of faces for applying boundary conditions."""
+
     name: str
     face_refs: tuple[str, ...]  # e.g. ("Face1", "Face3")
 
@@ -166,6 +168,7 @@ class FaceGroup:
 @dataclass(frozen=True, slots=True)
 class BoundaryCondition:
     """A boundary condition applied to a set of faces."""
+
     bc_type: str  # "fixed", "force", "pressure", "displacement"
     faces: tuple[str, ...]  # face references ("Face1", ...)
     value: dict[str, float] = dc_field(default_factory=dict)
@@ -192,6 +195,7 @@ class BoundaryCondition:
 @dataclass(frozen=True, slots=True)
 class AnalysisSpec:
     """Full specification for a field analysis."""
+
     analysis_type: AnalysisType
     body: str
     material: Material
@@ -226,6 +230,7 @@ class AnalysisSpec:
 @dataclass(frozen=True, slots=True)
 class ScalarFieldSummary:
     """Summary statistics for a scalar field (stress, displacement, etc.)."""
+
     field_name: str
     min_val: float
     max_val: float
@@ -259,6 +264,7 @@ class ScalarFieldSummary:
 @dataclass(frozen=True, slots=True)
 class AnalysisCheck:
     """A single pass/warn/fail check with remediation guidance."""
+
     name: str
     status: CheckStatus
     message: str
@@ -298,6 +304,7 @@ class AnalysisCheck:
 @dataclass(frozen=True, slots=True)
 class FieldResult:
     """Complete result from a field analysis."""
+
     analysis_id: str
     status: CheckStatus  # overall pass/warn/fail
     safety_factor: float
@@ -340,9 +347,7 @@ class FieldResult:
             max_von_mises_mpa=d["max_von_mises_mpa"],
             max_displacement_mm=d["max_displacement_mm"],
             checks=tuple(AnalysisCheck.from_dict(c) for c in d["checks"]),
-            scalar_fields=tuple(
-                ScalarFieldSummary.from_dict(sf) for sf in d["scalar_fields"]
-            ),
+            scalar_fields=tuple(ScalarFieldSummary.from_dict(sf) for sf in d["scalar_fields"]),
             solver_name=d.get("solver_name", ""),
             solve_time_s=d.get("solve_time_s", 0.0),
             failure_mode=_parse_failure_mode(fm),
@@ -353,6 +358,7 @@ class FieldResult:
 @dataclass(frozen=True, slots=True)
 class MeshInfo:
     """Metadata about a generated mesh."""
+
     path: str
     num_nodes: int
     num_elements: int
@@ -392,6 +398,7 @@ class MeshInfo:
 @dataclass(frozen=True, slots=True)
 class FlowConditions:
     """Freestream flow conditions for aerodynamic analysis."""
+
     velocity_m_s: float
     density_kg_m3: float = 1.225  # ISA sea level
     viscosity_pa_s: float = 1.789e-5  # ISA sea level
@@ -424,6 +431,7 @@ class FlowConditions:
 @dataclass(frozen=True, slots=True)
 class AeroReference:
     """Reference values for non-dimensionalizing aerodynamic coefficients."""
+
     area_m2: float
     chord_m: float = 0.0
     span_m: float = 0.0
@@ -447,6 +455,7 @@ class AeroReference:
 @dataclass(frozen=True, slots=True)
 class RotorSpec:
     """Rotor definition for multi-rotor aerodynamic analysis (DUST)."""
+
     rotor_id: str
     center_xyz: tuple[float, float, float]
     axis: tuple[float, float, float]  # rotation axis (unit vector)
@@ -487,6 +496,7 @@ class RotorSpec:
 @dataclass(frozen=True, slots=True)
 class AeroResult:
     """Result from an aerodynamic analysis."""
+
     analysis_id: str
     status: CheckStatus
     cl: float  # lift coefficient

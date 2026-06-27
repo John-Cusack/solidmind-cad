@@ -1,4 +1,5 @@
 """Tests for the cad.measure_between server bridge."""
+
 from __future__ import annotations
 
 import unittest
@@ -7,7 +8,6 @@ from unittest.mock import patch
 
 
 class TestMeasureBetween(unittest.TestCase):
-
     @patch("server.tools_cad.get_client")
     def test_body_to_body(self, mock_get_client: Any) -> None:
         from server.tools_cad import cad_measure_between
@@ -23,7 +23,9 @@ class TestMeasureBetween(unittest.TestCase):
         self.assertTrue(result["ok"])
         self.assertEqual(result["distance_mm"], 25.0)
         mock_client.send_command.assert_called_once_with(
-            "measure_between", ref_a="Body", ref_b="Body001",
+            "measure_between",
+            ref_a="Body",
+            ref_b="Body001",
         )
 
     @patch("server.tools_cad.get_client")
@@ -41,7 +43,9 @@ class TestMeasureBetween(unittest.TestCase):
         self.assertTrue(result["ok"])
         self.assertEqual(result["distance_mm"], 5.0)
         mock_client.send_command.assert_called_once_with(
-            "measure_between", ref_a=[0.0, 0.0, 0.0], ref_b="Body",
+            "measure_between",
+            ref_a=[0.0, 0.0, 0.0],
+            ref_b="Body",
         )
 
     @patch("server.tools_cad.get_client")
@@ -59,7 +63,9 @@ class TestMeasureBetween(unittest.TestCase):
         self.assertTrue(result["ok"])
         self.assertEqual(result["distance_mm"], 12.5)
         mock_client.send_command.assert_called_once_with(
-            "measure_between", ref_a="Body.Face3", ref_b="Body001.Face1",
+            "measure_between",
+            ref_a="Body.Face3",
+            ref_b="Body001.Face1",
         )
 
     @patch("server.tools_cad.get_client")
@@ -76,7 +82,10 @@ class TestMeasureBetween(unittest.TestCase):
         result = cad_measure_between(ref_a="Body", ref_b="Body001", doc="MyDoc")
         self.assertTrue(result["ok"])
         mock_client.send_command.assert_called_once_with(
-            "measure_between", ref_a="Body", ref_b="Body001", doc="MyDoc",
+            "measure_between",
+            ref_a="Body",
+            ref_b="Body001",
+            doc="MyDoc",
         )
 
 

@@ -87,9 +87,11 @@ class TestExecutorFreeCADClient(unittest.TestCase):
         self.assertEqual(args["length"], 20)
 
     def test_client_error_handled(self) -> None:
-        client = MockFreeCADClient(responses={
-            "pad": {"ok": False, "error": {"message": "Sketch not found"}},
-        })
+        client = MockFreeCADClient(
+            responses={
+                "pad": {"ok": False, "error": {"message": "Sketch not found"}},
+            }
+        )
         ops = [
             CompiledOp(id="OP0", op_type="cad.pad", inputs={}),
         ]
@@ -97,9 +99,7 @@ class TestExecutorFreeCADClient(unittest.TestCase):
         trace = executor.execute_plan(ops, backend="freecad")
 
         self.assertEqual(trace.steps[0].status, "failed")
-        self.assertTrue(
-            any(n.code == "EXECUTION_ERROR" for n in trace.steps[0].notices)
-        )
+        self.assertTrue(any(n.code == "EXECUTION_ERROR" for n in trace.steps[0].notices))
 
     def test_face_reference_resolved(self) -> None:
         client = MockFreeCADClient()
@@ -138,10 +138,7 @@ class TestInvariantChecks(unittest.TestCase):
         trace = executor.execute_plan(ops)
 
         # Mock produces success, so invariant should pass
-        inv_notices = [
-            n for n in trace.steps[0].notices
-            if n.code.startswith("INVARIANT_FAILED")
-        ]
+        inv_notices = [n for n in trace.steps[0].notices if n.code.startswith("INVARIANT_FAILED")]
         self.assertEqual(len(inv_notices), 0)
 
 

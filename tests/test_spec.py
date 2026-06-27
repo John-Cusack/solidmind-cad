@@ -1,4 +1,5 @@
 """Tests for orchestrator.spec — dataclass round-trip with all v3 fields."""
+
 from __future__ import annotations
 
 import tempfile
@@ -32,8 +33,17 @@ class TestSpecStatus(unittest.TestCase):
         self.assertEqual(SpecStatus.RELEASE_PACKAGING.value, "release_packaging")
 
     def test_all_v2_states_preserved(self) -> None:
-        for name in ("DRAFT", "COUNCIL_REVIEW", "INTERFACES_FROZEN", "BUILDING",
-                      "GEOMETRY_VALIDATING", "SCORING", "AWAITING_HUMAN", "DONE", "FAILED"):
+        for name in (
+            "DRAFT",
+            "COUNCIL_REVIEW",
+            "INTERFACES_FROZEN",
+            "BUILDING",
+            "GEOMETRY_VALIDATING",
+            "SCORING",
+            "AWAITING_HUMAN",
+            "DONE",
+            "FAILED",
+        ):
             self.assertIn(name, SpecStatus.__members__)
 
 
@@ -158,34 +168,40 @@ class TestMasterSpecYamlRoundTrip(unittest.TestCase):
             ),
             cost_policy=CostPolicy(max_run_cost_usd=25.0),
         )
-        spec.subsystems.append(Subsystem(
-            id="s1",
-            name="sun_gear",
-            kind=SubsystemKind.GENERATED,
-            complexity_class=ComplexityClass.S,
-            envelope_mm=[16, 16, 20],
-            mass_budget_kg=0.02,
-            material="steel",
-            assembly_constraints={"coaxial_with": "main_shaft"},
-        ))
-        spec.subsystems.append(Subsystem(
-            id="s2",
-            name="bearing",
-            kind=SubsystemKind.CATALOG,
-            supplier_part="SKF 6201-2Z",
-            complexity_class=ComplexityClass.S,
-        ))
-        spec.interfaces.append(Interface(
-            id="ifc1",
-            name="shaft_bore",
-            subsystem_a="sun_gear",
-            port_a="bore",
-            subsystem_b="input_shaft",
-            port_b="spline",
-            datum_scheme="A-B",
-            ctqs=["bore_dia"],
-            inspection={"method": "CMM"},
-        ))
+        spec.subsystems.append(
+            Subsystem(
+                id="s1",
+                name="sun_gear",
+                kind=SubsystemKind.GENERATED,
+                complexity_class=ComplexityClass.S,
+                envelope_mm=[16, 16, 20],
+                mass_budget_kg=0.02,
+                material="steel",
+                assembly_constraints={"coaxial_with": "main_shaft"},
+            )
+        )
+        spec.subsystems.append(
+            Subsystem(
+                id="s2",
+                name="bearing",
+                kind=SubsystemKind.CATALOG,
+                supplier_part="SKF 6201-2Z",
+                complexity_class=ComplexityClass.S,
+            )
+        )
+        spec.interfaces.append(
+            Interface(
+                id="ifc1",
+                name="shaft_bore",
+                subsystem_a="sun_gear",
+                port_a="bore",
+                subsystem_b="input_shaft",
+                port_b="spline",
+                datum_scheme="A-B",
+                ctqs=["bore_dia"],
+                inspection={"method": "CMM"},
+            )
+        )
         return spec
 
     def test_yaml_round_trip(self) -> None:
@@ -259,7 +275,9 @@ cost_policy:
   warn_at_pct: 80
 """
         with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", delete=False,
+            mode="w",
+            suffix=".yaml",
+            delete=False,
         ) as f:
             f.write(v2_yaml)
             path = Path(f.name)
@@ -331,30 +349,37 @@ class TestNewSchemaFields(unittest.TestCase):
     def test_extended_fields_yaml_round_trip(self) -> None:
         """New fields persist through YAML round-trip."""
         import tempfile
+
         spec = MasterSpec(id="ext_test", name="Extended Test")
-        spec.subsystems.append(Subsystem(
-            id="s1", name="gear",
-            kind=SubsystemKind.GENERATED,
-            quantity=4,
-            release=ReleaseRequirements(
-                drawing_required=True,
-                bom_line_type="manufactured",
-                revision_controlled=True,
-            ),
-            manufacturing=ManufacturingSpec(
-                process="CNC_milling",
-                tolerance_general="ISO 2768-m",
-                surface_finish_ra_um=0.8,
-                coating="nickel",
-            ),
-        ))
-        spec.interfaces.append(Interface(
-            id="ifc1", name="mesh",
-            backlash={"min_mm": 0.05},
-            runout_or_concentricity=0.01,
-            lubrication="grease",
-            retention="snap_ring",
-        ))
+        spec.subsystems.append(
+            Subsystem(
+                id="s1",
+                name="gear",
+                kind=SubsystemKind.GENERATED,
+                quantity=4,
+                release=ReleaseRequirements(
+                    drawing_required=True,
+                    bom_line_type="manufactured",
+                    revision_controlled=True,
+                ),
+                manufacturing=ManufacturingSpec(
+                    process="CNC_milling",
+                    tolerance_general="ISO 2768-m",
+                    surface_finish_ra_um=0.8,
+                    coating="nickel",
+                ),
+            )
+        )
+        spec.interfaces.append(
+            Interface(
+                id="ifc1",
+                name="mesh",
+                backlash={"min_mm": 0.05},
+                runout_or_concentricity=0.01,
+                lubrication="grease",
+                retention="snap_ring",
+            )
+        )
         with tempfile.NamedTemporaryFile(suffix=".yaml", delete=False) as f:
             path = Path(f.name)
         try:
@@ -378,6 +403,7 @@ class TestNewSchemaFields(unittest.TestCase):
     def test_backward_compat_no_new_fields(self) -> None:
         """Old YAML without new fields loads with defaults."""
         import tempfile
+
         old_yaml = """\
 id: compat
 name: Compat

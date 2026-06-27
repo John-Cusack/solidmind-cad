@@ -3,6 +3,7 @@
 Closed-form formulas for standard shapes plus arbitrary polygon support
 via the shoelace formula and parallel-axis theorem.
 """
+
 from __future__ import annotations
 
 import math
@@ -46,11 +47,12 @@ def _result_dict(r: SectionResult) -> dict[str, float]:
 # Standard shapes
 # ---------------------------------------------------------------------------
 
+
 def rectangle(width: float, height: float) -> SectionResult:
     """Solid rectangle, origin at centroid."""
     a = width * height
-    ixx = width * height ** 3 / 12.0
-    iyy = height * width ** 3 / 12.0
+    ixx = width * height**3 / 12.0
+    iyy = height * width**3 / 12.0
     return SectionResult(
         area=a,
         centroid_x=0.0,
@@ -68,8 +70,8 @@ def rectangle(width: float, height: float) -> SectionResult:
 def circle(diameter: float) -> SectionResult:
     """Solid circle."""
     r = diameter / 2.0
-    a = math.pi * r ** 2
-    i = math.pi * diameter ** 4 / 64.0
+    a = math.pi * r**2
+    i = math.pi * diameter**4 / 64.0
     return SectionResult(
         area=a,
         centroid_x=0.0,
@@ -90,8 +92,8 @@ def hollow_circle(outer_diameter: float, inner_diameter: float) -> SectionResult
         raise ValueError("inner_diameter must be less than outer_diameter")
     ro = outer_diameter / 2.0
     ri = inner_diameter / 2.0
-    a = math.pi * (ro ** 2 - ri ** 2)
-    i = math.pi * (outer_diameter ** 4 - inner_diameter ** 4) / 64.0
+    a = math.pi * (ro**2 - ri**2)
+    i = math.pi * (outer_diameter**4 - inner_diameter**4) / 64.0
     return SectionResult(
         area=a,
         centroid_x=0.0,
@@ -132,14 +134,14 @@ def i_beam(
     cy = h_total / 2.0
 
     # Ixx about centroid (parallel axis)
-    ixx_web = tw * hw ** 3 / 12.0
-    ixx_flange_self = bf * tf ** 3 / 12.0
+    ixx_web = tw * hw**3 / 12.0
+    ixx_flange_self = bf * tf**3 / 12.0
     d_flange = (hw + tf) / 2.0  # distance from centroid to flange centroid
-    ixx = ixx_web + 2.0 * (ixx_flange_self + a_flange * d_flange ** 2)
+    ixx = ixx_web + 2.0 * (ixx_flange_self + a_flange * d_flange**2)
 
     # Iyy about centroid
-    iyy_web = hw * tw ** 3 / 12.0
-    iyy_flange = tf * bf ** 3 / 12.0
+    iyy_web = hw * tw**3 / 12.0
+    iyy_flange = tf * bf**3 / 12.0
     iyy = iyy_web + 2.0 * iyy_flange
 
     ymax = h_total / 2.0
@@ -195,19 +197,19 @@ def c_channel(
     cx = (a_web * (tw / 2.0) + 2.0 * a_flange * (bf / 2.0)) / a_total
 
     # Ixx about centroidal horizontal axis (symmetric)
-    ixx_web = tw * hw ** 3 / 12.0
-    ixx_flange_self = bf * tf ** 3 / 12.0
+    ixx_web = tw * hw**3 / 12.0
+    ixx_flange_self = bf * tf**3 / 12.0
     d_flange_y = (hw + tf) / 2.0
-    ixx = ixx_web + 2.0 * (ixx_flange_self + a_flange * d_flange_y ** 2)
+    ixx = ixx_web + 2.0 * (ixx_flange_self + a_flange * d_flange_y**2)
 
     # Iyy about centroidal vertical axis (parallel axis)
-    iyy_web_self = hw * tw ** 3 / 12.0
+    iyy_web_self = hw * tw**3 / 12.0
     d_web_x = tw / 2.0 - cx
-    iyy_web = iyy_web_self + a_web * d_web_x ** 2
+    iyy_web = iyy_web_self + a_web * d_web_x**2
 
-    iyy_flange_self = tf * bf ** 3 / 12.0
+    iyy_flange_self = tf * bf**3 / 12.0
     d_flange_x = bf / 2.0 - cx
-    iyy_flange = iyy_flange_self + a_flange * d_flange_x ** 2
+    iyy_flange = iyy_flange_self + a_flange * d_flange_x**2
     iyy = iyy_web + 2.0 * iyy_flange
 
     ymax = h_total / 2.0
@@ -257,18 +259,18 @@ def angle(
     cy = (a1 * t / 2.0 + a2 * (t + (l2 - t) / 2.0)) / a_total
 
     # Ixx about centroid
-    ixx1_self = l1 * t ** 3 / 12.0
+    ixx1_self = l1 * t**3 / 12.0
     d1y = t / 2.0 - cy
     ixx2_self = t * (l2 - t) ** 3 / 12.0
     d2y = (t + (l2 - t) / 2.0) - cy
-    ixx = ixx1_self + a1 * d1y ** 2 + ixx2_self + a2 * d2y ** 2
+    ixx = ixx1_self + a1 * d1y**2 + ixx2_self + a2 * d2y**2
 
     # Iyy about centroid
-    iyy1_self = t * l1 ** 3 / 12.0
+    iyy1_self = t * l1**3 / 12.0
     d1x = l1 / 2.0 - cx
-    iyy2_self = (l2 - t) * t ** 3 / 12.0
+    iyy2_self = (l2 - t) * t**3 / 12.0
     d2x = t / 2.0 - cx
-    iyy = iyy1_self + a1 * d1x ** 2 + iyy2_self + a2 * d2x ** 2
+    iyy = iyy1_self + a1 * d1x**2 + iyy2_self + a2 * d2x**2
 
     # Ixy about centroid
     ixy1 = a1 * d1x * d1y
@@ -317,15 +319,15 @@ def t_section(
     cx = 0.0  # symmetric about vertical axis
 
     # Ixx about centroid
-    ixx_web_self = tw * hw ** 3 / 12.0
+    ixx_web_self = tw * hw**3 / 12.0
     d_web = hw / 2.0 - cy
-    ixx_flange_self = bf * tf ** 3 / 12.0
+    ixx_flange_self = bf * tf**3 / 12.0
     d_flange = (hw + tf / 2.0) - cy
-    ixx = ixx_web_self + a_web * d_web ** 2 + ixx_flange_self + a_flange * d_flange ** 2
+    ixx = ixx_web_self + a_web * d_web**2 + ixx_flange_self + a_flange * d_flange**2
 
     # Iyy about centroid (symmetric)
-    iyy_web = hw * tw ** 3 / 12.0
-    iyy_flange = tf * bf ** 3 / 12.0
+    iyy_web = hw * tw**3 / 12.0
+    iyy_flange = tf * bf**3 / 12.0
     iyy = iyy_web + iyy_flange
 
     ymax = max(cy, h_total - cy)
@@ -348,6 +350,7 @@ def t_section(
 # ---------------------------------------------------------------------------
 # Arbitrary polygon
 # ---------------------------------------------------------------------------
+
 
 def polygon(vertices: list[list[float]]) -> SectionResult:
     """Compute section properties for an arbitrary polygon.
@@ -400,8 +403,8 @@ def polygon(vertices: list[list[float]]) -> SectionResult:
         x0, y0 = pts[i][0] - cx, pts[i][1] - cy
         x1, y1 = pts[(i + 1) % n][0] - cx, pts[(i + 1) % n][1] - cy
         cross = x0 * y1 - x1 * y0
-        ixx += (y0 ** 2 + y0 * y1 + y1 ** 2) * cross
-        iyy += (x0 ** 2 + x0 * x1 + x1 ** 2) * cross
+        ixx += (y0**2 + y0 * y1 + y1**2) * cross
+        iyy += (x0**2 + x0 * x1 + x1**2) * cross
         ixy += (x0 * y1 + 2.0 * x0 * y0 + 2.0 * x1 * y1 + x1 * y0) * cross
     ixx = abs(ixx) / 12.0
     iyy = abs(iyy) / 12.0

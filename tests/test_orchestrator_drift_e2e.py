@@ -19,6 +19,7 @@ lies — not just passes them through. Builds a real ``sun_gear`` with
 Skips cleanly without FreeCAD (same skip-guard pattern as the
 sibling real-worker e2e tests).
 """
+
 from __future__ import annotations
 
 import tempfile
@@ -197,8 +198,7 @@ class TestOrchestratorDriftE2E(unittest.TestCase):
             self.assertIn(
                 FailureCode.MEASUREMENT_DRIFT,
                 report.failure_codes,
-                f"MEASUREMENT_DRIFT should be in failure_codes; got "
-                f"{report.failure_codes}",
+                f"MEASUREMENT_DRIFT should be in failure_codes; got {report.failure_codes}",
             )
             self.assertFalse(
                 report.overall_pass,

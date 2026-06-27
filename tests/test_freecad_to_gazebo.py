@@ -29,6 +29,7 @@ Enable the smoke test::
 
     SOLIDMIND_RUN_SITL_SMOKE=1 python3 -m unittest tests.test_freecad_to_gazebo
 """
+
 from __future__ import annotations
 
 import os
@@ -54,6 +55,7 @@ class TestRunPyHelpers(unittest.TestCase):
 
     def setUp(self) -> None:
         from examples.quadrotor_camera_drone import run as run_mod
+
         self.run = run_mod
 
     # --- name munging ---
@@ -74,8 +76,7 @@ class TestRunPyHelpers(unittest.TestCase):
     def test_model_base_name_strips_gz(self) -> None:
         self.assertEqual(self.run._model_base_name("camera_drone"), "camera_drone")
         self.assertEqual(self.run._model_base_name("gz_camera_drone"), "camera_drone")
-        self.assertEqual(
-            self.run._model_base_name("50837_gz_camera_drone"), "camera_drone")
+        self.assertEqual(self.run._model_base_name("50837_gz_camera_drone"), "camera_drone")
 
     # --- deploy_model_to_px4 ---
 
@@ -86,8 +87,8 @@ class TestRunPyHelpers(unittest.TestCase):
             out_dir.mkdir()
             (out_dir / "test.sdf").write_text(
                 f'<sdf><model name="test"><link><visual>'
-                f'<geometry><mesh><uri>{out_dir}/Chassis.stl</uri></mesh></geometry>'
-                f'</visual></link></model></sdf>'
+                f"<geometry><mesh><uri>{out_dir}/Chassis.stl</uri></mesh></geometry>"
+                f"</visual></link></model></sdf>"
             )
             (out_dir / "Chassis.stl").write_text("solid stub\nendsolid")
             (out_dir / "rotor_FR.stl").write_text("solid stub\nendsolid")
@@ -131,7 +132,8 @@ class TestRunPyHelpers(unittest.TestCase):
         cmake_dir = root / "ROMFS" / "px4fmu_common" / "init.d-posix" / "airframes"
         cmake_dir.mkdir(parents=True)
         cmake_lists = cmake_dir / "CMakeLists.txt"
-        cmake_lists.write_text(textwrap.dedent("""\
+        cmake_lists.write_text(
+            textwrap.dedent("""\
             px4_add_romfs_files(
 
                 4001_gz_x500
@@ -139,7 +141,8 @@ class TestRunPyHelpers(unittest.TestCase):
 
                 # [22000, 22999] Reserve for custom models
             )
-        """))
+        """)
+        )
         return cmake_lists
 
     def test_patch_cmakelists_inserts_new_entry(self) -> None:
@@ -196,19 +199,24 @@ class TestFreecadToAirframeIntegration(unittest.TestCase):
             out_dir = Path(tmp)
             doc_name = "FreecadGazeboTest"
             run_mod.build_drone_geometry(doc_name)
-            mech_id = run_mod.define_rotor_mechanism({
-                "chassis_body": "Chassis",
-                "rotor_bodies": [r[0] for r in run_mod.ROTORS],
-            })
+            mech_id = run_mod.define_rotor_mechanism(
+                {
+                    "chassis_body": "Chassis",
+                    "rotor_bodies": [r[0] for r in run_mod.ROTORS],
+                }
+            )
 
             # Export against a stub PX4 install — generator writes the
             # init script under <px4>/ROMFS/.../airframes/.
             stub_px4 = out_dir / "px4"
-            (stub_px4 / "ROMFS" / "px4fmu_common"
-             / "init.d-posix" / "airframes").mkdir(parents=True)
+            (stub_px4 / "ROMFS" / "px4fmu_common" / "init.d-posix" / "airframes").mkdir(
+                parents=True
+            )
 
             result = run_mod.export_sim_package_with_px4(
-                mech_id, out_dir, stub_px4,
+                mech_id,
+                out_dir,
+                stub_px4,
             )
             airframe_path = Path(result["airframe_path"])
             self.assertTrue(airframe_path.exists())
@@ -219,13 +227,14 @@ class TestFreecadToAirframeIntegration(unittest.TestCase):
             # CA_ROTOR0 (which is rotor_FR per index 0) must therefore
             # have PY > 0 in the generated airframe init.
             import re
-            m = re.search(
-                r"CA_ROTOR0_PY\s+(-?\d+\.?\d*)", init_text)
+
+            m = re.search(r"CA_ROTOR0_PY\s+(-?\d+\.?\d*)", init_text)
             self.assertIsNotNone(m, "CA_ROTOR0_PY not found in airframe init")
             assert m is not None
             ca_py = float(m.group(1))
             self.assertGreater(
-                ca_py, 0.0,
+                ca_py,
+                0.0,
                 "CA_ROTOR0_PY (FRD) must be positive — rotor_FR sits at "
                 "front-right, which is +Y in FRD body frame.  If this is "
                 "negative or zero, extract_rotors() is missing the "
@@ -237,13 +246,15 @@ class TestFreecadToAirframeIntegration(unittest.TestCase):
             sdf_text = Path(result["sdf_path"]).read_text()
             m = re.search(
                 r'<link name="rotor_FR">.*?<pose[^>]*>([-\d.\s]+)</pose>',
-                sdf_text, re.DOTALL,
+                sdf_text,
+                re.DOTALL,
             )
             self.assertIsNotNone(m, "rotor_FR pose not found in SDF")
             assert m is not None
             sdf_pose_y = float(m.group(1).split()[1])
             self.assertLess(
-                sdf_pose_y, 0.0,
+                sdf_pose_y,
+                0.0,
                 "SDF rotor_FR <pose> Y must be negative — FLU right is -Y.  "
                 "If positive, the run.py ROTORS table mislabels the "
                 "rotor (front-right at +Y is actually front-left in FLU).",
@@ -261,8 +272,7 @@ def _smoke_enabled() -> bool:
 
 def _resolve_px4_install() -> Path | None:
     candidate = os.environ.get("SOLIDMIND_PX4_INSTALL")
-    path = Path(candidate).expanduser() if candidate else \
-        Path.home() / "repos" / "PX4-Autopilot"
+    path = Path(candidate).expanduser() if candidate else Path.home() / "repos" / "PX4-Autopilot"
     return path if (path / "ROMFS").is_dir() else None
 
 

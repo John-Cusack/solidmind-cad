@@ -1,4 +1,5 @@
 """Tests for cuDSS direct solver adapter."""
+
 from __future__ import annotations
 
 import unittest

@@ -6,6 +6,7 @@ face ordering, so Face1 → surface entity 1, Face2 → surface entity 2, etc.
 Fallback: geometric matching by center point, normal, and area when index
 correspondence fails (e.g. after boolean operations that split faces).
 """
+
 from __future__ import annotations
 
 import logging
@@ -60,7 +61,9 @@ def map_face_refs_to_gmsh(
         else:
             log.warning(
                 "Face ref %s (index %d) out of range (%d surfaces)",
-                ref, idx, len(gmsh_surfaces),
+                ref,
+                idx,
+                len(gmsh_surfaces),
             )
 
     return result

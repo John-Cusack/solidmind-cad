@@ -18,6 +18,7 @@ Pipeline:
    (``bore_dia`` + ``pin_circle_dia``) so verify-mode strategies can
    pick them up.
 """
+
 from __future__ import annotations
 
 import math
@@ -114,9 +115,7 @@ def build_planet_carrier(
     )
 
     interface_id = (
-        "ifc1"
-        if interfaces is None
-        else (interfaces[0] if interfaces else {}).get("id", "ifc1")
+        "ifc1" if interfaces is None else (interfaces[0] if interfaces else {}).get("id", "ifc1")
     )
 
     return common.dispatch_and_rewrite(

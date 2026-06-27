@@ -100,7 +100,22 @@ def _extract_zip_to_text(zip_path: Path, text_path: Path) -> bool:
                     continue
                 member_path = Path(member.filename)
                 ext = member_path.suffix.lower()
-                if ext not in {".txt", ".md", ".rst", ".yaml", ".yml", ".json", ".csv", ".html", ".htm", ".pdf", ".inp", ".py", ".f", ".f90"}:
+                if ext not in {
+                    ".txt",
+                    ".md",
+                    ".rst",
+                    ".yaml",
+                    ".yml",
+                    ".json",
+                    ".csv",
+                    ".html",
+                    ".htm",
+                    ".pdf",
+                    ".inp",
+                    ".py",
+                    ".f",
+                    ".f90",
+                }:
                     continue
                 payload = zf.read(member)
                 header = f"\n\n=== {member.filename} ===\n"
@@ -114,7 +129,9 @@ def _extract_zip_to_text(zip_path: Path, text_path: Path) -> bool:
                     local_txt = tmp_dir / f"{member_path.stem}.txt"
                     local_pdf.write_bytes(payload)
                     if _run_pdftotext(local_pdf, local_txt):
-                        chunks.append(header + local_txt.read_text(encoding="utf-8", errors="ignore"))
+                        chunks.append(
+                            header + local_txt.read_text(encoding="utf-8", errors="ignore")
+                        )
                     continue
 
                 chunks.append(header + payload.decode("utf-8", errors="ignore"))
@@ -217,14 +234,26 @@ def _process_resource(
 
 
 def main(argv: list[str]) -> int:
-    parser = argparse.ArgumentParser(description="Sync ME corpus seed resources and extract searchable text.")
+    parser = argparse.ArgumentParser(
+        description="Sync ME corpus seed resources and extract searchable text."
+    )
     parser.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
     parser.add_argument("--raw-dir", type=Path, default=DEFAULT_RAW_DIR)
     parser.add_argument("--text-dir", type=Path, default=DEFAULT_TEXT_DIR)
     parser.add_argument("--index", type=Path, default=DEFAULT_INDEX)
-    parser.add_argument("--force", action="store_true", help="Redownload and re-extract all public resources.")
-    parser.add_argument("--timeout", type=int, default=90, help="HTTP timeout per resource in seconds.")
-    parser.add_argument("--id", dest="ids", action="append", default=[], help="Restrict sync to one or more resource IDs.")
+    parser.add_argument(
+        "--force", action="store_true", help="Redownload and re-extract all public resources."
+    )
+    parser.add_argument(
+        "--timeout", type=int, default=90, help="HTTP timeout per resource in seconds."
+    )
+    parser.add_argument(
+        "--id",
+        dest="ids",
+        action="append",
+        default=[],
+        help="Restrict sync to one or more resource IDs.",
+    )
     args = parser.parse_args(argv)
 
     resources = _load_manifest(args.manifest)

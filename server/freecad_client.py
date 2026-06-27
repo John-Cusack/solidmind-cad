@@ -3,6 +3,7 @@
 The MCP bridge server uses this client to send commands to the FreeCAD addon
 running inside the FreeCAD GUI process over a TCP socket.
 """
+
 from __future__ import annotations
 
 import logging
@@ -82,10 +83,12 @@ class FreeCADClient:
             except FreeCADConnectionError as e:
                 last_error = e
                 if attempt < max_retries - 1:
-                    delay = retry_delay * (2 ** attempt)
+                    delay = retry_delay * (2**attempt)
                     logger.warning(
                         "Connection attempt %d/%d failed, retrying in %.1fs",
-                        attempt + 1, max_retries, delay,
+                        attempt + 1,
+                        max_retries,
+                        delay,
                     )
                     time.sleep(delay)
 
@@ -165,14 +168,10 @@ class FreeCADClient:
             try:
                 data = self._sock.recv(4096)
             except TimeoutError as e:
-                raise FreeCADConnectionError(
-                    f"Timed out waiting for response ({timeout}s)"
-                ) from e
+                raise FreeCADConnectionError(f"Timed out waiting for response ({timeout}s)") from e
             except (ConnectionResetError, OSError) as e:
                 self._sock = None
-                raise FreeCADConnectionError(
-                    f"Connection lost while reading: {e}"
-                ) from e
+                raise FreeCADConnectionError(f"Connection lost while reading: {e}") from e
 
             if not data:
                 self._sock = None

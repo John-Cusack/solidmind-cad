@@ -190,9 +190,7 @@ class Executor:
 
         if isinstance(result, dict):
             if result.get("ok") is False:
-                raise RuntimeError(
-                    result.get("error", {}).get("message", "Unknown FreeCAD error")
-                )
+                raise RuntimeError(result.get("error", {}).get("message", "Unknown FreeCAD error"))
             output["result"] = result.get("result", result)
             result_name = result.get("result", {}).get("name", "")
             if result_name:
@@ -301,12 +299,14 @@ def compute_execution_trace_hash(trace: ExecutionTrace) -> str:
     """Compute deterministic hash of execution trace per Section 8."""
     steps_data = []
     for step in trace.steps:
-        steps_data.append({
-            "op_id": step.op.id,
-            "op_type": step.op.op_type,
-            "status": step.status,
-            "output_keys": sorted(step.output.keys()) if step.output else [],
-        })
+        steps_data.append(
+            {
+                "op_id": step.op.id,
+                "op_type": step.op.op_type,
+                "status": step.status,
+                "output_keys": sorted(step.output.keys()) if step.output else [],
+            }
+        )
 
     canonical = {
         "steps": steps_data,

@@ -8,6 +8,7 @@ entirely on GPU.  Uses the Walk-These-Ways multiplicative composition:
 where r_positive encourages velocity tracking and r_negative penalizes
 undesirable behaviors (vertical bounce, orientation error, energy waste).
 """
+
 from __future__ import annotations
 
 import math
@@ -27,18 +28,18 @@ class RewardWeights:
     track_ang_vel_z: float = 0.5
     feet_air_time: float = 0.25
     base_velocity: float = 1.0
-    survival: float = 1.0          # strong incentive to stay alive / upright
+    survival: float = 1.0  # strong incentive to stay alive / upright
 
     # Negative (penalty) terms
     lin_vel_z: float = -2.0
     ang_vel_xy: float = -0.05
-    orientation: float = -2.0      # strong upright signal — penalize any tilt
+    orientation: float = -2.0  # strong upright signal — penalize any tilt
     steep_pitch_penalty: float = -8.0  # harsh quadratic ramp above ~20° tilt
     joint_torques: float = -1e-5
     action_rate: float = -0.01
-    base_height: float = -50.0    # strong height tracking — dropping body is heavily penalized
+    base_height: float = -50.0  # strong height tracking — dropping body is heavily penalized
     dof_acceleration: float = -2.5e-7  # smooths joint commands, prevents oscillation
-    undesired_contacts: float = -1.0   # penalize non-foot body parts hitting ground
+    undesired_contacts: float = -1.0  # penalize non-foot body parts hitting ground
     joint_limit_proximity: float = -2.0  # soft penalty near joint limits
 
     # Composition temperature (higher = softer penalty curve)
@@ -51,16 +52,16 @@ class RewardWeights:
 
 def compute_locomotion_reward(
     *,
-    base_lin_vel: Any,       # (N, 3) body-frame linear velocity
-    base_ang_vel: Any,       # (N, 3) body-frame angular velocity
+    base_lin_vel: Any,  # (N, 3) body-frame linear velocity
+    base_ang_vel: Any,  # (N, 3) body-frame angular velocity
     projected_gravity: Any,  # (N, 3) gravity in body frame
     velocity_commands: Any,  # (N, 3) [cmd_vx, cmd_vy, cmd_yaw]
-    joint_torques: Any,      # (N, num_joints)
+    joint_torques: Any,  # (N, num_joints)
     joint_velocities: Any | None = None,  # (N, num_joints) for dof_acc penalty
-    actions: Any,            # (N, num_joints)
-    prev_actions: Any,       # (N, num_joints)
+    actions: Any,  # (N, num_joints)
+    prev_actions: Any,  # (N, num_joints)
     prev_prev_actions: Any | None = None,  # (N, num_joints) for dof_acc
-    base_height: Any,        # (N,) base z-coordinate
+    base_height: Any,  # (N,) base z-coordinate
     target_height: float = 0.09,
     feet_air_time_reward: Any | None = None,  # (N,) pre-computed feet air time reward
     undesired_contact_count: Any | None = None,  # (N,) number of non-foot contacts
@@ -102,14 +103,12 @@ def compute_locomotion_reward(
 
     # ── Positive terms (tracking rewards) ─────────────────────────
     # Linear velocity XY tracking (exponential kernel)
-    vel_error_xy = torch.sum(
-        (base_lin_vel[:, :2] - velocity_commands[:, :2]) ** 2, dim=-1
-    )
-    r_track_lin = torch.exp(-vel_error_xy / (sigma ** 2))
+    vel_error_xy = torch.sum((base_lin_vel[:, :2] - velocity_commands[:, :2]) ** 2, dim=-1)
+    r_track_lin = torch.exp(-vel_error_xy / (sigma**2))
 
     # Angular velocity Z tracking
     yaw_error = (base_ang_vel[:, 2] - velocity_commands[:, 2]) ** 2
-    r_track_ang = torch.exp(-yaw_error / (sigma ** 2))
+    r_track_ang = torch.exp(-yaw_error / (sigma**2))
 
     # Base velocity reward: rewards moving WHEN commanded, stillness when
     # commanded zero.  |cmd_vel| * |actual_vel| is zero when either is zero
@@ -146,7 +145,7 @@ def compute_locomotion_reward(
     r_orientation = weights.orientation * torch.sum(projected_gravity[:, :2] ** 2, dim=-1)
 
     # Joint torque penalty
-    r_torques = weights.joint_torques * torch.sum(joint_torques ** 2, dim=-1)
+    r_torques = weights.joint_torques * torch.sum(joint_torques**2, dim=-1)
 
     # Action rate penalty (smoothness)
     r_action_rate = weights.action_rate * torch.sum((actions - prev_actions) ** 2, dim=-1)
@@ -159,7 +158,7 @@ def compute_locomotion_reward(
     if prev_prev_actions is not None and weights.dof_acceleration != 0.0:
         # Finite-difference second derivative of actions
         dof_acc = actions - 2.0 * prev_actions + prev_prev_actions
-        r_dof_acc = weights.dof_acceleration * torch.sum(dof_acc ** 2, dim=-1)
+        r_dof_acc = weights.dof_acceleration * torch.sum(dof_acc**2, dim=-1)
 
     # Undesired contacts penalty — penalize non-foot body parts hitting ground
     r_contacts = torch.zeros(base_lin_vel.shape[0], device=base_lin_vel.device)
@@ -168,13 +167,17 @@ def compute_locomotion_reward(
 
     # Joint limit proximity penalty — soft penalty when within 10% of limit range
     r_joint_limits = torch.zeros(base_lin_vel.shape[0], device=base_lin_vel.device)
-    if (joint_positions is not None and joint_lower_limits is not None
-            and joint_upper_limits is not None and weights.joint_limit_proximity != 0.0):
+    if (
+        joint_positions is not None
+        and joint_lower_limits is not None
+        and joint_upper_limits is not None
+        and weights.joint_limit_proximity != 0.0
+    ):
         joint_range = joint_upper_limits - joint_lower_limits
         margin = 0.1 * joint_range
         below = torch.clamp(joint_lower_limits + margin - joint_positions, min=0.0)
         above = torch.clamp(joint_positions - (joint_upper_limits - margin), min=0.0)
-        r_joint_limits = weights.joint_limit_proximity * torch.sum(below ** 2 + above ** 2, dim=-1)
+        r_joint_limits = weights.joint_limit_proximity * torch.sum(below**2 + above**2, dim=-1)
 
     # Steep pitch penalty — quadratic ramp above ~20° tilt (sin(0.35) threshold)
     r_steep_pitch = torch.zeros(base_lin_vel.shape[0], device=base_lin_vel.device)
@@ -182,11 +185,18 @@ def compute_locomotion_reward(
         tilt_magnitude = torch.norm(projected_gravity[:, :2], dim=-1)  # 0 when upright
         threshold = _STEEP_PITCH_THRESHOLD
         pitch_excess = torch.clamp(tilt_magnitude - threshold, min=0.0)
-        r_steep_pitch = weights.steep_pitch_penalty * pitch_excess ** 2
+        r_steep_pitch = weights.steep_pitch_penalty * pitch_excess**2
 
     r_negative = (
-        r_lin_vel_z + r_ang_vel_xy + r_orientation + r_torques
-        + r_action_rate + r_height + r_dof_acc + r_contacts + r_joint_limits
+        r_lin_vel_z
+        + r_ang_vel_xy
+        + r_orientation
+        + r_torques
+        + r_action_rate
+        + r_height
+        + r_dof_acc
+        + r_contacts
+        + r_joint_limits
         + r_steep_pitch
     )
 
@@ -199,7 +209,7 @@ def compute_locomotion_reward(
 def compute_feet_air_time_reward(
     *,
     foot_contact_forces: Any,  # (N, num_feet, 3)
-    last_contact_time: Any,    # (N, num_feet) seconds since last contact
+    last_contact_time: Any,  # (N, num_feet) seconds since last contact
     dt: float,
     target_air_time: float = 0.3,
 ) -> tuple[Any, Any]:

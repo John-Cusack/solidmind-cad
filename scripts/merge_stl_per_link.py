@@ -9,6 +9,7 @@ Usage::
         hexapod_18dof_fresh_pkg/Hexapod18DOF_merged.urdf \
         hexapod_18dof_fresh_pkg/Hexapod18DOF_final.urdf
 """
+
 from __future__ import annotations
 
 import math
@@ -29,11 +30,13 @@ def _rpy_to_matrix(rpy: np.ndarray) -> np.ndarray:
     cr, sr = math.cos(r), math.sin(r)
     cp, sp = math.cos(p), math.sin(p)
     cy, sy = math.cos(y), math.sin(y)
-    return np.array([
-        [cy*cp, cy*sp*sr - sy*cr, cy*sp*cr + sy*sr],
-        [sy*cp, sy*sp*sr + cy*cr, sy*sp*cr - cy*sr],
-        [-sp,   cp*sr,            cp*cr],
-    ])
+    return np.array(
+        [
+            [cy * cp, cy * sp * sr - sy * cr, cy * sp * cr + sy * sr],
+            [sy * cp, sy * sp * sr + cy * cr, sy * sp * cr - cy * sr],
+            [-sp, cp * sr, cp * cr],
+        ]
+    )
 
 
 def read_stl_binary(path: str) -> tuple[np.ndarray, np.ndarray]:
@@ -189,8 +192,10 @@ def merge_link_meshes(urdf_path: str, output_path: str) -> None:
             new_mesh.set("filename", str(merged_path.resolve()))
             # No scale — already baked in
 
-            print(f"  {link_name}/{tag}: merged {len(elements)} meshes "
-                  f"({sum(len(n) for n in all_normals)} triangles) → {merged_name}")
+            print(
+                f"  {link_name}/{tag}: merged {len(elements)} meshes "
+                f"({sum(len(n) for n in all_normals)} triangles) → {merged_name}"
+            )
 
     ET.indent(tree, space="  ")
     tree.write(output_path, xml_declaration=True, encoding="utf-8")

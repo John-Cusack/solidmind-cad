@@ -33,4 +33,3 @@ def next_deterministic_ts(spec_draft: dict) -> str:
     interview["_counter"] = counter
 
     return _format_iso8601_z(base + timedelta(seconds=counter))
-

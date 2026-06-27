@@ -42,9 +42,7 @@ class TestCompilerContracts(unittest.TestCase):
     def test_compile_sequence_with_dependencies(self) -> None:
         builder = EIRBuilder()
         builder.add_operation("pad", {"sketch": "S1", "length": 10.0})
-        builder.add_operation(
-            "pocket", {"sketch": "S2", "depth": 5.0}, depends_on=["OP0"]
-        )
+        builder.add_operation("pocket", {"sketch": "S2", "depth": 5.0}, depends_on=["OP0"])
         eir = builder.build()
 
         result = self.compiler.compile_eir(eir)
@@ -59,9 +57,7 @@ class TestCompilerContracts(unittest.TestCase):
         result = self.compiler.compile_eir(eir)
 
         self.assertEqual(result.status, CompilerStatus.UNSUPPORTED)
-        self.assertTrue(
-            any("Unsupported operation type" in n.message for n in result.notices)
-        )
+        self.assertTrue(any("Unsupported operation type" in n.message for n in result.notices))
 
     def test_compile_preserves_operation_order(self) -> None:
         builder = EIRBuilder()
@@ -93,11 +89,14 @@ class TestCompilerContracts(unittest.TestCase):
 
     def test_compile_sweep_operation(self) -> None:
         builder = EIRBuilder()
-        builder.add_operation("sweep", {
-            "profile_sketch": "Sketch",
-            "spine_sketch": "Sketch001",
-            "subtractive": False,
-        })
+        builder.add_operation(
+            "sweep",
+            {
+                "profile_sketch": "Sketch",
+                "spine_sketch": "Sketch001",
+                "subtractive": False,
+            },
+        )
         eir = builder.build()
 
         result = self.compiler.compile_eir(eir)
@@ -108,12 +107,15 @@ class TestCompilerContracts(unittest.TestCase):
 
     def test_compile_loft_operation(self) -> None:
         builder = EIRBuilder()
-        builder.add_operation("loft", {
-            "sketches": ["Sketch", "Sketch001"],
-            "ruled": False,
-            "closed": False,
-            "subtractive": False,
-        })
+        builder.add_operation(
+            "loft",
+            {
+                "sketches": ["Sketch", "Sketch001"],
+                "ruled": False,
+                "closed": False,
+                "subtractive": False,
+            },
+        )
         eir = builder.build()
 
         result = self.compiler.compile_eir(eir)
@@ -124,11 +126,14 @@ class TestCompilerContracts(unittest.TestCase):
 
     def test_compile_subtractive_sweep(self) -> None:
         builder = EIRBuilder()
-        builder.add_operation("sweep", {
-            "profile_sketch": "Sketch",
-            "spine_sketch": "Sketch001",
-            "subtractive": True,
-        })
+        builder.add_operation(
+            "sweep",
+            {
+                "profile_sketch": "Sketch",
+                "spine_sketch": "Sketch001",
+                "subtractive": True,
+            },
+        )
         eir = builder.build()
 
         result = self.compiler.compile_eir(eir)

@@ -1,4 +1,5 @@
 """Tests for orchestrator.runner — init, prompts, collection, gates."""
+
 from __future__ import annotations
 
 import json
@@ -82,9 +83,16 @@ def _make_two_cube_spec() -> MasterSpec:
         mass_budget_kg=0.1,
         material="aluminum",
         interfaces=["ifc_boss_hole"],
-        specs={"base_size_mm": 20, "base_height_mm": 10, "boss_diameter_mm": 10, "boss_height_mm": 5},
+        specs={
+            "base_size_mm": 20,
+            "base_height_mm": 10,
+            "boss_diameter_mm": 10,
+            "boss_height_mm": 5,
+        },
         worker_count=2,
-        manufacturing=ManufacturingSpec(process="CNC_milling", min_feature_size_mm=0.5, min_wall_mm=1.0),
+        manufacturing=ManufacturingSpec(
+            process="CNC_milling", min_feature_size_mm=0.5, min_wall_mm=1.0
+        ),
     )
     cube_b = Subsystem(
         id="s_cube_b",
@@ -95,9 +103,16 @@ def _make_two_cube_spec() -> MasterSpec:
         mass_budget_kg=0.1,
         material="aluminum",
         interfaces=["ifc_boss_hole"],
-        specs={"base_size_mm": 20, "base_height_mm": 10, "hole_diameter_mm": 10, "hole_depth_mm": 5},
+        specs={
+            "base_size_mm": 20,
+            "base_height_mm": 10,
+            "hole_diameter_mm": 10,
+            "hole_depth_mm": 5,
+        },
         worker_count=1,
-        manufacturing=ManufacturingSpec(process="CNC_milling", min_feature_size_mm=0.5, min_wall_mm=1.0),
+        manufacturing=ManufacturingSpec(
+            process="CNC_milling", min_feature_size_mm=0.5, min_wall_mm=1.0
+        ),
     )
     bolt = Subsystem(
         id="s_bolt",
@@ -161,6 +176,7 @@ class TestBuildWorkerPrompts(unittest.TestCase):
 
     def tearDown(self) -> None:
         import shutil
+
         shutil.rmtree(self.td, ignore_errors=True)
 
     def test_generates_prompts_for_generated_only(self) -> None:
@@ -174,7 +190,9 @@ class TestBuildWorkerPrompts(unittest.TestCase):
 
     def test_prompt_contains_interface_specs(self) -> None:
         prompts = build_worker_prompts(self.run)
-        cube_a_prompt = next(p for p in prompts if p["subsystem"] == "cube_a" and p["variant_index"] == 0)
+        cube_a_prompt = next(
+            p for p in prompts if p["subsystem"] == "cube_a" and p["variant_index"] == 0
+        )
         text = cube_a_prompt["prompt"]
         self.assertIn("Boss-hole mate", text)
         self.assertIn("cylindrical_fit", text)
@@ -223,6 +241,7 @@ class TestCollectWorkerResults(unittest.TestCase):
 
     def tearDown(self) -> None:
         import shutil
+
         shutil.rmtree(self.td, ignore_errors=True)
 
     def test_missing_outputs(self) -> None:
@@ -364,6 +383,7 @@ class TestGateG4(unittest.TestCase):
 
     def tearDown(self) -> None:
         import shutil
+
         shutil.rmtree(self.td, ignore_errors=True)
 
     def test_fails_no_artifacts(self) -> None:
@@ -395,8 +415,16 @@ class TestGateG4(unittest.TestCase):
 class TestFormatDispatchInstructions(unittest.TestCase):
     def test_output_format(self) -> None:
         prompts = [
-            {"description": "Build sun (variant 0)", "output_dir": "/tmp/sun_0/output", "prompt": "x" * 100},
-            {"description": "Build carrier (variant 0)", "output_dir": "/tmp/carrier_0/output", "prompt": "y" * 200},
+            {
+                "description": "Build sun (variant 0)",
+                "output_dir": "/tmp/sun_0/output",
+                "prompt": "x" * 100,
+            },
+            {
+                "description": "Build carrier (variant 0)",
+                "output_dir": "/tmp/carrier_0/output",
+                "prompt": "y" * 200,
+            },
         ]
         text = format_dispatch_instructions(prompts)
         self.assertIn("2 worker(s)", text)
@@ -416,6 +444,7 @@ class TestDryRun(unittest.TestCase):
 
     def tearDown(self) -> None:
         import shutil
+
         shutil.rmtree(self.td, ignore_errors=True)
 
     def test_creates_prompts_dir(self) -> None:
@@ -454,8 +483,7 @@ class TestDryRun(unittest.TestCase):
         for f in prompts_dir.glob("*.md"):
             if f.name == "INDEX.md":
                 continue
-            self.assertGreater(f.stat().st_size, 100,
-                               f"{f.name} is suspiciously small")
+            self.assertGreater(f.stat().st_size, 100, f"{f.name} is suspiciously small")
 
 
 class TestGateG3Extended(unittest.TestCase):
@@ -463,43 +491,62 @@ class TestGateG3Extended(unittest.TestCase):
 
     def test_g3_rejects_gear_mesh_missing_backlash(self) -> None:
         spec = MasterSpec(name="test", global_constraints={"x": 1})
-        spec.interfaces.append(Interface(
-            id="ifc_gear", name="gear_mesh_ifc",
-            subsystem_a="sun", subsystem_b="planet",
-            geometry={"module": 0.3},
-            frame_a=CoordinateFrame(origin_mm=[0, 0, 5]),
-            mating=MatingSemantic(type="gear_mesh"),
-            validation=ValidationMethod(check_points=[
-                ValidationCheckPoint(feature="center_distance", expected_mm=15, tolerance_mm=0.05),
-            ]),
-            # No backlash specified
-        ))
+        spec.interfaces.append(
+            Interface(
+                id="ifc_gear",
+                name="gear_mesh_ifc",
+                subsystem_a="sun",
+                subsystem_b="planet",
+                geometry={"module": 0.3},
+                frame_a=CoordinateFrame(origin_mm=[0, 0, 5]),
+                mating=MatingSemantic(type="gear_mesh"),
+                validation=ValidationMethod(
+                    check_points=[
+                        ValidationCheckPoint(
+                            feature="center_distance", expected_mm=15, tolerance_mm=0.05
+                        ),
+                    ]
+                ),
+                # No backlash specified
+            )
+        )
         ok, issues = check_gate_g3(spec)
         self.assertFalse(ok)
         self.assertTrue(any("backlash" in i for i in issues))
 
     def test_g3_passes_gear_mesh_with_backlash(self) -> None:
         spec = MasterSpec(name="test", global_constraints={"x": 1})
-        spec.interfaces.append(Interface(
-            id="ifc_gear", name="gear_mesh_ifc",
-            subsystem_a="sun", subsystem_b="planet",
-            geometry={"module": 0.3},
-            frame_a=CoordinateFrame(origin_mm=[0, 0, 5]),
-            mating=MatingSemantic(type="gear_mesh"),
-            validation=ValidationMethod(check_points=[
-                ValidationCheckPoint(feature="center_distance", expected_mm=15, tolerance_mm=0.05),
-            ]),
-            backlash={"min_mm": 0.05, "max_mm": 0.10},
-        ))
+        spec.interfaces.append(
+            Interface(
+                id="ifc_gear",
+                name="gear_mesh_ifc",
+                subsystem_a="sun",
+                subsystem_b="planet",
+                geometry={"module": 0.3},
+                frame_a=CoordinateFrame(origin_mm=[0, 0, 5]),
+                mating=MatingSemantic(type="gear_mesh"),
+                validation=ValidationMethod(
+                    check_points=[
+                        ValidationCheckPoint(
+                            feature="center_distance", expected_mm=15, tolerance_mm=0.05
+                        ),
+                    ]
+                ),
+                backlash={"min_mm": 0.05, "max_mm": 0.10},
+            )
+        )
         ok, issues = check_gate_g3(spec)
         self.assertTrue(ok, issues)
 
     def test_g3_rejects_catalog_missing_supplier_part(self) -> None:
         spec = MasterSpec(name="test")
-        spec.subsystems.append(Subsystem(
-            name="bearing", kind=SubsystemKind.CATALOG,
-            # No supplier_part
-        ))
+        spec.subsystems.append(
+            Subsystem(
+                name="bearing",
+                kind=SubsystemKind.CATALOG,
+                # No supplier_part
+            )
+        )
         ok, issues = check_gate_g3(spec)
         self.assertFalse(ok)
         self.assertTrue(any("supplier_part" in i for i in issues))
@@ -510,6 +557,7 @@ class TestWorkerPromptSkeleton(unittest.TestCase):
 
     def setUp(self) -> None:
         from orchestrator.spec import AssemblySkeleton
+
         self.td = tempfile.mkdtemp()
         self.run = init_run("Test", run_dir=Path(self.td) / "run")
         spec = _make_two_cube_spec()
@@ -528,13 +576,13 @@ class TestWorkerPromptSkeleton(unittest.TestCase):
 
     def tearDown(self) -> None:
         import shutil
+
         shutil.rmtree(self.td, ignore_errors=True)
 
     def test_prompt_contains_reserved_volume(self) -> None:
         prompts = build_worker_prompts(self.run)
         cube_a_prompt = next(
-            p for p in prompts
-            if p["subsystem"] == "cube_a" and p["variant_index"] == 0
+            p for p in prompts if p["subsystem"] == "cube_a" and p["variant_index"] == 0
         )
         self.assertIn("Spatial Constraints", cube_a_prompt["prompt"])
         self.assertIn("Reserved volume", cube_a_prompt["prompt"])
@@ -542,19 +590,17 @@ class TestWorkerPromptSkeleton(unittest.TestCase):
     def test_prompt_contains_datums(self) -> None:
         prompts = build_worker_prompts(self.run)
         cube_a_prompt = next(
-            p for p in prompts
-            if p["subsystem"] == "cube_a" and p["variant_index"] == 0
+            p for p in prompts if p["subsystem"] == "cube_a" and p["variant_index"] == 0
         )
         self.assertIn("main_shaft", cube_a_prompt["prompt"])
 
     def test_prompt_no_skeleton_when_empty(self) -> None:
         from orchestrator.spec import AssemblySkeleton
+
         self.run.spec.skeleton = AssemblySkeleton()
         self.run.spec.subsystems[0].assembly_constraints = {}
         prompts = build_worker_prompts(self.run)
-        cube_b_prompt = next(
-            p for p in prompts if p["subsystem"] == "cube_b"
-        )
+        cube_b_prompt = next(p for p in prompts if p["subsystem"] == "cube_b")
         self.assertNotIn("Spatial Constraints", cube_b_prompt["prompt"])
 
 

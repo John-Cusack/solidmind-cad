@@ -7,6 +7,7 @@ state updates in analytical mode.
 P5 additions: mock articulation tests (apply_action verification) and
 joint-limit clamping integration tests.
 """
+
 from __future__ import annotations
 
 import json
@@ -24,8 +25,18 @@ def _mechanism() -> dict:
             {"id": "body", "is_ground": False},
         ],
         "joints": [
-            {"id": "hip_lf", "joint_type": "revolute", "parent_part": "body", "child_part": "leg_lf"},
-            {"id": "hip_rf", "joint_type": "revolute", "parent_part": "body", "child_part": "leg_rf"},
+            {
+                "id": "hip_lf",
+                "joint_type": "revolute",
+                "parent_part": "body",
+                "child_part": "leg_lf",
+            },
+            {
+                "id": "hip_rf",
+                "joint_type": "revolute",
+                "parent_part": "body",
+                "child_part": "leg_rf",
+            },
         ],
         "drives": [],
     }
@@ -96,8 +107,7 @@ class TestTickTeleopNoArticulation(unittest.TestCase):
         state = self.runtime.teleop_state(session_id=session_id)
         targets = state["last_joint_targets_rad"]
         for name, val in targets.items():
-            self.assertAlmostEqual(val, 0.0, places=4,
-                                   msg=f"{name} should be at neutral (0.0)")
+            self.assertAlmostEqual(val, 0.0, places=4, msg=f"{name} should be at neutral (0.0)")
 
     def test_tick_last_apply_ok_true_without_articulation(self) -> None:
         session_id = self._start_session()
@@ -150,7 +160,10 @@ class TestTickWithYawAndHeight(unittest.TestCase):
         self.runtime = IsaacRuntime(headless=True)
 
     def _start_and_command(
-        self, vx: float = 0.0, yaw: float = 0.0, height: float = 0.0,
+        self,
+        vx: float = 0.0,
+        yaw: float = 0.0,
+        height: float = 0.0,
     ) -> str:
         result = self.runtime.teleop_start(mechanism=_mechanism())
         sid = result["session_id"]
@@ -185,8 +198,7 @@ class TestTickWithYawAndHeight(unittest.TestCase):
         targets = state["last_joint_targets_rad"]
         # All targets should have a positive offset from neutral
         for name, val in targets.items():
-            self.assertGreater(val, -0.001,
-                               msg=f"{name} should have positive height offset")
+            self.assertGreater(val, -0.001, msg=f"{name} should have positive height offset")
 
 
 class TestTickViaBridge(unittest.TestCase):
@@ -200,49 +212,69 @@ class TestTickViaBridge(unittest.TestCase):
 
     def test_tick_after_teleop_start(self) -> None:
         """The runtime's tick_teleop can be called directly after bridge-level start."""
-        started = self._call(json.dumps({
-            "cmd": "teleop_start",
-            "args": {"mechanism": _mechanism()},
-        }))
+        started = self._call(
+            json.dumps(
+                {
+                    "cmd": "teleop_start",
+                    "args": {"mechanism": _mechanism()},
+                }
+            )
+        )
         self.assertTrue(started["ok"])
         session_id = started["result"]["session_id"]
 
         # Simulate what the pump loop does
         self.server._runtime.tick_teleop(0.01)
 
-        state = self._call(json.dumps({
-            "cmd": "teleop_state",
-            "args": {"session_id": session_id},
-        }))
+        state = self._call(
+            json.dumps(
+                {
+                    "cmd": "teleop_state",
+                    "args": {"session_id": session_id},
+                }
+            )
+        )
         self.assertTrue(state["ok"])
         self.assertEqual(state["result"]["tick_count"], 1)
 
     def test_command_then_tick_updates_targets(self) -> None:
-        started = self._call(json.dumps({
-            "cmd": "teleop_start",
-            "args": {"mechanism": _mechanism()},
-        }))
+        started = self._call(
+            json.dumps(
+                {
+                    "cmd": "teleop_start",
+                    "args": {"mechanism": _mechanism()},
+                }
+            )
+        )
         session_id = started["result"]["session_id"]
 
         # Send command
-        self._call(json.dumps({
-            "cmd": "teleop_command",
-            "args": {
-                "session_id": session_id,
-                "vx_mps": 0.5,
-                "yaw_rate_rps": 0.0,
-                "body_height_m": 0.0,
-            },
-        }))
+        self._call(
+            json.dumps(
+                {
+                    "cmd": "teleop_command",
+                    "args": {
+                        "session_id": session_id,
+                        "vx_mps": 0.5,
+                        "yaw_rate_rps": 0.0,
+                        "body_height_m": 0.0,
+                    },
+                }
+            )
+        )
 
         # Tick many times
         for _ in range(200):
             self.server._runtime.tick_teleop(0.01)
 
-        state = self._call(json.dumps({
-            "cmd": "teleop_state",
-            "args": {"session_id": session_id},
-        }))
+        state = self._call(
+            json.dumps(
+                {
+                    "cmd": "teleop_state",
+                    "args": {"session_id": session_id},
+                }
+            )
+        )
         self.assertTrue(state["ok"])
         self.assertEqual(state["result"]["tick_count"], 200)
         targets = state["result"]["last_joint_targets_rad"]
@@ -296,6 +328,7 @@ class TestTickWithMockArticulation(unittest.TestCase):
             targets = mock_apply.call_args[0][1]
             # Default TeleopConfig has 6 joints; targets should include all of them
             from isaac_bridge.models import TeleopConfig
+
             config = TeleopConfig()
             for name in config.joint_names:
                 self.assertIn(name, targets, f"Missing joint {name} in targets")
@@ -320,7 +353,8 @@ class TestTickWithMockArticulation(unittest.TestCase):
         """last_apply_ok is False when _apply_and_step raises."""
         sid = self._start_with_mock_articulation()
         with unittest.mock.patch.object(
-            self.runtime, "_apply_and_step",
+            self.runtime,
+            "_apply_and_step",
             side_effect=RuntimeError("GPU error"),
         ):
             self.runtime.tick_teleop(0.01)
@@ -333,7 +367,10 @@ class TestTickWithMockArticulation(unittest.TestCase):
         """With a forward command and mock articulation, targets are non-neutral."""
         sid = self._start_with_mock_articulation()
         self.runtime.teleop_command(
-            session_id=sid, vx_mps=0.3, yaw_rate_rps=0.0, body_height_m=0.0,
+            session_id=sid,
+            vx_mps=0.3,
+            yaw_rate_rps=0.0,
+            body_height_m=0.0,
         )
         with unittest.mock.patch.object(self.runtime, "_apply_and_step") as mock_apply:
             for _ in range(200):
@@ -357,12 +394,11 @@ class TestTickWithJointLimits(unittest.TestCase):
 
         # Inject tight limits: ±0.01 rad (< 1 degree) for ALL config joints
         from isaac_bridge.models import TeleopConfig
+
         config = TeleopConfig()
         with self.runtime._lock:
             session = self.runtime._sessions[sid]
-            session.joint_limits = {
-                name: (-0.01, 0.01) for name in config.joint_names
-            }
+            session.joint_limits = {name: (-0.01, 0.01) for name in config.joint_names}
 
         return sid
 
@@ -379,7 +415,10 @@ class TestTickWithJointLimits(unittest.TestCase):
 
         # Send a large forward command
         self.runtime.teleop_command(
-            session_id=sid, vx_mps=0.5, yaw_rate_rps=0.0, body_height_m=0.0,
+            session_id=sid,
+            vx_mps=0.5,
+            yaw_rate_rps=0.0,
+            body_height_m=0.0,
         )
 
         # Tick enough for slew to ramp up and targets to exceed ±0.01 rad
@@ -387,15 +426,19 @@ class TestTickWithJointLimits(unittest.TestCase):
             self.runtime.tick_teleop(0.01)
 
         state = self.runtime.teleop_state(session_id=sid)
-        self.assertGreater(state["limit_clamp_count"], 0,
-                           "Expected clamping with large command and tight limits")
+        self.assertGreater(
+            state["limit_clamp_count"], 0, "Expected clamping with large command and tight limits"
+        )
 
     def test_clamp_count_accumulates(self) -> None:
         """limit_clamp_count accumulates across multiple ticks."""
         sid = self._start_with_tight_limits()
 
         self.runtime.teleop_command(
-            session_id=sid, vx_mps=0.5, yaw_rate_rps=0.0, body_height_m=0.0,
+            session_id=sid,
+            vx_mps=0.5,
+            yaw_rate_rps=0.0,
+            body_height_m=0.0,
         )
 
         # First batch
@@ -410,15 +453,17 @@ class TestTickWithJointLimits(unittest.TestCase):
         state2 = self.runtime.teleop_state(session_id=sid)
         count2 = state2["limit_clamp_count"]
 
-        self.assertGreater(count2, count1,
-                           "Clamp count should accumulate across tick batches")
+        self.assertGreater(count2, count1, "Clamp count should accumulate across tick batches")
 
     def test_targets_clamped_to_limits(self) -> None:
         """Joint targets are clamped to the configured limits."""
         sid = self._start_with_tight_limits()
 
         self.runtime.teleop_command(
-            session_id=sid, vx_mps=0.5, yaw_rate_rps=1.0, body_height_m=0.03,
+            session_id=sid,
+            vx_mps=0.5,
+            yaw_rate_rps=1.0,
+            body_height_m=0.03,
         )
 
         for _ in range(200):
@@ -427,10 +472,8 @@ class TestTickWithJointLimits(unittest.TestCase):
         state = self.runtime.teleop_state(session_id=sid)
         targets = state["last_joint_targets_rad"]
         for name, val in targets.items():
-            self.assertGreaterEqual(val, -0.01 - 1e-9,
-                                    f"{name}={val} below lower limit")
-            self.assertLessEqual(val, 0.01 + 1e-9,
-                                 f"{name}={val} above upper limit")
+            self.assertGreaterEqual(val, -0.01 - 1e-9, f"{name}={val} below lower limit")
+            self.assertLessEqual(val, 0.01 + 1e-9, f"{name}={val} above upper limit")
 
     def test_no_limits_no_clamping(self) -> None:
         """Without joint limits, no clamping occurs even with large targets."""
@@ -439,7 +482,10 @@ class TestTickWithJointLimits(unittest.TestCase):
         sid = result["session_id"]
 
         self.runtime.teleop_command(
-            session_id=sid, vx_mps=0.5, yaw_rate_rps=1.0, body_height_m=0.03,
+            session_id=sid,
+            vx_mps=0.5,
+            yaw_rate_rps=1.0,
+            body_height_m=0.03,
         )
         for _ in range(200):
             self.runtime.tick_teleop(0.01)

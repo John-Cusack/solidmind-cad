@@ -3,6 +3,7 @@
 Creates a spec, validates gates, simulates worker output, runs validation,
 scoring, and release packaging.
 """
+
 from __future__ import annotations
 
 import json
@@ -63,7 +64,8 @@ class TestFullPipeline(unittest.TestCase):
             )
             run.spec.subsystems = [
                 Subsystem(
-                    id="s1", name="sun_gear",
+                    id="s1",
+                    name="sun_gear",
                     kind=SubsystemKind.GENERATED,
                     envelope_mm=[16, 16, 20],
                     mass_budget_kg=0.02,
@@ -73,7 +75,8 @@ class TestFullPipeline(unittest.TestCase):
                     assembly_constraints={"coaxial_with": "main_shaft"},
                 ),
                 Subsystem(
-                    id="s2", name="bearing",
+                    id="s2",
+                    name="bearing",
                     kind=SubsystemKind.CATALOG,
                     supplier_part="SKF 6201-2Z",
                     quantity=2,
@@ -82,16 +85,23 @@ class TestFullPipeline(unittest.TestCase):
             ]
             run.spec.interfaces = [
                 Interface(
-                    id="ifc1", name="shaft_bore",
-                    subsystem_a="sun_gear", port_a="bore",
-                    subsystem_b="input_shaft", port_b="spline",
+                    id="ifc1",
+                    name="shaft_bore",
+                    subsystem_a="sun_gear",
+                    port_a="bore",
+                    subsystem_b="input_shaft",
+                    port_b="spline",
                     geometry={"diameter_mm": 8.0},
                     frame_a=CoordinateFrame(origin_mm=[0, 0, 5]),
                     frame_b=CoordinateFrame(origin_mm=[0, 0, 0]),
                     mating=MatingSemantic(type="cylindrical_fit"),
-                    validation=ValidationMethod(check_points=[
-                        ValidationCheckPoint(feature="bore_dia", expected_mm=8.0, tolerance_mm=0.015),
-                    ]),
+                    validation=ValidationMethod(
+                        check_points=[
+                            ValidationCheckPoint(
+                                feature="bore_dia", expected_mm=8.0, tolerance_mm=0.015
+                            ),
+                        ]
+                    ),
                 ),
             ]
             save_spec(run)

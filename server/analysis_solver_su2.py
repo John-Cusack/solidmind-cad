@@ -11,6 +11,7 @@ Binary: ``SU2_CFD`` (main solver).  Install via package manager or from source:
 
 Mesh flow: STEP → Gmsh (.msh) → SU2 format (.su2) via meshio.
 """
+
 from __future__ import annotations
 
 import csv
@@ -137,13 +138,9 @@ class SU2Solver(FieldSolver):
 
         lines.append(f"MARKER_HEATFLUX= ( {', '.join(wall_markers)}, 0.0 )")
         if mach < 0.3:
-            lines.append(
-                f"MARKER_FAR= ( {', '.join(farfield_markers)} )"
-            )
+            lines.append(f"MARKER_FAR= ( {', '.join(farfield_markers)} )")
         else:
-            lines.append(
-                f"MARKER_FAR= ( {', '.join(farfield_markers)} )"
-            )
+            lines.append(f"MARKER_FAR= ( {', '.join(farfield_markers)} )")
 
         lines.append(f"MARKER_MONITORING= ( {', '.join(wall_markers)} )")
         lines.append(f"MARKER_PLOTTING= ( {', '.join(wall_markers)} )")
@@ -212,9 +209,7 @@ class SU2Solver(FieldSolver):
 
         if result.returncode != 0:
             log.error("SU2_CFD failed (rc=%d): %s", result.returncode, result.stderr[:500])
-            raise RuntimeError(
-                f"SU2_CFD failed (rc={result.returncode}): {result.stderr[:500]}"
-            )
+            raise RuntimeError(f"SU2_CFD failed (rc={result.returncode}): {result.stderr[:500]}")
 
         return elapsed
 
@@ -266,6 +261,7 @@ class SU2Solver(FieldSolver):
         """Convert Gmsh .msh to SU2 .su2 format via meshio."""
         try:
             import meshio
+
             mesh = meshio.read(msh_path)
             meshio.write(su2_path, mesh, file_format="su2")
         except ImportError:
@@ -319,12 +315,12 @@ def parse_su2_history(
         last = rows[-1]
 
         # SU2 column names vary by solver type — try common variants
-        cl = _get_coeff(last, "CL", "\"CL\"", "CD[cl]", "Lift")
-        cd = _get_coeff(last, "CD", "\"CD\"", "CD[cd]", "Drag")
-        cs = _get_coeff(last, "CSF", "\"CSF\"", "CS")
-        cmx = _get_coeff(last, "CMx", "\"CMx\"")
-        cmy = _get_coeff(last, "CMy", "\"CMy\"")
-        cmz = _get_coeff(last, "CMz", "\"CMz\"")
+        cl = _get_coeff(last, "CL", '"CL"', "CD[cl]", "Lift")
+        cd = _get_coeff(last, "CD", '"CD"', "CD[cd]", "Drag")
+        cs = _get_coeff(last, "CSF", '"CSF"', "CS")
+        cmx = _get_coeff(last, "CMx", '"CMx"')
+        cmy = _get_coeff(last, "CMy", '"CMy"')
+        cmz = _get_coeff(last, "CMz", '"CMz"')
 
     except Exception as exc:
         return _failed_aero_result(f"Failed to parse history.csv: {exc}")
@@ -338,7 +334,7 @@ def parse_su2_history(
         elif bc.bc_type == "reference":
             ref = AeroReference.from_dict(bc.value)
 
-    q = 0.5 * flow.density_kg_m3 * flow.velocity_m_s ** 2  # dynamic pressure
+    q = 0.5 * flow.density_kg_m3 * flow.velocity_m_s**2  # dynamic pressure
     lift_n = cl * q * ref.area_m2
     drag_n = cd * q * ref.area_m2
     l_over_d = cl / cd if abs(cd) > 1e-12 else 0.0
@@ -396,65 +392,79 @@ def _build_aero_checks(
 
     # L/D ratio check
     if l_over_d < 3:
-        checks.append(AnalysisCheck(
-            name="l_over_d",
-            status=CheckStatus.FAIL,
-            message=f"L/D = {l_over_d:.1f} is very low (typical drone: 5-15)",
-            measured=l_over_d,
-            limit=5.0,
-            suggestion="Reduce airframe drag or increase wing/body lift. Check for flow separation.",
-        ))
+        checks.append(
+            AnalysisCheck(
+                name="l_over_d",
+                status=CheckStatus.FAIL,
+                message=f"L/D = {l_over_d:.1f} is very low (typical drone: 5-15)",
+                measured=l_over_d,
+                limit=5.0,
+                suggestion="Reduce airframe drag or increase wing/body lift. Check for flow separation.",
+            )
+        )
     elif l_over_d < 5:
-        checks.append(AnalysisCheck(
-            name="l_over_d",
-            status=CheckStatus.WARN,
-            message=f"L/D = {l_over_d:.1f} is below typical drone range (5-15)",
-            measured=l_over_d,
-            limit=5.0,
-            suggestion="Consider streamlining the airframe or increasing aspect ratio.",
-        ))
+        checks.append(
+            AnalysisCheck(
+                name="l_over_d",
+                status=CheckStatus.WARN,
+                message=f"L/D = {l_over_d:.1f} is below typical drone range (5-15)",
+                measured=l_over_d,
+                limit=5.0,
+                suggestion="Consider streamlining the airframe or increasing aspect ratio.",
+            )
+        )
     else:
-        checks.append(AnalysisCheck(
-            name="l_over_d",
-            status=CheckStatus.PASS,
-            message=f"L/D = {l_over_d:.1f}",
-            measured=l_over_d,
-        ))
+        checks.append(
+            AnalysisCheck(
+                name="l_over_d",
+                status=CheckStatus.PASS,
+                message=f"L/D = {l_over_d:.1f}",
+                measured=l_over_d,
+            )
+        )
 
     # Drag coefficient check
     if cd > 0.1:
-        checks.append(AnalysisCheck(
-            name="drag_coefficient",
-            status=CheckStatus.WARN,
-            message=f"CD = {cd:.4f} is high — check for separation or bluff body drag",
-            measured=cd,
-            limit=0.1,
-            suggestion="Streamline the geometry, add fairings, or reduce frontal area.",
-        ))
+        checks.append(
+            AnalysisCheck(
+                name="drag_coefficient",
+                status=CheckStatus.WARN,
+                message=f"CD = {cd:.4f} is high — check for separation or bluff body drag",
+                measured=cd,
+                limit=0.1,
+                suggestion="Streamline the geometry, add fairings, or reduce frontal area.",
+            )
+        )
     else:
-        checks.append(AnalysisCheck(
-            name="drag_coefficient",
-            status=CheckStatus.PASS,
-            message=f"CD = {cd:.4f}",
-            measured=cd,
-        ))
+        checks.append(
+            AnalysisCheck(
+                name="drag_coefficient",
+                status=CheckStatus.PASS,
+                message=f"CD = {cd:.4f}",
+                measured=cd,
+            )
+        )
 
     # Negative lift check (for multicopter bodies, small negative is OK)
     if cl < -0.5:
-        checks.append(AnalysisCheck(
-            name="lift_coefficient",
-            status=CheckStatus.WARN,
-            message=f"CL = {cl:.4f} — significant downforce",
-            measured=cl,
-            suggestion="Check angle of attack and body orientation.",
-        ))
+        checks.append(
+            AnalysisCheck(
+                name="lift_coefficient",
+                status=CheckStatus.WARN,
+                message=f"CL = {cl:.4f} — significant downforce",
+                measured=cl,
+                suggestion="Check angle of attack and body orientation.",
+            )
+        )
     else:
-        checks.append(AnalysisCheck(
-            name="lift_coefficient",
-            status=CheckStatus.PASS,
-            message=f"CL = {cl:.4f}",
-            measured=cl,
-        ))
+        checks.append(
+            AnalysisCheck(
+                name="lift_coefficient",
+                status=CheckStatus.PASS,
+                message=f"CL = {cl:.4f}",
+                measured=cl,
+            )
+        )
 
     return checks
 
@@ -463,10 +473,15 @@ def _failed_aero_result(message: str) -> AeroResult:
     return AeroResult(
         analysis_id="",
         status=CheckStatus.FAIL,
-        cl=0.0, cd=0.0, cs=0.0,
-        cmx=0.0, cmy=0.0, cmz=0.0,
+        cl=0.0,
+        cd=0.0,
+        cs=0.0,
+        cmx=0.0,
+        cmy=0.0,
+        cmz=0.0,
         l_over_d=0.0,
-        lift_n=0.0, drag_n=0.0,
+        lift_n=0.0,
+        drag_n=0.0,
         checks=(
             AnalysisCheck(
                 name="solver_error",

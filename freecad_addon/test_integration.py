@@ -14,6 +14,7 @@ Or::
 
 The script prints PASS/FAIL for each test and a summary at the end.
 """
+
 from __future__ import annotations
 
 import base64
@@ -51,9 +52,7 @@ def _assert_finite_camera(result: dict[str, Any], label: str = "") -> None:
     """Assert that camera_position values are all finite (not NaN/Inf)."""
     pos = result.get("camera_position", [])
     for i, v in enumerate(pos):
-        assert math.isfinite(v), (
-            f"{label}camera_position[{i}] = {v} is not finite"
-        )
+        assert math.isfinite(v), f"{label}camera_position[{i}] = {v} is not finite"
 
 
 def _assert_valid_png(result: dict[str, Any], label: str = "") -> None:
@@ -69,9 +68,11 @@ def _assert_valid_png(result: dict[str, Any], label: str = "") -> None:
 # Tests: pivy / Coin3D primitives
 # ---------------------------------------------------------------------------
 
+
 def test_sbvec3f_from_floats() -> None:
     """SbVec3f(float, float, float) should work."""
     from pivy.coin import SbVec3f
+
     v = SbVec3f(1.0, 2.0, 3.0)
     assert abs(v[0] - 1.0) < 1e-6
     assert abs(v[1] - 2.0) < 1e-6
@@ -81,6 +82,7 @@ def test_sbvec3f_from_floats() -> None:
 def test_sbvec3f_from_list() -> None:
     """SbVec3f([float, float, float]) array form should work."""
     from pivy.coin import SbVec3f
+
     v = SbVec3f([1.0, 2.0, 3.0])
     assert abs(v[0] - 1.0) < 1e-6
 
@@ -88,6 +90,7 @@ def test_sbvec3f_from_list() -> None:
 def test_sbvec3f_default_setvalue() -> None:
     """SbVec3f() + setValue(float, float, float) should work."""
     from pivy.coin import SbVec3f
+
     v = SbVec3f()
     v.setValue(1.0, 2.0, 3.0)
     assert abs(v[0] - 1.0) < 1e-6
@@ -96,6 +99,7 @@ def test_sbvec3f_default_setvalue() -> None:
 def test_sbvec3f_from_ints() -> None:
     """SbVec3f with int args — may fail, documents pivy behavior."""
     from pivy.coin import SbVec3f
+
     v = SbVec3f(1, 2, 3)  # may TypeError on some pivy builds
     assert abs(v[0] - 1.0) < 1e-6
 
@@ -103,6 +107,7 @@ def test_sbvec3f_from_ints() -> None:
 def test_sbvec3f_from_int_list() -> None:
     """SbVec3f([int, int, int]) — may fail, documents pivy behavior."""
     from pivy.coin import SbVec3f
+
     v = SbVec3f([1, 2, 3])  # noqa
     assert abs(v[0] - 1.0) < 1e-6
 
@@ -110,20 +115,22 @@ def test_sbvec3f_from_int_list() -> None:
 def test_sbvec3f_from_bbox_division() -> None:
     """SbVec3f from BoundBox arithmetic (actual failure scenario)."""
     import FreeCAD
+
     bb = FreeCAD.BoundBox(0, 0, 0, 10, 20, 30)
     cx = (bb.XMin + bb.XMax) / 2
     cy = (bb.YMin + bb.YMax) / 2
     cz = (bb.ZMin + bb.ZMax) / 2
     # This is what failed: the division result type might not be plain float
     from pivy.coin import SbVec3f
+
     # Try raw — this is the original failure path
     try:
         SbVec3f(cx, cy, cz)
-        _record("test_sbvec3f_from_bbox_division (3-arg raw)", True,
-                f"type={type(cx).__name__}")
+        _record("test_sbvec3f_from_bbox_division (3-arg raw)", True, f"type={type(cx).__name__}")
     except TypeError as e:
-        _record("test_sbvec3f_from_bbox_division (3-arg raw)", False,
-                f"type={type(cx).__name__}: {e}")
+        _record(
+            "test_sbvec3f_from_bbox_division (3-arg raw)", False, f"type={type(cx).__name__}: {e}"
+        )
     # Try with float() cast
     try:
         SbVec3f(float(cx), float(cy), float(cz))
@@ -144,9 +151,11 @@ def test_sbvec3f_from_bbox_division() -> None:
 # Tests: _sb_vec3f helper
 # ---------------------------------------------------------------------------
 
+
 def test_sb_vec3f_helper() -> None:
     """Our _sb_vec3f helper must work with all input types."""
     from freecad_addon.commands import _sb_vec3f
+
     # Plain floats
     v = _sb_vec3f(1.0, 2.0, 3.0)
     assert abs(v[0] - 1.0) < 1e-6
@@ -155,6 +164,7 @@ def test_sb_vec3f_helper() -> None:
     assert abs(v[0] - 1.0) < 1e-6
     # BoundBox division results
     import FreeCAD
+
     bb = FreeCAD.BoundBox(0, 0, 0, 10, 20, 30)
     v = _sb_vec3f(
         (bb.XMin + bb.XMax) / 2,
@@ -169,6 +179,7 @@ def test_sb_vec3f_helper() -> None:
 # ---------------------------------------------------------------------------
 # Tests: camera operations
 # ---------------------------------------------------------------------------
+
 
 def test_camera_position_set() -> None:
     """Setting camera position via Coin3D should not crash."""
@@ -225,6 +236,7 @@ def test_near_distance_set() -> None:
 # Helpers: create PartDesign geometry for screenshot tests
 # ---------------------------------------------------------------------------
 
+
 def _ensure_partdesign_body(doc: Any) -> Any:
     """Create a PartDesign body + sketch + pad if none exists."""
     # Check if a PartDesign body already exists
@@ -243,15 +255,12 @@ def _ensure_partdesign_body(doc: Any) -> Any:
     sketch.MapMode = "FlatFace"
 
     import Part  # noqa
+
     # Add a rectangle via 4 lines
-    sketch.addGeometry(Part.LineSegment(
-        FreeCAD.Vector(-10, -10, 0), FreeCAD.Vector(10, -10, 0)))
-    sketch.addGeometry(Part.LineSegment(
-        FreeCAD.Vector(10, -10, 0), FreeCAD.Vector(10, 10, 0)))
-    sketch.addGeometry(Part.LineSegment(
-        FreeCAD.Vector(10, 10, 0), FreeCAD.Vector(-10, 10, 0)))
-    sketch.addGeometry(Part.LineSegment(
-        FreeCAD.Vector(-10, 10, 0), FreeCAD.Vector(-10, -10, 0)))
+    sketch.addGeometry(Part.LineSegment(FreeCAD.Vector(-10, -10, 0), FreeCAD.Vector(10, -10, 0)))
+    sketch.addGeometry(Part.LineSegment(FreeCAD.Vector(10, -10, 0), FreeCAD.Vector(10, 10, 0)))
+    sketch.addGeometry(Part.LineSegment(FreeCAD.Vector(10, 10, 0), FreeCAD.Vector(-10, 10, 0)))
+    sketch.addGeometry(Part.LineSegment(FreeCAD.Vector(-10, 10, 0), FreeCAD.Vector(-10, -10, 0)))
     doc.recompute()
 
     # Pad
@@ -268,6 +277,7 @@ def _ensure_partdesign_body(doc: Any) -> Any:
 # Tests: full screenshot pipeline (with real PartDesign geometry)
 # ---------------------------------------------------------------------------
 
+
 def test_screenshot_iso() -> None:
     """Full screenshot pipeline with 'iso' target — camera must not be NaN."""
     import FreeCAD
@@ -278,6 +288,7 @@ def test_screenshot_iso() -> None:
     _ensure_partdesign_body(doc)
 
     from freecad_addon.commands import screenshot
+
     result = screenshot(target="iso", width=256, height=256)
     assert result.get("ok", True), f"screenshot failed: {result}"
     _assert_valid_png(result, "iso: ")
@@ -294,6 +305,7 @@ def test_screenshot_all_presets() -> None:
     _ensure_partdesign_body(doc)
 
     from freecad_addon.commands import screenshot
+
     presets = ["iso", "front", "back", "top", "bottom", "left", "right"]
     for preset in presets:
         result = screenshot(target=preset, width=256, height=256)
@@ -306,12 +318,14 @@ def test_screenshot_all_presets() -> None:
 def test_screenshot_explicit_point() -> None:
     """Screenshot targeting an explicit [x,y,z] point."""
     import FreeCAD
+
     doc = FreeCAD.ActiveDocument
     if doc is None:
         doc = FreeCAD.newDocument("IntegrationTest")
     _ensure_partdesign_body(doc)
 
     from freecad_addon.commands import screenshot
+
     result = screenshot(target=[5.0, 5.0, 5.0], width=256, height=256)
     assert result.get("ok", True), f"screenshot failed: {result}"
     _assert_valid_png(result, "explicit_point: ")
@@ -321,12 +335,14 @@ def test_screenshot_explicit_point() -> None:
 def test_screenshot_with_near_clip() -> None:
     """Screenshot with near_clip parameter."""
     import FreeCAD
+
     doc = FreeCAD.ActiveDocument
     if doc is None:
         doc = FreeCAD.newDocument("IntegrationTest")
     _ensure_partdesign_body(doc)
 
     from freecad_addon.commands import screenshot
+
     result = screenshot(target="front", near_clip=1.0, width=256, height=256)
     assert result.get("ok", True), f"screenshot failed: {result}"
     _assert_valid_png(result, "near_clip: ")
@@ -339,6 +355,7 @@ def test_screenshot_empty_document() -> None:
 
     FreeCAD.newDocument("EmptyDocTest")
     from freecad_addon.commands import screenshot
+
     result = screenshot(target="iso", width=256, height=256, doc="EmptyDocTest")
     # Should produce a valid image even with no geometry
     assert "image_base64" in result, f"no image_base64: {result}"
@@ -359,6 +376,7 @@ def test_screenshot_image_dimensions() -> None:
     _ensure_partdesign_body(doc)
 
     from freecad_addon.commands import screenshot
+
     result = screenshot(target="iso", width=320, height=240)
     raw = base64.b64decode(result["image_base64"])
     # PNG IHDR chunk: width at offset 16, height at offset 20 (4 bytes each, big-endian)
@@ -371,10 +389,12 @@ def test_screenshot_image_dimensions() -> None:
 def test_set_camera() -> None:
     """set_camera with position, target, and near_clip."""
     import FreeCAD
+
     if FreeCAD.ActiveDocument is None:
         FreeCAD.newDocument("IntegrationTest")
 
     from freecad_addon.commands import set_camera
+
     result = set_camera(
         position=[100.0, 100.0, 100.0],
         target=[0.0, 0.0, 0.0],
@@ -387,10 +407,12 @@ def test_set_camera() -> None:
 def test_set_camera_int_values() -> None:
     """set_camera with integer values (common from JSON)."""
     import FreeCAD
+
     if FreeCAD.ActiveDocument is None:
         FreeCAD.newDocument("IntegrationTest")
 
     from freecad_addon.commands import set_camera
+
     result = set_camera(
         position=[100, 100, 100],
         target=[0, 0, 0],
@@ -402,10 +424,12 @@ def test_set_camera_int_values() -> None:
 def test_get_camera() -> None:
     """get_camera should return position and clip values."""
     import FreeCAD
+
     if FreeCAD.ActiveDocument is None:
         FreeCAD.newDocument("IntegrationTest")
 
     from freecad_addon.commands import get_camera
+
     result = get_camera()
     assert "position" in result
     assert "near_clip" in result
@@ -415,15 +439,18 @@ def test_get_camera() -> None:
 # Tests: capture_verification_views (used by pad/pocket/etc.)
 # ---------------------------------------------------------------------------
 
+
 def test_capture_verification_views() -> None:
     """_capture_verification_views should return 2 valid views with finite camera."""
     import FreeCAD
+
     doc = FreeCAD.ActiveDocument
     if doc is None:
         doc = FreeCAD.newDocument("IntegrationTest")
     _ensure_partdesign_body(doc)
 
     from freecad_addon.commands import _capture_verification_views
+
     views = _capture_verification_views(doc, width=256, height=256)
     assert len(views) >= 1, f"Expected at least 1 view, got {len(views)}"
     for i, v in enumerate(views):
@@ -470,11 +497,13 @@ def run_all() -> bool:
     print(f"Python {sys.version}")
     try:
         import FreeCAD
+
         print(f"FreeCAD {FreeCAD.Version()[0]}.{FreeCAD.Version()[1]}")
     except Exception:
         print("FreeCAD: not available")
     try:
         import pivy
+
         print(f"pivy: {pivy.__file__}")
     except Exception:
         print("pivy: not available")

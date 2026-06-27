@@ -4,6 +4,7 @@ Derives collision policies from ``design.add_interface`` specs and filters
 raw clearance/interference violations against those policies.  Interface
 type + thresholds determine what is intentional contact vs. a defect.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -13,35 +14,37 @@ from typing import Any
 # Policy model
 # ---------------------------------------------------------------------------
 
+
 @dataclass(frozen=True, slots=True)
 class CollisionPolicy:
     """A single collision-filter policy derived from an interface."""
 
-    interface_id: str          # "{part_a}:{port_a}->{part_b}:{port_b}"
+    interface_id: str  # "{part_a}:{port_a}->{part_b}:{port_b}"
     part_a: str
     part_b: str
-    contact_type: str          # "gear_mesh", "press_fit", "bolt_pattern", …
+    contact_type: str  # "gear_mesh", "press_fit", "bolt_pattern", …
     max_penetration_mm: float  # 0.0 = contact only, >0 = interference fit
-    min_clearance_mm: float    # minimum acceptable gap for non-contact zones
+    min_clearance_mm: float  # minimum acceptable gap for non-contact zones
 
 
 # Default thresholds per contact type.
 # (max_penetration_mm, min_clearance_mm)
 CONTACT_DEFAULTS: dict[str, tuple[float, float]] = {
-    "gear_mesh":     (0.0,  0.1),
-    "press_fit":     (0.05, 0.0),
-    "snap_fit":      (0.1,  0.0),
-    "thread":        (0.0,  0.0),
-    "bolt_pattern":  (0.0,  0.5),
-    "bearing_bore":  (0.02, 0.0),
-    "slider":        (0.0,  0.1),
-    "clamp":         (0.0,  0.0),
+    "gear_mesh": (0.0, 0.1),
+    "press_fit": (0.05, 0.0),
+    "snap_fit": (0.1, 0.0),
+    "thread": (0.0, 0.0),
+    "bolt_pattern": (0.0, 0.5),
+    "bearing_bore": (0.02, 0.0),
+    "slider": (0.0, 0.1),
+    "clamp": (0.0, 0.0),
 }
 
 
 # ---------------------------------------------------------------------------
 # Derive policies from design brief interfaces
 # ---------------------------------------------------------------------------
+
 
 def derive_policies(interfaces: list[dict[str, Any]]) -> list[CollisionPolicy]:
     """Build collision policies from interface dicts (as returned by ``InterfaceEntry.to_dict()``)."""
@@ -60,20 +63,23 @@ def derive_policies(interfaces: list[dict[str, Any]]) -> list[CollisionPolicy]:
             f"{iface.get('part_a', '?')}:{iface.get('port_a', '')}"
             f"->{iface.get('part_b', '?')}:{iface.get('port_b', '')}"
         )
-        policies.append(CollisionPolicy(
-            interface_id=iface_id,
-            part_a=iface.get("part_a", ""),
-            part_b=iface.get("part_b", ""),
-            contact_type=contact_type,
-            max_penetration_mm=float(max_pen),
-            min_clearance_mm=float(min_clr),
-        ))
+        policies.append(
+            CollisionPolicy(
+                interface_id=iface_id,
+                part_a=iface.get("part_a", ""),
+                part_b=iface.get("part_b", ""),
+                contact_type=contact_type,
+                max_penetration_mm=float(max_pen),
+                min_clearance_mm=float(min_clr),
+            )
+        )
     return policies
 
 
 # ---------------------------------------------------------------------------
 # Name resolution
 # ---------------------------------------------------------------------------
+
 
 def build_name_map(
     brief_parts: list[dict[str, Any]],
@@ -110,6 +116,7 @@ def _normalize_pair(a: str, b: str) -> frozenset[str]:
 # ---------------------------------------------------------------------------
 # Filter violations
 # ---------------------------------------------------------------------------
+
 
 def filter_violations(
     violations: list[dict[str, Any]],

@@ -56,6 +56,7 @@ Optional flags::
     --hover-secs 10             # seconds to hold the takeoff altitude
     --timeout 60                # bail out after this many wall seconds
 """
+
 from __future__ import annotations
 
 import argparse
@@ -107,12 +108,15 @@ def start_gcs_heartbeat(conn: mavutil.mavfile, stop: threading.Event) -> threadi
     health bit is ``MAV_SYS_STATUS_SENSOR_RC_RECEIVER`` plus an internal
     GCS-connection check that isn't surfaced separately over MAVLink.
     """
+
     def loop() -> None:
         while not stop.is_set():
             conn.mav.heartbeat_send(
                 mavutil.mavlink.MAV_TYPE_GCS,
                 mavutil.mavlink.MAV_AUTOPILOT_INVALID,
-                0, 0, 0,
+                0,
+                0,
+                0,
             )
             time.sleep(0.3)
 
@@ -130,8 +134,11 @@ def set_param(
 ) -> bool:
     """Set a PX4 parameter and wait for the PARAM_VALUE confirmation."""
     conn.mav.param_set_send(
-        conn.target_system, conn.target_component,
-        name.encode(), float(value), ptype,
+        conn.target_system,
+        conn.target_component,
+        name.encode(),
+        float(value),
+        ptype,
     )
     deadline = time.monotonic() + timeout_s
     while time.monotonic() < deadline:
@@ -155,13 +162,16 @@ def configure_for_sitl(conn: mavutil.mavfile, takeoff_alt_m: float) -> None:
     set_param(conn, "NAV_DLL_ACT", 0, mavutil.mavlink.MAV_PARAM_TYPE_INT32)
     # Default takeoff altitude.
     set_param(
-        conn, "MIS_TAKEOFF_ALT", takeoff_alt_m,
+        conn,
+        "MIS_TAKEOFF_ALT",
+        takeoff_alt_m,
         mavutil.mavlink.MAV_PARAM_TYPE_REAL32,
     )
 
 
 def wait_for_ready_for_takeoff(
-    conn: mavutil.mavfile, timeout_s: float = 60.0,
+    conn: mavutil.mavfile,
+    timeout_s: float = 60.0,
 ) -> bool:
     """Block until PX4 reports sensors healthy + GCS connected.
 
@@ -183,8 +193,8 @@ def wait_for_ready_for_takeoff(
             if (health & needed) == needed and (present & needed) == needed:
                 if not sensors_ok:
                     print(
-                        f"[px4-smoke] sensors healthy "
-                        f"(health=0x{health:08x})", flush=True,
+                        f"[px4-smoke] sensors healthy (health=0x{health:08x})",
+                        flush=True,
                     )
                     sensors_ok = True
         elif t == "STATUSTEXT":
@@ -210,14 +220,22 @@ def force_arm(conn: mavutil.mavfile, timeout_s: float = 8.0) -> bool:
     """
     print("[px4-smoke] force-arming...", flush=True)
     conn.mav.command_long_send(
-        conn.target_system, conn.target_component,
-        mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM, 0,
-        1.0,        # arm
-        21196.0,    # MAVLINK force-arm magic
-        0, 0, 0, 0, 0,
+        conn.target_system,
+        conn.target_component,
+        mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM,
+        0,
+        1.0,  # arm
+        21196.0,  # MAVLINK force-arm magic
+        0,
+        0,
+        0,
+        0,
+        0,
     )
     return _wait_command_ack(
-        conn, mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM, timeout_s,
+        conn,
+        mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM,
+        timeout_s,
     )
 
 
@@ -231,15 +249,22 @@ def set_mode(
     """Switch PX4 to a (main, sub) mode pair via MAV_CMD_DO_SET_MODE."""
     print(f"[px4-smoke] DO_SET_MODE -> {label} (main={custom_main}, sub={custom_sub})", flush=True)
     conn.mav.command_long_send(
-        conn.target_system, conn.target_component,
-        mavutil.mavlink.MAV_CMD_DO_SET_MODE, 0,
+        conn.target_system,
+        conn.target_component,
+        mavutil.mavlink.MAV_CMD_DO_SET_MODE,
+        0,
         1.0,  # MAV_MODE_FLAG_CUSTOM_MODE_ENABLED
         float(custom_main),
         float(custom_sub),
-        0, 0, 0, 0,
+        0,
+        0,
+        0,
+        0,
     )
     return _wait_command_ack(
-        conn, mavutil.mavlink.MAV_CMD_DO_SET_MODE, timeout_s,
+        conn,
+        mavutil.mavlink.MAV_CMD_DO_SET_MODE,
+        timeout_s,
     )
 
 
@@ -262,7 +287,9 @@ def land(conn: mavutil.mavfile, timeout_s: float = 5.0) -> bool:
 
 
 def _wait_command_ack(
-    conn: mavutil.mavfile, expected_cmd: int, timeout_s: float,
+    conn: mavutil.mavfile,
+    expected_cmd: int,
+    timeout_s: float,
 ) -> bool:
     rmap = {0: "ACCEPTED", 1: "TEMP_REJ", 2: "DENIED", 3: "UNSUPPORTED", 4: "FAILED"}
     deadline = time.monotonic() + timeout_s
@@ -279,7 +306,9 @@ def _wait_command_ack(
 
 def get_altitude_m(conn: mavutil.mavfile, timeout_s: float = 1.0) -> float | None:
     msg = conn.recv_match(
-        type="LOCAL_POSITION_NED", blocking=True, timeout=timeout_s,
+        type="LOCAL_POSITION_NED",
+        blocking=True,
+        timeout=timeout_s,
     )
     if msg is None:
         return None
@@ -300,12 +329,13 @@ def hold_until_altitude(
             last_alt = alt
             if alt > target_alt_m - tolerance_m:
                 print(
-                    f"[px4-smoke] altitude reached: {alt:.2f} m "
-                    f"(target {target_alt_m:.1f} m)", flush=True,
+                    f"[px4-smoke] altitude reached: {alt:.2f} m (target {target_alt_m:.1f} m)",
+                    flush=True,
                 )
                 return True
     print(
-        f"[px4-smoke] altitude target not reached. last={last_alt} m", flush=True,
+        f"[px4-smoke] altitude target not reached. last={last_alt} m",
+        flush=True,
     )
     return False
 
@@ -352,7 +382,10 @@ def main() -> int:
 
         remaining = max(15.0, overall_deadline - time.monotonic())
         if not hold_until_altitude(
-            conn, cfg.takeoff_alt_m, cfg.altitude_tolerance_m, timeout_s=remaining,
+            conn,
+            cfg.takeoff_alt_m,
+            cfg.altitude_tolerance_m,
+            timeout_s=remaining,
         ):
             print("[px4-smoke] FAIL: did not reach takeoff altitude", flush=True)
             land(conn)

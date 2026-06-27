@@ -72,9 +72,7 @@ class TestConstraintGraphBuilder(unittest.TestCase):
         builder.extract_feature_constraints(spec)
         graph = builder.build()
 
-        hole_diameters = [
-            n for n in graph.nodes if n.entity_type == "hole" and n.key == "diameter"
-        ]
+        hole_diameters = [n for n in graph.nodes if n.entity_type == "hole" and n.key == "diameter"]
         self.assertEqual(len(hole_diameters), 1)
         self.assertEqual(hole_diameters[0].value, 10)
 

@@ -14,6 +14,7 @@ Key design decisions:
 - Bodies + revolute joints are used for non-gear parts (linkages, props).
 - ChShaftBodyRotation bridges 1D shafts to 3D bodies when needed.
 """
+
 from __future__ import annotations
 
 import logging
@@ -38,7 +39,9 @@ def build_simulation_spec(mechanism: Mechanism) -> dict[str, Any]:
         if j.spring_k_n_per_m is not None and j.joint_type != JointType.PRISMATIC:
             log.warning(
                 "Spring on joint '%s' (type=%s) ignored — springs are only "
-                "supported on PRISMATIC joints.", j.id, j.joint_type.value,
+                "supported on PRISMATIC joints.",
+                j.id,
+                j.joint_type.value,
             )
 
     planetary_sets = detect_planetary_sets(mechanism)
@@ -65,7 +68,9 @@ def build_simulation_spec(mechanism: Mechanism) -> dict[str, Any]:
 
     # Build body objects for non-gear parts
     body_objs, body_consumed = _build_body_objects(
-        mechanism, shaft_part_ids, consumed_joints,
+        mechanism,
+        shaft_part_ids,
+        consumed_joints,
     )
     objects.extend(body_objs)
     consumed_joints.update(body_consumed)
@@ -128,6 +133,7 @@ def add_derived_speeds(result: dict[str, Any], spec: dict[str, Any]) -> None:
 # Internal helpers
 # ---------------------------------------------------------------------------
 
+
 def _build_gear_objects(
     mechanism: Mechanism,
     planetary_sets: list[PlanetarySet],
@@ -146,12 +152,14 @@ def _build_gear_objects(
         if part is None:
             return
         inertia = part.inertia_kg_m2 if part.inertia_kg_m2 else 0.01
-        objects.append({
-            "type": "shaft",
-            "id": part_id,
-            "inertia": inertia,
-            "fixed": part.is_ground,
-        })
+        objects.append(
+            {
+                "type": "shaft",
+                "id": part_id,
+                "inertia": inertia,
+                "fixed": part.is_ground,
+            }
+        )
         created_shafts.add(part_id)
 
     # Planetary sets → shafts_planetary
@@ -163,14 +171,16 @@ def _build_gear_objects(
         planetary_parts.update([ps.sun, ps.carrier, ps.ring])
         planetary_parts.update(ps.planets)
 
-        objects.append({
-            "type": "shafts_planetary",
-            "id": f"planetary_{ps.sun}_{ps.ring}",
-            "shaft_sun": ps.sun,
-            "shaft_carrier": ps.carrier,
-            "shaft_ring": ps.ring,
-            "t0": ps.t0,
-        })
+        objects.append(
+            {
+                "type": "shafts_planetary",
+                "id": f"planetary_{ps.sun}_{ps.ring}",
+                "shaft_sun": ps.sun,
+                "shaft_carrier": ps.carrier,
+                "shaft_ring": ps.ring,
+                "t0": ps.t0,
+            }
+        )
 
         # Mark all gear_mesh joints involving planets as consumed
         for j in mechanism.joints:
@@ -208,13 +218,15 @@ def _build_gear_objects(
         else:
             ratio = -1.0
 
-        objects.append({
-            "type": "shafts_gear",
-            "id": f"gear_{j.id}",
-            "shaft_1": j.parent_part,
-            "shaft_2": j.child_part,
-            "ratio": ratio,
-        })
+        objects.append(
+            {
+                "type": "shafts_gear",
+                "id": f"gear_{j.id}",
+                "shaft_1": j.parent_part,
+                "shaft_2": j.child_part,
+                "ratio": ratio,
+            }
+        )
         consumed.add(j.id)
 
     return objects, consumed
@@ -239,14 +251,16 @@ def _build_body_objects(
             return
         mass = part.mass_kg if part.mass_kg else 1.0
         inertia = part.inertia_kg_m2 if part.inertia_kg_m2 else 0.01
-        objects.append({
-            "type": "body",
-            "id": part_id,
-            "mass": mass,
-            "inertia": inertia,
-            "fixed": part.is_ground,
-            "pos": [0, 0, 0],
-        })
+        objects.append(
+            {
+                "type": "body",
+                "id": part_id,
+                "mass": mass,
+                "inertia": inertia,
+                "fixed": part.is_ground,
+                "pos": [0, 0, 0],
+            }
+        )
         created_bodies.add(part_id)
 
     for j in mechanism.joints:
@@ -269,13 +283,15 @@ def _build_body_objects(
             # Convert mm to m for Chrono
             origin_m = [v / 1000.0 for v in origin]
 
-            objects.append({
-                "type": "revolute",
-                "id": j.id,
-                "body_1": j.parent_part,
-                "body_2": j.child_part,
-                "pos": origin_m,
-            })
+            objects.append(
+                {
+                    "type": "revolute",
+                    "id": j.id,
+                    "body_1": j.parent_part,
+                    "body_2": j.child_part,
+                    "pos": origin_m,
+                }
+            )
             consumed.add(j.id)
 
         elif j.joint_type == JointType.PRISMATIC:
@@ -285,13 +301,15 @@ def _build_body_objects(
             origin = list(j.origin) if j.origin else [0, 0, 0]
             origin_m = [v / 1000.0 for v in origin]
 
-            objects.append({
-                "type": "prismatic",
-                "id": j.id,
-                "body_1": j.parent_part,
-                "body_2": j.child_part,
-                "pos": origin_m,
-            })
+            objects.append(
+                {
+                    "type": "prismatic",
+                    "id": j.id,
+                    "body_1": j.parent_part,
+                    "body_2": j.child_part,
+                    "pos": origin_m,
+                }
+            )
             # Optional linear spring acting along the prismatic axis. Emitted as
             # a sibling object so the prismatic constraint stays untouched when
             # no spring is present (regression-safe). The daemon derives the
@@ -319,13 +337,15 @@ def _build_body_objects(
             origin = list(j.origin) if j.origin else [0, 0, 0]
             origin_m = [v / 1000.0 for v in origin]
 
-            objects.append({
-                "type": "fixed",
-                "id": j.id,
-                "body_1": j.parent_part,
-                "body_2": j.child_part,
-                "pos": origin_m,
-            })
+            objects.append(
+                {
+                    "type": "fixed",
+                    "id": j.id,
+                    "body_1": j.parent_part,
+                    "body_2": j.child_part,
+                    "pos": origin_m,
+                }
+            )
             consumed.add(j.id)
 
     return objects, consumed
@@ -359,19 +379,23 @@ def _build_motor_objects(
             continue
 
         if driven_part in shaft_part_ids:
-            objects.append({
-                "type": "motor_shaft_speed",
-                "id": f"{drive.joint_id}_motor",
-                "shaft": driven_part,
-                "speed_rpm": speed_rpm,
-            })
+            objects.append(
+                {
+                    "type": "motor_shaft_speed",
+                    "id": f"{drive.joint_id}_motor",
+                    "shaft": driven_part,
+                    "speed_rpm": speed_rpm,
+                }
+            )
         else:
-            objects.append({
-                "type": "motor_body_speed",
-                "id": f"{drive.joint_id}_motor",
-                "body": driven_part,
-                "speed_rpm": speed_rpm,
-            })
+            objects.append(
+                {
+                    "type": "motor_body_speed",
+                    "id": f"{drive.joint_id}_motor",
+                    "body": driven_part,
+                    "speed_rpm": speed_rpm,
+                }
+            )
 
     return objects
 
@@ -417,14 +441,16 @@ def _build_applied_force_objects(
         if f.target_body in shaft_part_ids:
             # Shaft-based parts can't take 3D point loads. Skip.
             continue
-        objects.append({
-            "type": "applied_force",
-            "id": f.label or f"applied_force_{i}",
-            "body": f.target_body,
-            "position_local": list(f.position_local),
-            "force_vector": list(f.force_vector),
-            "frame": f.frame,
-        })
+        objects.append(
+            {
+                "type": "applied_force",
+                "id": f.label or f"applied_force_{i}",
+                "body": f.target_body,
+                "position_local": list(f.position_local),
+                "force_vector": list(f.force_vector),
+                "frame": f.frame,
+            }
+        )
     return objects
 
 
@@ -451,6 +477,7 @@ def _build_derived_outputs(
 # ---------------------------------------------------------------------------
 # Pre-flight validation
 # ---------------------------------------------------------------------------
+
 
 def validate_simulation_spec(spec: dict[str, Any]) -> list[str]:
     """Validate a simulation spec before sending to the C++ daemon.

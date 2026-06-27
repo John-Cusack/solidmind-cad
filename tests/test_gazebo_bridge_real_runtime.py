@@ -1,4 +1,5 @@
 """Optional end-to-end tests for Gazebo bridge real runtime."""
+
 from __future__ import annotations
 
 import os
@@ -78,4 +79,3 @@ class TestGazeboBridgeRealRuntime(unittest.TestCase):
         )
         self.assertIn("time_series", sim)
         self.assertGreater(len(sim["time_series"]), 0)
-

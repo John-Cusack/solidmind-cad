@@ -50,6 +50,7 @@ def _safe_section(sheet: dict[str, Any], key: str) -> dict[str, Any]:
 # Individual validator functions
 # ---------------------------------------------------------------------------
 
+
 def _check_min_thickness(sheet: dict[str, Any]) -> ValidatorResult:
     """Compare thinnest wall/blade against process minimum feature size."""
     geom = _safe_section(sheet, "geometry_interfaces")
@@ -59,14 +60,16 @@ def _check_min_thickness(sheet: dict[str, Any]) -> ValidatorResult:
 
     if min_wall is None or min_feature is None:
         return ValidatorResult(
-            name="min_thickness_check", status="warn",
+            name="min_thickness_check",
+            status="warn",
             message="Cannot evaluate min_thickness_check: wall thickness or process feature size is missing.",
             measured={"min_wall_thickness_mm": min_wall, "min_feature_size_mm": min_feature},
             priority=910,
         )
     if min_wall < min_feature:
         return ValidatorResult(
-            name="min_thickness_check", status="fail",
+            name="min_thickness_check",
+            status="fail",
             message=(
                 f"Minimum wall thickness {min_wall:.3f} mm is below "
                 f"process minimum feature size {min_feature:.3f} mm."
@@ -76,7 +79,8 @@ def _check_min_thickness(sheet: dict[str, Any]) -> ValidatorResult:
         )
     if min_wall < (min_feature * 1.1):
         return ValidatorResult(
-            name="min_thickness_check", status="warn",
+            name="min_thickness_check",
+            status="warn",
             message=(
                 f"Minimum wall thickness {min_wall:.3f} mm is close to "
                 f"the process floor {min_feature:.3f} mm."
@@ -85,7 +89,8 @@ def _check_min_thickness(sheet: dict[str, Any]) -> ValidatorResult:
             priority=910,
         )
     return ValidatorResult(
-        name="min_thickness_check", status="pass",
+        name="min_thickness_check",
+        status="pass",
         message="Minimum wall thickness is above process minimum feature size.",
         measured={"min_wall_thickness_mm": min_wall, "min_feature_size_mm": min_feature},
         priority=910,
@@ -108,23 +113,29 @@ def _check_sharp_edge(sheet: dict[str, Any]) -> ValidatorResult:
 
     if min_fillet is None or fillet_threshold is None:
         return ValidatorResult(
-            name="sharp_edge_check", status="warn",
+            name="sharp_edge_check",
+            status="warn",
             message="Cannot evaluate sharp_edge_check: fillet radius or threshold is missing.",
-            measured=measured, priority=900,
+            measured=measured,
+            priority=900,
         )
     if min_fillet < fillet_threshold:
         return ValidatorResult(
-            name="sharp_edge_check", status="fail",
+            name="sharp_edge_check",
+            status="fail",
             message=(
                 f"Minimum fillet radius {min_fillet:.3f} mm is below "
                 f"threshold {fillet_threshold:.3f} mm."
             ),
-            measured=measured, priority=900,
+            measured=measured,
+            priority=900,
         )
     return ValidatorResult(
-        name="sharp_edge_check", status="pass",
+        name="sharp_edge_check",
+        status="pass",
         message="Minimum fillet radius satisfies stress-riser threshold.",
-        measured=measured, priority=900,
+        measured=measured,
+        priority=900,
     )
 
 
@@ -140,36 +151,48 @@ def _check_symmetry(sheet: dict[str, Any]) -> ValidatorResult:
     if min_blade_count is None:
         min_blade_count = 2  # safe default for any rotating part
 
-    measured = {"symmetry_required": symmetry_required, "blade_count": blade_count, "min_blade_count": min_blade_count}
+    measured = {
+        "symmetry_required": symmetry_required,
+        "blade_count": blade_count,
+        "min_blade_count": min_blade_count,
+    }
 
     if not symmetry_required:
         return ValidatorResult(
-            name="symmetry_check", status="warn",
+            name="symmetry_check",
+            status="warn",
             message="symmetry_required not set; rotating parts typically need polar symmetry.",
-            measured=measured, priority=870,
+            measured=measured,
+            priority=870,
         )
     if blade_count is None:
         return ValidatorResult(
-            name="symmetry_check", status="warn",
+            name="symmetry_check",
+            status="warn",
             message="Cannot verify symmetry: blade_count is missing.",
-            measured=measured, priority=870,
+            measured=measured,
+            priority=870,
         )
     if blade_count < min_blade_count:
         return ValidatorResult(
-            name="symmetry_check", status="warn",
+            name="symmetry_check",
+            status="warn",
             message=(
                 f"Blade count {blade_count} is below expected minimum "
                 f"of {min_blade_count} for this part type."
             ),
-            measured=measured, priority=870,
+            measured=measured,
+            priority=870,
         )
     return ValidatorResult(
-        name="symmetry_check", status="pass",
+        name="symmetry_check",
+        status="pass",
         message=(
             f"Symmetry requirement present, blade count {blade_count} "
             f"is within expected range (>= {min_blade_count})."
         ),
-        measured=measured, priority=870,
+        measured=measured,
+        priority=870,
     )
 
 
@@ -194,72 +217,93 @@ def _check_centrifugal_stress(sheet: dict[str, Any]) -> ValidatorResult:
 
     if max_rpm is None or density is None or outer_diam_mm is None:
         return ValidatorResult(
-            name="centrifugal_stress_proxy", status="warn",
+            name="centrifugal_stress_proxy",
+            status="warn",
             message="Cannot compute centrifugal stress: rpm, density, or diameter is missing.",
             measured={
-                "max_rpm": max_rpm, "outer_diameter_mm": outer_diam_mm,
-                "density_kg_m3": density, "sigma_mpa": None,
-                "yield_strength_at_temp_mpa": yield_mpa, "creep_limit_at_temp_mpa": creep_mpa,
-                "safety_factor": None, "min_safety_factor": sf_fail, "preferred_safety_factor": sf_warn,
+                "max_rpm": max_rpm,
+                "outer_diameter_mm": outer_diam_mm,
+                "density_kg_m3": density,
+                "sigma_mpa": None,
+                "yield_strength_at_temp_mpa": yield_mpa,
+                "creep_limit_at_temp_mpa": creep_mpa,
+                "safety_factor": None,
+                "min_safety_factor": sf_fail,
+                "preferred_safety_factor": sf_warn,
             },
             priority=950,
         )
 
     omega = max_rpm * (2.0 * math.pi / 60.0)
     radius_m = outer_diam_mm / 2000.0
-    sigma_pa = density * (omega ** 2) * (radius_m ** 2) / 3.0
+    sigma_pa = density * (omega**2) * (radius_m**2) / 3.0
     sigma_mpa = sigma_pa / 1_000_000.0
 
     if yield_mpa is not None and sigma_mpa > 0:
         safety_factor = yield_mpa / sigma_mpa
 
     measured = {
-        "max_rpm": max_rpm, "outer_diameter_mm": outer_diam_mm,
-        "density_kg_m3": density, "sigma_mpa": sigma_mpa,
-        "yield_strength_at_temp_mpa": yield_mpa, "creep_limit_at_temp_mpa": creep_mpa,
-        "safety_factor": safety_factor, "min_safety_factor": sf_fail, "preferred_safety_factor": sf_warn,
+        "max_rpm": max_rpm,
+        "outer_diameter_mm": outer_diam_mm,
+        "density_kg_m3": density,
+        "sigma_mpa": sigma_mpa,
+        "yield_strength_at_temp_mpa": yield_mpa,
+        "creep_limit_at_temp_mpa": creep_mpa,
+        "safety_factor": safety_factor,
+        "min_safety_factor": sf_fail,
+        "preferred_safety_factor": sf_warn,
     }
 
     if creep_mpa is not None and sigma_mpa > creep_mpa:
         return ValidatorResult(
-            name="centrifugal_stress_proxy", status="fail",
+            name="centrifugal_stress_proxy",
+            status="fail",
             message=(
                 f"Centrifugal stress proxy {sigma_mpa:.1f} MPa exceeds "
                 f"creep limit {creep_mpa:.1f} MPa."
             ),
-            measured=measured, priority=950,
+            measured=measured,
+            priority=950,
         )
     if safety_factor is None:
         return ValidatorResult(
-            name="centrifugal_stress_proxy", status="warn",
+            name="centrifugal_stress_proxy",
+            status="warn",
             message=(
                 f"Centrifugal stress proxy {sigma_mpa:.1f} MPa computed, "
                 f"but yield strength is missing for safety factor check."
             ),
-            measured=measured, priority=950,
+            measured=measured,
+            priority=950,
         )
     if safety_factor < sf_fail:
         return ValidatorResult(
-            name="centrifugal_stress_proxy", status="fail",
+            name="centrifugal_stress_proxy",
+            status="fail",
             message=(
                 f"Centrifugal safety factor {safety_factor:.2f} is below "
                 f"minimum {sf_fail:.2f} at {max_rpm:.0f} rpm."
             ),
-            measured=measured, priority=950,
+            measured=measured,
+            priority=950,
         )
     if safety_factor < sf_warn:
         return ValidatorResult(
-            name="centrifugal_stress_proxy", status="warn",
+            name="centrifugal_stress_proxy",
+            status="warn",
             message=(
                 f"Centrifugal safety factor {safety_factor:.2f} is below "
                 f"preferred {sf_warn:.2f}; consider adding margin."
             ),
-            measured=measured, priority=950,
+            measured=measured,
+            priority=950,
         )
     return ValidatorResult(
-        name="centrifugal_stress_proxy", status="pass",
+        name="centrifugal_stress_proxy",
+        status="pass",
         message=f"Centrifugal stress proxy gives safety factor {safety_factor:.2f}.",
-        measured=measured, priority=950,
+        measured=measured,
+        priority=950,
     )
 
 
@@ -280,7 +324,8 @@ def _check_mass_properties(sheet: dict[str, Any]) -> ValidatorResult:
 
     if density is None or outer_diam_mm is None or hub_diam_mm is None or min_wall is None:
         return ValidatorResult(
-            name="mass_properties", status="warn",
+            name="mass_properties",
+            status="warn",
             message="Cannot compute mass proxy: density, diameters, or wall thickness is incomplete.",
             measured={"mass_kg": None, "polar_inertia_kg_m2": None, "max_mass_kg": max_mass},
             priority=740,
@@ -289,27 +334,37 @@ def _check_mass_properties(sheet: dict[str, Any]) -> ValidatorResult:
     r_out = outer_diam_mm / 2000.0
     r_in = max(0.0, hub_diam_mm / 2000.0)
     thickness_m = max(0.004, (min_wall / 1000.0) * 6.0)
-    volume_m3 = math.pi * max(0.0, (r_out ** 2) - (r_in ** 2)) * thickness_m
+    volume_m3 = math.pi * max(0.0, (r_out**2) - (r_in**2)) * thickness_m
     mass_kg = density * volume_m3
-    polar_inertia_kg_m2 = 0.5 * mass_kg * ((r_out ** 2) + (r_in ** 2))
-    measured = {"mass_kg": mass_kg, "polar_inertia_kg_m2": polar_inertia_kg_m2, "max_mass_kg": max_mass}
+    polar_inertia_kg_m2 = 0.5 * mass_kg * ((r_out**2) + (r_in**2))
+    measured = {
+        "mass_kg": mass_kg,
+        "polar_inertia_kg_m2": polar_inertia_kg_m2,
+        "max_mass_kg": max_mass,
+    }
 
     if mass_kg <= 0:
         return ValidatorResult(
-            name="mass_properties", status="fail",
+            name="mass_properties",
+            status="fail",
             message="Mass proxy produced non-positive mass; check geometry/material inputs.",
-            measured=measured, priority=740,
+            measured=measured,
+            priority=740,
         )
     if max_mass is not None and mass_kg > max_mass:
         return ValidatorResult(
-            name="mass_properties", status="warn",
+            name="mass_properties",
+            status="warn",
             message=f"Mass proxy {mass_kg:.3f} kg exceeds target maximum {max_mass:.3f} kg.",
-            measured=measured, priority=740,
+            measured=measured,
+            priority=740,
         )
     return ValidatorResult(
-        name="mass_properties", status="pass",
+        name="mass_properties",
+        status="pass",
         message=f"Mass proxy computed at {mass_kg:.3f} kg.",
-        measured=measured, priority=740,
+        measured=measured,
+        priority=740,
     )
 
 
@@ -327,39 +382,51 @@ def _check_manufacturability(sheet: dict[str, Any]) -> ValidatorResult:
     if process == "casting":
         if draft_angle is None:
             return ValidatorResult(
-                name="manufacturability_heuristics", status="warn",
+                name="manufacturability_heuristics",
+                status="warn",
                 message="Casting process selected but draft_angle_min_deg is TBD.",
-                measured=measured, priority=780,
+                measured=measured,
+                priority=780,
             )
         if draft_angle < 1.0:
             return ValidatorResult(
-                name="manufacturability_heuristics", status="fail",
+                name="manufacturability_heuristics",
+                status="fail",
                 message=f"Draft angle {draft_angle:.2f} deg is below castability floor (1.0 deg).",
-                measured=measured, priority=780,
+                measured=measured,
+                priority=780,
             )
         if draft_angle < 2.0:
             return ValidatorResult(
-                name="manufacturability_heuristics", status="warn",
+                name="manufacturability_heuristics",
+                status="warn",
                 message=f"Draft angle {draft_angle:.2f} deg is manufacturable but tight for casting.",
-                measured=measured, priority=780,
+                measured=measured,
+                priority=780,
             )
         return ValidatorResult(
-            name="manufacturability_heuristics", status="pass",
+            name="manufacturability_heuristics",
+            status="pass",
             message="Casting draft-angle is within recommended range.",
-            measured=measured, priority=780,
+            measured=measured,
+            priority=780,
         )
 
     if process in ("5axis_machining", "machining"):
         if min_fillet is not None and min_fillet < 0.5:
             return ValidatorResult(
-                name="manufacturability_heuristics", status="warn",
+                name="manufacturability_heuristics",
+                status="warn",
                 message="Small internal radii may require non-standard tooling.",
-                measured=measured, priority=780,
+                measured=measured,
+                priority=780,
             )
         return ValidatorResult(
-            name="manufacturability_heuristics", status="pass",
+            name="manufacturability_heuristics",
+            status="pass",
             message="Machining assumptions appear reasonable.",
-            measured=measured, priority=780,
+            measured=measured,
+            priority=780,
         )
 
     if process in ("fdm", "sla", "sls"):
@@ -375,25 +442,30 @@ def _check_manufacturability(sheet: dict[str, Any]) -> ValidatorResult:
         max_overhang = _as_float(mfg.get("max_overhang_angle_deg"))
         if process == "fdm" and max_overhang is not None and max_overhang > 45:
             issues.append(
-                f"Overhang angle {max_overhang:.0f} deg exceeds 45 deg; "
-                f"supports likely needed."
+                f"Overhang angle {max_overhang:.0f} deg exceeds 45 deg; supports likely needed."
             )
         if issues:
             return ValidatorResult(
-                name="manufacturability_heuristics", status="warn",
+                name="manufacturability_heuristics",
+                status="warn",
                 message=" ".join(issues),
-                measured=measured, priority=780,
+                measured=measured,
+                priority=780,
             )
         return ValidatorResult(
-            name="manufacturability_heuristics", status="pass",
+            name="manufacturability_heuristics",
+            status="pass",
             message=f"{process.upper()} manufacturing assumptions appear reasonable.",
-            measured=measured, priority=780,
+            measured=measured,
+            priority=780,
         )
 
     return ValidatorResult(
-        name="manufacturability_heuristics", status="pass",
+        name="manufacturability_heuristics",
+        status="pass",
         message=f"No process-specific heuristics for {process!r}; skipping.",
-        measured=measured, priority=780,
+        measured=measured,
+        priority=780,
     )
 
 
@@ -402,82 +474,100 @@ def _check_manufacturability(sheet: dict[str, Any]) -> ValidatorResult:
 # ---------------------------------------------------------------------------
 
 VALIDATORS: dict[str, tuple[Callable[[dict[str, Any]], ValidatorResult], ValidatorInfo]] = {
-    "min_thickness_check": (_check_min_thickness, ValidatorInfo(
-        name="min_thickness_check",
-        description="Compares thinnest wall/blade against process minimum feature size.",
-        reads=(
-            "geometry_interfaces.min_wall_thickness_mm",
-            "geometry_interfaces.min_blade_thickness_mm",
-            "manufacturing.min_feature_size_mm",
+    "min_thickness_check": (
+        _check_min_thickness,
+        ValidatorInfo(
+            name="min_thickness_check",
+            description="Compares thinnest wall/blade against process minimum feature size.",
+            reads=(
+                "geometry_interfaces.min_wall_thickness_mm",
+                "geometry_interfaces.min_blade_thickness_mm",
+                "manufacturing.min_feature_size_mm",
+            ),
+            thresholds={},
+            priority=910,
         ),
-        thresholds={},
-        priority=910,
-    )),
-    "sharp_edge_check": (_check_sharp_edge, ValidatorInfo(
-        name="sharp_edge_check",
-        description="Checks fillet radii against stress-riser threshold.",
-        reads=(
-            "geometry_interfaces.min_fillet_radius_mm",
-            "manufacturing.min_feature_size_mm",
+    ),
+    "sharp_edge_check": (
+        _check_sharp_edge,
+        ValidatorInfo(
+            name="sharp_edge_check",
+            description="Checks fillet radii against stress-riser threshold.",
+            reads=(
+                "geometry_interfaces.min_fillet_radius_mm",
+                "manufacturing.min_feature_size_mm",
+            ),
+            thresholds={"min_fillet_threshold_mm": "max(0.5, min_feature_size * 0.5)"},
+            priority=900,
         ),
-        thresholds={"min_fillet_threshold_mm": "max(0.5, min_feature_size * 0.5)"},
-        priority=900,
-    )),
-    "symmetry_check": (_check_symmetry, ValidatorInfo(
-        name="symmetry_check",
-        description="Checks polar symmetry and blade/feature count against LLM-provided range.",
-        reads=(
-            "geometry_interfaces.blade_count",
-            "balance_rotor.symmetry_required",
+    ),
+    "symmetry_check": (
+        _check_symmetry,
+        ValidatorInfo(
+            name="symmetry_check",
+            description="Checks polar symmetry and blade/feature count against LLM-provided range.",
+            reads=(
+                "geometry_interfaces.blade_count",
+                "balance_rotor.symmetry_required",
+            ),
+            thresholds={"min_blade_count": 2},
+            priority=870,
         ),
-        thresholds={"min_blade_count": 2},
-        priority=870,
-    )),
-    "centrifugal_stress_proxy": (_check_centrifugal_stress, ValidatorInfo(
-        name="centrifugal_stress_proxy",
-        description=(
-            "Hoop stress estimate for rotating parts (solid disc proxy). "
-            "Computes safety factor against yield and checks creep limit."
+    ),
+    "centrifugal_stress_proxy": (
+        _check_centrifugal_stress,
+        ValidatorInfo(
+            name="centrifugal_stress_proxy",
+            description=(
+                "Hoop stress estimate for rotating parts (solid disc proxy). "
+                "Computes safety factor against yield and checks creep limit."
+            ),
+            reads=(
+                "geometry_interfaces.outer_diameter_mm",
+                "geometry_interfaces.exducer_diameter_mm",
+                "operating_envelope.max_rpm",
+                "material.density_kg_m3",
+                "material.yield_strength_at_temp_mpa",
+                "material.creep_limit_at_temp_mpa",
+            ),
+            thresholds={"min_safety_factor": 1.5, "preferred_safety_factor": 2.0},
+            priority=950,
         ),
-        reads=(
-            "geometry_interfaces.outer_diameter_mm",
-            "geometry_interfaces.exducer_diameter_mm",
-            "operating_envelope.max_rpm",
-            "material.density_kg_m3",
-            "material.yield_strength_at_temp_mpa",
-            "material.creep_limit_at_temp_mpa",
+    ),
+    "mass_properties": (
+        _check_mass_properties,
+        ValidatorInfo(
+            name="mass_properties",
+            description="Rough mass estimate from annular disc proxy with optional max-mass threshold.",
+            reads=(
+                "geometry_interfaces.outer_diameter_mm",
+                "geometry_interfaces.hub_diameter_mm",
+                "geometry_interfaces.min_wall_thickness_mm",
+                "material.density_kg_m3",
+            ),
+            thresholds={"max_mass_kg": "None (optional upper bound)"},
+            priority=740,
         ),
-        thresholds={"min_safety_factor": 1.5, "preferred_safety_factor": 2.0},
-        priority=950,
-    )),
-    "mass_properties": (_check_mass_properties, ValidatorInfo(
-        name="mass_properties",
-        description="Rough mass estimate from annular disc proxy with optional max-mass threshold.",
-        reads=(
-            "geometry_interfaces.outer_diameter_mm",
-            "geometry_interfaces.hub_diameter_mm",
-            "geometry_interfaces.min_wall_thickness_mm",
-            "material.density_kg_m3",
+    ),
+    "manufacturability_heuristics": (
+        _check_manufacturability,
+        ValidatorInfo(
+            name="manufacturability_heuristics",
+            description=(
+                "Process-specific checks for casting (draft angle), "
+                "machining (internal radii), and 3D printing (wall thickness, overhangs)."
+            ),
+            reads=(
+                "manufacturing.process",
+                "manufacturing.draft_angle_min_deg",
+                "manufacturing.min_wall_thickness_mm",
+                "manufacturing.max_overhang_angle_deg",
+                "geometry_interfaces.min_fillet_radius_mm",
+            ),
+            thresholds={},
+            priority=780,
         ),
-        thresholds={"max_mass_kg": "None (optional upper bound)"},
-        priority=740,
-    )),
-    "manufacturability_heuristics": (_check_manufacturability, ValidatorInfo(
-        name="manufacturability_heuristics",
-        description=(
-            "Process-specific checks for casting (draft angle), "
-            "machining (internal radii), and 3D printing (wall thickness, overhangs)."
-        ),
-        reads=(
-            "manufacturing.process",
-            "manufacturing.draft_angle_min_deg",
-            "manufacturing.min_wall_thickness_mm",
-            "manufacturing.max_overhang_angle_deg",
-            "geometry_interfaces.min_fillet_radius_mm",
-        ),
-        thresholds={},
-        priority=780,
-    )),
+    ),
 }
 
 
@@ -498,6 +588,7 @@ def list_validators() -> list[dict[str, Any]]:
 # ---------------------------------------------------------------------------
 # validate_constraint_sheet — runs selected validators from the registry
 # ---------------------------------------------------------------------------
+
 
 def validate_constraint_sheet(constraint_sheet: dict[str, Any]) -> dict[str, Any]:
     """Run deterministic proxy validators against a constraint dict.
@@ -522,18 +613,22 @@ def validate_constraint_sheet(constraint_sheet: dict[str, Any]) -> dict[str, Any
         fn, _info = entry
         vr = fn(constraint_sheet)
 
-        results.append({
-            "validator": vr.name,
-            "status": vr.status,
-            "message": vr.message,
-            "measured": vr.measured,
-        })
+        results.append(
+            {
+                "validator": vr.name,
+                "status": vr.status,
+                "message": vr.message,
+                "measured": vr.measured,
+            }
+        )
 
         finding = Finding(
             rule_id=f"me.{vr.name}",
             severity=(
-                Severity.BLOCK if vr.status == "fail"
-                else Severity.WARN if vr.status == "warn"
+                Severity.BLOCK
+                if vr.status == "fail"
+                else Severity.WARN
+                if vr.status == "warn"
                 else Severity.NOTE
             ),
             message=vr.message,
@@ -582,7 +677,9 @@ def build_traceability_matrix(
     }
 
     result_by_validator: dict[str, dict[str, Any]] = {}
-    for result in validation_report.get("results", []) if isinstance(validation_report, dict) else []:
+    for result in (
+        validation_report.get("results", []) if isinstance(validation_report, dict) else []
+    ):
         if not isinstance(result, dict):
             continue
         validator = result.get("validator")
@@ -647,9 +744,13 @@ def build_traceability_matrix(
     }
 
 
-def apply_risk_gates(constraint_sheet: dict[str, Any], validation_report: dict[str, Any]) -> dict[str, Any]:
+def apply_risk_gates(
+    constraint_sheet: dict[str, Any], validation_report: dict[str, Any]
+) -> dict[str, Any]:
     """Assign risk class and emit notify-only gate guidance."""
-    env = constraint_sheet.get("operating_envelope", {}) if isinstance(constraint_sheet, dict) else {}
+    env = (
+        constraint_sheet.get("operating_envelope", {}) if isinstance(constraint_sheet, dict) else {}
+    )
     max_rpm = _as_float(env.get("max_rpm")) if isinstance(env, dict) else None
     gas_temp = _as_float(env.get("gas_temp_max_c")) if isinstance(env, dict) else None
 
@@ -709,7 +810,9 @@ def apply_risk_gates(constraint_sheet: dict[str, Any], validation_report: dict[s
 
     required_actions: list[str] = []
     if has_blockers:
-        required_actions.append("Release risk is elevated: resolve validation blockers as soon as possible.")
+        required_actions.append(
+            "Release risk is elevated: resolve validation blockers as soon as possible."
+        )
     if requires_signoff:
         required_actions.append("Obtain human engineering signoff before release.")
 
@@ -744,6 +847,7 @@ def _search_knowledge(query: str) -> dict[str, Any] | None:
     """
     try:
         from server.knowledge_store import get_knowledge_store
+
         store = get_knowledge_store()
         if store is None:
             return None
@@ -752,8 +856,7 @@ def _search_knowledge(query: str) -> dict[str, Any] | None:
             "source": "lancedb",
             "result_count": len(results),
             "results": [
-                {"content": r.content, "source": r.source, "score": r.score}
-                for r in results
+                {"content": r.content, "source": r.source, "score": r.score} for r in results
             ],
         }
     except Exception:
@@ -793,7 +896,11 @@ def run_design_loop(constraints: dict[str, Any]) -> dict[str, Any]:
     if isinstance(requirements, list) and requirements:
         traceability = build_traceability_matrix(constraints, validation)
     else:
-        traceability = {"ok": True, "traceability_matrix": [], "status_counts": {"pass": 0, "fail": 0, "tbd": 0, "waived": 0}}
+        traceability = {
+            "ok": True,
+            "traceability_matrix": [],
+            "status_counts": {"pass": 0, "fail": 0, "tbd": 0, "waived": 0},
+        }
 
     risk = apply_risk_gates(constraints, validation)
     notes_available = _find_local_notes()

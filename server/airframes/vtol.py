@@ -15,6 +15,7 @@ type-check against it.  When VTOL comes online, fill in:
   (12), etc. depending on geometry.  Hover/trim throttles both come
   out of the spec.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -35,8 +36,8 @@ class VTOLAirframe:
 
     name: str
     chassis: StructuralBody
-    rotors: tuple[Rotor, ...]                          # multicopter rotor set
-    forward_motor: Motor                                # fixed-wing thrust
+    rotors: tuple[Rotor, ...]  # multicopter rotor set
+    forward_motor: Motor  # fixed-wing thrust
     wing: Wing
     control_surfaces: tuple[ControlSurface, ...] = ()
     structural_bodies: tuple[StructuralBody, ...] = ()
@@ -65,7 +66,7 @@ class VTOLAirframe:
         )
 
     def ca_airframe_id(self) -> int:
-        return 11   # PX4: standard VTOL
+        return 11  # PX4: standard VTOL
 
 
 __all__ = ["VTOLAirframe"]

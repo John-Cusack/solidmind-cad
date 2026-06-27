@@ -1,4 +1,5 @@
 """Prompt templates for orchestrator stages."""
+
 from __future__ import annotations
 
 from pathlib import Path

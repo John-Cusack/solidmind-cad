@@ -1,4 +1,5 @@
 """Orchestrator configuration — optional YAML config with sensible defaults."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -13,20 +14,26 @@ class OrchestratorConfig:
     """Top-level orchestrator configuration."""
 
     worker_mode: str = "subagent"  # subagent | claude_code | docker | api
-    providers: dict[str, Any] = field(default_factory=lambda: {
-        "default": "anthropic",
-        "model": "claude-sonnet-4-20250514",
-    })
-    cost_policy: dict[str, Any] = field(default_factory=lambda: {
-        "max_run_cost_usd": 50.0,
-        "max_stage_cost_usd": 20.0,
-        "warn_at_pct": 80,
-    })
-    a2a: dict[str, Any] = field(default_factory=lambda: {
-        "enabled": False,
-        "host": "localhost",
-        "port": 8080,
-    })
+    providers: dict[str, Any] = field(
+        default_factory=lambda: {
+            "default": "anthropic",
+            "model": "claude-sonnet-4-20250514",
+        }
+    )
+    cost_policy: dict[str, Any] = field(
+        default_factory=lambda: {
+            "max_run_cost_usd": 50.0,
+            "max_stage_cost_usd": 20.0,
+            "warn_at_pct": 80,
+        }
+    )
+    a2a: dict[str, Any] = field(
+        default_factory=lambda: {
+            "enabled": False,
+            "host": "localhost",
+            "port": 8080,
+        }
+    )
     run_dir: str = "runs"
     knowledge_paths: list[str] = field(default_factory=lambda: ["me_knowledge/"])
 

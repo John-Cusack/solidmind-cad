@@ -1,4 +1,5 @@
 """A2A client — orchestrator-side task submission, polling, and artifact collection."""
+
 from __future__ import annotations
 
 import asyncio
@@ -20,12 +21,13 @@ def _ensure_httpx() -> None:
     if httpx is None:
         try:
             import httpx as _httpx
+
             httpx = _httpx
         except ImportError as exc:
             raise ImportError(
-                "httpx is required for A2A client mode. "
-                "Install with: pip install httpx"
+                "httpx is required for A2A client mode. Install with: pip install httpx"
             ) from exc
+
 
 # ---------------------------------------------------------------------------
 # Agent Card (parsed from /.well-known/agent-card.json)
@@ -100,7 +102,9 @@ class A2ATask:
 
     task_id: str = ""
     worker_url: str = ""
-    status: str = "submitted"  # submitted | working | input-required | completed | failed | canceled
+    status: str = (
+        "submitted"  # submitted | working | input-required | completed | failed | canceled
+    )
     artifacts: list[dict[str, Any]] = field(default_factory=list)
     error: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
@@ -191,10 +195,13 @@ class A2AClient:
                 },
             ],
         }
-        body = _rpc_request("message/send", {
-            "message": message,
-            **({"metadata": task_metadata} if task_metadata else {}),
-        })
+        body = _rpc_request(
+            "message/send",
+            {
+                "message": message,
+                **({"metadata": task_metadata} if task_metadata else {}),
+            },
+        )
         resp = await client.post(worker_url, json=body)
         resp.raise_for_status()
         result = resp.json().get("result", {})
@@ -273,7 +280,8 @@ class A2AClient:
         if task.status != "completed":
             log.warning(
                 "Collecting artifacts from non-completed task %s (status=%s)",
-                task.task_id, task.status,
+                task.task_id,
+                task.status,
             )
         output_dir.mkdir(parents=True, exist_ok=True)
         collected: list[Path] = []
@@ -284,6 +292,7 @@ class A2AClient:
                 data = artifact.get("data", b"")
                 if isinstance(data, str):
                     import base64
+
                     data = base64.b64decode(data)
                 path = output_dir / name
                 path.write_bytes(data)

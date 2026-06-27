@@ -9,7 +9,9 @@ from tests.helpers import make_base_spec_draft
 class TestNextQuestion(unittest.TestCase):
     def test_blocker_envelope_first(self) -> None:
         spec = make_base_spec_draft(maturity_level="L2", process="cnc")
-        out = spec_next_question(spec_draft=spec, conversation_signals={"language_preference": "plain"})
+        out = spec_next_question(
+            spec_draft=spec, conversation_signals={"language_preference": "plain"}
+        )
         self.assertEqual(out["question_id"], "envelope")
 
     def test_blocker_material_after_envelope(self) -> None:
@@ -30,12 +32,17 @@ class TestNextQuestion(unittest.TestCase):
         spec = make_base_spec_draft(maturity_level="L2", process="cnc")
         spec["part"]["envelope"] = {"x": 10, "y": 10, "z": 10}
         spec["_interview"]["skipped"]["material_grade"] = "2026-02-10T00:00:00Z"
-        out = spec_next_question(spec_draft=spec, conversation_signals={"allow_revisit_skipped": True})
+        out = spec_next_question(
+            spec_draft=spec, conversation_signals={"allow_revisit_skipped": True}
+        )
         self.assertEqual(out["question_id"], "material_grade")
 
     def test_technical_language_for_expert(self) -> None:
         spec = make_base_spec_draft(maturity_level="L2", process="cnc")
-        out = spec_next_question(spec_draft=spec, conversation_signals={"user_expertise": "expert", "language_preference": "auto"})
+        out = spec_next_question(
+            spec_draft=spec,
+            conversation_signals={"user_expertise": "expert", "language_preference": "auto"},
+        )
         self.assertEqual(out["question_id"], "envelope")
         self.assertIn("maximum", out["question_text"].lower())
 

@@ -160,11 +160,14 @@ class TestGoldenSimpleBracket(unittest.TestCase):
 
         gir_builder = GIRBuilder()
         gir_builder.add_global_frame()
-        gir_builder.add_primitive("box", {
-            "length": Quantity(100.0, "mm"),
-            "width": Quantity(50.0, "mm"),
-            "height": Quantity(20.0, "mm"),
-        })
+        gir_builder.add_primitive(
+            "box",
+            {
+                "length": Quantity(100.0, "mm"),
+                "width": Quantity(50.0, "mm"),
+                "height": Quantity(20.0, "mm"),
+            },
+        )
         for _ in range(4):
             gir_builder.add_hole_intent(
                 diameter=Quantity(5.0, "mm"),

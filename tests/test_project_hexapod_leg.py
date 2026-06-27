@@ -7,6 +7,7 @@ FoS > 2.0 under gait loads.
 Always-run: Tier 1 analytical, FEA coupling with mock solver.
 Conditionally-run: Isaac bridge (skip if unavailable).
 """
+
 from __future__ import annotations
 
 import unittest
@@ -95,7 +96,7 @@ class TestHexapodLegFEACoupling(unittest.TestCase):
         return {
             "summary": {
                 "peak_joint_forces": {
-                    "joint_0": 8.0,   # hip_yaw
+                    "joint_0": 8.0,  # hip_yaw
                     "joint_1": 12.0,  # hip_pitch
                     "joint_2": peak_knee_force,  # knee
                 },
@@ -266,8 +267,9 @@ class TestHexapodLegFEACoupling(unittest.TestCase):
         pocketed_vol = stock_vol - pocket_vol  # = 10,300 mm³
 
         mass_reduction_pct = (1 - pocketed_vol / stock_vol) * 100
-        self.assertGreater(mass_reduction_pct, 20,
-                           f"Mass reduction {mass_reduction_pct:.1f}% should exceed 20%")
+        self.assertGreater(
+            mass_reduction_pct, 20, f"Mass reduction {mass_reduction_pct:.1f}% should exceed 20%"
+        )
 
     def test_06_bcs_from_simulation_joint_index(self) -> None:
         """Verify joint_index selects the correct joint force."""

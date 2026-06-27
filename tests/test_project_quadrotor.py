@@ -7,6 +7,7 @@ and landing gear tabs.
 Always-run: design pipeline, Tier 1 analytical, Gazebo stub, FEA coupling.
 Conditionally-run: DUST aero (skip if solver unavailable).
 """
+
 from __future__ import annotations
 
 import json
@@ -108,27 +109,32 @@ class TestQuadrotorDesignPipeline(unittest.TestCase):
             ("center_plate", "bottom", "battery_tray", "top", {"type": "snap"}),
         ]
         for pa, porta, pb, portb, spec in interfaces:
-            r = design_add_interface(bid, part_a=pa, port_a=porta, part_b=pb, port_b=portb, spec=spec)
+            r = design_add_interface(
+                bid, part_a=pa, port_a=porta, part_b=pb, port_b=portb, spec=spec
+            )
             self.assertTrue(r["ok"], f"Failed to add interface {pa}-{pb}: {r}")
 
         # X-layout positions (arms at 45/135/225/315 degrees)
         arm_len = 110
         diag = arm_len * math.cos(math.radians(45))
-        design_update_brief(bid, parameters={
-            "intent": "lightweight X-frame quadrotor",
-            "constraints": {"mass_g": 200, "prop_size_in": 5},
-            "layout": {
-                "positions": {
-                    "center_plate": [0, 0, 0],
-                    "arm_fl": [diag, diag, 0],
-                    "arm_fr": [diag, -diag, 0],
-                    "arm_rl": [-diag, diag, 0],
-                    "arm_rr": [-diag, -diag, 0],
-                    "battery_tray": [0, 0, -10],
+        design_update_brief(
+            bid,
+            parameters={
+                "intent": "lightweight X-frame quadrotor",
+                "constraints": {"mass_g": 200, "prop_size_in": 5},
+                "layout": {
+                    "positions": {
+                        "center_plate": [0, 0, 0],
+                        "arm_fl": [diag, diag, 0],
+                        "arm_fr": [diag, -diag, 0],
+                        "arm_rl": [-diag, diag, 0],
+                        "arm_rr": [-diag, -diag, 0],
+                        "battery_tray": [0, 0, -10],
+                    },
+                    "clearances_mm": {"prop_to_prop": 5, "battery_ground": 15},
                 },
-                "clearances_mm": {"prop_to_prop": 5, "battery_ground": 15},
             },
-        })
+        )
 
         # Approve
         design_update_brief(bid, status="approved")
@@ -144,12 +150,22 @@ class TestQuadrotorDesignPipeline(unittest.TestCase):
         design_add_part(bid, name="arm_fl", kind="custom")
         design_add_part(bid, name="motor_mount", kind="custom")
         design_add_part(bid, name="center_plate", kind="custom")
-        design_add_interface(bid, part_a="center_plate", port_a="slot",
-                             part_b="arm_fl", port_b="root",
-                             spec={"pattern": "M3_bolt_pair"})
-        design_add_interface(bid, part_a="arm_fl", port_a="tip",
-                             part_b="motor_mount", port_b="base",
-                             spec={"type": "press_fit"})
+        design_add_interface(
+            bid,
+            part_a="center_plate",
+            port_a="slot",
+            part_b="arm_fl",
+            port_b="root",
+            spec={"pattern": "M3_bolt_pair"},
+        )
+        design_add_interface(
+            bid,
+            part_a="arm_fl",
+            port_a="tip",
+            part_b="motor_mount",
+            port_b="base",
+            spec={"type": "press_fit"},
+        )
 
         part = design_get_part(bid, "arm_fl")
         self.assertTrue(part["ok"])
@@ -161,10 +177,12 @@ class TestQuadrotorMechanism(unittest.TestCase):
 
     def setUp(self) -> None:
         from server import motion_store
+
         motion_store.clear()
 
     def tearDown(self) -> None:
         from server import motion_store
+
         motion_store.clear()
 
     def test_01_define_quadrotor_mechanism(self) -> None:
@@ -196,12 +214,17 @@ class TestQuadrotorGazeboSim(unittest.TestCase):
         port = unused_tcp_port()
         mech = mechanism_factory("quadrotor")
         with GazeboStubBridge(port) as bridge:
-            resp = _send_command(bridge.host, bridge.port, "simulate", {
-                "mechanism": mech,
-                "duration_s": 1.0,
-                "dt_s": 0.01,
-                "output_interval": 0.1,
-            })
+            resp = _send_command(
+                bridge.host,
+                bridge.port,
+                "simulate",
+                {
+                    "mechanism": mech,
+                    "duration_s": 1.0,
+                    "dt_s": 0.01,
+                    "output_interval": 0.1,
+                },
+            )
         self.assertTrue(resp["ok"], resp)
         result = resp["result"]
         self.assertIn("time_series", result)
@@ -214,12 +237,17 @@ class TestQuadrotorGazeboSim(unittest.TestCase):
         port = unused_tcp_port()
         mech = mechanism_factory("quadrotor")
         with GazeboStubBridge(port) as bridge:
-            resp = _send_command(bridge.host, bridge.port, "simulate", {
-                "mechanism": mech,
-                "duration_s": 0.5,
-                "dt_s": 0.01,
-                "output_interval": 0.1,
-            })
+            resp = _send_command(
+                bridge.host,
+                bridge.port,
+                "simulate",
+                {
+                    "mechanism": mech,
+                    "duration_s": 0.5,
+                    "dt_s": 0.01,
+                    "output_interval": 0.1,
+                },
+            )
         self.assertTrue(resp["ok"])
         sim_result = resp["result"]
 
@@ -241,12 +269,17 @@ class TestQuadrotorGazeboSim(unittest.TestCase):
         port = unused_tcp_port()
         mech = mechanism_factory("quadrotor")
         with GazeboStubBridge(port) as bridge:
-            resp = _send_command(bridge.host, bridge.port, "simulate", {
-                "mechanism": mech,
-                "duration_s": 0.5,
-                "dt_s": 0.01,
-                "output_interval": 0.1,
-            })
+            resp = _send_command(
+                bridge.host,
+                bridge.port,
+                "simulate",
+                {
+                    "mechanism": mech,
+                    "duration_s": 0.5,
+                    "dt_s": 0.01,
+                    "output_interval": 0.1,
+                },
+            )
         summary = summarize_sim_forces(resp["result"])
         self.assertIn("peak_joint_forces", summary)
         self.assertIn("num_timesteps", summary)
@@ -264,12 +297,17 @@ class TestQuadrotorFEACoupling(unittest.TestCase):
         port = unused_tcp_port()
         mech = mechanism_factory("quadrotor")
         with GazeboStubBridge(port) as bridge:
-            sim_resp = _send_command(bridge.host, bridge.port, "simulate", {
-                "mechanism": mech,
-                "duration_s": 0.5,
-                "dt_s": 0.01,
-                "output_interval": 0.1,
-            })
+            sim_resp = _send_command(
+                bridge.host,
+                bridge.port,
+                "simulate",
+                {
+                    "mechanism": mech,
+                    "duration_s": 0.5,
+                    "dt_s": 0.01,
+                    "output_interval": 0.1,
+                },
+            )
         self.assertTrue(sim_resp["ok"])
 
         # Run stress_from_simulation with mock solver
@@ -375,14 +413,17 @@ class TestQuadrotorFEACoupling(unittest.TestCase):
             bid = r["brief"]["brief_id"]
 
             # Shift battery forward to compensate pitch bias
-            design_update_brief(bid, parameters={
-                "layout": {
-                    "positions": {
-                        "center_plate": [0, 0, 0],
-                        "battery_tray": [5, 0, -10],  # shifted 5mm forward
+            design_update_brief(
+                bid,
+                parameters={
+                    "layout": {
+                        "positions": {
+                            "center_plate": [0, 0, 0],
+                            "battery_tray": [5, 0, -10],  # shifted 5mm forward
+                        },
                     },
                 },
-            })
+            )
 
             brief = design_get_brief(bid)["brief"]
             bat_pos = brief["parameters"]["layout"]["positions"]["battery_tray"]

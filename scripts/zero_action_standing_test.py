@@ -14,6 +14,7 @@ Usage::
         --env-config training_runs/hex18_fresh_env_config.py \
         --damping-override 1.5
 """
+
 from __future__ import annotations
 
 import argparse
@@ -33,22 +34,38 @@ def _load_module(path: str) -> ModuleType:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Zero-action standing test")
     parser.add_argument("--env-config", required=True)
-    parser.add_argument("--damping-override", type=float, default=None,
-                        help="Override actuator damping (test values without editing config)")
-    parser.add_argument("--stiffness-override", type=float, default=None,
-                        help="Override actuator stiffness")
-    parser.add_argument("--duration", type=float, default=5.0,
-                        help="Test duration in seconds (default: 5.0)")
-    parser.add_argument("--num-envs", type=int, default=4,
-                        help="Number of parallel envs (default: 4)")
-    parser.add_argument("--threshold", type=float, default=0.8,
-                        help="Pass if height stays above this fraction of standing_height (default: 0.8)")
-    parser.add_argument("--headless", action="store_true", default=False,
-                        help="Run without GUI (default: show Isaac Sim window)")
+    parser.add_argument(
+        "--damping-override",
+        type=float,
+        default=None,
+        help="Override actuator damping (test values without editing config)",
+    )
+    parser.add_argument(
+        "--stiffness-override", type=float, default=None, help="Override actuator stiffness"
+    )
+    parser.add_argument(
+        "--duration", type=float, default=5.0, help="Test duration in seconds (default: 5.0)"
+    )
+    parser.add_argument(
+        "--num-envs", type=int, default=4, help="Number of parallel envs (default: 4)"
+    )
+    parser.add_argument(
+        "--threshold",
+        type=float,
+        default=0.8,
+        help="Pass if height stays above this fraction of standing_height (default: 0.8)",
+    )
+    parser.add_argument(
+        "--headless",
+        action="store_true",
+        default=False,
+        help="Run without GUI (default: show Isaac Sim window)",
+    )
     args = parser.parse_args()
 
     # Boot Isaac Sim
     from isaaclab.app import AppLauncher
+
     launcher = AppLauncher(headless=args.headless)
     simulation_app = launcher.app
 
@@ -59,15 +76,23 @@ def main() -> int:
     from rl_training.isaaclab_cfg import make_hexapod_flat_env_cfg
 
     # Check if mdp.is_alive exists (Isaac Lab version compatibility)
-    if not hasattr(mdp, 'is_alive'):
+    if not hasattr(mdp, "is_alive"):
         print("WARNING: mdp.is_alive not available in this Isaac Lab version")
-        print("Available alive-like functions:", [x for x in dir(mdp) if 'alive' in x.lower()])
+        print("Available alive-like functions:", [x for x in dir(mdp) if "alive" in x.lower()])
 
     # Load env config module
     mod = _load_module(args.env_config)
 
-    actuator_damping = args.damping_override if args.damping_override is not None else getattr(mod, "ACTUATOR_DAMPING", 1.0)
-    actuator_stiffness = args.stiffness_override if args.stiffness_override is not None else getattr(mod, "ACTUATOR_STIFFNESS", 10.0)
+    actuator_damping = (
+        args.damping_override
+        if args.damping_override is not None
+        else getattr(mod, "ACTUATOR_DAMPING", 1.0)
+    )
+    actuator_stiffness = (
+        args.stiffness_override
+        if args.stiffness_override is not None
+        else getattr(mod, "ACTUATOR_STIFFNESS", 10.0)
+    )
     standing_height = getattr(mod, "STANDING_HEIGHT_M", 0.14)
 
     env_cfg = make_hexapod_flat_env_cfg(
@@ -86,8 +111,12 @@ def main() -> int:
     # Disable domain randomization — we want a clean test
     # Zero out velocity randomization on reset
     env_cfg.events.reset_base.params["velocity_range"] = {
-        "x": (0.0, 0.0), "y": (0.0, 0.0), "z": (0.0, 0.0),
-        "roll": (0.0, 0.0), "pitch": (0.0, 0.0), "yaw": (0.0, 0.0),
+        "x": (0.0, 0.0),
+        "y": (0.0, 0.0),
+        "z": (0.0, 0.0),
+        "roll": (0.0, 0.0),
+        "pitch": (0.0, 0.0),
+        "yaw": (0.0, 0.0),
     }
     # Reset joints to exact default positions (scale range 1.0 to 1.0)
     env_cfg.events.reset_joints.params["position_range"] = (1.0, 1.0)
@@ -108,7 +137,9 @@ def main() -> int:
 
     # Zero pose randomization
     env_cfg.events.reset_base.params["pose_range"] = {
-        "x": (0.0, 0.0), "y": (0.0, 0.0), "yaw": (0.0, 0.0),
+        "x": (0.0, 0.0),
+        "y": (0.0, 0.0),
+        "yaw": (0.0, 0.0),
     }
 
     # Create environment
@@ -118,13 +149,16 @@ def main() -> int:
     except Exception as exc:
         print(f"FATAL: env creation failed: {exc}", flush=True)
         import traceback
+
         traceback.print_exc()
         simulation_app.close()
         return 1
     n_joints = len(getattr(mod, "JOINT_NAMES", []))
 
     print(f"Standing test: damping={actuator_damping}, stiffness={actuator_stiffness}", flush=True)
-    print(f"  standing_height={standing_height:.3f}m, threshold={args.threshold}, duration={args.duration}s")
+    print(
+        f"  standing_height={standing_height:.3f}m, threshold={args.threshold}, duration={args.duration}s"
+    )
     print(f"  num_envs={args.num_envs}, n_joints={n_joints}")
 
     # Reset and run
@@ -152,6 +186,7 @@ def main() -> int:
 
     # Analyze results BEFORE closing (close kills the process)
     import statistics
+
     h_final = heights[-1]
     h_min_overall = min(heights)
     h_mean = statistics.mean(heights)
@@ -161,13 +196,22 @@ def main() -> int:
     print(f"  Height at end:    {h_final:.4f} m", flush=True)
     print(f"  Minimum height:   {h_min_overall:.4f} m", flush=True)
     print(f"  Mean height:      {h_mean:.4f} m", flush=True)
-    print(f"  Threshold:        {min_height:.4f} m ({args.threshold*100:.0f}% of {standing_height:.3f})", flush=True)
+    print(
+        f"  Threshold:        {min_height:.4f} m ({args.threshold * 100:.0f}% of {standing_height:.3f})",
+        flush=True,
+    )
 
     passed = h_min_overall >= min_height
     if passed:
-        print(f"\n  PASS — robot held pose for {args.duration}s (min height {h_min_overall:.4f} >= {min_height:.4f})", flush=True)
+        print(
+            f"\n  PASS — robot held pose for {args.duration}s (min height {h_min_overall:.4f} >= {min_height:.4f})",
+            flush=True,
+        )
     else:
-        print(f"\n  FAIL — robot collapsed (min height {h_min_overall:.4f} < {min_height:.4f})", flush=True)
+        print(
+            f"\n  FAIL — robot collapsed (min height {h_min_overall:.4f} < {min_height:.4f})",
+            flush=True,
+        )
         print(f"  Try: --damping-override {actuator_damping * 2:.1f}", flush=True)
 
     env.close()

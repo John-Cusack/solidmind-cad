@@ -63,8 +63,9 @@ class ConversationSignals:
 @dataclass(frozen=True, slots=True)
 class ValidatorResult:
     """Return type for individual validator functions."""
+
     name: str
-    status: str          # "pass", "warn", "fail"
+    status: str  # "pass", "warn", "fail"
     message: str
     measured: dict[str, Any] = dc_field(default_factory=dict)
     priority: int = 500
@@ -73,9 +74,9 @@ class ValidatorResult:
 @dataclass(frozen=True, slots=True)
 class ValidatorInfo:
     """Metadata about a validator, exposed via me.list_validators."""
+
     name: str
     description: str
-    reads: tuple[str, ...]      # field paths this validator reads
+    reads: tuple[str, ...]  # field paths this validator reads
     thresholds: dict[str, Any]  # threshold name → default description
     priority: int
-

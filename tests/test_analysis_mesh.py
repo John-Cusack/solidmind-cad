@@ -1,10 +1,12 @@
 """Tests for Gmsh meshing — skipped if gmsh is not installed."""
+
 from __future__ import annotations
 
 import unittest
 
 try:
     import gmsh  # noqa: F401
+
     HAS_GMSH = True
 except ImportError:
     HAS_GMSH = False
@@ -27,6 +29,7 @@ class TestMeshStepToMsh(unittest.TestCase):
 
     def test_import_succeeds(self) -> None:
         from server.analysis_mesh import mesh_step_to_msh
+
         self.assertTrue(callable(mesh_step_to_msh))
 
 

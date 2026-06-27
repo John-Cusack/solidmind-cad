@@ -4,6 +4,7 @@ Reimport STEP files, recompute authoritative measurements, and validate
 against frozen contracts. All dimensional truth comes from geometry
 measurement — worker-claimed values are advisory only.
 """
+
 from __future__ import annotations
 
 import json
@@ -161,9 +162,7 @@ def validate_envelope(
         for a, s in zip(actual_sorted, spec_sorted, strict=False)
     )
     if not check.passed:
-        check.error = (
-            f"Envelope exceeded: actual {actual_sorted} > spec {spec_sorted}"
-        )
+        check.error = f"Envelope exceeded: actual {actual_sorted} > spec {spec_sorted}"
     return check
 
 
@@ -316,18 +315,17 @@ def validate_skeleton_constraints(
             rv_size = [rv_max[i] - rv_min[i] for i in range(3)]
             actual_sorted = sorted(actual_bbox_mm)
             rv_sorted = sorted(rv_size)
-            fits = all(
-                a <= r * 1.001
-                for a, r in zip(actual_sorted, rv_sorted, strict=False)
+            fits = all(a <= r * 1.001 for a, r in zip(actual_sorted, rv_sorted, strict=False))
+            checks.append(
+                SkeletonCheck(
+                    check="reserved_volume",
+                    subsystem=subsystem.name,
+                    passed=fits,
+                    error=""
+                    if fits
+                    else (f"Part bbox {actual_sorted} exceeds reserved volume {rv_sorted}"),
+                )
             )
-            checks.append(SkeletonCheck(
-                check="reserved_volume",
-                subsystem=subsystem.name,
-                passed=fits,
-                error="" if fits else (
-                    f"Part bbox {actual_sorted} exceeds reserved volume {rv_sorted}"
-                ),
-            ))
 
     # Check keepout zones
     if actual_bbox_mm and len(actual_bbox_mm) >= 3:
@@ -345,13 +343,15 @@ def validate_skeleton_constraints(
             for ki, keepout in enumerate(sk.keepout_zones):
                 kname = keepout.get("name", f"keepout_{ki}")
                 if aabb_overlap(part_vol, keepout):
-                    checks.append(SkeletonCheck(
-                        check="keepout_zone",
-                        subsystem=subsystem.name,
-                        passed=False,
-                        error=f"Part '{subsystem.name}' violates keepout zone '{kname}'",
-                        keepout=kname,
-                    ))
+                    checks.append(
+                        SkeletonCheck(
+                            check="keepout_zone",
+                            subsystem=subsystem.name,
+                            passed=False,
+                            error=f"Part '{subsystem.name}' violates keepout zone '{kname}'",
+                            keepout=kname,
+                        )
+                    )
 
     return checks
 
@@ -389,6 +389,7 @@ def check_gate_g5(
 def report_to_dict(report: ValidationReport) -> dict[str, Any]:
     """Serialize a ValidationReport to a JSON-compatible dict."""
     from orchestrator._serde import dc_to_dict
+
     return dc_to_dict(report)
 
 

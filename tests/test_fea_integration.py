@@ -1,4 +1,5 @@
 """Integration tests for L2 FEA pipeline — requires ccx and gmsh."""
+
 from __future__ import annotations
 
 import importlib.util
@@ -22,6 +23,7 @@ def _create_cylinder_step(dest: Path) -> None:
     """Create a cylinder STEP file using Gmsh OCC, or copy the committed fixture."""
     if _has_gmsh():
         import gmsh
+
         gmsh.initialize()
         try:
             gmsh.model.occ.addCylinder(0, 0, 0, 0, 0, 50, 5)
@@ -124,8 +126,9 @@ class TestFEAIntegration(unittest.TestCase):
 
         # Stress should be in the right ballpark (analytical ~ 12.7 MPa)
         # Allow generous range due to stress concentrations and BCs
-        self.assertLess(report.filtered_max_stress_mpa, 200.0,
-                        "Stress unreasonably high for simple axial load")
+        self.assertLess(
+            report.filtered_max_stress_mpa, 200.0, "Stress unreasonably high for simple axial load"
+        )
 
     def test_scorer_integration(self):
         """Verify score_run() produces L2 VerificationResults with stress objective."""
@@ -191,8 +194,7 @@ class TestFEAIntegration(unittest.TestCase):
         scoring = score_run(spec, [report], run_dir=run_dir)
 
         l2_results = [
-            vr for vr in scoring.verification_results
-            if vr.level == VerificationLevel.L2_COARSE_FEA
+            vr for vr in scoring.verification_results if vr.level == VerificationLevel.L2_COARSE_FEA
         ]
         self.assertGreater(len(l2_results), 0, "Expected L2 verification results")
 

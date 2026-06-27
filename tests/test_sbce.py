@@ -1,4 +1,5 @@
 """Tests for orchestrator.sbce."""
+
 from __future__ import annotations
 
 import unittest
@@ -27,10 +28,7 @@ def _make_spec() -> MasterSpec:
 
 
 def _variants(name: str, count: int) -> list[Variant]:
-    return [
-        Variant(subsystem_name=name, variant_index=i, feasible=True)
-        for i in range(count)
-    ]
+    return [Variant(subsystem_name=name, variant_index=i, feasible=True) for i in range(count)]
 
 
 class TestFilterFeasible(unittest.TestCase):
@@ -48,9 +46,11 @@ class TestFilterFeasible(unittest.TestCase):
         self.assertFalse(v.feasible)
 
     def test_maximize_threshold(self) -> None:
-        spec = MasterSpec(objectives=[
-            Objective(name="strength", direction="maximize", unit="MPa", threshold=100),
-        ])
+        spec = MasterSpec(
+            objectives=[
+                Objective(name="strength", direction="maximize", unit="MPa", threshold=100),
+            ]
+        )
         v_pass = Variant(subsystem_name="a", variant_index=0, scores={"strength": 150})
         v_fail = Variant(subsystem_name="a", variant_index=1, scores={"strength": 50})
         result = filter_feasible([v_pass, v_fail], spec)
@@ -66,18 +66,24 @@ class TestFilterFeasible(unittest.TestCase):
 
 class TestIntersectFeasibleSets(unittest.TestCase):
     def test_no_narrowing_needed(self) -> None:
-        spec = MasterSpec(name="test", interfaces=[
-            Interface(id="i1", subsystem_a="a", subsystem_b="b"),
-        ])
+        spec = MasterSpec(
+            name="test",
+            interfaces=[
+                Interface(id="i1", subsystem_a="a", subsystem_b="b"),
+            ],
+        )
         by_sub = {"a": _variants("a", 2), "b": _variants("b", 2)}
         result = intersect_feasible_sets(by_sub, spec)
         self.assertEqual(len(result["a"]), 2)
         self.assertEqual(len(result["b"]), 2)
 
     def test_empty_partner_eliminates(self) -> None:
-        spec = MasterSpec(name="test", interfaces=[
-            Interface(id="i1", subsystem_a="a", subsystem_b="b"),
-        ])
+        spec = MasterSpec(
+            name="test",
+            interfaces=[
+                Interface(id="i1", subsystem_a="a", subsystem_b="b"),
+            ],
+        )
         by_sub = {"a": _variants("a", 2), "b": []}
         result = intersect_feasible_sets(by_sub, spec)
         self.assertEqual(len(result["a"]), 0)
@@ -142,10 +148,12 @@ class TestParetoFrontier(unittest.TestCase):
         self.assertEqual(len(frontier), 1)
 
     def test_dominated_removed(self) -> None:
-        spec = MasterSpec(objectives=[
-            Objective(name="mass", direction="minimize", unit="kg"),
-            Objective(name="cost", direction="minimize", unit="USD"),
-        ])
+        spec = MasterSpec(
+            objectives=[
+                Objective(name="mass", direction="minimize", unit="kg"),
+                Objective(name="cost", direction="minimize", unit="USD"),
+            ]
+        )
         v1 = Variant(subsystem_name="a", variant_index=0, scores={"mass": 0.05, "cost": 10})
         v2 = Variant(subsystem_name="a", variant_index=1, scores={"mass": 0.06, "cost": 11})
         c1 = AssemblyCandidate(variants={"a": v1})
@@ -162,7 +170,8 @@ class TestFilterFeasibleChecksMeasured(unittest.TestCase):
     def test_measured_mass_triggers_threshold(self) -> None:
         spec = _make_spec()  # mass threshold = 0.1
         v = Variant(
-            subsystem_name="gear", variant_index=0,
+            subsystem_name="gear",
+            variant_index=0,
             scores={},  # no scores
             measured={"mass": 0.2},  # exceeds threshold
         )
@@ -173,7 +182,8 @@ class TestFilterFeasibleChecksMeasured(unittest.TestCase):
     def test_measured_mass_within_threshold(self) -> None:
         spec = _make_spec()  # mass threshold = 0.1
         v = Variant(
-            subsystem_name="gear", variant_index=0,
+            subsystem_name="gear",
+            variant_index=0,
             scores={},
             measured={"mass": 0.05},
         )
@@ -186,9 +196,12 @@ class TestScorePartialSumsMass(unittest.TestCase):
 
     def test_mass_is_summed(self) -> None:
         from orchestrator.sbce import _score_partial
-        spec = MasterSpec(objectives=[
-            Objective(name="mass", direction="minimize", unit="kg", weight=1.0),
-        ])
+
+        spec = MasterSpec(
+            objectives=[
+                Objective(name="mass", direction="minimize", unit="kg", weight=1.0),
+            ]
+        )
         v1 = Variant(subsystem_name="a", variant_index=0, scores={"mass": 0.03})
         v2 = Variant(subsystem_name="b", variant_index=0, scores={"mass": 0.04})
         candidate = AssemblyCandidate(variants={"a": v1, "b": v2})
@@ -198,9 +211,12 @@ class TestScorePartialSumsMass(unittest.TestCase):
 
     def test_non_additive_is_averaged(self) -> None:
         from orchestrator.sbce import _score_partial
-        spec = MasterSpec(objectives=[
-            Objective(name="strength", direction="maximize", unit="MPa", weight=1.0),
-        ])
+
+        spec = MasterSpec(
+            objectives=[
+                Objective(name="strength", direction="maximize", unit="MPa", weight=1.0),
+            ]
+        )
         v1 = Variant(subsystem_name="a", variant_index=0, scores={"strength": 100})
         v2 = Variant(subsystem_name="b", variant_index=0, scores={"strength": 200})
         candidate = AssemblyCandidate(variants={"a": v1, "b": v2})
@@ -210,9 +226,12 @@ class TestScorePartialSumsMass(unittest.TestCase):
 
     def test_measured_fallback_in_scoring(self) -> None:
         from orchestrator.sbce import _score_partial
-        spec = MasterSpec(objectives=[
-            Objective(name="mass", direction="minimize", unit="kg", weight=1.0),
-        ])
+
+        spec = MasterSpec(
+            objectives=[
+                Objective(name="mass", direction="minimize", unit="kg", weight=1.0),
+            ]
+        )
         v1 = Variant(subsystem_name="a", variant_index=0, measured={"mass": 0.05})
         candidate = AssemblyCandidate(variants={"a": v1})
         score = _score_partial(candidate, spec)

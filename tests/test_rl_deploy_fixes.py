@@ -1,4 +1,5 @@
 """Tests for RL deployment fixes: joint reorder, action scales, contact scoping."""
+
 from __future__ import annotations
 
 import json
@@ -17,10 +18,12 @@ class TestDirectPolicyActionScales(unittest.TestCase):
 
     def tearDown(self) -> None:
         import shutil
+
         shutil.rmtree(self._tmpdir, ignore_errors=True)
 
     def _make_controller_with_config(
-        self, config_data: dict,
+        self,
+        config_data: dict,
     ) -> DirectPolicyController:
         """Create a DirectPolicyController with a deployment config.
 
@@ -40,39 +43,47 @@ class TestDirectPolicyActionScales(unittest.TestCase):
 
     def test_per_joint_scales_loaded(self) -> None:
         """Per-joint scales are loaded when action_scale_mode is per_joint."""
-        ctrl = self._make_controller_with_config({
-            "joint_names": ["a", "b", "c"],
-            "action_scale_per_joint": [0.1, 0.2, 0.3],
-            "action_scale_mode": "per_joint",
-        })
+        ctrl = self._make_controller_with_config(
+            {
+                "joint_names": ["a", "b", "c"],
+                "action_scale_per_joint": [0.1, 0.2, 0.3],
+                "action_scale_mode": "per_joint",
+            }
+        )
         self.assertEqual(ctrl._action_scales, [0.1, 0.2, 0.3])
 
     def test_scalar_mode_ignores_per_joint(self) -> None:
         """Explicit scalar mode ignores per-joint scales."""
-        ctrl = self._make_controller_with_config({
-            "joint_names": ["a", "b", "c"],
-            "action_scale_per_joint": [0.1, 0.2, 0.3],
-            "action_scale_mode": "scalar",
-            "action_scale": 0.5,
-        })
+        ctrl = self._make_controller_with_config(
+            {
+                "joint_names": ["a", "b", "c"],
+                "action_scale_per_joint": [0.1, 0.2, 0.3],
+                "action_scale_mode": "scalar",
+                "action_scale": 0.5,
+            }
+        )
         self.assertIsNone(ctrl._action_scales)
         self.assertAlmostEqual(ctrl._action_scale, 0.5)
 
     def test_auto_mode_prefers_per_joint(self) -> None:
         """Auto mode (no action_scale_mode field) prefers per-joint."""
-        ctrl = self._make_controller_with_config({
-            "joint_names": ["a", "b"],
-            "action_scale_per_joint": [0.15, 0.4],
-            "action_scale": 0.25,
-        })
+        ctrl = self._make_controller_with_config(
+            {
+                "joint_names": ["a", "b"],
+                "action_scale_per_joint": [0.15, 0.4],
+                "action_scale": 0.25,
+            }
+        )
         self.assertEqual(ctrl._action_scales, [0.15, 0.4])
 
     def test_scalar_fallback_when_no_per_joint(self) -> None:
         """Falls back to scalar when no per-joint list."""
-        ctrl = self._make_controller_with_config({
-            "joint_names": ["a", "b"],
-            "action_scale": 0.7,
-        })
+        ctrl = self._make_controller_with_config(
+            {
+                "joint_names": ["a", "b"],
+                "action_scale": 0.7,
+            }
+        )
         self.assertIsNone(ctrl._action_scales)
         self.assertAlmostEqual(ctrl._action_scale, 0.7)
 
@@ -130,18 +141,15 @@ class TestContactSensorScoping(unittest.TestCase):
     def test_factory_scopes_contacts(self) -> None:
         """make_hexapod_flat_env_cfg sets body_names on contact rewards."""
         # We can't import isaaclab, so verify the code structure via AST
-        cfg_path = (
-            Path(__file__).resolve().parent.parent
-            / "rl_training" / "isaaclab_cfg.py"
-        )
+        cfg_path = Path(__file__).resolve().parent.parent / "rl_training" / "isaaclab_cfg.py"
         source = cfg_path.read_text(encoding="utf-8")
 
         # Verify the factory function sets body_names for foot contacts
-        self.assertIn('body_names=foot_links', source)
+        self.assertIn("body_names=foot_links", source)
         # Verify it sets body_names=[base_link] for undesired/termination
-        self.assertIn('body_names=[base_link]', source)
+        self.assertIn("body_names=[base_link]", source)
         # Verify desired_contacts weight is zeroed when no foot_links
-        self.assertIn('desired_contacts.weight = 0.0', source)
+        self.assertIn("desired_contacts.weight = 0.0", source)
 
 
 if __name__ == "__main__":

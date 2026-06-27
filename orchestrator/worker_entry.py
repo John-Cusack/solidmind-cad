@@ -9,6 +9,7 @@ This runs inside a Docker container. It:
 Usage:
     python -m orchestrator.worker_entry
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -70,9 +71,7 @@ def _find_freecad(*, headless: bool = True) -> str:
         if found:
             return found
 
-    raise FileNotFoundError(
-        "FreeCAD binary not found. Set FREECAD_PATH or install FreeCAD."
-    )
+    raise FileNotFoundError("FreeCAD binary not found. Set FREECAD_PATH or install FreeCAD.")
 
 
 def start_freecad(
@@ -155,10 +154,13 @@ def wait_for_freecad(
         # Check if FreeCAD process died
         if _freecad_proc and _freecad_proc.poll() is not None:
             rc = _freecad_proc.returncode
-            stderr = _freecad_proc.stderr.read().decode("utf-8", errors="replace") if _freecad_proc.stderr else ""
+            stderr = (
+                _freecad_proc.stderr.read().decode("utf-8", errors="replace")
+                if _freecad_proc.stderr
+                else ""
+            )
             raise RuntimeError(
-                f"FreeCAD exited with code {rc} before becoming ready.\n"
-                f"stderr: {stderr[:2000]}"
+                f"FreeCAD exited with code {rc} before becoming ready.\nstderr: {stderr[:2000]}"
             )
 
         log.debug("FreeCAD not ready (attempt %d), waiting %.0fs...", attempt, poll_interval)
@@ -196,10 +198,16 @@ def is_freecad_ready() -> bool:
 # ---------------------------------------------------------------------------
 
 
-_LONG_COMMANDS = frozenset({
-    "polar_pattern", "linear_pattern", "export",
-    "pad", "pocket", "sketch_populate",
-})
+_LONG_COMMANDS = frozenset(
+    {
+        "polar_pattern",
+        "linear_pattern",
+        "export",
+        "pad",
+        "pocket",
+        "sketch_populate",
+    }
+)
 
 
 def _send(host: str, port: int, cmd: str, **args: Any) -> dict[str, Any]:
@@ -243,7 +251,13 @@ async def build_from_spec(
     result = await loop.run_in_executor(
         None,
         _build_geometry,
-        fc_port, part_name, envelope, output_dir, sub_spec, interfaces, task,
+        fc_port,
+        part_name,
+        envelope,
+        output_dir,
+        sub_spec,
+        interfaces,
+        task,
     )
     return result
 
@@ -264,24 +278,55 @@ def _build_geometry(
     build_type = sub_spec.get("build_type", "envelope")
     if build_type == "gear":
         return _build_gear(
-            host, fc_port, part_name, output_dir, sub_spec, task, interfaces,
+            host,
+            fc_port,
+            part_name,
+            output_dir,
+            sub_spec,
+            task,
+            interfaces,
         )
     elif build_type == "ring_gear":
         return _build_ring_gear(
-            host, fc_port, part_name, output_dir, sub_spec, task, interfaces,
+            host,
+            fc_port,
+            part_name,
+            output_dir,
+            sub_spec,
+            task,
+            interfaces,
         )
     elif build_type == "carrier":
         return _build_carrier(
-            host, fc_port, part_name, output_dir, sub_spec, task, interfaces,
+            host,
+            fc_port,
+            part_name,
+            output_dir,
+            sub_spec,
+            task,
+            interfaces,
         )
     elif build_type == "leg":
         return _build_leg(
-            host, fc_port, part_name, output_dir, sub_spec, task, interfaces,
+            host,
+            fc_port,
+            part_name,
+            output_dir,
+            sub_spec,
+            task,
+            interfaces,
         )
 
     # Default: envelope box + interface features
     return _build_envelope(
-        host, fc_port, part_name, envelope, output_dir, sub_spec, interfaces, task,
+        host,
+        fc_port,
+        part_name,
+        envelope,
+        output_dir,
+        sub_spec,
+        interfaces,
+        task,
     )
 
 
@@ -315,7 +360,7 @@ def _export_and_package(
 
     # Measure interface actuals
     interface_actuals: dict[str, Any] = {}
-    for ifc in (interfaces or []):
+    for ifc in interfaces or []:
         ifc_id = ifc.get("id", "")
         if not ifc_id:
             continue
@@ -363,17 +408,21 @@ def _export_and_package(
         p = Path(fpath)
         if p.exists():
             if p.suffix == ".json":
-                artifacts.append({
-                    "type": "data",
-                    "name": p.name,
-                    "data": json.loads(p.read_text()),
-                })
+                artifacts.append(
+                    {
+                        "type": "data",
+                        "name": p.name,
+                        "data": json.loads(p.read_text()),
+                    }
+                )
             else:
-                artifacts.append({
-                    "type": "file",
-                    "name": p.name,
-                    "data": base64.b64encode(p.read_bytes()).decode(),
-                })
+                artifacts.append(
+                    {
+                        "type": "file",
+                        "name": p.name,
+                        "data": base64.b64encode(p.read_bytes()).decode(),
+                    }
+                )
 
     return {"artifacts": artifacts}
 
@@ -418,9 +467,16 @@ def _build_envelope(
     # 3. Sketch base rectangle on XY plane
     w, d, h = envelope[0], envelope[1], envelope[2]
     sk = _send(host, fc_port, "new_sketch", body=body_name, plane="XY", doc=doc_name)
-    _send(host, fc_port, "sketch_populate", sketch=sk["sketch"], doc=doc_name, elements=[
-        {"type": "rect", "x": -w / 2, "y": -d / 2, "w": w, "h": d},
-    ])
+    _send(
+        host,
+        fc_port,
+        "sketch_populate",
+        sketch=sk["sketch"],
+        doc=doc_name,
+        elements=[
+            {"type": "rect", "x": -w / 2, "y": -d / 2, "w": w, "h": d},
+        ],
+    )
     _send(host, fc_port, "close_sketch", sketch=sk["sketch"], doc=doc_name)
     task.progress.append("Base sketch complete")
 
@@ -438,12 +494,19 @@ def _build_envelope(
         kind = hole.get("type", "pocket")
 
         sk_h = _send(
-            host, fc_port, "new_sketch",
-            body=body_name, plane="XY", doc=doc_name,
+            host,
+            fc_port,
+            "new_sketch",
+            body=body_name,
+            plane="XY",
+            doc=doc_name,
         )
         _send(
-            host, fc_port, "sketch_populate",
-            sketch=sk_h["sketch"], doc=doc_name,
+            host,
+            fc_port,
+            "sketch_populate",
+            sketch=sk_h["sketch"],
+            doc=doc_name,
             elements=[
                 {"type": "circle", "cx": cx, "cy": cy, "r": diameter / 2},
             ],
@@ -452,11 +515,15 @@ def _build_envelope(
 
         if kind == "boss":
             _send(
-                host, fc_port, "pad",
-                sketch=sk_h["sketch"], length=depth or 5.0, doc=doc_name,
+                host,
+                fc_port,
+                "pad",
+                sketch=sk_h["sketch"],
+                length=depth or 5.0,
+                doc=doc_name,
             )
             task.progress.append(
-                f"Boss {i+1} Ø{diameter} at ({cx:.1f},{cy:.1f}) × {depth or 5.0}"
+                f"Boss {i + 1} Ø{diameter} at ({cx:.1f},{cy:.1f}) × {depth or 5.0}"
             )
         else:
             # Sketches sit on XY (z=0); the padded envelope sits in +Z
@@ -465,22 +532,28 @@ def _build_envelope(
             # so hardcode the direction here.
             if depth > 0:
                 _send(
-                    host, fc_port, "pocket",
-                    sketch=sk_h["sketch"], length=depth,
-                    reversed=True, verify=False, doc=doc_name,
+                    host,
+                    fc_port,
+                    "pocket",
+                    sketch=sk_h["sketch"],
+                    length=depth,
+                    reversed=True,
+                    verify=False,
+                    doc=doc_name,
                 )
-                task.progress.append(
-                    f"Pocket {i+1} Ø{diameter} at ({cx:.1f},{cy:.1f}) × {depth}"
-                )
+                task.progress.append(f"Pocket {i + 1} Ø{diameter} at ({cx:.1f},{cy:.1f}) × {depth}")
             else:
                 _send(
-                    host, fc_port, "pocket",
-                    sketch=sk_h["sketch"], pocket_type="ThroughAll",
-                    reversed=True, verify=False, doc=doc_name,
+                    host,
+                    fc_port,
+                    "pocket",
+                    sketch=sk_h["sketch"],
+                    pocket_type="ThroughAll",
+                    reversed=True,
+                    verify=False,
+                    doc=doc_name,
                 )
-                task.progress.append(
-                    f"Pocket {i+1} Ø{diameter} at ({cx:.1f},{cy:.1f}) × through"
-                )
+                task.progress.append(f"Pocket {i + 1} Ø{diameter} at ({cx:.1f},{cy:.1f}) × through")
 
     # 5b. Legacy: per-interface centered-at-origin features
     for ifc in interfaces:
@@ -491,9 +564,16 @@ def _build_envelope(
             is_boss = ifc.get("subsystem_a") == part_name or sub_spec.get("role") == "boss"
 
             sk2 = _send(host, fc_port, "new_sketch", body=body_name, plane="XY", doc=doc_name)
-            _send(host, fc_port, "sketch_populate", sketch=sk2["sketch"], doc=doc_name, elements=[
-                {"type": "circle", "cx": 0, "cy": 0, "r": diameter / 2},
-            ])
+            _send(
+                host,
+                fc_port,
+                "sketch_populate",
+                sketch=sk2["sketch"],
+                doc=doc_name,
+                elements=[
+                    {"type": "circle", "cx": 0, "cy": 0, "r": diameter / 2},
+                ],
+            )
             _send(host, fc_port, "close_sketch", sketch=sk2["sketch"], doc=doc_name)
 
             if is_boss:
@@ -504,7 +584,14 @@ def _build_envelope(
                 task.progress.append(f"Pocket Ø{diameter}×{depth}")
 
     return _export_and_package(
-        host, fc_port, part_name, doc_name, body_name, output_dir, sub_spec, task,
+        host,
+        fc_port,
+        part_name,
+        doc_name,
+        body_name,
+        output_dir,
+        sub_spec,
+        task,
         interfaces=interfaces,
     )
 
@@ -545,8 +632,7 @@ def _build_gear(
 
     # Sketch gear profile
     sk = _send(host, fc_port, "new_sketch", body=body_name, plane="XY", doc=doc_name)
-    _send(host, fc_port, "sketch_populate", sketch=sk["sketch"], doc=doc_name,
-          elements=elements)
+    _send(host, fc_port, "sketch_populate", sketch=sk["sketch"], doc=doc_name, elements=elements)
     _send(host, fc_port, "close_sketch", sketch=sk["sketch"], doc=doc_name)
     task.progress.append(f"Gear profile sketched ({len(elements)} elements)")
 
@@ -557,15 +643,36 @@ def _build_gear(
     # Bore hole
     if bore_dia > 0:
         sk2 = _send(host, fc_port, "new_sketch", body=body_name, plane="XY", doc=doc_name)
-        _send(host, fc_port, "sketch_populate", sketch=sk2["sketch"], doc=doc_name,
-              elements=[{"type": "circle", "cx": 0, "cy": 0, "r": bore_dia / 2}])
+        _send(
+            host,
+            fc_port,
+            "sketch_populate",
+            sketch=sk2["sketch"],
+            doc=doc_name,
+            elements=[{"type": "circle", "cx": 0, "cy": 0, "r": bore_dia / 2}],
+        )
         _send(host, fc_port, "close_sketch", sketch=sk2["sketch"], doc=doc_name)
-        _send(host, fc_port, "pocket", sketch=sk2["sketch"],
-              pocket_type="ThroughAll", reversed="auto", verify=False, doc=doc_name)
+        _send(
+            host,
+            fc_port,
+            "pocket",
+            sketch=sk2["sketch"],
+            pocket_type="ThroughAll",
+            reversed="auto",
+            verify=False,
+            doc=doc_name,
+        )
         task.progress.append(f"Bore Ø{bore_dia}")
 
     return _export_and_package(
-        host, fc_port, part_name, doc_name, body_name, output_dir, sub_spec, task,
+        host,
+        fc_port,
+        part_name,
+        doc_name,
+        body_name,
+        output_dir,
+        sub_spec,
+        task,
         interfaces=interfaces,
     )
 
@@ -602,30 +709,54 @@ def _build_ring_gear(
 
     # 1. Sketch + pad the outer blank
     sk = _send(host, fc_port, "new_sketch", body=body_name, plane="XY", doc=doc_name)
-    _send(host, fc_port, "sketch_populate", sketch=sk["sketch"], doc=doc_name,
-          elements=blank_elements)
+    _send(
+        host, fc_port, "sketch_populate", sketch=sk["sketch"], doc=doc_name, elements=blank_elements
+    )
     _send(host, fc_port, "close_sketch", sketch=sk["sketch"], doc=doc_name)
     _send(host, fc_port, "pad", sketch=sk["sketch"], length=thickness, doc=doc_name)
     task.progress.append("Ring blank padded")
 
     # 2. Sketch tooth slot on top face → pocket through all
     sk2 = _send(host, fc_port, "new_sketch", body=body_name, plane="XY", doc=doc_name)
-    _send(host, fc_port, "sketch_populate", sketch=sk2["sketch"], doc=doc_name,
-          elements=slot_elements)
+    _send(
+        host, fc_port, "sketch_populate", sketch=sk2["sketch"], doc=doc_name, elements=slot_elements
+    )
     _send(host, fc_port, "close_sketch", sketch=sk2["sketch"], doc=doc_name)
-    pocket_result = _send(host, fc_port, "pocket", sketch=sk2["sketch"],
-                          pocket_type="ThroughAll", reversed="auto",
-                          verify=False, doc=doc_name)
+    pocket_result = _send(
+        host,
+        fc_port,
+        "pocket",
+        sketch=sk2["sketch"],
+        pocket_type="ThroughAll",
+        reversed="auto",
+        verify=False,
+        doc=doc_name,
+    )
     pocket_name = pocket_result.get("name", "Pocket")
     task.progress.append("Tooth slot pocketed")
 
     # 3. Polar pattern to replicate around ring
-    _send(host, fc_port, "polar_pattern", features=[pocket_name],
-          occurrences=ring_teeth, axis="Base_Z", verify=False, doc=doc_name)
+    _send(
+        host,
+        fc_port,
+        "polar_pattern",
+        features=[pocket_name],
+        occurrences=ring_teeth,
+        axis="Base_Z",
+        verify=False,
+        doc=doc_name,
+    )
     task.progress.append(f"Polar pattern × {ring_teeth}")
 
     return _export_and_package(
-        host, fc_port, part_name, doc_name, body_name, output_dir, sub_spec, task,
+        host,
+        fc_port,
+        part_name,
+        doc_name,
+        body_name,
+        output_dir,
+        sub_spec,
+        task,
         interfaces=interfaces,
     )
 
@@ -669,8 +800,14 @@ def _build_carrier(
 
     # 1. Base disc
     sk = _send(host, fc_port, "new_sketch", body=body_name, plane="XY", doc=doc_name)
-    _send(host, fc_port, "sketch_populate", sketch=sk["sketch"], doc=doc_name,
-          elements=[{"type": "circle", "cx": 0, "cy": 0, "r": outer_r}])
+    _send(
+        host,
+        fc_port,
+        "sketch_populate",
+        sketch=sk["sketch"],
+        doc=doc_name,
+        elements=[{"type": "circle", "cx": 0, "cy": 0, "r": outer_r}],
+    )
     _send(host, fc_port, "close_sketch", sketch=sk["sketch"], doc=doc_name)
     _send(host, fc_port, "pad", sketch=sk["sketch"], length=thickness, doc=doc_name)
     task.progress.append(f"Carrier disc Ø{outer_r * 2} × {thickness}mm")
@@ -678,24 +815,51 @@ def _build_carrier(
     # 2. Central bore
     if bore_dia > 0:
         sk2 = _send(host, fc_port, "new_sketch", body=body_name, plane="XY", doc=doc_name)
-        _send(host, fc_port, "sketch_populate", sketch=sk2["sketch"], doc=doc_name,
-              elements=[{"type": "circle", "cx": 0, "cy": 0, "r": bore_dia / 2}])
+        _send(
+            host,
+            fc_port,
+            "sketch_populate",
+            sketch=sk2["sketch"],
+            doc=doc_name,
+            elements=[{"type": "circle", "cx": 0, "cy": 0, "r": bore_dia / 2}],
+        )
         _send(host, fc_port, "close_sketch", sketch=sk2["sketch"], doc=doc_name)
-        _send(host, fc_port, "pocket", sketch=sk2["sketch"],
-              pocket_type="ThroughAll", reversed="auto", verify=False, doc=doc_name)
+        _send(
+            host,
+            fc_port,
+            "pocket",
+            sketch=sk2["sketch"],
+            pocket_type="ThroughAll",
+            reversed="auto",
+            verify=False,
+            doc=doc_name,
+        )
         task.progress.append(f"Bore Ø{bore_dia}")
 
     # 3. Planet pin bosses
     for i, pos in enumerate(pin_positions):
         sk3 = _send(host, fc_port, "new_sketch", body=body_name, plane="XY", doc=doc_name)
-        _send(host, fc_port, "sketch_populate", sketch=sk3["sketch"], doc=doc_name,
-              elements=[{"type": "circle", "cx": pos[0], "cy": pos[1], "r": pin_dia / 2}])
+        _send(
+            host,
+            fc_port,
+            "sketch_populate",
+            sketch=sk3["sketch"],
+            doc=doc_name,
+            elements=[{"type": "circle", "cx": pos[0], "cy": pos[1], "r": pin_dia / 2}],
+        )
         _send(host, fc_port, "close_sketch", sketch=sk3["sketch"], doc=doc_name)
         _send(host, fc_port, "pad", sketch=sk3["sketch"], length=pin_height, doc=doc_name)
         task.progress.append(f"Pin boss {i + 1} at ({pos[0]:.1f}, {pos[1]:.1f})")
 
     return _export_and_package(
-        host, fc_port, part_name, doc_name, body_name, output_dir, sub_spec, task,
+        host,
+        fc_port,
+        part_name,
+        doc_name,
+        body_name,
+        output_dir,
+        sub_spec,
+        task,
         interfaces=interfaces,
     )
 
@@ -748,25 +912,44 @@ def _build_leg(
 
     # 1. Coxa segment: x ∈ [0, coxa_len]
     sk1 = _send(host, fc_port, "new_sketch", body=body_name, plane="XY", doc=doc_name)
-    _send(host, fc_port, "sketch_populate", sketch=sk1["sketch"], doc=doc_name,
-          elements=[{"type": "rect", "x": 0.0, "y": -half_w, "w": coxa_len, "h": width}])
+    _send(
+        host,
+        fc_port,
+        "sketch_populate",
+        sketch=sk1["sketch"],
+        doc=doc_name,
+        elements=[{"type": "rect", "x": 0.0, "y": -half_w, "w": coxa_len, "h": width}],
+    )
     _send(host, fc_port, "close_sketch", sketch=sk1["sketch"], doc=doc_name)
     _send(host, fc_port, "pad", sketch=sk1["sketch"], length=thickness, doc=doc_name)
     task.progress.append(f"Coxa pad {coxa_len}×{width}×{thickness}")
 
     # 2. Femur segment: x ∈ [coxa_len, coxa_len + femur_len], shares edge with coxa
     sk2 = _send(host, fc_port, "new_sketch", body=body_name, plane="XY", doc=doc_name)
-    _send(host, fc_port, "sketch_populate", sketch=sk2["sketch"], doc=doc_name,
-          elements=[{"type": "rect", "x": coxa_len, "y": -half_w, "w": femur_len, "h": width}])
+    _send(
+        host,
+        fc_port,
+        "sketch_populate",
+        sketch=sk2["sketch"],
+        doc=doc_name,
+        elements=[{"type": "rect", "x": coxa_len, "y": -half_w, "w": femur_len, "h": width}],
+    )
     _send(host, fc_port, "close_sketch", sketch=sk2["sketch"], doc=doc_name)
     _send(host, fc_port, "pad", sketch=sk2["sketch"], length=thickness, doc=doc_name)
     task.progress.append(f"Femur pad {femur_len}×{width}×{thickness}")
 
     # 3. Tibia segment
     sk3 = _send(host, fc_port, "new_sketch", body=body_name, plane="XY", doc=doc_name)
-    _send(host, fc_port, "sketch_populate", sketch=sk3["sketch"], doc=doc_name,
-          elements=[{"type": "rect", "x": coxa_len + femur_len, "y": -half_w,
-                     "w": tibia_len, "h": width}])
+    _send(
+        host,
+        fc_port,
+        "sketch_populate",
+        sketch=sk3["sketch"],
+        doc=doc_name,
+        elements=[
+            {"type": "rect", "x": coxa_len + femur_len, "y": -half_w, "w": tibia_len, "h": width}
+        ],
+    )
     _send(host, fc_port, "close_sketch", sketch=sk3["sketch"], doc=doc_name)
     _send(host, fc_port, "pad", sketch=sk3["sketch"], length=thickness, doc=doc_name)
     task.progress.append(f"Tibia pad {tibia_len}×{width}×{thickness}")
@@ -781,17 +964,38 @@ def _build_leg(
         if dia <= 0:
             continue
         sk_b = _send(host, fc_port, "new_sketch", body=body_name, plane="XY", doc=doc_name)
-        _send(host, fc_port, "sketch_populate", sketch=sk_b["sketch"], doc=doc_name,
-              elements=[{"type": "circle", "cx": cx, "cy": 0.0, "r": dia / 2.0}])
+        _send(
+            host,
+            fc_port,
+            "sketch_populate",
+            sketch=sk_b["sketch"],
+            doc=doc_name,
+            elements=[{"type": "circle", "cx": cx, "cy": 0.0, "r": dia / 2.0}],
+        )
         _send(host, fc_port, "close_sketch", sketch=sk_b["sketch"], doc=doc_name)
         # Body sits in +Z (z=0..thickness); reversed=True cuts INTO it.
         # auto-resolve gets confused after multiple sequential pockets.
-        _send(host, fc_port, "pocket", sketch=sk_b["sketch"],
-              pocket_type="ThroughAll", reversed=True, verify=False, doc=doc_name)
+        _send(
+            host,
+            fc_port,
+            "pocket",
+            sketch=sk_b["sketch"],
+            pocket_type="ThroughAll",
+            reversed=True,
+            verify=False,
+            doc=doc_name,
+        )
         task.progress.append(f"Bore {label} Ø{dia} at x={cx:.1f}")
 
     return _export_and_package(
-        host, fc_port, part_name, doc_name, body_name, output_dir, sub_spec, task,
+        host,
+        fc_port,
+        part_name,
+        doc_name,
+        body_name,
+        output_dir,
+        sub_spec,
+        task,
         interfaces=interfaces,
     )
 

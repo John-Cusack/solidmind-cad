@@ -11,6 +11,7 @@ This is a standalone script (NOT unittest) meant for interactive development.
 It imports a URDF, counts joints/links, takes screenshots, and optionally
 runs pose tests to verify the robot assembles correctly.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -35,7 +36,9 @@ def _send_command(sock: socket.socket, cmd: dict) -> dict:
     return json.loads(buf.decode("utf-8").strip())
 
 
-def connect_bridge(host: str = "localhost", port: int = 9878, timeout: float = 5.0) -> socket.socket:
+def connect_bridge(
+    host: str = "localhost", port: int = 9878, timeout: float = 5.0
+) -> socket.socket:
     """Connect to the Isaac bridge, fail fast if not running."""
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.settimeout(timeout)
@@ -98,6 +101,7 @@ def take_screenshots(
             # Copy the file (bridge saves to temp)
             if os.path.exists(src):
                 import shutil
+
                 shutil.copy2(src, dst)
                 saved.append(dst)
                 print(f"  Screenshot: {dst}")
@@ -150,14 +154,23 @@ def validate_import(result: dict, expected_joints: int = 18, expected_links: int
 def main() -> None:
     parser = argparse.ArgumentParser(description="Test URDF import in Isaac Sim")
     parser.add_argument("urdf_path", help="Path to URDF file")
-    parser.add_argument("--output-dir", default="./urdf_test_output",
-                        help="Directory for screenshots (default: ./urdf_test_output)")
-    parser.add_argument("--pose-test", action="store_true",
-                        help="Run pose test (zero pose + standing pose)")
-    parser.add_argument("--expected-joints", type=int, default=18,
-                        help="Expected number of revolute joints (default: 18)")
-    parser.add_argument("--expected-links", type=int, default=19,
-                        help="Expected minimum link count (default: 19)")
+    parser.add_argument(
+        "--output-dir",
+        default="./urdf_test_output",
+        help="Directory for screenshots (default: ./urdf_test_output)",
+    )
+    parser.add_argument(
+        "--pose-test", action="store_true", help="Run pose test (zero pose + standing pose)"
+    )
+    parser.add_argument(
+        "--expected-joints",
+        type=int,
+        default=18,
+        help="Expected number of revolute joints (default: 18)",
+    )
+    parser.add_argument(
+        "--expected-links", type=int, default=19, help="Expected minimum link count (default: 19)"
+    )
     args = parser.parse_args()
 
     if not os.path.exists(args.urdf_path):
@@ -173,10 +186,14 @@ def main() -> None:
 
     try:
         # Import URDF
-        result = import_urdf(sock, args.urdf_path, config={
-            "fix_base": True,
-            "merge_fixed_joints": False,
-        })
+        result = import_urdf(
+            sock,
+            args.urdf_path,
+            config={
+                "fix_base": True,
+                "merge_fixed_joints": False,
+            },
+        )
 
         # Validate counts
         passed = validate_import(result, args.expected_joints, args.expected_links)
@@ -198,6 +215,7 @@ def main() -> None:
 
                 print("\n--- Standing Pose ---")
                 import math
+
                 standing_pos = {}
                 for jn in joint_names:
                     if "femur" in jn.lower():
@@ -211,13 +229,13 @@ def main() -> None:
                 take_screenshots(sock, args.output_dir, prefix="standing")
 
         # Final report
-        print(f"\n{'='*40}")
+        print(f"\n{'=' * 40}")
         if passed:
             print("RESULT: PASS")
         else:
             print("RESULT: FAIL")
         print(f"Screenshots saved to: {args.output_dir}")
-        print(f"{'='*40}")
+        print(f"{'=' * 40}")
 
         sys.exit(0 if passed else 1)
 

@@ -3,6 +3,7 @@
 Belt length, wrap angles, speed ratios, timing belt tooth counts,
 and groove profile sketch elements for V-belt and timing belt drives.
 """
+
 from __future__ import annotations
 
 import math
@@ -12,6 +13,7 @@ from typing import Any
 # ---------------------------------------------------------------------------
 # V-belt cross-section lookup (ISO 4184 / RMA)
 # ---------------------------------------------------------------------------
+
 
 @dataclass(frozen=True, slots=True)
 class VBeltSpec:
@@ -46,6 +48,7 @@ _VBELT_PROFILES: dict[str, VBeltSpec] = {
 # Timing belt pitch lookup
 # ---------------------------------------------------------------------------
 
+
 @dataclass(frozen=True, slots=True)
 class TimingBeltSpec:
     """Timing belt profile dimensions."""
@@ -58,29 +61,30 @@ class TimingBeltSpec:
 
 
 _TIMING_PROFILES: dict[str, TimingBeltSpec] = {
-    "MXL":    TimingBeltSpec("MXL",    2.032,  0.51,  1.14,  10),
-    "XL":     TimingBeltSpec("XL",     5.080,  1.27,  2.30,  10),
-    "L":      TimingBeltSpec("L",      9.525,  1.91,  3.60,  10),
-    "H":      TimingBeltSpec("H",     12.700,  2.29,  4.30,  14),
-    "XH":     TimingBeltSpec("XH",    22.225,  6.35,  11.20, 18),
-    "XXH":    TimingBeltSpec("XXH",   31.750,  9.53,  15.70, 18),
-    "T2.5":   TimingBeltSpec("T2.5",   2.500,  0.70,  1.30,  10),
-    "T5":     TimingBeltSpec("T5",     5.000,  1.20,  2.20,  10),
-    "T10":    TimingBeltSpec("T10",   10.000,  2.50,  4.50,  12),
-    "T20":    TimingBeltSpec("T20",   20.000,  5.00,  8.00,  15),
-    "HTD-3M": TimingBeltSpec("HTD-3M", 3.000,  1.22,  2.40,  10),
-    "HTD-5M": TimingBeltSpec("HTD-5M", 5.000,  2.06,  3.80,  14),
-    "HTD-8M": TimingBeltSpec("HTD-8M", 8.000,  3.36,  5.60,  22),
+    "MXL": TimingBeltSpec("MXL", 2.032, 0.51, 1.14, 10),
+    "XL": TimingBeltSpec("XL", 5.080, 1.27, 2.30, 10),
+    "L": TimingBeltSpec("L", 9.525, 1.91, 3.60, 10),
+    "H": TimingBeltSpec("H", 12.700, 2.29, 4.30, 14),
+    "XH": TimingBeltSpec("XH", 22.225, 6.35, 11.20, 18),
+    "XXH": TimingBeltSpec("XXH", 31.750, 9.53, 15.70, 18),
+    "T2.5": TimingBeltSpec("T2.5", 2.500, 0.70, 1.30, 10),
+    "T5": TimingBeltSpec("T5", 5.000, 1.20, 2.20, 10),
+    "T10": TimingBeltSpec("T10", 10.000, 2.50, 4.50, 12),
+    "T20": TimingBeltSpec("T20", 20.000, 5.00, 8.00, 15),
+    "HTD-3M": TimingBeltSpec("HTD-3M", 3.000, 1.22, 2.40, 10),
+    "HTD-5M": TimingBeltSpec("HTD-5M", 5.000, 2.06, 3.80, 14),
+    "HTD-8M": TimingBeltSpec("HTD-8M", 8.000, 3.36, 5.60, 22),
     "HTD-14M": TimingBeltSpec("HTD-14M", 14.000, 6.02, 10.00, 28),
-    "GT2":    TimingBeltSpec("GT2",    2.000,  0.76,  1.38,  16),
-    "GT3":    TimingBeltSpec("GT3",    3.000,  1.14,  2.41,  16),
-    "GT5":    TimingBeltSpec("GT5",    5.000,  1.91,  3.81,  22),
+    "GT2": TimingBeltSpec("GT2", 2.000, 0.76, 1.38, 16),
+    "GT3": TimingBeltSpec("GT3", 3.000, 1.14, 2.41, 16),
+    "GT5": TimingBeltSpec("GT5", 5.000, 1.91, 3.81, 22),
 }
 
 
 # ---------------------------------------------------------------------------
 # Core formulas
 # ---------------------------------------------------------------------------
+
 
 def _belt_length(center_dist: float, d_large: float, d_small: float) -> float:
     """Open belt length from center distance and pulley diameters."""
@@ -92,7 +96,9 @@ def _belt_length(center_dist: float, d_large: float, d_small: float) -> float:
 
 
 def _wrap_angles(
-    center_dist: float, d_large: float, d_small: float,
+    center_dist: float,
+    d_large: float,
+    d_small: float,
 ) -> tuple[float, float]:
     """Wrap angles in degrees for small and large pulleys (open belt)."""
     ratio = (d_large - d_small) / (2.0 * center_dist)
@@ -145,6 +151,7 @@ def _timing_tooth_elements(spec: TimingBeltSpec) -> list[dict[str, Any]]:
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
+
 
 def belt_drive_layout(
     driver_diameter: float,
@@ -217,9 +224,7 @@ def belt_drive_layout(
         spec = _TIMING_PROFILES.get(profile_key)
         if spec is None:
             valid = ", ".join(sorted(_TIMING_PROFILES.keys()))
-            raise ValueError(
-                f"Unknown timing belt profile '{profile_key}'. Valid: {valid}"
-            )
+            raise ValueError(f"Unknown timing belt profile '{profile_key}'. Valid: {valid}")
 
         # Minimum pulley check
         driver_teeth = _timing_teeth(driver_diameter, spec.pitch_mm)
@@ -238,14 +243,16 @@ def belt_drive_layout(
                 f"for {spec.designation}"
             )
 
-        result.update({
-            "driver_teeth": driver_teeth,
-            "driven_teeth": driven_teeth,
-            "belt_teeth": belt_teeth,
-            "belt_pitch_mm": spec.pitch_mm,
-            "profile_spec": spec,
-            "groove_elements": _timing_tooth_elements(spec),
-        })
+        result.update(
+            {
+                "driver_teeth": driver_teeth,
+                "driven_teeth": driven_teeth,
+                "belt_teeth": belt_teeth,
+                "belt_pitch_mm": spec.pitch_mm,
+                "profile_spec": spec,
+                "groove_elements": _timing_tooth_elements(spec),
+            }
+        )
 
         build_hint = (
             f"{spec.designation} timing belt: {belt_teeth}T belt, "
@@ -263,9 +270,7 @@ def belt_drive_layout(
         spec_v = _VBELT_PROFILES.get(profile_key)
         if spec_v is None:
             valid = ", ".join(sorted(_VBELT_PROFILES.keys()))
-            raise ValueError(
-                f"Unknown V-belt profile '{profile_key}'. Valid: {valid}"
-            )
+            raise ValueError(f"Unknown V-belt profile '{profile_key}'. Valid: {valid}")
 
         warnings = []
         if d_small < spec_v.min_pulley_dia_mm:
@@ -281,11 +286,13 @@ def belt_drive_layout(
                 f"consider an idler or increasing center distance"
             )
 
-        result.update({
-            "profile_spec": spec_v,
-            "groove_elements": _vbelt_groove_elements(spec_v),
-            "groove_angle_deg": spec_v.groove_angle_deg,
-        })
+        result.update(
+            {
+                "profile_spec": spec_v,
+                "groove_elements": _vbelt_groove_elements(spec_v),
+                "groove_angle_deg": spec_v.groove_angle_deg,
+            }
+        )
 
         build_hint = (
             f"{spec_v.designation} V-belt: "
@@ -300,9 +307,7 @@ def belt_drive_layout(
             build_hint += " WARNINGS: " + "; ".join(warnings)
 
     else:
-        raise ValueError(
-            f"Unknown belt_type '{belt_type}'. Use 'timing' or 'vbelt'."
-        )
+        raise ValueError(f"Unknown belt_type '{belt_type}'. Use 'timing' or 'vbelt'.")
 
     result["build_hint"] = build_hint
     return result

@@ -1,4 +1,5 @@
 """Tests for conjugate heat transfer (CHT) — coupled Navier-Stokes + Heat."""
+
 from __future__ import annotations
 
 import unittest
@@ -158,7 +159,9 @@ class TestElmerConjugateSif(unittest.TestCase):
                 bc_type="velocity_inlet",
                 faces=("Face1",),
                 value={
-                    "vx_m_s": 8.33, "vy_m_s": 0, "vz_m_s": 0,
+                    "vx_m_s": 8.33,
+                    "vy_m_s": 0,
+                    "vz_m_s": 0,
                     "temperature_k": 300,
                     "fluid_density_kg_m3": 1.225,
                     "fluid_viscosity_pa_s": 1.789e-5,
@@ -192,6 +195,7 @@ class TestElmerConjugateSif(unittest.TestCase):
         )
 
         from pathlib import Path
+
         solver = ElmerSolver()
         sif_lines = solver._build_sif(spec, mesh_info, Path("/tmp/mesh_db"))
         sif_text = "\n".join(sif_lines)
@@ -266,6 +270,7 @@ class TestElmerConjugateSif(unittest.TestCase):
         )
 
         from pathlib import Path
+
         solver = ElmerSolver()
         sif_lines = solver._build_sif(spec, mesh_info, Path("/tmp/mesh_db"))
         sif_text = "\n".join(sif_lines)

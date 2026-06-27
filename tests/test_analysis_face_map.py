@@ -1,4 +1,5 @@
 """Tests for face mapping between FreeCAD and Gmsh."""
+
 from __future__ import annotations
 
 import unittest

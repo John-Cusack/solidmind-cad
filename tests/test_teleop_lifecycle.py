@@ -3,6 +3,7 @@
 Covers: fail-fast joint mapping, stop cleanup with telemetry,
 unknown/missing session behavior unchanged, start→stop→start cycle.
 """
+
 from __future__ import annotations
 
 import json
@@ -20,7 +21,12 @@ def _mechanism() -> dict:
             {"id": "body", "is_ground": False},
         ],
         "joints": [
-            {"id": "hip_lf", "joint_type": "revolute", "parent_part": "body", "child_part": "leg_lf"},
+            {
+                "id": "hip_lf",
+                "joint_type": "revolute",
+                "parent_part": "body",
+                "child_part": "leg_lf",
+            },
         ],
         "drives": [],
     }
@@ -36,20 +42,28 @@ class TestTeleopStopCleanup(unittest.TestCase):
         return self.server._handle_line(payload.encode("utf-8"))  # type: ignore[attr-defined]
 
     def test_stop_returns_telemetry(self) -> None:
-        started = self._call(json.dumps({
-            "cmd": "teleop_start",
-            "args": {"mechanism": _mechanism()},
-        }))
+        started = self._call(
+            json.dumps(
+                {
+                    "cmd": "teleop_start",
+                    "args": {"mechanism": _mechanism()},
+                }
+            )
+        )
         session_id = started["result"]["session_id"]
 
         # Tick a few times
         for _ in range(5):
             self.server._runtime.tick_teleop(0.01)
 
-        stopped = self._call(json.dumps({
-            "cmd": "teleop_stop",
-            "args": {"session_id": session_id},
-        }))
+        stopped = self._call(
+            json.dumps(
+                {
+                    "cmd": "teleop_stop",
+                    "args": {"session_id": session_id},
+                }
+            )
+        )
         self.assertTrue(stopped["ok"])
         r = stopped["result"]
         self.assertTrue(r["stopped"])
@@ -60,10 +74,14 @@ class TestTeleopStopCleanup(unittest.TestCase):
 
     def test_stop_unknown_session_unchanged(self) -> None:
         """Unknown session still returns already_stopped."""
-        stopped = self._call(json.dumps({
-            "cmd": "teleop_stop",
-            "args": {"session_id": "nonexistent_session"},
-        }))
+        stopped = self._call(
+            json.dumps(
+                {
+                    "cmd": "teleop_stop",
+                    "args": {"session_id": "nonexistent_session"},
+                }
+            )
+        )
         self.assertTrue(stopped["ok"])
         self.assertTrue(stopped["result"]["already_stopped"])
         # No teleop telemetry keys on already_stopped
@@ -71,59 +89,91 @@ class TestTeleopStopCleanup(unittest.TestCase):
 
     def test_stop_idempotent(self) -> None:
         """Stopping the same session twice: first returns telemetry, second returns already_stopped."""
-        started = self._call(json.dumps({
-            "cmd": "teleop_start",
-            "args": {"mechanism": _mechanism()},
-        }))
+        started = self._call(
+            json.dumps(
+                {
+                    "cmd": "teleop_start",
+                    "args": {"mechanism": _mechanism()},
+                }
+            )
+        )
         session_id = started["result"]["session_id"]
 
-        first = self._call(json.dumps({
-            "cmd": "teleop_stop",
-            "args": {"session_id": session_id},
-        }))
+        first = self._call(
+            json.dumps(
+                {
+                    "cmd": "teleop_stop",
+                    "args": {"session_id": session_id},
+                }
+            )
+        )
         self.assertTrue(first["result"]["stopped"])
         self.assertNotIn("already_stopped", first["result"])
 
-        second = self._call(json.dumps({
-            "cmd": "teleop_stop",
-            "args": {"session_id": session_id},
-        }))
+        second = self._call(
+            json.dumps(
+                {
+                    "cmd": "teleop_stop",
+                    "args": {"session_id": session_id},
+                }
+            )
+        )
         self.assertTrue(second["result"]["already_stopped"])
 
     def test_tick_after_stop_is_noop(self) -> None:
         """After stop, tick_teleop doesn't crash or tick the removed session."""
-        started = self._call(json.dumps({
-            "cmd": "teleop_start",
-            "args": {"mechanism": _mechanism()},
-        }))
+        started = self._call(
+            json.dumps(
+                {
+                    "cmd": "teleop_start",
+                    "args": {"mechanism": _mechanism()},
+                }
+            )
+        )
         session_id = started["result"]["session_id"]
         self.server._runtime.tick_teleop(0.01)
 
-        self._call(json.dumps({
-            "cmd": "teleop_stop",
-            "args": {"session_id": session_id},
-        }))
+        self._call(
+            json.dumps(
+                {
+                    "cmd": "teleop_stop",
+                    "args": {"session_id": session_id},
+                }
+            )
+        )
 
         # Should not raise
         self.server._runtime.tick_teleop(0.01)
 
     def test_state_after_stop_returns_error(self) -> None:
         """teleop_state after stop returns ISAAC_UNKNOWN_SESSION."""
-        started = self._call(json.dumps({
-            "cmd": "teleop_start",
-            "args": {"mechanism": _mechanism()},
-        }))
+        started = self._call(
+            json.dumps(
+                {
+                    "cmd": "teleop_start",
+                    "args": {"mechanism": _mechanism()},
+                }
+            )
+        )
         session_id = started["result"]["session_id"]
 
-        self._call(json.dumps({
-            "cmd": "teleop_stop",
-            "args": {"session_id": session_id},
-        }))
+        self._call(
+            json.dumps(
+                {
+                    "cmd": "teleop_stop",
+                    "args": {"session_id": session_id},
+                }
+            )
+        )
 
-        state = self._call(json.dumps({
-            "cmd": "teleop_state",
-            "args": {"session_id": session_id},
-        }))
+        state = self._call(
+            json.dumps(
+                {
+                    "cmd": "teleop_state",
+                    "args": {"session_id": session_id},
+                }
+            )
+        )
         self.assertFalse(state["ok"])
         self.assertEqual(state["error"]["code"], "ISAAC_UNKNOWN_SESSION")
 
@@ -140,35 +190,51 @@ class TestTeleopStartStopCycle(unittest.TestCase):
     def test_start_stop_start(self) -> None:
         """Can start a new session after stopping the previous one."""
         # First session
-        s1 = self._call(json.dumps({
-            "cmd": "teleop_start",
-            "args": {"mechanism": _mechanism()},
-        }))
+        s1 = self._call(
+            json.dumps(
+                {
+                    "cmd": "teleop_start",
+                    "args": {"mechanism": _mechanism()},
+                }
+            )
+        )
         self.assertTrue(s1["ok"])
         id1 = s1["result"]["session_id"]
 
         self.server._runtime.tick_teleop(0.01)
 
-        self._call(json.dumps({
-            "cmd": "teleop_stop",
-            "args": {"session_id": id1},
-        }))
+        self._call(
+            json.dumps(
+                {
+                    "cmd": "teleop_stop",
+                    "args": {"session_id": id1},
+                }
+            )
+        )
 
         # Second session
-        s2 = self._call(json.dumps({
-            "cmd": "teleop_start",
-            "args": {"mechanism": _mechanism()},
-        }))
+        s2 = self._call(
+            json.dumps(
+                {
+                    "cmd": "teleop_start",
+                    "args": {"mechanism": _mechanism()},
+                }
+            )
+        )
         self.assertTrue(s2["ok"])
         id2 = s2["result"]["session_id"]
         self.assertNotEqual(id1, id2)
 
         # Second session should work independently
         self.server._runtime.tick_teleop(0.01)
-        state = self._call(json.dumps({
-            "cmd": "teleop_state",
-            "args": {"session_id": id2},
-        }))
+        state = self._call(
+            json.dumps(
+                {
+                    "cmd": "teleop_state",
+                    "args": {"session_id": id2},
+                }
+            )
+        )
         self.assertTrue(state["ok"])
         self.assertEqual(state["result"]["tick_count"], 1)
 
@@ -194,6 +260,7 @@ class TestJointMapFailFast(unittest.TestCase):
             mock_art.dof_properties = None
 
             from isaac_bridge.models import TeleopConfig
+
             config = TeleopConfig()
             dof_map, _ = _resolve_dof_map(mock_art, config.joint_names)
             # Verify the map is empty (no matches)
@@ -234,6 +301,7 @@ class TestJointMapFailFast(unittest.TestCase):
         mock_art.dof_properties = None
 
         from isaac_bridge.models import TeleopConfig
+
         config = TeleopConfig()
         dof_map, _ = _resolve_dof_map(mock_art, config.joint_names)
         self.assertEqual(len(dof_map), 6)
@@ -246,6 +314,7 @@ class TestJointMapFailFast(unittest.TestCase):
         mock_art.dof_names = None
 
         from isaac_bridge.models import TeleopConfig
+
         config = TeleopConfig()
         dof_map, limits = _resolve_dof_map(mock_art, config.joint_names)
         self.assertEqual(len(dof_map), 0)
@@ -298,10 +367,14 @@ class TestBackwardCompatibility(unittest.TestCase):
         return self.server._handle_line(payload.encode("utf-8"))  # type: ignore[attr-defined]
 
     def test_teleop_start_has_required_keys(self) -> None:
-        result = self._call(json.dumps({
-            "cmd": "teleop_start",
-            "args": {"mechanism": _mechanism()},
-        }))
+        result = self._call(
+            json.dumps(
+                {
+                    "cmd": "teleop_start",
+                    "args": {"mechanism": _mechanism()},
+                }
+            )
+        )
         self.assertTrue(result["ok"])
         r = result["result"]
         # Original keys
@@ -314,16 +387,24 @@ class TestBackwardCompatibility(unittest.TestCase):
         self.assertIn("profile_used", r)
 
     def test_teleop_state_has_original_and_new_keys(self) -> None:
-        started = self._call(json.dumps({
-            "cmd": "teleop_start",
-            "args": {"mechanism": _mechanism()},
-        }))
+        started = self._call(
+            json.dumps(
+                {
+                    "cmd": "teleop_start",
+                    "args": {"mechanism": _mechanism()},
+                }
+            )
+        )
         sid = started["result"]["session_id"]
 
-        state = self._call(json.dumps({
-            "cmd": "teleop_state",
-            "args": {"session_id": sid},
-        }))
+        state = self._call(
+            json.dumps(
+                {
+                    "cmd": "teleop_state",
+                    "args": {"session_id": sid},
+                }
+            )
+        )
         r = state["result"]
         # Original keys
         self.assertIn("state", r)
@@ -334,21 +415,29 @@ class TestBackwardCompatibility(unittest.TestCase):
         self.assertIn("tick_count", r)
 
     def test_teleop_command_response_unchanged(self) -> None:
-        started = self._call(json.dumps({
-            "cmd": "teleop_start",
-            "args": {"mechanism": _mechanism()},
-        }))
+        started = self._call(
+            json.dumps(
+                {
+                    "cmd": "teleop_start",
+                    "args": {"mechanism": _mechanism()},
+                }
+            )
+        )
         sid = started["result"]["session_id"]
 
-        cmd = self._call(json.dumps({
-            "cmd": "teleop_command",
-            "args": {
-                "session_id": sid,
-                "vx_mps": 0.2,
-                "yaw_rate_rps": 0.0,
-                "body_height_m": 0.0,
-            },
-        }))
+        cmd = self._call(
+            json.dumps(
+                {
+                    "cmd": "teleop_command",
+                    "args": {
+                        "session_id": sid,
+                        "vx_mps": 0.2,
+                        "yaw_rate_rps": 0.0,
+                        "body_height_m": 0.0,
+                    },
+                }
+            )
+        )
         self.assertTrue(cmd["ok"])
         self.assertTrue(cmd["result"]["applied"])
         self.assertIn("state", cmd["result"])

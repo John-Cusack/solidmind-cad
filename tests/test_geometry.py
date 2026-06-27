@@ -235,9 +235,13 @@ class TestSpiral(unittest.TestCase):
 
     def test_with_spring_analysis(self):
         result = geom.spiral_py(
-            0.5, 5.0, 12.0,
-            strip_thickness_mm=0.05, strip_height_mm=0.15,
-            material_e_gpa=210.0, material_yield_mpa=900.0,
+            0.5,
+            5.0,
+            12.0,
+            strip_thickness_mm=0.05,
+            strip_height_mm=0.15,
+            material_e_gpa=210.0,
+            material_yield_mpa=900.0,
         )
         p = result["params"]
         self.assertGreater(p["stiffness_n_m_per_rad"], 0)
@@ -246,15 +250,21 @@ class TestSpiral(unittest.TestCase):
 
     def test_with_overcoil(self):
         result = geom.spiral_py(
-            0.5, 5.0, 12.0,
-            overcoil_angle_deg=270.0, overcoil_style="phillips",
+            0.5,
+            5.0,
+            12.0,
+            overcoil_angle_deg=270.0,
+            overcoil_style="phillips",
         )
         self.assertIn("overcoil", result)
 
     def test_with_simple_overcoil(self):
         result = geom.spiral_py(
-            0.5, 5.0, 12.0,
-            overcoil_angle_deg=180.0, overcoil_style="simple",
+            0.5,
+            5.0,
+            12.0,
+            overcoil_angle_deg=180.0,
+            overcoil_style="simple",
         )
         self.assertIn("overcoil", result)
 
@@ -280,7 +290,10 @@ class TestSpokePattern(unittest.TestCase):
     def test_styles(self):
         for style in ("straight", "tapered", "curved_s", "curved_c"):
             result = geom.spoke_pattern_py(
-                3.0, 10.0, 12.0, spoke_style=style,
+                3.0,
+                10.0,
+                12.0,
+                spoke_style=style,
             )
             self.assertEqual(len(result["elements"]), 4, f"style {style}")
 
@@ -323,7 +336,10 @@ class TestRatchetClickProfile(unittest.TestCase):
         from server.ratchet_profile import ratchet_click_profile
 
         result = ratchet_click_profile(
-            10.0, 24, locking_face_angle_deg=3.0, drive_face_angle_deg=60.0,
+            10.0,
+            24,
+            locking_face_angle_deg=3.0,
+            drive_face_angle_deg=60.0,
         )
         self.assertEqual(result["teeth"], 24)
 
@@ -396,10 +412,12 @@ class TestMCPToolWrappers(unittest.TestCase):
 
     def setUp(self):
         from server.geometry_store import clear
+
         clear()
 
     def tearDown(self):
         from server.geometry_store import clear
+
         clear()
 
     def test_spur_gear_tool(self):
@@ -501,7 +519,9 @@ class TestMCPToolWrappers(unittest.TestCase):
         from server.tools_geometry import geometry_spiral
 
         result = geometry_spiral(
-            inner_radius=0.5, outer_radius=5.0, num_turns=12.0,
+            inner_radius=0.5,
+            outer_radius=5.0,
+            num_turns=12.0,
         )
         self.assertTrue(result["ok"])
         self.assertIn("spiral_ref", result)
@@ -510,9 +530,13 @@ class TestMCPToolWrappers(unittest.TestCase):
         from server.tools_geometry import geometry_spiral
 
         result = geometry_spiral(
-            inner_radius=0.5, outer_radius=5.0, num_turns=12.0,
-            strip_thickness_mm=0.05, strip_height_mm=0.15,
-            material_e_gpa=210.0, material_yield_mpa=900.0,
+            inner_radius=0.5,
+            outer_radius=5.0,
+            num_turns=12.0,
+            strip_thickness_mm=0.05,
+            strip_height_mm=0.15,
+            material_e_gpa=210.0,
+            material_yield_mpa=900.0,
         )
         self.assertTrue(result["ok"])
         self.assertIn("spiral_ref", result)
@@ -522,7 +546,9 @@ class TestMCPToolWrappers(unittest.TestCase):
         from server.tools_geometry import geometry_spoke_pattern
 
         result = geometry_spoke_pattern(
-            hub_diameter=3.0, rim_inner_diameter=10.0, rim_outer_diameter=12.0,
+            hub_diameter=3.0,
+            rim_inner_diameter=10.0,
+            rim_outer_diameter=12.0,
         )
         self.assertTrue(result["ok"])
         self.assertIn("geometry_ref", result)
@@ -559,6 +585,7 @@ class TestKeywayProfile(unittest.TestCase):
 
     def test_din6885_25mm_shaft(self):
         from server.keyway_data import keyway_profile
+
         result = keyway_profile(25.0)
         self.assertEqual(len(result["elements"]), 1)
         self.assertIn("build_hint", result)
@@ -567,6 +594,7 @@ class TestKeywayProfile(unittest.TestCase):
 
     def test_din6885_range_boundaries(self):
         from server.keyway_data import keyway_profile
+
         # 6mm shaft → 2×2 key
         r = keyway_profile(6.0)
         self.assertEqual(r["spec"].width, 2)
@@ -576,27 +604,32 @@ class TestKeywayProfile(unittest.TestCase):
 
     def test_din6885_out_of_range(self):
         from server.keyway_data import keyway_profile
+
         with self.assertRaises(ValueError):
             keyway_profile(5.0)  # below 6mm
 
     def test_shaft_depth(self):
         from server.keyway_data import keyway_profile
+
         r = keyway_profile(25.0)
         # shaft_depth = height/2 = 3.5
         self.assertAlmostEqual(r["spec"].shaft_depth, 3.5)
 
     def test_woodruff(self):
         from server.keyway_data import keyway_profile
+
         r = keyway_profile(10.0, standard="woodruff", woodruff_number="404")
         self.assertAlmostEqual(r["spec"].width, 3.18)
 
     def test_elements_are_rect(self):
         from server.keyway_data import keyway_profile
+
         r = keyway_profile(25.0)
         self.assertEqual(r["elements"][0]["type"], "rect")
 
     def test_auto_key_length(self):
         from server.keyway_data import keyway_profile
+
         r = keyway_profile(25.0)
         # Default key_length = 1.5 × width = 1.5 × 8 = 12
         self.assertAlmostEqual(r["key_length"], 12.0)
@@ -607,6 +640,7 @@ class TestORingGroove(unittest.TestCase):
 
     def test_dash_210(self):
         from server.oring_data import oring_groove
+
         result = oring_groove(dash_number=210)
         self.assertAlmostEqual(result["oring"].id_mm, 18.64, places=1)
         self.assertAlmostEqual(result["oring"].cs_mm, 3.53)
@@ -615,24 +649,28 @@ class TestORingGroove(unittest.TestCase):
 
     def test_explicit_dimensions(self):
         from server.oring_data import oring_groove
+
         result = oring_groove(oring_id_mm=20.0, cross_section_mm=3.0)
         self.assertGreater(result["groove_depth"], 0)
         self.assertGreater(result["groove_width"], 0)
 
     def test_squeeze_range_static(self):
         from server.oring_data import oring_groove
+
         result = oring_groove(dash_number=210, application="static_radial")
         self.assertGreaterEqual(result["squeeze_pct"], 20)
         self.assertLessEqual(result["squeeze_pct"], 25)
 
     def test_squeeze_range_dynamic(self):
         from server.oring_data import oring_groove
+
         result = oring_groove(dash_number=210, application="dynamic_reciprocating")
         self.assertGreaterEqual(result["squeeze_pct"], 10)
         self.assertLessEqual(result["squeeze_pct"], 15)
 
     def test_gland_fill(self):
         from server.oring_data import oring_groove
+
         result = oring_groove(dash_number=210)
         # Gland fill should be in reasonable range (60-85%)
         self.assertGreater(result["gland_fill_pct"], 50)
@@ -640,21 +678,25 @@ class TestORingGroove(unittest.TestCase):
 
     def test_invalid_dash(self):
         from server.oring_data import oring_groove
+
         with self.assertRaises(ValueError):
             oring_groove(dash_number=999)
 
     def test_missing_params(self):
         from server.oring_data import oring_groove
+
         with self.assertRaises(ValueError):
             oring_groove()  # no dash or explicit dims
 
     def test_face_groove(self):
         from server.oring_data import oring_groove
+
         result = oring_groove(dash_number=210, groove_type="face")
         self.assertEqual(len(result["elements"]), 1)
 
     def test_analysis_string(self):
         from server.oring_data import oring_groove
+
         result = oring_groove(dash_number=210)
         self.assertIn("AS568-210", result["analysis"])
 
@@ -664,17 +706,20 @@ class TestSectionProperties(unittest.TestCase):
 
     def test_rectangle_ixx(self):
         from server.section_properties import compute_section
+
         r = compute_section("rectangle", width=50, height=100)
         # Ixx = bh³/12 = 50*100³/12 = 4,166,666.67
         self.assertAlmostEqual(r["Ixx"], 50 * 100**3 / 12, places=2)
 
     def test_rectangle_area(self):
         from server.section_properties import compute_section
+
         r = compute_section("rectangle", width=50, height=100)
         self.assertAlmostEqual(r["area"], 5000.0)
 
     def test_circle_ixx(self):
         from server.section_properties import compute_section
+
         r = compute_section("circle", diameter=100)
         # Ixx = πd⁴/64
         expected = math.pi * 100**4 / 64
@@ -682,36 +727,44 @@ class TestSectionProperties(unittest.TestCase):
 
     def test_circle_symmetry(self):
         from server.section_properties import compute_section
+
         r = compute_section("circle", diameter=50)
         self.assertAlmostEqual(r["Ixx"], r["Iyy"])
 
     def test_hollow_circle(self):
         from server.section_properties import compute_section
+
         r = compute_section("hollow_circle", outer_diameter=100, inner_diameter=80)
         expected = math.pi * (100**4 - 80**4) / 64
         self.assertAlmostEqual(r["Ixx"], expected, places=2)
 
     def test_hollow_circle_invalid(self):
         from server.section_properties import compute_section
+
         with self.assertRaises(ValueError):
             compute_section("hollow_circle", outer_diameter=50, inner_diameter=60)
 
     def test_i_beam(self):
         from server.section_properties import compute_section
-        r = compute_section("i_beam", flange_width=100, flange_thickness=10,
-                           web_height=200, web_thickness=6)
+
+        r = compute_section(
+            "i_beam", flange_width=100, flange_thickness=10, web_height=200, web_thickness=6
+        )
         self.assertGreater(r["Ixx"], 0)
         self.assertGreater(r["area"], 0)
 
     def test_c_channel(self):
         from server.section_properties import compute_section
-        r = compute_section("c_channel", flange_width=50, flange_thickness=8,
-                           web_height=100, web_thickness=6)
+
+        r = compute_section(
+            "c_channel", flange_width=50, flange_thickness=8, web_height=100, web_thickness=6
+        )
         # C-channel has non-zero centroid_x
         self.assertGreater(r["centroid_x"], 0)
 
     def test_angle_section(self):
         from server.section_properties import compute_section
+
         r = compute_section("angle", leg1_length=80, leg2_length=80, thickness=8)
         self.assertGreater(r["area"], 0)
         # Non-zero Ixy for angle sections
@@ -719,12 +772,15 @@ class TestSectionProperties(unittest.TestCase):
 
     def test_t_section(self):
         from server.section_properties import compute_section
-        r = compute_section("t_section", flange_width=100, flange_thickness=10,
-                           web_height=150, web_thickness=8)
+
+        r = compute_section(
+            "t_section", flange_width=100, flange_thickness=10, web_height=150, web_thickness=8
+        )
         self.assertGreater(r["Ixx"], 0)
 
     def test_polygon_square(self):
         from server.section_properties import compute_section
+
         # Square 10×10 centered at origin
         verts = [[-5, -5], [5, -5], [5, 5], [-5, 5]]
         r = compute_section("polygon", vertices=verts)
@@ -733,6 +789,7 @@ class TestSectionProperties(unittest.TestCase):
 
     def test_section_modulus(self):
         from server.section_properties import compute_section
+
         r = compute_section("rectangle", width=50, height=100)
         # Sx = Ixx / ymax = Ixx / 50
         expected_sx = (50 * 100**3 / 12) / 50
@@ -740,6 +797,7 @@ class TestSectionProperties(unittest.TestCase):
 
     def test_radius_of_gyration(self):
         from server.section_properties import compute_section
+
         r = compute_section("rectangle", width=50, height=100)
         # rx = sqrt(Ixx/A)
         expected_rx = math.sqrt((50 * 100**3 / 12) / 5000)
@@ -747,6 +805,7 @@ class TestSectionProperties(unittest.TestCase):
 
     def test_unknown_shape(self):
         from server.section_properties import compute_section
+
         with self.assertRaises(ValueError):
             compute_section("hexagon", side=10)
 
@@ -756,6 +815,7 @@ class TestBeltDrive(unittest.TestCase):
 
     def test_timing_belt_basic(self):
         from server.belt_drive import belt_drive_layout
+
         result = belt_drive_layout(50.0, 100.0, 200.0, belt_type="timing")
         self.assertIn("belt_length", result)
         self.assertIn("wrap_angle_driver", result)
@@ -764,6 +824,7 @@ class TestBeltDrive(unittest.TestCase):
 
     def test_belt_length_formula(self):
         from server.belt_drive import belt_drive_layout
+
         # For equal pulleys: L ≈ 2C + πD
         result = belt_drive_layout(100.0, 100.0, 300.0, belt_type="timing")
         expected = 2 * 300 + math.pi * 100
@@ -771,38 +832,41 @@ class TestBeltDrive(unittest.TestCase):
 
     def test_wrap_angles_equal_pulleys(self):
         from server.belt_drive import belt_drive_layout
+
         result = belt_drive_layout(100.0, 100.0, 300.0, belt_type="timing")
         self.assertAlmostEqual(result["wrap_angle_driver"], 180.0, delta=0.1)
         self.assertAlmostEqual(result["wrap_angle_driven"], 180.0, delta=0.1)
 
     def test_timing_teeth(self):
         from server.belt_drive import belt_drive_layout
-        result = belt_drive_layout(50.0, 100.0, 200.0, belt_type="timing",
-                                   belt_profile="HTD-5M")
+
+        result = belt_drive_layout(50.0, 100.0, 200.0, belt_type="timing", belt_profile="HTD-5M")
         self.assertIn("driver_teeth", result)
         self.assertIn("driven_teeth", result)
         self.assertIn("belt_teeth", result)
 
     def test_vbelt(self):
         from server.belt_drive import belt_drive_layout
-        result = belt_drive_layout(150.0, 300.0, 500.0, belt_type="vbelt",
-                                   belt_profile="B")
+
+        result = belt_drive_layout(150.0, 300.0, 500.0, belt_type="vbelt", belt_profile="B")
         self.assertIn("groove_elements", result)
         self.assertIn("build_hint", result)
 
     def test_pulleys_too_close(self):
         from server.belt_drive import belt_drive_layout
+
         with self.assertRaises(ValueError):
             belt_drive_layout(100.0, 100.0, 50.0)  # C < (D+d)/2
 
     def test_invalid_profile(self):
         from server.belt_drive import belt_drive_layout
+
         with self.assertRaises(ValueError):
-            belt_drive_layout(50.0, 100.0, 200.0, belt_type="timing",
-                             belt_profile="NONEXISTENT")
+            belt_drive_layout(50.0, 100.0, 200.0, belt_type="timing", belt_profile="NONEXISTENT")
 
     def test_groove_elements_shape(self):
         from server.belt_drive import belt_drive_layout
+
         result = belt_drive_layout(50.0, 100.0, 200.0, belt_type="timing")
         # Timing tooth profile has 3 lines (trapezoid open at top)
         self.assertEqual(len(result["groove_elements"]), 3)
@@ -813,24 +877,28 @@ class TestFourBar(unittest.TestCase):
 
     def test_grashof_crank_rocker(self):
         from server.four_bar import classify_grashof
+
         # Classic crank-rocker: shortest=input
         result = classify_grashof(ground=4.0, input_link=2.0, coupler=3.0, output_link=3.5)
         self.assertEqual(result, "crank_rocker")
 
     def test_grashof_double_crank(self):
         from server.four_bar import classify_grashof
+
         # Shortest = ground → double crank
         result = classify_grashof(ground=2.0, input_link=4.0, coupler=3.0, output_link=3.5)
         self.assertEqual(result, "double_crank")
 
     def test_non_grashof(self):
         from server.four_bar import classify_grashof
+
         # s + l > p + q: 3 + 8 = 11 > 5 + 5 = 10
         result = classify_grashof(ground=5.0, input_link=5.0, coupler=3.0, output_link=8.0)
         self.assertEqual(result, "non_grashof_double_rocker")
 
     def test_solve_position(self):
         from server.four_bar import solve_position
+
         result = solve_position(4.0, 2.0, 3.0, 3.5, 45.0)
         self.assertIn("output_angle_deg", result)
         self.assertIn("coupler_angle_deg", result)
@@ -838,12 +906,14 @@ class TestFourBar(unittest.TestCase):
 
     def test_transmission_angle(self):
         from server.four_bar import transmission_angle
+
         mu = transmission_angle(4.0, 2.0, 3.0, 3.5, 45.0)
         self.assertGreater(mu, 0)
         self.assertLess(mu, 180)
 
     def test_coupler_curve_has_points(self):
         from server.four_bar import coupler_curve
+
         pts = coupler_curve(4.0, 2.0, 3.0, 3.5, 1.5, 0.5, 100)
         self.assertGreater(len(pts), 0)
         for p in pts:
@@ -851,6 +921,7 @@ class TestFourBar(unittest.TestCase):
 
     def test_dead_points(self):
         from server.four_bar import dead_point_detection
+
         pts = dead_point_detection(4.0, 2.0, 3.0, 3.5)
         # Should find some dead points
         for dp in pts:
@@ -859,6 +930,7 @@ class TestFourBar(unittest.TestCase):
 
     def test_full_analysis(self):
         from server.four_bar import four_bar_analysis
+
         result = four_bar_analysis(4.0, 2.0, 3.0, 3.5, 1.5, 0.5)
         self.assertIn("grashof_type", result)
         self.assertIn("elements", result)
@@ -869,11 +941,13 @@ class TestFourBar(unittest.TestCase):
 
     def test_impossible_linkage(self):
         from server.four_bar import four_bar_analysis
+
         with self.assertRaises(ValueError):
             four_bar_analysis(1.0, 1.0, 1.0, 100.0)  # longest > sum of others
 
     def test_negative_link(self):
         from server.four_bar import classify_grashof
+
         with self.assertRaises(ValueError):
             classify_grashof(-1.0, 2.0, 3.0, 3.5)
 
@@ -888,10 +962,12 @@ class TestNewMCPToolWrappers(unittest.TestCase):
 
     def setUp(self):
         from server.geometry_store import clear
+
         clear()
 
     def tearDown(self):
         from server.geometry_store import clear
+
         clear()
 
     def test_keyway_profile_tool(self):
@@ -932,7 +1008,9 @@ class TestNewMCPToolWrappers(unittest.TestCase):
         from server.tools_geometry import geometry_belt_drive
 
         result = geometry_belt_drive(
-            driver_diameter=50.0, driven_diameter=100.0, center_distance=200.0,
+            driver_diameter=50.0,
+            driven_diameter=100.0,
+            center_distance=200.0,
         )
         self.assertTrue(result["ok"])
         self.assertIn("belt_length", result)
@@ -947,9 +1025,12 @@ class TestNewMCPToolWrappers(unittest.TestCase):
         from server.tools_geometry import geometry_four_bar
 
         result = geometry_four_bar(
-            ground_length=4.0, input_length=2.0,
-            coupler_length=3.0, output_length=3.5,
-            coupler_point_x=1.5, coupler_point_y=0.5,
+            ground_length=4.0,
+            input_length=2.0,
+            coupler_length=3.0,
+            output_length=3.5,
+            coupler_point_x=1.5,
+            coupler_point_y=0.5,
         )
         self.assertTrue(result["ok"])
         self.assertIn("geometry_ref", result)
@@ -1105,7 +1186,9 @@ class TestHelicalSpring(unittest.TestCase):
     """Tests for the helical spring Rust function."""
 
     def test_basic_result_keys(self):
-        r = geom.helical_spring("compression", 1.5, 12.0, 8.0, 40.0, 79.3, -1.0, "closed_ground", -1.0)
+        r = geom.helical_spring(
+            "compression", 1.5, 12.0, 8.0, 40.0, 79.3, -1.0, "closed_ground", -1.0
+        )
         self.assertIn("wire_elements", r)
         self.assertIn("helix_params", r)
         self.assertIn("analysis", r)
@@ -1134,7 +1217,9 @@ class TestHelicalSpring(unittest.TestCase):
         self.assertAlmostEqual(r["analysis"]["wahl_factor"], expected_kw, places=4)
 
     def test_helix_params(self):
-        r = geom.helical_spring("compression", 1.5, 12.0, 8.0, 40.0, 79.3, -1.0, "closed_ground", -1.0)
+        r = geom.helical_spring(
+            "compression", 1.5, 12.0, 8.0, 40.0, 79.3, -1.0, "closed_ground", -1.0
+        )
         hp = r["helix_params"]
         self.assertIn("radius", hp)
         self.assertIn("pitch", hp)
@@ -1143,7 +1228,9 @@ class TestHelicalSpring(unittest.TestCase):
 
     def test_wire_elements_circle(self):
         """Wire cross-section should be a circle."""
-        r = geom.helical_spring("compression", 1.5, 12.0, 8.0, 40.0, 79.3, -1.0, "closed_ground", -1.0)
+        r = geom.helical_spring(
+            "compression", 1.5, 12.0, 8.0, 40.0, 79.3, -1.0, "closed_ground", -1.0
+        )
         circles = [e for e in r["wire_elements"] if e["type"] == "circle"]
         self.assertEqual(len(circles), 1)
         self.assertAlmostEqual(circles[0]["r"], 1.5 / 2, places=4)
@@ -1151,7 +1238,9 @@ class TestHelicalSpring(unittest.TestCase):
     def test_buckling_critical(self):
         """Spring with Lf/D > 4 should flag buckling."""
         # Lf=60, D=12 → ratio=5 > 4
-        r = geom.helical_spring("compression", 1.5, 12.0, 8.0, 60.0, 79.3, -1.0, "closed_ground", -1.0)
+        r = geom.helical_spring(
+            "compression", 1.5, 12.0, 8.0, 60.0, 79.3, -1.0, "closed_ground", -1.0
+        )
         self.assertTrue(r["analysis"]["buckling_critical"])
 
 
@@ -1164,7 +1253,12 @@ class TestCamProfile(unittest.TestCase):
         segs = [
             {"start_angle_deg": 0, "end_angle_deg": 90, "rise_mm": 10, "motion_law": "cycloidal"},
             {"start_angle_deg": 90, "end_angle_deg": 180, "rise_mm": 0, "motion_law": "dwell"},
-            {"start_angle_deg": 180, "end_angle_deg": 270, "rise_mm": -10, "motion_law": "simple_harmonic"},
+            {
+                "start_angle_deg": 180,
+                "end_angle_deg": 270,
+                "rise_mm": -10,
+                "motion_law": "simple_harmonic",
+            },
             {"start_angle_deg": 270, "end_angle_deg": 360, "rise_mm": 0, "motion_law": "dwell"},
         ]
         return geom.cam_profile(30.0, segs, "roller", 5.0, 0.0, 0.0, pts)
@@ -1211,8 +1305,18 @@ class TestCamProfile(unittest.TestCase):
 
     def test_knife_edge_follower(self):
         segs = [
-            {"start_angle_deg": 0, "end_angle_deg": 180, "rise_mm": 5, "motion_law": "polynomial345"},
-            {"start_angle_deg": 180, "end_angle_deg": 360, "rise_mm": -5, "motion_law": "polynomial345"},
+            {
+                "start_angle_deg": 0,
+                "end_angle_deg": 180,
+                "rise_mm": 5,
+                "motion_law": "polynomial345",
+            },
+            {
+                "start_angle_deg": 180,
+                "end_angle_deg": 360,
+                "rise_mm": -5,
+                "motion_law": "polynomial345",
+            },
         ]
         r = geom.cam_profile(20.0, segs, "knife_edge", 0.0, 0.0, 0.0, 30)
         self.assertIn("elements", r)
@@ -1220,7 +1324,12 @@ class TestCamProfile(unittest.TestCase):
     def test_flat_face_follower(self):
         segs = [
             {"start_angle_deg": 0, "end_angle_deg": 180, "rise_mm": 5, "motion_law": "cycloidal"},
-            {"start_angle_deg": 180, "end_angle_deg": 360, "rise_mm": -5, "motion_law": "cycloidal"},
+            {
+                "start_angle_deg": 180,
+                "end_angle_deg": 360,
+                "rise_mm": -5,
+                "motion_law": "cycloidal",
+            },
         ]
         r = geom.cam_profile(25.0, segs, "flat_face", 0.0, 0.0, 0.0, 30)
         self.assertIn("elements", r)
@@ -1236,10 +1345,12 @@ class TestRustMCPToolWrappers(unittest.TestCase):
 
     def setUp(self):
         from server.geometry_store import clear
+
         clear()
 
     def tearDown(self):
         from server.geometry_store import clear
+
         clear()
 
     @unittest.skipUnless(HAS_GEOM, "solidmind_geometry not built")
@@ -1292,9 +1403,12 @@ class TestRustMCPToolWrappers(unittest.TestCase):
         from server.tools_geometry import geometry_helical_spring
 
         result = geometry_helical_spring(
-            spring_type="compression", wire_diameter=1.5,
-            coil_diameter=12.0, active_coils=8.0,
-            free_length=40.0, material_g_gpa=79.3,
+            spring_type="compression",
+            wire_diameter=1.5,
+            coil_diameter=12.0,
+            active_coils=8.0,
+            free_length=40.0,
+            material_g_gpa=79.3,
         )
         self.assertTrue(result["ok"])
         self.assertIn("wire_ref", result)
@@ -1312,8 +1426,18 @@ class TestRustMCPToolWrappers(unittest.TestCase):
         result = geometry_cam_profile(
             base_radius=30.0,
             segments=[
-                {"start_angle_deg": 0, "end_angle_deg": 180, "rise_mm": 10, "motion_law": "cycloidal"},
-                {"start_angle_deg": 180, "end_angle_deg": 360, "rise_mm": -10, "motion_law": "cycloidal"},
+                {
+                    "start_angle_deg": 0,
+                    "end_angle_deg": 180,
+                    "rise_mm": 10,
+                    "motion_law": "cycloidal",
+                },
+                {
+                    "start_angle_deg": 180,
+                    "end_angle_deg": 360,
+                    "rise_mm": -10,
+                    "motion_law": "cycloidal",
+                },
             ],
         )
         self.assertTrue(result["ok"])

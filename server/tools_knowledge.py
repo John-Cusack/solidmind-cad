@@ -7,6 +7,7 @@ Three interaction modes:
 
 Falls back to local ``me_knowledge/notes/`` listing when LanceDB is unavailable.
 """
+
 from __future__ import annotations
 
 import logging
@@ -24,6 +25,7 @@ _NOTES_DIR = Path(__file__).resolve().parent.parent / "me_knowledge" / "notes"
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _local_note_listing() -> list[str]:
     """List markdown files in me_knowledge/notes/ + installed knowledge packs."""
     files: list[str] = []
@@ -37,6 +39,7 @@ def _local_note_listing() -> list[str]:
 # ---------------------------------------------------------------------------
 # Mode A — Extract (synchronous)
 # ---------------------------------------------------------------------------
+
 
 def knowledge_extract(*, file_path: str) -> dict[str, Any]:
     """Parse a file via Docling and return extracted text. No indexing."""
@@ -80,6 +83,7 @@ def knowledge_extract(*, file_path: str) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 # Mode B — Ingest (synchronous — no polling needed)
 # ---------------------------------------------------------------------------
+
 
 def knowledge_ingest(
     *,
@@ -157,16 +161,14 @@ def knowledge_ingest_status(
         }
     return {
         "ok": True,
-        "statuses": [
-            {"task_id": tid, "status": "complete"}
-            for tid in ids
-        ],
+        "statuses": [{"task_id": tid, "status": "complete"} for tid in ids],
     }
 
 
 # ---------------------------------------------------------------------------
 # Mode C — Search
 # ---------------------------------------------------------------------------
+
 
 def knowledge_search(
     *,
@@ -230,6 +232,7 @@ def knowledge_search(
 # ---------------------------------------------------------------------------
 # Status
 # ---------------------------------------------------------------------------
+
 
 def knowledge_status() -> dict[str, Any]:
     """Check knowledge store health, document count, index info."""

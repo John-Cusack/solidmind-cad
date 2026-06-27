@@ -9,8 +9,10 @@ from typing import Any
 try:
     from dotenv import load_dotenv
 except ImportError:
+
     def load_dotenv(*_args: Any, **_kwargs: Any) -> bool:
         return False
+
 
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
@@ -30,6 +32,7 @@ _LOG_DIR = _PROJECT_ROOT / ".solidmind" / "logs"
 # Extension pack discovery
 # ---------------------------------------------------------------------------
 
+
 def _discover_tool_packs() -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """Discover installed tool packs via entry points."""
     import importlib.metadata
@@ -44,17 +47,22 @@ def _discover_tool_packs() -> tuple[list[dict[str, Any]], dict[str, Any]]:
             for name in dispatch:
                 if name in extra_dispatch:
                     logging.getLogger("solidmind.packs").warning(
-                        "Pack %s: duplicate tool %r, skipping", ep.name, name,
+                        "Pack %s: duplicate tool %r, skipping",
+                        ep.name,
+                        name,
                     )
                     continue
             extra_tools.extend(tools)
             extra_dispatch.update(dispatch)
             logging.getLogger("solidmind.packs").info(
-                "Loaded tool pack %r: %d tools", ep.name, len(tools),
+                "Loaded tool pack %r: %d tools",
+                ep.name,
+                len(tools),
             )
         except Exception:
             logging.getLogger("solidmind.packs").exception(
-                "Failed to load tool pack %r", ep.name,
+                "Failed to load tool pack %r",
+                ep.name,
             )
     return extra_tools, extra_dispatch
 
@@ -85,14 +93,17 @@ def switch_document_log(doc_name: str) -> Path:
         _doc_handler.close()
 
     handler = logging.FileHandler(log_file, encoding="utf-8")
-    handler.setFormatter(logging.Formatter(
-        "%(asctime)s %(levelname)-5s %(name)s: %(message)s",
-    ))
+    handler.setFormatter(
+        logging.Formatter(
+            "%(asctime)s %(levelname)-5s %(name)s: %(message)s",
+        )
+    )
     root_logger.addHandler(handler)
     _doc_handler = handler
 
     logging.getLogger("mcp.serve").info("Document log: %s", log_file)
     return log_file
+
 
 from server.jsonutil import dumps as json_dumps
 from server.jsonutil import dumps_str as json_dumps_str
@@ -363,7 +374,10 @@ def _cad_tool_list() -> list[dict[str, Any]]:
                 "type": "object",
                 "properties": {
                     "doc": {"type": "string", "description": "Document name (optional)"},
-                    "path": {"type": "string", "description": "File path to save to (optional, saves in place if omitted)"},
+                    "path": {
+                        "type": "string",
+                        "description": "File path to save to (optional, saves in place if omitted)",
+                    },
                 },
                 "additionalProperties": False,
             },
@@ -374,7 +388,11 @@ def _cad_tool_list() -> list[dict[str, Any]]:
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "name": {"type": "string", "description": "Document name", "default": "Unnamed"},
+                    "name": {
+                        "type": "string",
+                        "description": "Document name",
+                        "default": "Unnamed",
+                    },
                 },
                 "additionalProperties": False,
             },
@@ -400,7 +418,7 @@ def _cad_tool_list() -> list[dict[str, Any]]:
                 "ALL element types are fully supported including splines (B-spline curves from control points "
                 "with degree/weights/periodic options). Use splines for smooth contours, airfoils, blade "
                 "profiles, and organic shapes — never approximate with line segments. "
-                "Any element can have \"construction\": true to make it a reference line/circle. "
+                'Any element can have "construction": true to make it a reference line/circle. '
                 "external_ref projects edges from existing features (needs 'feature' and 'edge' fields). "
                 "sketch_fillet/sketch_chamfer round or chamfer sketch vertices (needs 'vertex' and 'radius'/'size'). "
                 "Constraints: Coincident, Horizontal, Vertical, Distance, Radius, Angle, etc. "
@@ -429,7 +447,19 @@ def _cad_tool_list() -> list[dict[str, Any]]:
                         "items": {
                             "type": "object",
                             "properties": {
-                                "type": {"type": "string", "enum": ["rect", "circle", "line", "arc", "spline", "external_ref", "sketch_fillet", "sketch_chamfer"]},
+                                "type": {
+                                    "type": "string",
+                                    "enum": [
+                                        "rect",
+                                        "circle",
+                                        "line",
+                                        "arc",
+                                        "spline",
+                                        "external_ref",
+                                        "sketch_fillet",
+                                        "sketch_chamfer",
+                                    ],
+                                },
                             },
                             "required": ["type"],
                         },
@@ -453,8 +483,16 @@ def _cad_tool_list() -> list[dict[str, Any]]:
                 "properties": {
                     "sketch": {"type": "string", "description": "Sketch name to pad"},
                     "length": {"type": "number", "description": "Extrusion length in mm"},
-                    "symmetric": {"type": "boolean", "description": "Pad symmetrically from sketch plane", "default": False},
-                    "reversed": {"type": "boolean", "description": "Reverse pad direction", "default": False},
+                    "symmetric": {
+                        "type": "boolean",
+                        "description": "Pad symmetrically from sketch plane",
+                        "default": False,
+                    },
+                    "reversed": {
+                        "type": "boolean",
+                        "description": "Reverse pad direction",
+                        "default": False,
+                    },
                     "verify": _VERIFY_PROP,
                     "doc": {"type": "string", "description": "Document name (optional)"},
                 },
@@ -478,10 +516,26 @@ def _cad_tool_list() -> list[dict[str, Any]]:
                         "description": "Revolution axis: V (sketch vertical), H (sketch horizontal), or Base_X/Y/Z (document origin axes)",
                         "default": "V",
                     },
-                    "angle": {"type": "number", "description": "Revolution angle in degrees", "default": 360.0},
-                    "symmetric": {"type": "boolean", "description": "Revolve symmetrically from sketch plane", "default": False},
-                    "reversed": {"type": "boolean", "description": "Reverse revolution direction", "default": False},
-                    "subtractive": {"type": "boolean", "description": "If true, create a subtractive revolution (Groove) that cuts material", "default": False},
+                    "angle": {
+                        "type": "number",
+                        "description": "Revolution angle in degrees",
+                        "default": 360.0,
+                    },
+                    "symmetric": {
+                        "type": "boolean",
+                        "description": "Revolve symmetrically from sketch plane",
+                        "default": False,
+                    },
+                    "reversed": {
+                        "type": "boolean",
+                        "description": "Reverse revolution direction",
+                        "default": False,
+                    },
+                    "subtractive": {
+                        "type": "boolean",
+                        "description": "If true, create a subtractive revolution (Groove) that cuts material",
+                        "default": False,
+                    },
                     "verify": _VERIFY_PROP,
                     "doc": {"type": "string", "description": "Document name (optional)"},
                 },
@@ -514,8 +568,16 @@ def _cad_tool_list() -> list[dict[str, Any]]:
                         "description": "Total number of copies including the original",
                         "default": 6,
                     },
-                    "angle": {"type": "number", "description": "Total angle span in degrees", "default": 360.0},
-                    "reversed": {"type": "boolean", "description": "Reverse pattern direction", "default": False},
+                    "angle": {
+                        "type": "number",
+                        "description": "Total angle span in degrees",
+                        "default": 360.0,
+                    },
+                    "reversed": {
+                        "type": "boolean",
+                        "description": "Reverse pattern direction",
+                        "default": False,
+                    },
                     "body": {"type": "string", "description": "Body name (optional)"},
                     "verify": _VERIFY_PROP,
                     "doc": {"type": "string", "description": "Document name (optional)"},
@@ -527,8 +589,7 @@ def _cad_tool_list() -> list[dict[str, Any]]:
         {
             "name": "cad.mirror",
             "description": (
-                "Mirror features across a symmetry plane. "
-                "Creates a PartDesign::Mirrored feature."
+                "Mirror features across a symmetry plane. Creates a PartDesign::Mirrored feature."
             ),
             "inputSchema": {
                 "type": "object",
@@ -582,7 +643,11 @@ def _cad_tool_list() -> list[dict[str, Any]]:
                         "description": "Total number of copies including the original",
                         "default": 3,
                     },
-                    "reversed": {"type": "boolean", "description": "Reverse pattern direction", "default": False},
+                    "reversed": {
+                        "type": "boolean",
+                        "description": "Reverse pattern direction",
+                        "default": False,
+                    },
                     "body": {"type": "string", "description": "Body name (optional)"},
                     "verify": _VERIFY_PROP,
                     "doc": {"type": "string", "description": "Document name (optional)"},
@@ -616,7 +681,11 @@ def _cad_tool_list() -> list[dict[str, Any]]:
                         "description": "Corner join type",
                         "default": "Arc",
                     },
-                    "reversed": {"type": "boolean", "description": "Reverse thickness direction (inward vs outward)", "default": False},
+                    "reversed": {
+                        "type": "boolean",
+                        "description": "Reverse thickness direction (inward vs outward)",
+                        "default": False,
+                    },
                     "body": {"type": "string", "description": "Body name (optional)"},
                     "verify": _VERIFY_PROP,
                     "doc": {"type": "string", "description": "Document name (optional)"},
@@ -648,7 +717,11 @@ def _cad_tool_list() -> list[dict[str, Any]]:
                         "description": "Face reference for the neutral/stationary plane (e.g., 'Face1')",
                         "default": "Face1",
                     },
-                    "reversed": {"type": "boolean", "description": "Reverse pull direction", "default": False},
+                    "reversed": {
+                        "type": "boolean",
+                        "description": "Reverse pull direction",
+                        "default": False,
+                    },
                     "body": {"type": "string", "description": "Body name (optional)"},
                     "verify": _VERIFY_PROP,
                     "doc": {"type": "string", "description": "Document name (optional)"},
@@ -694,8 +767,14 @@ def _cad_tool_list() -> list[dict[str, Any]]:
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "profile_sketch": {"type": "string", "description": "Sketch name for the sweep profile"},
-                    "spine_sketch": {"type": "string", "description": "Sketch name for the sweep path/spine"},
+                    "profile_sketch": {
+                        "type": "string",
+                        "description": "Sketch name for the sweep profile",
+                    },
+                    "spine_sketch": {
+                        "type": "string",
+                        "description": "Sketch name for the sweep path/spine",
+                    },
                     "subtractive": {
                         "type": "boolean",
                         "description": "If true, create a subtractive (cut) sweep",
@@ -718,20 +797,48 @@ def _cad_tool_list() -> list[dict[str, Any]]:
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "sketch": {"type": "string", "description": "Sketch name for the helix profile"},
-                    "pitch": {"type": "number", "description": "Distance between turns in mm (used in pitch-height and pitch-turns modes)"},
-                    "height": {"type": "number", "description": "Total helix height in mm (used in pitch-height and height-turns modes)"},
-                    "turns": {"type": "number", "description": "Number of turns (used in pitch-turns and height-turns modes)"},
+                    "sketch": {
+                        "type": "string",
+                        "description": "Sketch name for the helix profile",
+                    },
+                    "pitch": {
+                        "type": "number",
+                        "description": "Distance between turns in mm (used in pitch-height and pitch-turns modes)",
+                    },
+                    "height": {
+                        "type": "number",
+                        "description": "Total helix height in mm (used in pitch-height and height-turns modes)",
+                    },
+                    "turns": {
+                        "type": "number",
+                        "description": "Number of turns (used in pitch-turns and height-turns modes)",
+                    },
                     "axis": {
                         "type": "string",
                         "enum": ["V", "H", "Base_X", "Base_Y", "Base_Z"],
                         "description": "Helix axis: V (sketch vertical), H (sketch horizontal), or Base_X/Y/Z (document origin axes)",
                         "default": "V",
                     },
-                    "angle": {"type": "number", "description": "Taper angle in degrees (0 = straight helix)", "default": 0.0},
-                    "growth": {"type": "number", "description": "Radial growth per revolution in mm (0 = constant radius)", "default": 0.0},
-                    "left_handed": {"type": "boolean", "description": "Create a left-handed helix", "default": False},
-                    "reversed": {"type": "boolean", "description": "Reverse helix direction", "default": False},
+                    "angle": {
+                        "type": "number",
+                        "description": "Taper angle in degrees (0 = straight helix)",
+                        "default": 0.0,
+                    },
+                    "growth": {
+                        "type": "number",
+                        "description": "Radial growth per revolution in mm (0 = constant radius)",
+                        "default": 0.0,
+                    },
+                    "left_handed": {
+                        "type": "boolean",
+                        "description": "Create a left-handed helix",
+                        "default": False,
+                    },
+                    "reversed": {
+                        "type": "boolean",
+                        "description": "Reverse helix direction",
+                        "default": False,
+                    },
                     "mode": {
                         "type": "string",
                         "enum": ["pitch-height", "pitch-turns", "height-turns"],
@@ -792,7 +899,11 @@ def _cad_tool_list() -> list[dict[str, Any]]:
                     "diameter": {"type": "number", "description": "Hole diameter in mm"},
                     "depth": {"type": "number", "description": "Hole depth in mm"},
                     "body": {"type": "string", "description": "Body name (optional)"},
-                    "hole_type": {"type": "string", "enum": ["Dimension", "ThroughAll"], "default": "Dimension"},
+                    "hole_type": {
+                        "type": "string",
+                        "enum": ["Dimension", "ThroughAll"],
+                        "default": "Dimension",
+                    },
                     "verify": _VERIFY_PROP,
                     "doc": {"type": "string", "description": "Document name (optional)"},
                 },
@@ -815,7 +926,10 @@ def _cad_tool_list() -> list[dict[str, Any]]:
                         "description": "Edge references to fillet (e.g., ['Edge1', 'Edge3'])",
                     },
                     "radius": {"type": "number", "description": "Fillet radius in mm"},
-                    "selection": {"type": "string", "description": "Named selection set to use instead of edges"},
+                    "selection": {
+                        "type": "string",
+                        "description": "Named selection set to use instead of edges",
+                    },
                     "body": {"type": "string", "description": "Body name (optional)"},
                     "verify": _VERIFY_PROP,
                     "doc": {"type": "string", "description": "Document name (optional)"},
@@ -839,7 +953,10 @@ def _cad_tool_list() -> list[dict[str, Any]]:
                         "description": "Edge references to chamfer (e.g., ['Edge1', 'Edge3'])",
                     },
                     "size": {"type": "number", "description": "Chamfer size in mm"},
-                    "selection": {"type": "string", "description": "Named selection set to use instead of edges"},
+                    "selection": {
+                        "type": "string",
+                        "description": "Named selection set to use instead of edges",
+                    },
                     "body": {"type": "string", "description": "Body name (optional)"},
                     "verify": _VERIFY_PROP,
                     "doc": {"type": "string", "description": "Document name (optional)"},
@@ -864,7 +981,12 @@ def _cad_tool_list() -> list[dict[str, Any]]:
                 "type": "object",
                 "properties": {
                     "doc": {"type": "string", "description": "Document name (optional)"},
-                    "detail": {"type": "string", "enum": ["bodies", "full"], "default": "bodies", "description": "Detail level. 'bodies' (default): compact body-level overview with sizes and feature counts. 'full': flat list of every object with bounding boxes and topology."},
+                    "detail": {
+                        "type": "string",
+                        "enum": ["bodies", "full"],
+                        "default": "bodies",
+                        "description": "Detail level. 'bodies' (default): compact body-level overview with sizes and feature counts. 'full': flat list of every object with bounding boxes and topology.",
+                    },
                 },
                 "additionalProperties": False,
             },
@@ -878,8 +1000,14 @@ def _cad_tool_list() -> list[dict[str, Any]]:
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "object_name": {"type": "string", "description": "Name of the object to measure"},
-                    "body": {"type": "string", "description": "Alias for object_name (either works)"},
+                    "object_name": {
+                        "type": "string",
+                        "description": "Name of the object to measure",
+                    },
+                    "body": {
+                        "type": "string",
+                        "description": "Alias for object_name (either works)",
+                    },
                     "doc": {"type": "string", "description": "Document name (optional)"},
                 },
                 "additionalProperties": False,
@@ -895,7 +1023,10 @@ def _cad_tool_list() -> list[dict[str, Any]]:
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "body": {"type": "string", "description": "Body name (optional, uses first body if omitted)"},
+                    "body": {
+                        "type": "string",
+                        "description": "Body name (optional, uses first body if omitted)",
+                    },
                     "doc": {"type": "string", "description": "Document name (optional)"},
                 },
                 "additionalProperties": False,
@@ -911,7 +1042,10 @@ def _cad_tool_list() -> list[dict[str, Any]]:
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "body": {"type": "string", "description": "Body name (optional, uses first body if omitted)"},
+                    "body": {
+                        "type": "string",
+                        "description": "Body name (optional, uses first body if omitted)",
+                    },
                     "axis": {
                         "type": "string",
                         "enum": ["X", "Y", "Z"],
@@ -924,13 +1058,19 @@ def _cad_tool_list() -> list[dict[str, Any]]:
                     },
                     "min_length": {"type": "number", "description": "Minimum edge length in mm"},
                     "max_length": {"type": "number", "description": "Maximum edge length in mm"},
-                    "on_face": {"type": "string", "description": "Only edges bounding this face (e.g. 'Face3')"},
+                    "on_face": {
+                        "type": "string",
+                        "description": "Only edges bounding this face (e.g. 'Face3')",
+                    },
                     "near_point": {
                         "type": "array",
                         "items": {"type": "number"},
                         "description": "Filter edges near this [x, y, z] point",
                     },
-                    "near_distance": {"type": "number", "description": "Max distance from near_point in mm (default 1.0)"},
+                    "near_distance": {
+                        "type": "number",
+                        "description": "Max distance from near_point in mm (default 1.0)",
+                    },
                     "convexity": {
                         "type": "string",
                         "enum": ["convex", "concave"],
@@ -982,7 +1122,10 @@ def _cad_tool_list() -> list[dict[str, Any]]:
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "name": {"type": "string", "description": "Name of the selection set to resolve"},
+                    "name": {
+                        "type": "string",
+                        "description": "Name of the selection set to resolve",
+                    },
                     "body": {"type": "string", "description": "Body name (optional)"},
                     "doc": {"type": "string", "description": "Document name (optional)"},
                 },
@@ -1001,7 +1144,10 @@ def _cad_tool_list() -> list[dict[str, Any]]:
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "name": {"type": "string", "description": "Name of the selection set to delete"},
+                    "name": {
+                        "type": "string",
+                        "description": "Name of the selection set to delete",
+                    },
                 },
                 "required": ["name"],
                 "additionalProperties": False,
@@ -1044,8 +1190,16 @@ def _cad_tool_list() -> list[dict[str, Any]]:
                         "type": "number",
                         "description": "Near clipping plane in mm. Set to slice into model for cavity views.",
                     },
-                    "width": {"type": "integer", "description": "Image width in pixels", "default": 512},
-                    "height": {"type": "integer", "description": "Image height in pixels", "default": 512},
+                    "width": {
+                        "type": "integer",
+                        "description": "Image width in pixels",
+                        "default": 512,
+                    },
+                    "height": {
+                        "type": "integer",
+                        "description": "Image height in pixels",
+                        "default": 512,
+                    },
                     "doc": {"type": "string", "description": "Document name (optional)"},
                     "hide_bodies": {
                         "type": "array",
@@ -1120,8 +1274,15 @@ def _cad_tool_list() -> list[dict[str, Any]]:
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "format": {"type": "string", "enum": ["step", "stl", "fcstd"], "default": "step"},
-                    "path": {"type": "string", "description": "Output file path (optional, auto-generated if omitted)"},
+                    "format": {
+                        "type": "string",
+                        "enum": ["step", "stl", "fcstd"],
+                        "default": "step",
+                    },
+                    "path": {
+                        "type": "string",
+                        "description": "Output file path (optional, auto-generated if omitted)",
+                    },
                     "doc": {"type": "string", "description": "Document name (optional)"},
                 },
                 "additionalProperties": False,
@@ -1135,7 +1296,10 @@ def _cad_tool_list() -> list[dict[str, Any]]:
                 "properties": {
                     "body": {"type": "string", "description": "Body name to export"},
                     "format": {"type": "string", "enum": ["stl", "step", "obj"], "default": "stl"},
-                    "path": {"type": "string", "description": "Output file path (optional, auto-generated if omitted)"},
+                    "path": {
+                        "type": "string",
+                        "description": "Output file path (optional, auto-generated if omitted)",
+                    },
                     "doc": {"type": "string", "description": "Document name (optional)"},
                     "strip_placement": {
                         "type": "boolean",
@@ -1162,12 +1326,19 @@ def _cad_tool_list() -> list[dict[str, Any]]:
                 "type": "object",
                 "properties": {
                     "bodies": {
-                        "type": "array", "items": {"type": "string"},
+                        "type": "array",
+                        "items": {"type": "string"},
                         "description": "Body names to export (default: all PartDesign::Body objects)",
                     },
                     "format": {"type": "string", "enum": ["stl", "step"], "default": "stl"},
-                    "output_dir": {"type": "string", "description": "Output directory (auto tempdir if omitted)"},
-                    "mechanism_id": {"type": "string", "description": "Mechanism handle from motion.define_mechanism — triggers URDF generation"},
+                    "output_dir": {
+                        "type": "string",
+                        "description": "Output directory (auto tempdir if omitted)",
+                    },
+                    "mechanism_id": {
+                        "type": "string",
+                        "description": "Mechanism handle from motion.define_mechanism — triggers URDF generation",
+                    },
                     "emit_sdf": {
                         "type": "boolean",
                         "default": False,
@@ -1214,7 +1385,11 @@ def _cad_tool_list() -> list[dict[str, Any]]:
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "names": {"type": "array", "items": {"type": "string"}, "description": "Object names to delete"},
+                    "names": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Object names to delete",
+                    },
                     "doc": {"type": "string", "description": "Document name (optional)"},
                 },
                 "required": ["names"],
@@ -1357,15 +1532,31 @@ def _cad_tool_list() -> list[dict[str, Any]]:
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "name": {"type": "string", "description": "Body name (e.g. 'Servo_hip_yaw_L1')"},
-                    "shape": {"type": "string", "enum": ["box", "cylinder"], "description": "Primitive shape type"},
+                    "name": {
+                        "type": "string",
+                        "description": "Body name (e.g. 'Servo_hip_yaw_L1')",
+                    },
+                    "shape": {
+                        "type": "string",
+                        "enum": ["box", "cylinder"],
+                        "description": "Primitive shape type",
+                    },
                     "dimensions": {
                         "type": "object",
                         "description": "Shape dimensions in mm. Box: {length, width, height}. Cylinder: {radius, height}.",
                         "properties": {
-                            "length": {"type": "number", "description": "Box length along local X (mm)"},
-                            "width": {"type": "number", "description": "Box width along local Y (mm)"},
-                            "height": {"type": "number", "description": "Extrusion height along local Z (mm)"},
+                            "length": {
+                                "type": "number",
+                                "description": "Box length along local X (mm)",
+                            },
+                            "width": {
+                                "type": "number",
+                                "description": "Box width along local Y (mm)",
+                            },
+                            "height": {
+                                "type": "number",
+                                "description": "Extrusion height along local Z (mm)",
+                            },
                             "radius": {"type": "number", "description": "Cylinder radius (mm)"},
                         },
                     },
@@ -1542,7 +1733,10 @@ def _spec_tool_list() -> list[dict[str, Any]]:
                     "path": {"type": "string"},
                     "value": {},
                     "question_id": {"type": "string"},
-                    "source": {"type": "string", "enum": ["user", "llm_proposal", "default", "import", "user_skip"]},
+                    "source": {
+                        "type": "string",
+                        "enum": ["user", "llm_proposal", "default", "import", "user_skip"],
+                    },
                 },
                 "required": ["spec_draft", "op", "path", "source"],
                 "additionalProperties": False,
@@ -1568,8 +1762,14 @@ def _spec_tool_list() -> list[dict[str, Any]]:
                     "conversation_signals": {
                         "type": "object",
                         "properties": {
-                            "user_expertise": {"type": "string", "enum": ["novice", "intermediate", "expert", "unknown"]},
-                            "language_preference": {"type": "string", "enum": ["plain", "technical", "auto"]},
+                            "user_expertise": {
+                                "type": "string",
+                                "enum": ["novice", "intermediate", "expert", "unknown"],
+                            },
+                            "language_preference": {
+                                "type": "string",
+                                "enum": ["plain", "technical", "auto"],
+                            },
                             "previous_question_id": {"type": "string"},
                             "allow_revisit_skipped": {"type": "boolean"},
                         },
@@ -1711,7 +1911,10 @@ def _me_tool_list() -> list[dict[str, Any]]:
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "constraints": {"type": "object", "description": "Constraint dict with geometry_interfaces, operating_envelope, material, manufacturing, etc."},
+                    "constraints": {
+                        "type": "object",
+                        "description": "Constraint dict with geometry_interfaces, operating_envelope, material, manufacturing, etc.",
+                    },
                 },
                 "required": ["constraints"],
                 "additionalProperties": False,
@@ -1745,7 +1948,10 @@ def _knowledge_tool_list() -> list[dict[str, Any]]:
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "file_path": {"type": "string", "description": "Path to the file to extract (PDF, DOCX, etc.)"},
+                    "file_path": {
+                        "type": "string",
+                        "description": "Path to the file to extract (PDF, DOCX, etc.)",
+                    },
                 },
                 "required": ["file_path"],
                 "additionalProperties": False,
@@ -1802,7 +2008,11 @@ def _knowledge_tool_list() -> list[dict[str, Any]]:
                 "type": "object",
                 "properties": {
                     "query": {"type": "string", "description": "Search query"},
-                    "top_k": {"type": "integer", "description": "Number of results to return", "default": 5},
+                    "top_k": {
+                        "type": "integer",
+                        "description": "Number of results to return",
+                        "default": 5,
+                    },
                     "filters": {"type": "object", "description": "Optional filters"},
                 },
                 "required": ["query"],
@@ -1835,14 +2045,42 @@ def _geometry_tool_list() -> list[dict[str, Any]]:
                 "properties": {
                     "module": {"type": "number", "description": "Gear module (tooth size) in mm"},
                     "teeth": {"type": "integer", "description": "Number of teeth"},
-                    "pressure_angle_deg": {"type": "number", "default": 20.0, "description": "Pressure angle in degrees"},
-                    "profile_shift": {"type": "number", "default": 0.0, "description": "Profile shift coefficient"},
+                    "pressure_angle_deg": {
+                        "type": "number",
+                        "default": 20.0,
+                        "description": "Pressure angle in degrees",
+                    },
+                    "profile_shift": {
+                        "type": "number",
+                        "default": 0.0,
+                        "description": "Profile shift coefficient",
+                    },
                     "backlash": {"type": "number", "default": 0.0, "description": "Backlash in mm"},
-                    "center_x": {"type": "number", "default": 0.0, "description": "Center X coordinate"},
-                    "center_y": {"type": "number", "default": 0.0, "description": "Center Y coordinate"},
-                    "internal": {"type": "boolean", "default": False, "description": "Generate internal (ring) gear profile"},
-                    "num_involute_pts": {"type": "integer", "default": 20, "description": "Points per involute curve"},
-                    "clearance_coeff": {"type": "number", "default": 0.25, "description": "Clearance coefficient"},
+                    "center_x": {
+                        "type": "number",
+                        "default": 0.0,
+                        "description": "Center X coordinate",
+                    },
+                    "center_y": {
+                        "type": "number",
+                        "default": 0.0,
+                        "description": "Center Y coordinate",
+                    },
+                    "internal": {
+                        "type": "boolean",
+                        "default": False,
+                        "description": "Generate internal (ring) gear profile",
+                    },
+                    "num_involute_pts": {
+                        "type": "integer",
+                        "default": 20,
+                        "description": "Points per involute curve",
+                    },
+                    "clearance_coeff": {
+                        "type": "number",
+                        "default": 0.25,
+                        "description": "Clearance coefficient",
+                    },
                 },
                 "required": ["module", "teeth"],
                 "additionalProperties": False,
@@ -1904,7 +2142,11 @@ def _geometry_tool_list() -> list[dict[str, Any]]:
                     "module": {"type": "number", "description": "Gear module in mm"},
                     "sun_teeth": {"type": "integer", "description": "Sun gear teeth"},
                     "planet_teeth": {"type": "integer", "description": "Planet gear teeth"},
-                    "num_planets": {"type": "integer", "default": 3, "description": "Number of planets"},
+                    "num_planets": {
+                        "type": "integer",
+                        "default": 3,
+                        "description": "Number of planets",
+                    },
                     "pressure_angle_deg": {"type": "number", "default": 20.0},
                     "profile_shift": {"type": "number", "default": 0.0},
                     "backlash": {"type": "number", "default": 0.0},
@@ -1926,7 +2168,11 @@ def _geometry_tool_list() -> list[dict[str, Any]]:
                     "base_radius": {"type": "number", "description": "Base circle radius in mm"},
                     "start_radius": {"type": "number", "description": "Start radius in mm"},
                     "end_radius": {"type": "number", "description": "End radius in mm"},
-                    "num_points": {"type": "integer", "default": 20, "description": "Number of points"},
+                    "num_points": {
+                        "type": "integer",
+                        "default": 20,
+                        "description": "Number of points",
+                    },
                 },
                 "required": ["base_radius", "start_radius", "end_radius"],
                 "additionalProperties": False,
@@ -1945,14 +2191,39 @@ def _geometry_tool_list() -> list[dict[str, Any]]:
                 "type": "object",
                 "properties": {
                     "diameter": {"type": "number", "description": "Total propeller diameter in mm"},
-                    "pitch": {"type": "number", "description": "Propeller pitch in mm (distance per revolution)"},
+                    "pitch": {
+                        "type": "number",
+                        "description": "Propeller pitch in mm (distance per revolution)",
+                    },
                     "hub_diameter": {"type": "number", "description": "Hub/root diameter in mm"},
-                    "num_blades": {"type": "integer", "default": 2, "description": "Number of blades"},
-                    "airfoil": {"type": "string", "default": "NACA4412", "description": "NACA 4-digit airfoil code (e.g. 'NACA4412', 'NACA0012')"},
-                    "chord_root": {"type": "number", "description": "Root chord in mm (auto-sized ~12% diameter if omitted)"},
-                    "chord_tip": {"type": "number", "description": "Tip chord in mm (auto-sized ~40% of root if omitted)"},
-                    "num_sections": {"type": "integer", "default": 6, "description": "Number of radial cross-sections for loft"},
-                    "num_points": {"type": "integer", "default": 40, "description": "Points per airfoil surface"},
+                    "num_blades": {
+                        "type": "integer",
+                        "default": 2,
+                        "description": "Number of blades",
+                    },
+                    "airfoil": {
+                        "type": "string",
+                        "default": "NACA4412",
+                        "description": "NACA 4-digit airfoil code (e.g. 'NACA4412', 'NACA0012')",
+                    },
+                    "chord_root": {
+                        "type": "number",
+                        "description": "Root chord in mm (auto-sized ~12% diameter if omitted)",
+                    },
+                    "chord_tip": {
+                        "type": "number",
+                        "description": "Tip chord in mm (auto-sized ~40% of root if omitted)",
+                    },
+                    "num_sections": {
+                        "type": "integer",
+                        "default": 6,
+                        "description": "Number of radial cross-sections for loft",
+                    },
+                    "num_points": {
+                        "type": "integer",
+                        "default": 40,
+                        "description": "Points per airfoil surface",
+                    },
                 },
                 "required": ["diameter", "pitch", "hub_diameter"],
                 "additionalProperties": False,
@@ -1971,8 +2242,15 @@ def _geometry_tool_list() -> list[dict[str, Any]]:
                 "properties": {
                     "module": {"type": "number", "description": "Gear module in mm"},
                     "teeth": {"type": "integer", "description": "Number of teeth (>= 4)"},
-                    "mating_teeth": {"type": "integer", "description": "Mating gear tooth count (for generating circle radius)"},
-                    "profile_type": {"type": "string", "default": "epicycloidal", "enum": ["epicycloidal", "modified_involute", "ogival"]},
+                    "mating_teeth": {
+                        "type": "integer",
+                        "description": "Mating gear tooth count (for generating circle radius)",
+                    },
+                    "profile_type": {
+                        "type": "string",
+                        "default": "epicycloidal",
+                        "enum": ["epicycloidal", "modified_involute", "ogival"],
+                    },
                     "pressure_angle_deg": {"type": "number", "default": 15.0},
                     "addendum_coeff": {"type": "number", "default": 0.75},
                     "dedendum_coeff": {"type": "number", "default": 0.85},
@@ -2004,12 +2282,28 @@ def _geometry_tool_list() -> list[dict[str, Any]]:
                     "num_points_per_turn": {"type": "integer", "default": 20},
                     "center_x": {"type": "number", "default": 0.0},
                     "center_y": {"type": "number", "default": 0.0},
-                    "strip_thickness_mm": {"type": "number", "description": "Strip thickness for spring analysis"},
-                    "strip_height_mm": {"type": "number", "description": "Strip height for spring analysis"},
+                    "strip_thickness_mm": {
+                        "type": "number",
+                        "description": "Strip thickness for spring analysis",
+                    },
+                    "strip_height_mm": {
+                        "type": "number",
+                        "description": "Strip height for spring analysis",
+                    },
                     "material_e_gpa": {"type": "number", "description": "Young's modulus in GPa"},
-                    "material_yield_mpa": {"type": "number", "description": "Yield stress in MPa (for stress check)"},
-                    "overcoil_angle_deg": {"type": "number", "description": "Terminal curve angle in degrees"},
-                    "overcoil_style": {"type": "string", "enum": ["simple", "phillips"], "description": "Terminal curve style"},
+                    "material_yield_mpa": {
+                        "type": "number",
+                        "description": "Yield stress in MPa (for stress check)",
+                    },
+                    "overcoil_angle_deg": {
+                        "type": "number",
+                        "description": "Terminal curve angle in degrees",
+                    },
+                    "overcoil_style": {
+                        "type": "string",
+                        "enum": ["simple", "phillips"],
+                        "description": "Terminal curve style",
+                    },
                 },
                 "required": ["inner_radius", "outer_radius", "num_turns"],
                 "additionalProperties": False,
@@ -2025,10 +2319,24 @@ def _geometry_tool_list() -> list[dict[str, Any]]:
                 "type": "object",
                 "properties": {
                     "hub_diameter": {"type": "number", "description": "Hub diameter in mm"},
-                    "rim_inner_diameter": {"type": "number", "description": "Inner rim diameter in mm"},
-                    "rim_outer_diameter": {"type": "number", "description": "Outer rim diameter in mm"},
-                    "num_spokes": {"type": "integer", "default": 4, "description": "Number of spokes (2-12)"},
-                    "spoke_style": {"type": "string", "default": "straight", "enum": ["straight", "tapered", "curved_s", "curved_c"]},
+                    "rim_inner_diameter": {
+                        "type": "number",
+                        "description": "Inner rim diameter in mm",
+                    },
+                    "rim_outer_diameter": {
+                        "type": "number",
+                        "description": "Outer rim diameter in mm",
+                    },
+                    "num_spokes": {
+                        "type": "integer",
+                        "default": 4,
+                        "description": "Number of spokes (2-12)",
+                    },
+                    "spoke_style": {
+                        "type": "string",
+                        "default": "straight",
+                        "enum": ["straight", "tapered", "curved_s", "curved_c"],
+                    },
                     "spoke_width_hub": {"type": "number", "default": 0.8},
                     "spoke_width_rim": {"type": "number", "default": 0.6},
                     "fillet_radius_hub": {"type": "number", "default": 0.1},
@@ -2051,11 +2359,25 @@ def _geometry_tool_list() -> list[dict[str, Any]]:
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "pitch_diameter": {"type": "number", "description": "Pitch circle diameter in mm"},
+                    "pitch_diameter": {
+                        "type": "number",
+                        "description": "Pitch circle diameter in mm",
+                    },
                     "teeth": {"type": "integer", "description": "Number of teeth (>= 4)"},
-                    "locking_face_angle_deg": {"type": "number", "default": 5.0, "description": "Locking face angle (steep, < friction angle)"},
-                    "drive_face_angle_deg": {"type": "number", "default": 45.0, "description": "Driving face angle (gradual)"},
-                    "tooth_height": {"type": "number", "description": "Tooth height in mm (auto ~4% of pitch_diameter)"},
+                    "locking_face_angle_deg": {
+                        "type": "number",
+                        "default": 5.0,
+                        "description": "Locking face angle (steep, < friction angle)",
+                    },
+                    "drive_face_angle_deg": {
+                        "type": "number",
+                        "default": 45.0,
+                        "description": "Driving face angle (gradual)",
+                    },
+                    "tooth_height": {
+                        "type": "number",
+                        "description": "Tooth height in mm (auto ~4% of pitch_diameter)",
+                    },
                     "tip_radius": {"type": "number", "default": 0.0},
                     "root_radius": {"type": "number", "default": 0.0},
                     "center_x": {"type": "number", "default": 0.0},
@@ -2077,14 +2399,30 @@ def _geometry_tool_list() -> list[dict[str, Any]]:
                 "type": "object",
                 "properties": {
                     "total_ratio": {"type": "number", "description": "Target overall gear ratio"},
-                    "num_stages": {"type": "integer", "default": 3, "description": "Number of stages (2-4)"},
-                    "module_range": {"type": "array", "items": {"type": "number"}, "description": "[min_module, max_module] in mm"},
-                    "max_diameter": {"type": "number", "default": 0.0, "description": "Max wheel pitch diameter (0 = no limit)"},
+                    "num_stages": {
+                        "type": "integer",
+                        "default": 3,
+                        "description": "Number of stages (2-4)",
+                    },
+                    "module_range": {
+                        "type": "array",
+                        "items": {"type": "number"},
+                        "description": "[min_module, max_module] in mm",
+                    },
+                    "max_diameter": {
+                        "type": "number",
+                        "default": 0.0,
+                        "description": "Max wheel pitch diameter (0 = no limit)",
+                    },
                     "min_pinion_teeth": {"type": "integer", "default": 7},
                     "max_pinion_teeth": {"type": "integer", "default": 15},
                     "min_wheel_teeth": {"type": "integer", "default": 20},
                     "max_wheel_teeth": {"type": "integer", "default": 120},
-                    "tolerance": {"type": "number", "default": 0.001, "description": "Acceptable ratio error fraction"},
+                    "tolerance": {
+                        "type": "number",
+                        "default": 0.001,
+                        "description": "Acceptable ratio error fraction",
+                    },
                 },
                 "required": ["total_ratio"],
                 "additionalProperties": False,
@@ -2101,8 +2439,15 @@ def _geometry_tool_list() -> list[dict[str, Any]]:
                 "type": "object",
                 "properties": {
                     "shaft_diameter": {"type": "number", "description": "Shaft diameter in mm"},
-                    "standard": {"type": "string", "default": "din6885", "enum": ["din6885", "ansi", "woodruff"]},
-                    "key_length": {"type": "number", "description": "Key length in mm (auto-sized ~1.5× shaft diameter if omitted)"},
+                    "standard": {
+                        "type": "string",
+                        "default": "din6885",
+                        "enum": ["din6885", "ansi", "woodruff"],
+                    },
+                    "key_length": {
+                        "type": "number",
+                        "description": "Key length in mm (auto-sized ~1.5× shaft diameter if omitted)",
+                    },
                 },
                 "required": ["shaft_diameter"],
                 "additionalProperties": False,
@@ -2120,9 +2465,24 @@ def _geometry_tool_list() -> list[dict[str, Any]]:
                 "type": "object",
                 "properties": {
                     "oring_id_mm": {"type": "number", "description": "O-ring inner diameter in mm"},
-                    "cross_section_mm": {"type": "number", "description": "O-ring cross-section diameter in mm"},
-                    "dash_number": {"type": "integer", "description": "AS568 dash number (alternative to id+cs)"},
-                    "application": {"type": "string", "default": "static_radial", "enum": ["static_radial", "static_face", "dynamic_reciprocating", "dynamic_rotary"]},
+                    "cross_section_mm": {
+                        "type": "number",
+                        "description": "O-ring cross-section diameter in mm",
+                    },
+                    "dash_number": {
+                        "type": "integer",
+                        "description": "AS568 dash number (alternative to id+cs)",
+                    },
+                    "application": {
+                        "type": "string",
+                        "default": "static_radial",
+                        "enum": [
+                            "static_radial",
+                            "static_face",
+                            "dynamic_reciprocating",
+                            "dynamic_rotary",
+                        ],
+                    },
                     "groove_type": {"type": "string", "default": "bore", "enum": ["bore", "face"]},
                 },
                 "required": [],
@@ -2139,20 +2499,63 @@ def _geometry_tool_list() -> list[dict[str, Any]]:
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "shape": {"type": "string", "enum": ["rectangle", "circle", "hollow_circle", "i_beam", "c_channel", "angle", "t_section", "polygon"]},
-                    "width": {"type": "number", "description": "Width (rectangle, i_beam flange, c_channel flange, t_section flange)"},
+                    "shape": {
+                        "type": "string",
+                        "enum": [
+                            "rectangle",
+                            "circle",
+                            "hollow_circle",
+                            "i_beam",
+                            "c_channel",
+                            "angle",
+                            "t_section",
+                            "polygon",
+                        ],
+                    },
+                    "width": {
+                        "type": "number",
+                        "description": "Width (rectangle, i_beam flange, c_channel flange, t_section flange)",
+                    },
                     "height": {"type": "number", "description": "Height (rectangle)"},
                     "diameter": {"type": "number", "description": "Diameter (circle)"},
-                    "outer_diameter": {"type": "number", "description": "Outer diameter (hollow_circle)"},
-                    "inner_diameter": {"type": "number", "description": "Inner diameter (hollow_circle)"},
-                    "flange_width": {"type": "number", "description": "Flange width (i_beam, c_channel, t_section)"},
-                    "flange_thickness": {"type": "number", "description": "Flange thickness (i_beam, c_channel, t_section)"},
-                    "web_height": {"type": "number", "description": "Web height (i_beam, c_channel, t_section)"},
-                    "web_thickness": {"type": "number", "description": "Web thickness (i_beam, c_channel, t_section)"},
-                    "leg1_length": {"type": "number", "description": "First leg length (angle section)"},
-                    "leg2_length": {"type": "number", "description": "Second leg length (angle section)"},
+                    "outer_diameter": {
+                        "type": "number",
+                        "description": "Outer diameter (hollow_circle)",
+                    },
+                    "inner_diameter": {
+                        "type": "number",
+                        "description": "Inner diameter (hollow_circle)",
+                    },
+                    "flange_width": {
+                        "type": "number",
+                        "description": "Flange width (i_beam, c_channel, t_section)",
+                    },
+                    "flange_thickness": {
+                        "type": "number",
+                        "description": "Flange thickness (i_beam, c_channel, t_section)",
+                    },
+                    "web_height": {
+                        "type": "number",
+                        "description": "Web height (i_beam, c_channel, t_section)",
+                    },
+                    "web_thickness": {
+                        "type": "number",
+                        "description": "Web thickness (i_beam, c_channel, t_section)",
+                    },
+                    "leg1_length": {
+                        "type": "number",
+                        "description": "First leg length (angle section)",
+                    },
+                    "leg2_length": {
+                        "type": "number",
+                        "description": "Second leg length (angle section)",
+                    },
                     "thickness": {"type": "number", "description": "Thickness (angle section)"},
-                    "vertices": {"type": "array", "items": {"type": "array", "items": {"type": "number"}}, "description": "Polygon vertices [[x,y], ...]"},
+                    "vertices": {
+                        "type": "array",
+                        "items": {"type": "array", "items": {"type": "number"}},
+                        "description": "Polygon vertices [[x,y], ...]",
+                    },
                 },
                 "required": ["shape"],
                 "additionalProperties": False,
@@ -2168,11 +2571,27 @@ def _geometry_tool_list() -> list[dict[str, Any]]:
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "driver_diameter": {"type": "number", "description": "Driver pulley pitch diameter in mm"},
-                    "driven_diameter": {"type": "number", "description": "Driven pulley pitch diameter in mm"},
-                    "center_distance": {"type": "number", "description": "Center-to-center distance in mm"},
-                    "belt_type": {"type": "string", "default": "timing", "enum": ["timing", "vbelt"]},
-                    "belt_profile": {"type": "string", "description": "Belt profile (e.g. 'A', 'B', 'HTD-5M', 'T10')"},
+                    "driver_diameter": {
+                        "type": "number",
+                        "description": "Driver pulley pitch diameter in mm",
+                    },
+                    "driven_diameter": {
+                        "type": "number",
+                        "description": "Driven pulley pitch diameter in mm",
+                    },
+                    "center_distance": {
+                        "type": "number",
+                        "description": "Center-to-center distance in mm",
+                    },
+                    "belt_type": {
+                        "type": "string",
+                        "default": "timing",
+                        "enum": ["timing", "vbelt"],
+                    },
+                    "belt_profile": {
+                        "type": "string",
+                        "description": "Belt profile (e.g. 'A', 'B', 'HTD-5M', 'T10')",
+                    },
                 },
                 "required": ["driver_diameter", "driven_diameter", "center_distance"],
                 "additionalProperties": False,
@@ -2192,8 +2611,15 @@ def _geometry_tool_list() -> list[dict[str, Any]]:
                     "teeth": {"type": "integer", "description": "Number of teeth"},
                     "mate_teeth": {"type": "integer", "description": "Mating gear tooth count"},
                     "pressure_angle_deg": {"type": "number", "default": 20.0},
-                    "shaft_angle_deg": {"type": "number", "default": 90.0, "description": "Shaft angle in degrees"},
-                    "face_width": {"type": "number", "description": "Face width in mm (auto-sized if omitted)"},
+                    "shaft_angle_deg": {
+                        "type": "number",
+                        "default": 90.0,
+                        "description": "Shaft angle in degrees",
+                    },
+                    "face_width": {
+                        "type": "number",
+                        "description": "Face width in mm (auto-sized if omitted)",
+                    },
                     "center_x": {"type": "number", "default": 0.0},
                     "center_y": {"type": "number", "default": 0.0},
                     "num_involute_pts": {"type": "integer", "default": 20},
@@ -2214,10 +2640,16 @@ def _geometry_tool_list() -> list[dict[str, Any]]:
                 "type": "object",
                 "properties": {
                     "axial_module": {"type": "number", "description": "Axial module in mm"},
-                    "worm_starts": {"type": "integer", "description": "Number of worm starts (threads)"},
+                    "worm_starts": {
+                        "type": "integer",
+                        "description": "Number of worm starts (threads)",
+                    },
                     "wheel_teeth": {"type": "integer", "description": "Wheel tooth count"},
                     "pressure_angle_deg": {"type": "number", "default": 20.0},
-                    "worm_pitch_diameter": {"type": "number", "description": "Worm pitch diameter in mm (auto-sized if omitted)"},
+                    "worm_pitch_diameter": {
+                        "type": "number",
+                        "description": "Worm pitch diameter in mm (auto-sized if omitted)",
+                    },
                     "center_x": {"type": "number", "default": 0.0},
                     "center_y": {"type": "number", "default": 0.0},
                     "num_points": {"type": "integer", "default": 20},
@@ -2236,9 +2668,19 @@ def _geometry_tool_list() -> list[dict[str, Any]]:
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "designation": {"type": "string", "description": "Thread designation (e.g. 'M8', 'M8x1', '3/8-16', '1/2-10 ACME')"},
-                    "thread_type": {"type": "string", "description": "Explicit type override (iso_metric, unc, unf, acme, buttress)"},
-                    "external": {"type": "boolean", "default": True, "description": "External (bolt) or internal (nut) thread"},
+                    "designation": {
+                        "type": "string",
+                        "description": "Thread designation (e.g. 'M8', 'M8x1', '3/8-16', '1/2-10 ACME')",
+                    },
+                    "thread_type": {
+                        "type": "string",
+                        "description": "Explicit type override (iso_metric, unc, unf, acme, buttress)",
+                    },
+                    "external": {
+                        "type": "boolean",
+                        "default": True,
+                        "description": "External (bolt) or internal (nut) thread",
+                    },
                     "num_points": {"type": "integer", "default": 20},
                 },
                 "required": ["designation"],
@@ -2255,15 +2697,39 @@ def _geometry_tool_list() -> list[dict[str, Any]]:
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "spring_type": {"type": "string", "default": "compression", "enum": ["compression", "extension", "torsion"]},
+                    "spring_type": {
+                        "type": "string",
+                        "default": "compression",
+                        "enum": ["compression", "extension", "torsion"],
+                    },
                     "wire_diameter": {"type": "number", "description": "Wire diameter in mm"},
-                    "coil_diameter": {"type": "number", "description": "Mean coil diameter D in mm"},
+                    "coil_diameter": {
+                        "type": "number",
+                        "description": "Mean coil diameter D in mm",
+                    },
                     "active_coils": {"type": "number", "description": "Number of active coils"},
-                    "free_length": {"type": "number", "description": "Free length in mm (compression springs)"},
-                    "material_g_gpa": {"type": "number", "default": 79.3, "description": "Shear modulus G in GPa (79.3 for steel)"},
-                    "material_yield_mpa": {"type": "number", "description": "Yield stress in MPa (for stress check)"},
-                    "end_type": {"type": "string", "default": "closed_ground", "enum": ["closed_ground", "closed", "open", "open_ground"]},
-                    "design_load": {"type": "number", "description": "Design load in N (for stress computation)"},
+                    "free_length": {
+                        "type": "number",
+                        "description": "Free length in mm (compression springs)",
+                    },
+                    "material_g_gpa": {
+                        "type": "number",
+                        "default": 79.3,
+                        "description": "Shear modulus G in GPa (79.3 for steel)",
+                    },
+                    "material_yield_mpa": {
+                        "type": "number",
+                        "description": "Yield stress in MPa (for stress check)",
+                    },
+                    "end_type": {
+                        "type": "string",
+                        "default": "closed_ground",
+                        "enum": ["closed_ground", "closed", "open", "open_ground"],
+                    },
+                    "design_load": {
+                        "type": "number",
+                        "description": "Design load in N (for stress computation)",
+                    },
                 },
                 "required": ["wire_diameter", "coil_diameter", "active_coils", "free_length"],
                 "additionalProperties": False,
@@ -2280,13 +2746,38 @@ def _geometry_tool_list() -> list[dict[str, Any]]:
                 "type": "object",
                 "properties": {
                     "ground_length": {"type": "number", "description": "Ground link length in mm"},
-                    "input_length": {"type": "number", "description": "Input (crank) link length in mm"},
-                    "coupler_length": {"type": "number", "description": "Coupler link length in mm"},
-                    "output_length": {"type": "number", "description": "Output (rocker) link length in mm"},
-                    "coupler_point_x": {"type": "number", "default": 0.0, "description": "Coupler point X (local frame)"},
-                    "coupler_point_y": {"type": "number", "default": 0.0, "description": "Coupler point Y (local frame)"},
-                    "input_angle_start": {"type": "number", "default": 0.0, "description": "Start angle in degrees"},
-                    "input_angle_end": {"type": "number", "default": 360.0, "description": "End angle in degrees"},
+                    "input_length": {
+                        "type": "number",
+                        "description": "Input (crank) link length in mm",
+                    },
+                    "coupler_length": {
+                        "type": "number",
+                        "description": "Coupler link length in mm",
+                    },
+                    "output_length": {
+                        "type": "number",
+                        "description": "Output (rocker) link length in mm",
+                    },
+                    "coupler_point_x": {
+                        "type": "number",
+                        "default": 0.0,
+                        "description": "Coupler point X (local frame)",
+                    },
+                    "coupler_point_y": {
+                        "type": "number",
+                        "default": 0.0,
+                        "description": "Coupler point Y (local frame)",
+                    },
+                    "input_angle_start": {
+                        "type": "number",
+                        "default": 0.0,
+                        "description": "Start angle in degrees",
+                    },
+                    "input_angle_end": {
+                        "type": "number",
+                        "default": 360.0,
+                        "description": "End angle in degrees",
+                    },
                     "num_points": {"type": "integer", "default": 100},
                 },
                 "required": ["ground_length", "input_length", "coupler_length", "output_length"],
@@ -2312,14 +2803,37 @@ def _geometry_tool_list() -> list[dict[str, Any]]:
                                 "start_angle_deg": {"type": "number"},
                                 "end_angle_deg": {"type": "number"},
                                 "rise_mm": {"type": "number"},
-                                "motion_law": {"type": "string", "enum": ["dwell", "simple_harmonic", "cycloidal", "polynomial345", "polynomial4567", "constant_velocity"]},
+                                "motion_law": {
+                                    "type": "string",
+                                    "enum": [
+                                        "dwell",
+                                        "simple_harmonic",
+                                        "cycloidal",
+                                        "polynomial345",
+                                        "polynomial4567",
+                                        "constant_velocity",
+                                    ],
+                                },
                             },
-                            "required": ["start_angle_deg", "end_angle_deg", "rise_mm", "motion_law"],
+                            "required": [
+                                "start_angle_deg",
+                                "end_angle_deg",
+                                "rise_mm",
+                                "motion_law",
+                            ],
                         },
                         "description": "List of cam segments covering 360°",
                     },
-                    "follower_type": {"type": "string", "default": "knife_edge", "enum": ["knife_edge", "roller", "flat_face"]},
-                    "follower_radius": {"type": "number", "default": 0.0, "description": "Roller radius in mm (for roller follower)"},
+                    "follower_type": {
+                        "type": "string",
+                        "default": "knife_edge",
+                        "enum": ["knife_edge", "roller", "flat_face"],
+                    },
+                    "follower_radius": {
+                        "type": "number",
+                        "default": 0.0,
+                        "description": "Roller radius in mm (for roller follower)",
+                    },
                     "rotation": {"type": "string", "default": "ccw", "enum": ["cw", "ccw"]},
                     "center_x": {"type": "number", "default": 0.0},
                     "center_y": {"type": "number", "default": 0.0},
@@ -2347,11 +2861,26 @@ def _geometry_tool_list() -> list[dict[str, Any]]:
                         "items": {
                             "type": "object",
                             "properties": {
-                                "diameter": {"type": "number", "description": "Outer diameter of this section (mm)"},
-                                "length": {"type": "number", "description": "Axial length of this section (mm)"},
-                                "taper_diameter": {"type": "number", "description": "End diameter for tapered sections (mm)"},
-                                "fillet": {"type": "number", "description": "Fillet radius at entry junction (mm)"},
-                                "chamfer": {"type": "number", "description": "45° chamfer size at entry junction (mm)"},
+                                "diameter": {
+                                    "type": "number",
+                                    "description": "Outer diameter of this section (mm)",
+                                },
+                                "length": {
+                                    "type": "number",
+                                    "description": "Axial length of this section (mm)",
+                                },
+                                "taper_diameter": {
+                                    "type": "number",
+                                    "description": "End diameter for tapered sections (mm)",
+                                },
+                                "fillet": {
+                                    "type": "number",
+                                    "description": "Fillet radius at entry junction (mm)",
+                                },
+                                "chamfer": {
+                                    "type": "number",
+                                    "description": "45° chamfer size at entry junction (mm)",
+                                },
                             },
                             "required": ["diameter", "length"],
                         },
@@ -2360,9 +2889,21 @@ def _geometry_tool_list() -> list[dict[str, Any]]:
                             "Each has diameter + length, optionally taper_diameter, fillet, or chamfer."
                         ),
                     },
-                    "bore_diameter": {"type": "number", "default": 0.0, "description": "Center bore diameter (mm, 0 = solid)"},
-                    "lead_chamfer": {"type": "number", "default": 0.0, "description": "45° chamfer at left end (mm)"},
-                    "trail_chamfer": {"type": "number", "default": 0.0, "description": "45° chamfer at right end (mm)"},
+                    "bore_diameter": {
+                        "type": "number",
+                        "default": 0.0,
+                        "description": "Center bore diameter (mm, 0 = solid)",
+                    },
+                    "lead_chamfer": {
+                        "type": "number",
+                        "default": 0.0,
+                        "description": "45° chamfer at left end (mm)",
+                    },
+                    "trail_chamfer": {
+                        "type": "number",
+                        "default": 0.0,
+                        "description": "45° chamfer at right end (mm)",
+                    },
                     "center_x": {"type": "number", "default": 0.0},
                     "center_y": {"type": "number", "default": 0.0},
                 },
@@ -2383,19 +2924,39 @@ def _geometry_tool_list() -> list[dict[str, Any]]:
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "nominal_diameter": {"type": "number", "description": "Nominal diameter of mating shaft/pin/bearing (mm)"},
+                    "nominal_diameter": {
+                        "type": "number",
+                        "description": "Nominal diameter of mating shaft/pin/bearing (mm)",
+                    },
                     "fit": {
-                        "type": "string", "default": "press",
+                        "type": "string",
+                        "default": "press",
                         "description": (
                             "Fit preset: clearance, close_clearance, sliding, "
                             "transition, press, medium_press, heavy_press — "
                             "or ISO pair like H7p6"
                         ),
                     },
-                    "depth": {"type": "number", "default": 10.0, "description": "Bore depth (mm). 0 = dimensions only, no profile"},
-                    "chamfer": {"type": "number", "default": 0.0, "description": "Entry chamfer at 45° (mm)"},
-                    "counterbore_diameter": {"type": "number", "default": 0.0, "description": "Counterbore outer diameter (mm). 0 = none"},
-                    "counterbore_depth": {"type": "number", "default": 0.0, "description": "Counterbore depth (mm)"},
+                    "depth": {
+                        "type": "number",
+                        "default": 10.0,
+                        "description": "Bore depth (mm). 0 = dimensions only, no profile",
+                    },
+                    "chamfer": {
+                        "type": "number",
+                        "default": 0.0,
+                        "description": "Entry chamfer at 45° (mm)",
+                    },
+                    "counterbore_diameter": {
+                        "type": "number",
+                        "default": 0.0,
+                        "description": "Counterbore outer diameter (mm). 0 = none",
+                    },
+                    "counterbore_depth": {
+                        "type": "number",
+                        "default": 0.0,
+                        "description": "Counterbore depth (mm)",
+                    },
                     "center_x": {"type": "number", "default": 0.0},
                     "center_y": {"type": "number", "default": 0.0},
                 },
@@ -2427,7 +2988,10 @@ def _study_tool_list() -> list[dict[str, Any]]:
                             "type": "object",
                             "properties": {
                                 "name": {"type": "string"},
-                                "var_type": {"type": "string", "enum": ["continuous", "discrete", "categorical"]},
+                                "var_type": {
+                                    "type": "string",
+                                    "enum": ["continuous", "discrete", "categorical"],
+                                },
                                 "min_val": {"type": "number"},
                                 "max_val": {"type": "number"},
                                 "coarse_step": {"type": "number"},
@@ -2442,7 +3006,10 @@ def _study_tool_list() -> list[dict[str, Any]]:
                     "solver": {
                         "type": "object",
                         "properties": {
-                            "solver_type": {"type": "string", "enum": ["mock", "bemt_xfoil", "openfoam", "chrono"]},
+                            "solver_type": {
+                                "type": "string",
+                                "enum": ["mock", "bemt_xfoil", "openfoam", "chrono"],
+                            },
                             "params": {"type": "object"},
                             "timeout_s": {"type": "number"},
                         },
@@ -2460,7 +3027,10 @@ def _study_tool_list() -> list[dict[str, Any]]:
                         "required": ["primary_metric"],
                         "description": "Optimization objective",
                     },
-                    "fixed_params": {"type": "object", "description": "Fixed parameters passed to solver"},
+                    "fixed_params": {
+                        "type": "object",
+                        "description": "Fixed parameters passed to solver",
+                    },
                     "geometry_script": {
                         "type": "string",
                         "description": (
@@ -2505,9 +3075,20 @@ def _study_tool_list() -> list[dict[str, Any]]:
                 "type": "object",
                 "properties": {
                     "study_id": {"type": "string", "description": "Study ID"},
-                    "top_n": {"type": "integer", "default": 10, "description": "Number of top results"},
-                    "phase": {"type": "string", "enum": ["coarse", "refined"], "description": "Filter by phase"},
-                    "sort_by": {"type": "string", "description": "Metric to sort by (default: primary metric)"},
+                    "top_n": {
+                        "type": "integer",
+                        "default": 10,
+                        "description": "Number of top results",
+                    },
+                    "phase": {
+                        "type": "string",
+                        "enum": ["coarse", "refined"],
+                        "description": "Filter by phase",
+                    },
+                    "sort_by": {
+                        "type": "string",
+                        "description": "Metric to sort by (default: primary metric)",
+                    },
                 },
                 "required": ["study_id"],
                 "additionalProperties": False,
@@ -2594,7 +3175,10 @@ def _motion_tool_list() -> list[dict[str, Any]]:
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "mechanism_id": {"type": "string", "description": "Mechanism handle from motion.define_mechanism"},
+                    "mechanism_id": {
+                        "type": "string",
+                        "description": "Mechanism handle from motion.define_mechanism",
+                    },
                     "validators": {
                         "type": "array",
                         "items": {"type": "string"},
@@ -2651,7 +3235,10 @@ def _motion_tool_list() -> list[dict[str, Any]]:
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "mechanism_id": {"type": "string", "description": "Mechanism handle from motion.define_mechanism"},
+                    "mechanism_id": {
+                        "type": "string",
+                        "description": "Mechanism handle from motion.define_mechanism",
+                    },
                     "doc": {"type": "string", "description": "Document name (optional)"},
                 },
                 "required": ["mechanism_id"],
@@ -2670,8 +3257,15 @@ def _motion_tool_list() -> list[dict[str, Any]]:
                 "properties": {
                     "mechanism_id": {"type": "string", "description": "Mechanism handle"},
                     "joint_id": {"type": "string", "description": "Joint ID within the mechanism"},
-                    "value": {"type": "number", "description": "Total range to drive (degrees for revolute, mm for prismatic)"},
-                    "steps": {"type": "integer", "default": 10, "description": "Number of steps to divide the motion into"},
+                    "value": {
+                        "type": "number",
+                        "description": "Total range to drive (degrees for revolute, mm for prismatic)",
+                    },
+                    "steps": {
+                        "type": "integer",
+                        "default": 10,
+                        "description": "Number of steps to divide the motion into",
+                    },
                     "check_collisions": {
                         "type": "boolean",
                         "default": False,
@@ -2697,8 +3291,15 @@ def _motion_tool_list() -> list[dict[str, Any]]:
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "mechanism_id": {"type": "string", "description": "Mechanism handle from motion.define_mechanism"},
-                    "tolerance_mm": {"type": "number", "default": 2.0, "description": "Max distance in mm for a joint to be considered connected"},
+                    "mechanism_id": {
+                        "type": "string",
+                        "description": "Mechanism handle from motion.define_mechanism",
+                    },
+                    "tolerance_mm": {
+                        "type": "number",
+                        "default": 2.0,
+                        "description": "Max distance in mm for a joint to be considered connected",
+                    },
                     "doc": {"type": "string", "description": "Document name (optional)"},
                 },
                 "required": ["mechanism_id"],
@@ -2734,7 +3335,10 @@ def _motion_tool_list() -> list[dict[str, Any]]:
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "mechanism_id": {"type": "string", "description": "Mechanism handle from motion.define_mechanism"},
+                    "mechanism_id": {
+                        "type": "string",
+                        "description": "Mechanism handle from motion.define_mechanism",
+                    },
                     "duration_s": {
                         "type": "number",
                         "default": 1.0,
@@ -2884,11 +3488,31 @@ def _motion_tool_list() -> list[dict[str, Any]]:
                 "type": "object",
                 "properties": {
                     "session_id": {"type": "string", "description": "Teleop session ID"},
-                    "vx_mps": {"type": "number", "default": 0.0, "description": "Forward velocity command (m/s)"},
-                    "yaw_rate_rps": {"type": "number", "default": 0.0, "description": "Yaw-rate command (rad/s)"},
-                    "body_height_m": {"type": "number", "default": 0.0, "description": "Body height command (m)"},
-                    "vy_mps": {"type": "number", "default": 0.0, "description": "Lateral velocity command (m/s, Gazebo only)"},
-                    "vz_mps": {"type": "number", "default": 0.0, "description": "Vertical velocity command (m/s, Gazebo only)"},
+                    "vx_mps": {
+                        "type": "number",
+                        "default": 0.0,
+                        "description": "Forward velocity command (m/s)",
+                    },
+                    "yaw_rate_rps": {
+                        "type": "number",
+                        "default": 0.0,
+                        "description": "Yaw-rate command (rad/s)",
+                    },
+                    "body_height_m": {
+                        "type": "number",
+                        "default": 0.0,
+                        "description": "Body height command (m)",
+                    },
+                    "vy_mps": {
+                        "type": "number",
+                        "default": 0.0,
+                        "description": "Lateral velocity command (m/s, Gazebo only)",
+                    },
+                    "vz_mps": {
+                        "type": "number",
+                        "default": 0.0,
+                        "description": "Vertical velocity command (m/s, Gazebo only)",
+                    },
                 },
                 "required": ["session_id"],
                 "additionalProperties": False,
@@ -3073,8 +3697,15 @@ def _rl_tool_list() -> list[dict[str, Any]]:
                 "type": "object",
                 "properties": {
                     "urdf_path": {"type": "string", "description": "Path to the URDF file"},
-                    "output_path": {"type": "string", "description": "Output path for env config .py file (auto-generated if omitted)"},
-                    "num_envs": {"type": "integer", "default": 4096, "description": "Number of parallel environments"},
+                    "output_path": {
+                        "type": "string",
+                        "description": "Output path for env config .py file (auto-generated if omitted)",
+                    },
+                    "num_envs": {
+                        "type": "integer",
+                        "default": 4096,
+                        "description": "Number of parallel environments",
+                    },
                 },
                 "required": ["urdf_path"],
                 "additionalProperties": False,
@@ -3086,10 +3717,22 @@ def _rl_tool_list() -> list[dict[str, Any]]:
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "env_config": {"type": "string", "description": "Path to generated env config .py file"},
-                    "output_dir": {"type": "string", "description": "Output directory for checkpoints (auto-generated if omitted)"},
-                    "max_iterations": {"type": "integer", "description": "Override max training iterations"},
-                    "num_envs": {"type": "integer", "description": "Override number of parallel environments"},
+                    "env_config": {
+                        "type": "string",
+                        "description": "Path to generated env config .py file",
+                    },
+                    "output_dir": {
+                        "type": "string",
+                        "description": "Output directory for checkpoints (auto-generated if omitted)",
+                    },
+                    "max_iterations": {
+                        "type": "integer",
+                        "description": "Override max training iterations",
+                    },
+                    "num_envs": {
+                        "type": "integer",
+                        "description": "Override number of parallel environments",
+                    },
                 },
                 "required": ["env_config"],
                 "additionalProperties": False,
@@ -3101,7 +3744,10 @@ def _rl_tool_list() -> list[dict[str, Any]]:
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "training_id": {"type": "string", "description": "Training ID from rl.start_training"},
+                    "training_id": {
+                        "type": "string",
+                        "description": "Training ID from rl.start_training",
+                    },
                 },
                 "required": ["training_id"],
                 "additionalProperties": False,
@@ -3129,9 +3775,19 @@ def _rl_tool_list() -> list[dict[str, Any]]:
                 "type": "object",
                 "properties": {
                     "training_id": {"type": "string", "description": "Training ID to export from"},
-                    "checkpoint_dir": {"type": "string", "description": "Direct path to checkpoint directory"},
-                    "output_dir": {"type": "string", "description": "Output directory for deployed policy"},
-                    "alpha": {"type": "number", "default": 0.3, "description": "Residual blending factor for deployment"},
+                    "checkpoint_dir": {
+                        "type": "string",
+                        "description": "Direct path to checkpoint directory",
+                    },
+                    "output_dir": {
+                        "type": "string",
+                        "description": "Output directory for deployed policy",
+                    },
+                    "alpha": {
+                        "type": "number",
+                        "default": 0.3,
+                        "description": "Residual blending factor for deployment",
+                    },
                 },
                 "additionalProperties": False,
             },
@@ -3143,8 +3799,15 @@ def _rl_tool_list() -> list[dict[str, Any]]:
                 "type": "object",
                 "properties": {
                     "policy_path": {"type": "string", "description": "Path to policy.pt file"},
-                    "urdf_path": {"type": "string", "description": "Path to URDF for full evaluation (optional)"},
-                    "num_episodes": {"type": "integer", "default": 10, "description": "Number of evaluation episodes"},
+                    "urdf_path": {
+                        "type": "string",
+                        "description": "Path to URDF for full evaluation (optional)",
+                    },
+                    "num_episodes": {
+                        "type": "integer",
+                        "default": 10,
+                        "description": "Number of evaluation episodes",
+                    },
                 },
                 "required": ["policy_path"],
                 "additionalProperties": False,
@@ -3167,7 +3830,10 @@ def _design_tool_list() -> list[dict[str, Any]]:
                 "type": "object",
                 "properties": {
                     "name": {"type": "string", "description": "Brief name"},
-                    "parameters": {"type": "object", "description": "Design parameters (any key-value pairs)"},
+                    "parameters": {
+                        "type": "object",
+                        "description": "Design parameters (any key-value pairs)",
+                    },
                     "status": {
                         "type": "string",
                         "default": "intent",
@@ -3190,7 +3856,10 @@ def _design_tool_list() -> list[dict[str, Any]]:
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "brief_id": {"type": "string", "description": "Brief ID from design.save_brief"},
+                    "brief_id": {
+                        "type": "string",
+                        "description": "Brief ID from design.save_brief",
+                    },
                 },
                 "required": ["brief_id"],
                 "additionalProperties": False,
@@ -3206,7 +3875,10 @@ def _design_tool_list() -> list[dict[str, Any]]:
                 "type": "object",
                 "properties": {
                     "brief_id": {"type": "string", "description": "Brief ID to update"},
-                    "parameters": {"type": "object", "description": "New parameters (replaces all top-level params)"},
+                    "parameters": {
+                        "type": "object",
+                        "description": "New parameters (replaces all top-level params)",
+                    },
                     "status": {
                         "type": "string",
                         "enum": _STATUS_ENUM,
@@ -3238,7 +3910,11 @@ def _design_tool_list() -> list[dict[str, Any]]:
                         "default": "custom",
                         "description": "custom = design in CAD, purchased = off-the-shelf",
                     },
-                    "quantity": {"type": "integer", "default": 1, "description": "How many of this part"},
+                    "quantity": {
+                        "type": "integer",
+                        "default": 1,
+                        "description": "How many of this part",
+                    },
                     "specs": {"type": "object", "description": "Part specs (any key-value pairs)"},
                 },
                 "required": ["brief_id", "name"],
@@ -3262,7 +3938,10 @@ def _design_tool_list() -> list[dict[str, Any]]:
                         "enum": ["pending", "building", "built"],
                         "description": "Part build status",
                     },
-                    "body_label": {"type": "string", "description": "FreeCAD body label after creation"},
+                    "body_label": {
+                        "type": "string",
+                        "description": "FreeCAD body label after creation",
+                    },
                     "kind": {
                         "type": "string",
                         "enum": ["custom", "purchased"],
@@ -3306,7 +3985,10 @@ def _design_tool_list() -> list[dict[str, Any]]:
                     "port_a": {"type": "string", "description": "Connection point on part_a"},
                     "part_b": {"type": "string", "description": "Second part name"},
                     "port_b": {"type": "string", "description": "Connection point on part_b"},
-                    "spec": {"type": "object", "description": "Connection spec (pattern, bolt size, fit type, etc.)"},
+                    "spec": {
+                        "type": "object",
+                        "description": "Connection spec (pattern, bolt size, fit type, etc.)",
+                    },
                 },
                 "required": ["brief_id", "part_a", "port_a", "part_b", "port_b"],
                 "additionalProperties": False,
@@ -3389,7 +4071,10 @@ def _design_tool_list() -> list[dict[str, Any]]:
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "brief_id": {"type": "string", "description": "Brief ID to generate mechanism from"},
+                    "brief_id": {
+                        "type": "string",
+                        "description": "Brief ID to generate mechanism from",
+                    },
                     "ground_part": {
                         "type": "string",
                         "description": (
@@ -3423,14 +4108,24 @@ def _cad_measure_tool_list() -> list[dict[str, Any]]:
                         "description": "First reference: body name, 'Body.Face3', or [x,y,z]",
                         "oneOf": [
                             {"type": "string"},
-                            {"type": "array", "items": {"type": "number"}, "minItems": 3, "maxItems": 3},
+                            {
+                                "type": "array",
+                                "items": {"type": "number"},
+                                "minItems": 3,
+                                "maxItems": 3,
+                            },
                         ],
                     },
                     "ref_b": {
                         "description": "Second reference: body name, 'Body.Face3', or [x,y,z]",
                         "oneOf": [
                             {"type": "string"},
-                            {"type": "array", "items": {"type": "number"}, "minItems": 3, "maxItems": 3},
+                            {
+                                "type": "array",
+                                "items": {"type": "number"},
+                                "minItems": 3,
+                                "maxItems": 3,
+                            },
                         ],
                     },
                     "doc": {"type": "string", "description": "Document name (optional)"},
@@ -4067,12 +4762,23 @@ def _analysis_tool_list() -> list[dict[str, Any]]:
                         "type": "object",
                         "description": "Freestream conditions",
                         "properties": {
-                            "velocity_m_s": {"type": "number", "description": "Freestream velocity (m/s)"},
-                            "density_kg_m3": {"type": "number", "default": 1.225, "description": "Fluid density (default: air at sea level)"},
+                            "velocity_m_s": {
+                                "type": "number",
+                                "description": "Freestream velocity (m/s)",
+                            },
+                            "density_kg_m3": {
+                                "type": "number",
+                                "default": 1.225,
+                                "description": "Fluid density (default: air at sea level)",
+                            },
                             "viscosity_pa_s": {"type": "number", "default": 1.789e-5},
                             "angle_of_attack_deg": {"type": "number", "default": 0},
                             "sideslip_deg": {"type": "number", "default": 0},
-                            "mach": {"type": "number", "default": 0, "description": "Mach number (0 = auto from velocity)"},
+                            "mach": {
+                                "type": "number",
+                                "default": 0,
+                                "description": "Mach number (0 = auto from velocity)",
+                            },
                         },
                         "required": ["velocity_m_s"],
                     },
@@ -4098,7 +4804,11 @@ def _analysis_tool_list() -> list[dict[str, Any]]:
                             "properties": {
                                 "rotor_id": {"type": "string"},
                                 "center_xyz": {"type": "array", "items": {"type": "number"}},
-                                "axis": {"type": "array", "items": {"type": "number"}, "description": "Rotation axis [x,y,z]"},
+                                "axis": {
+                                    "type": "array",
+                                    "items": {"type": "number"},
+                                    "description": "Rotation axis [x,y,z]",
+                                },
                                 "radius_m": {"type": "number"},
                                 "rpm": {"type": "number"},
                                 "num_blades": {"type": "integer", "default": 2},
@@ -4108,8 +4818,16 @@ def _analysis_tool_list() -> list[dict[str, Any]]:
                             "required": ["rotor_id", "center_xyz", "axis", "radius_m", "rpm"],
                         },
                     },
-                    "mesh_size": {"type": "number", "default": 0, "description": "Target mesh size in mm (0 = auto)"},
-                    "solver": {"type": "string", "default": "", "description": "Solver name: 'su2', 'dust', or auto-select"},
+                    "mesh_size": {
+                        "type": "number",
+                        "default": 0,
+                        "description": "Target mesh size in mm (0 = auto)",
+                    },
+                    "solver": {
+                        "type": "string",
+                        "default": "",
+                        "description": "Solver name: 'su2', 'dust', or auto-select",
+                    },
                     "doc": {"type": "string", "description": "Document name"},
                 },
                 "required": ["body", "flow_conditions"],
@@ -4263,7 +4981,14 @@ def _analysis_tool_list() -> list[dict[str, Any]]:
                     },
                     "doc": {"type": "string", "description": "Document name (optional)"},
                 },
-                "required": ["body", "materials", "fixed_faces", "load_face", "pitch_radius_mm", "torques_nmm"],
+                "required": [
+                    "body",
+                    "materials",
+                    "fixed_faces",
+                    "load_face",
+                    "pitch_radius_mm",
+                    "torques_nmm",
+                ],
                 "additionalProperties": False,
             },
         },
@@ -4667,7 +5392,15 @@ def serve() -> int:
                 name = params.get("name")
                 arguments = params.get("arguments") or {}
                 if not isinstance(name, str) or not isinstance(arguments, dict):
-                    _send(_rpc_result(rpc_id, {"isError": True, "content": [{"type": "text", "text": "Invalid params"}]}))
+                    _send(
+                        _rpc_result(
+                            rpc_id,
+                            {
+                                "isError": True,
+                                "content": [{"type": "text", "text": "Invalid params"}],
+                            },
+                        )
+                    )
                     continue
                 out = _call_tool(name, arguments)
                 content: list[dict[str, Any]] = []
@@ -4678,19 +5411,23 @@ def serve() -> int:
                     # Preserve view labels so LLM knows which image is which
                     out["verification_views"] = [img.get("view", "unknown") for img in images]
                     for img in images:
-                        content.append({
-                            "type": "image",
-                            "data": img["image_base64"],
-                            "mimeType": img["mime_type"],
-                        })
+                        content.append(
+                            {
+                                "type": "image",
+                                "data": img["image_base64"],
+                                "mimeType": img["mime_type"],
+                            }
+                        )
 
                 # Handle single image from cad.screenshot
                 if isinstance(out, dict) and "image_base64" in out:
-                    content.append({
-                        "type": "image",
-                        "data": out.pop("image_base64"),
-                        "mimeType": out.pop("mime_type", "image/png"),
-                    })
+                    content.append(
+                        {
+                            "type": "image",
+                            "data": out.pop("image_base64"),
+                            "mimeType": out.pop("mime_type", "image/png"),
+                        }
+                    )
 
                 # Always include text result (remaining metadata)
                 content.append({"type": "text", "text": json_dumps_str(out)})

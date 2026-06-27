@@ -7,6 +7,7 @@ Covers the bugs that motivated extracting this module:
   aggregated battery + payload + arms.
 - Off-diagonal terms (parallel-axis cross-products) were absent.
 """
+
 from __future__ import annotations
 
 import unittest
@@ -62,8 +63,8 @@ class TestThinDiskInertia(unittest.TestCase):
     def test_thickness_adds_only_to_equatorial(self) -> None:
         thin = thin_disk_inertia(0.016, 0.10, thickness_m=0.0)
         thick = thin_disk_inertia(0.016, 0.10, thickness_m=0.005)
-        self.assertEqual(thin.izz, thick.izz)            # izz unchanged
-        self.assertGreater(thick.ixx, thin.ixx)          # ixx gains m·t²/12
+        self.assertEqual(thin.izz, thick.izz)  # izz unchanged
+        self.assertGreater(thick.ixx, thin.ixx)  # ixx gains m·t²/12
 
     def test_axis_y_swaps_components(self) -> None:
         # Disk spinning about Y should put the m·r²/2 term on iyy.
@@ -128,7 +129,7 @@ class TestAggregateParallelAxis(unittest.TestCase):
         the battery aggregated, ixx must be at least ~3× larger because
         the battery's mass is offset upward.
         """
-        chassis_body = box_inertia(1.5, 0.20, 0.20, 0.03)   # ixx ≈ 0.0051
+        chassis_body = box_inertia(1.5, 0.20, 0.20, 0.03)  # ixx ≈ 0.0051
         battery_body = box_inertia(1.5, 0.10, 0.08, 0.04)
         contribs = [
             InertiaContribution(1.5, (0.0, 0.0, 0.0), chassis_body),

@@ -1,4 +1,5 @@
 """Adapter layer between motion tools and optional Gazebo bridge client."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -132,7 +133,9 @@ def teleop_start(
 
     session_id = str(result.get("session_id", "")).strip()
     if not session_id:
-        return _error("GAZEBO_PROTOCOL_ERROR", "Gazebo teleop_start response missing required session_id")
+        return _error(
+            "GAZEBO_PROTOCOL_ERROR", "Gazebo teleop_start response missing required session_id"
+        )
 
     result["session_id"] = session_id
     return {"ok": True, **result}

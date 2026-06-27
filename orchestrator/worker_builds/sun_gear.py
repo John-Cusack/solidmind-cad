@@ -27,6 +27,7 @@ or orchestrator worker dispatch) is responsible for anything downstream
 — metadata editing, calling ``verify_worker_measurements``, feeding the
 result into ``runner.validate_results``, etc.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -154,9 +155,7 @@ def build_sun_gear(
     # Skip auto-measure (interfaces=None) and rewrite ourselves under the
     # right feature key. Verify-mode re-measurement is the source of truth.
     interface_id = (
-        "ifc1"
-        if interfaces is None
-        else (interfaces[0] if interfaces else {}).get("id", "ifc1")
+        "ifc1" if interfaces is None else (interfaces[0] if interfaces else {}).get("id", "ifc1")
     )
     return common.dispatch_and_rewrite(
         build_spec=build_spec,

@@ -91,9 +91,7 @@ class TestE2ECADFlow(unittest.TestCase):
         gir_builder = GIRBuilder()
         gir_builder.add_global_frame()
         for node in graph.nodes:
-            gir_builder.add_primitive(
-                "box", {"length": Quantity(node.value, node.unit or "mm")}
-            )
+            gir_builder.add_primitive("box", {"length": Quantity(node.value, node.unit or "mm")})
 
         gir = gir_builder.build()
 
@@ -146,9 +144,7 @@ class TestE2ECADFlow(unittest.TestCase):
         result1 = plan_geometry(spec)
         result2 = plan_geometry(spec)
 
-        self.assertEqual(
-            result1["metadata"]["gir_hash"], result2["metadata"]["gir_hash"]
-        )
+        self.assertEqual(result1["metadata"]["gir_hash"], result2["metadata"]["gir_hash"])
 
     def test_full_pipeline_plan_compile_execute_verify(self) -> None:
         """Full pipeline: plan → compile → execute → verify."""
@@ -182,7 +178,9 @@ class TestE2ECADFlow(unittest.TestCase):
         eir_builder = EIRBuilder()
         for op_data in plan_result["eir"]["operations"]:
             invariants = [
-                Invariant(type=inv.get("type", ""), threshold=inv.get("threshold"), scope=inv.get("scope"))
+                Invariant(
+                    type=inv.get("type", ""), threshold=inv.get("threshold"), scope=inv.get("scope")
+                )
                 for inv in op_data.get("invariants", [])
             ]
             eir_builder.add_operation(
@@ -208,11 +206,14 @@ class TestE2ECADFlow(unittest.TestCase):
         # Verify
         gir_builder = GIRBuilder()
         gir_builder.add_global_frame()
-        gir_builder.add_primitive("box", {
-            "length": Quantity(100.0, "mm"),
-            "width": Quantity(50.0, "mm"),
-            "height": Quantity(20.0, "mm"),
-        })
+        gir_builder.add_primitive(
+            "box",
+            {
+                "length": Quantity(100.0, "mm"),
+                "width": Quantity(50.0, "mm"),
+                "height": Quantity(20.0, "mm"),
+            },
+        )
         gir_obj = gir_builder.build()
 
         verifier = VerificationEngine()

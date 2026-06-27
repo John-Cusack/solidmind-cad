@@ -3,6 +3,7 @@
 These tests run the motion tool surface through ``server.main._call_tool``
 against a lightweight socket bridge that emulates the Gazebo sidecar protocol.
 """
+
 from __future__ import annotations
 
 import json
@@ -110,7 +111,10 @@ class _FakeGazeboBridge:
                     "result": {
                         "samples": [
                             {"t": 0.0, "parts": {pid: {"omega_rpm": 0.0} for pid in part_ids}},
-                            {"t": duration, "parts": {pid: {"omega_rpm": 99.9} for pid in part_ids}},
+                            {
+                                "t": duration,
+                                "parts": {pid: {"omega_rpm": 99.9} for pid in part_ids},
+                            },
                         ],
                         "summary": {
                             "simulation_time_s": duration,
@@ -152,7 +156,9 @@ class _FakeGazeboBridge:
                 "result": {
                     "session_id": session_id,
                     "status": "started",
-                    "controller_type": self.last_teleop_profile.get("controller_type", "multirotor_direct"),
+                    "controller_type": self.last_teleop_profile.get(
+                        "controller_type", "multirotor_direct"
+                    ),
                 },
             }
 
@@ -195,7 +201,8 @@ class TestMotionGazeboIntegration(unittest.TestCase):
         self.bridge = _FakeGazeboBridge()
         self.bridge.start()
         gazebo_client._client = gazebo_client.GazeboClient(  # type: ignore[attr-defined]
-            host="127.0.0.1", port=self.bridge.port,
+            host="127.0.0.1",
+            port=self.bridge.port,
         )
 
     def tearDown(self) -> None:
@@ -275,7 +282,9 @@ class TestMotionGazeboIntegration(unittest.TestCase):
         self.assertEqual(started["backend_used"], "gazebo")
         session_id = started["session_id"]
         self.assertEqual(self.bridge.last_teleop_paths, {"urdf_path": "/tmp/hexapod.urdf"})
-        self.assertEqual(self.bridge.last_teleop_profile.get("controller_type"), "multirotor_direct")
+        self.assertEqual(
+            self.bridge.last_teleop_profile.get("controller_type"), "multirotor_direct"
+        )
 
         applied = mcp_main._call_tool(
             "motion.teleop_command",

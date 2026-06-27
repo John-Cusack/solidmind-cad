@@ -3,6 +3,7 @@
 These tests run the motion tool surface through ``server.main._call_tool``
 against a lightweight socket bridge that emulates the Isaac sidecar protocol.
 """
+
 from __future__ import annotations
 
 import json

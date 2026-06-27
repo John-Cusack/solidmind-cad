@@ -3,6 +3,7 @@
 Generates Elmer Solver Input (.sif) files, runs ElmerGrid for mesh
 conversion, and parses .vtu output via meshio.
 """
+
 from __future__ import annotations
 
 import logging
@@ -78,7 +79,9 @@ class ElmerSolver(FieldSolver):
             solid_tag = all_tags.get("solid", 1)
             fluid_tag = all_tags.get("fluid", 2)
             sif_lines = self._build_conjugate_sif(
-                spec, mesh_info, mesh_db,
+                spec,
+                mesh_info,
+                mesh_db,
                 solid_tag=solid_tag,
                 fluid_tag=fluid_tag,
                 boundary_tags=boundary_tags,
@@ -181,8 +184,7 @@ class ElmerSolver(FieldSolver):
                 result.stderr[:500],
             )
             raise RuntimeError(
-                f"ElmerSolver failed (rc={result.returncode}): "
-                f"{result.stderr[:500]}"
+                f"ElmerSolver failed (rc={result.returncode}): {result.stderr[:500]}"
             )
 
         return elapsed
@@ -201,6 +203,7 @@ class ElmerSolver(FieldSolver):
 
         try:
             import meshio
+
             mesh = meshio.read(str(vtu_path))
         except Exception as exc:
             return _failed_result(f"Failed to read .vtu: {exc}")
@@ -258,7 +261,9 @@ class ElmerSolver(FieldSolver):
 
         # Compute safety factor and checks
         checks, safety_factor = self._evaluate_thermal(
-            t_max, t_min, spec,
+            t_max,
+            t_min,
+            spec,
         )
 
         analysis_id = f"thermal_{uuid.uuid4().hex[:8]}"
@@ -281,19 +286,19 @@ class ElmerSolver(FieldSolver):
         """Convert Gmsh .msh → Elmer mesh database via ElmerGrid."""
         result = subprocess.run(
             [
-                "ElmerGrid", "14", "2",
+                "ElmerGrid",
+                "14",
+                "2",
                 str(msh_path),
-                "-out", str(out_dir),
+                "-out",
+                str(out_dir),
             ],
             capture_output=True,
             text=True,
             timeout=120,
         )
         if result.returncode != 0:
-            raise RuntimeError(
-                f"ElmerGrid failed (rc={result.returncode}): "
-                f"{result.stderr[:500]}"
-            )
+            raise RuntimeError(f"ElmerGrid failed (rc={result.returncode}): {result.stderr[:500]}")
 
     def _build_sif(
         self,
@@ -305,8 +310,11 @@ class ElmerSolver(FieldSolver):
         """Generate Elmer .sif file content (test-facing entry point)."""
         if spec.analysis_type == AnalysisType.CONJUGATE_HEAT:
             return self._build_conjugate_sif(
-                spec, mesh_info, mesh_db,
-                solid_tag=body_tag, fluid_tag=body_tag + 1,
+                spec,
+                mesh_info,
+                mesh_db,
+                solid_tag=body_tag,
+                fluid_tag=body_tag + 1,
             )
         return self._build_thermal_sif(spec, mesh_info, mesh_db, body_tag)
 
@@ -407,9 +415,16 @@ class ElmerSolver(FieldSolver):
         lines: list[str] = []
 
         # Extract flow parameters from BCs
-        thermal_bcs = [bc for bc in spec.boundary_conditions if bc.bc_type in (
-            "temperature", "heat_flux", "convection",
-        )]
+        thermal_bcs = [
+            bc
+            for bc in spec.boundary_conditions
+            if bc.bc_type
+            in (
+                "temperature",
+                "heat_flux",
+                "convection",
+            )
+        ]
 
         # Fluid properties (default: air at 20°C)
         fluid_density = 1.225
@@ -423,10 +438,12 @@ class ElmerSolver(FieldSolver):
                 fluid_density = bc.value.get("fluid_density_kg_m3", fluid_density)
                 fluid_viscosity = bc.value.get("fluid_viscosity_pa_s", fluid_viscosity)
                 fluid_conductivity = bc.value.get(
-                    "fluid_conductivity_w_mk", fluid_conductivity,
+                    "fluid_conductivity_w_mk",
+                    fluid_conductivity,
                 )
                 fluid_capacity = bc.value.get(
-                    "fluid_capacity_j_kgk", fluid_capacity,
+                    "fluid_capacity_j_kgk",
+                    fluid_capacity,
                 )
                 inlet_vx = bc.value.get("vx_m_s", 0.0)
                 inlet_vy = bc.value.get("vy_m_s", 0.0)
@@ -649,73 +666,83 @@ class ElmerSolver(FieldSolver):
         if max_temp_limit > 0 and t_max > 0:
             safety_factor = max_temp_limit / t_max
             if t_max > max_temp_limit:
-                checks.append(AnalysisCheck(
-                    name="overtemperature",
-                    status=CheckStatus.FAIL,
-                    message=(
-                        f"Max temperature {t_max:.1f} K exceeds limit "
-                        f"{max_temp_limit:.1f} K"
-                    ),
-                    measured=t_max,
-                    limit=max_temp_limit,
-                    suggestion="Increase cooling or reduce heat input",
-                ))
+                checks.append(
+                    AnalysisCheck(
+                        name="overtemperature",
+                        status=CheckStatus.FAIL,
+                        message=(
+                            f"Max temperature {t_max:.1f} K exceeds limit {max_temp_limit:.1f} K"
+                        ),
+                        measured=t_max,
+                        limit=max_temp_limit,
+                        suggestion="Increase cooling or reduce heat input",
+                    )
+                )
             elif safety_factor < 1.2:
-                checks.append(AnalysisCheck(
-                    name="overtemperature",
-                    status=CheckStatus.WARN,
-                    message=(
-                        f"Max temperature {t_max:.1f} K close to limit "
-                        f"{max_temp_limit:.1f} K (margin {safety_factor:.2f})"
-                    ),
-                    measured=t_max,
-                    limit=max_temp_limit,
-                    suggestion="Consider additional cooling margin",
-                ))
+                checks.append(
+                    AnalysisCheck(
+                        name="overtemperature",
+                        status=CheckStatus.WARN,
+                        message=(
+                            f"Max temperature {t_max:.1f} K close to limit "
+                            f"{max_temp_limit:.1f} K (margin {safety_factor:.2f})"
+                        ),
+                        measured=t_max,
+                        limit=max_temp_limit,
+                        suggestion="Consider additional cooling margin",
+                    )
+                )
             else:
-                checks.append(AnalysisCheck(
-                    name="overtemperature",
-                    status=CheckStatus.PASS,
-                    message=(
-                        f"Max temperature {t_max:.1f} K within limit "
-                        f"{max_temp_limit:.1f} K (margin {safety_factor:.2f})"
-                    ),
-                    measured=t_max,
-                    limit=max_temp_limit,
-                ))
+                checks.append(
+                    AnalysisCheck(
+                        name="overtemperature",
+                        status=CheckStatus.PASS,
+                        message=(
+                            f"Max temperature {t_max:.1f} K within limit "
+                            f"{max_temp_limit:.1f} K (margin {safety_factor:.2f})"
+                        ),
+                        measured=t_max,
+                        limit=max_temp_limit,
+                    )
+                )
 
         # Thermal gradient check
         gradient = t_max - t_min
         if gradient > 200:
-            checks.append(AnalysisCheck(
-                name="thermal_gradient",
-                status=CheckStatus.WARN,
-                message=(
-                    f"High thermal gradient: {gradient:.1f} K "
-                    f"(from {t_min:.1f} K to {t_max:.1f} K). "
-                    "May cause thermal stress."
-                ),
-                measured=gradient,
-                suggestion="Consider thermal stress analysis",
-            ))
+            checks.append(
+                AnalysisCheck(
+                    name="thermal_gradient",
+                    status=CheckStatus.WARN,
+                    message=(
+                        f"High thermal gradient: {gradient:.1f} K "
+                        f"(from {t_min:.1f} K to {t_max:.1f} K). "
+                        "May cause thermal stress."
+                    ),
+                    measured=gradient,
+                    suggestion="Consider thermal stress analysis",
+                )
+            )
         else:
-            checks.append(AnalysisCheck(
-                name="thermal_gradient",
-                status=CheckStatus.PASS,
-                message=(
-                    f"Thermal gradient {gradient:.1f} K "
-                    f"(from {t_min:.1f} K to {t_max:.1f} K)"
-                ),
-                measured=gradient,
-            ))
+            checks.append(
+                AnalysisCheck(
+                    name="thermal_gradient",
+                    status=CheckStatus.PASS,
+                    message=(
+                        f"Thermal gradient {gradient:.1f} K (from {t_min:.1f} K to {t_max:.1f} K)"
+                    ),
+                    measured=gradient,
+                )
+            )
 
         if not checks:
-            checks.append(AnalysisCheck(
-                name="thermal_solved",
-                status=CheckStatus.PASS,
-                message=f"Thermal solution converged. T range: {t_min:.1f}–{t_max:.1f} K",
-                measured=t_max,
-            ))
+            checks.append(
+                AnalysisCheck(
+                    name="thermal_solved",
+                    status=CheckStatus.PASS,
+                    message=f"Thermal solution converged. T range: {t_min:.1f}–{t_max:.1f} K",
+                    measured=t_max,
+                )
+            )
 
         return checks, safety_factor
 

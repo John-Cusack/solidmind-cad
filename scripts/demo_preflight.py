@@ -15,6 +15,7 @@ Usage::
     # Skip Isaac checks (FreeCAD-only demo)
     python3 scripts/demo_preflight.py --no-isaac
 """
+
 from __future__ import annotations
 
 import argparse
@@ -82,7 +83,11 @@ def _tcp_ping(host: str, port: int, timeout: float = 3.0) -> dict | None:
 
 
 def _tcp_command(
-    host: str, port: int, cmd: str, args: dict | None = None, timeout: float = 10.0,
+    host: str,
+    port: int,
+    cmd: str,
+    args: dict | None = None,
+    timeout: float = 10.0,
 ) -> dict | None:
     """Send a command and return parsed response."""
     try:
@@ -113,6 +118,7 @@ def check_python() -> None:
 def check_package_importable() -> None:
     try:
         import server.main  # noqa: F401
+
         _status("server package importable", True)
     except Exception as e:
         _status("server package importable", False, str(e))
@@ -122,10 +128,16 @@ def check_tests() -> None:
     """Run the fast unit tests (skip anything needing live connections)."""
     r = subprocess.run(
         [sys.executable, "-m", "unittest", "tests.test_sketch_elements", "-v"],
-        capture_output=True, text=True, cwd=str(REPO), timeout=30,
+        capture_output=True,
+        text=True,
+        cwd=str(REPO),
+        timeout=30,
     )
-    _status("unit tests (sketch_elements)", r.returncode == 0,
-            f"{r.stdout.strip().splitlines()[-1]}" if r.stdout.strip() else r.stderr.strip()[:80])
+    _status(
+        "unit tests (sketch_elements)",
+        r.returncode == 0,
+        f"{r.stdout.strip().splitlines()[-1]}" if r.stdout.strip() else r.stderr.strip()[:80],
+    )
 
 
 def check_freecad_connection() -> bool:
@@ -134,19 +146,22 @@ def check_freecad_connection() -> bool:
     if ok:
         _status("FreeCAD addon (localhost:9876)", True)
     else:
-        _status("FreeCAD addon (localhost:9876)", False,
-                "Start FreeCAD and run: import freecad_addon; freecad_addon.start()")
+        _status(
+            "FreeCAD addon (localhost:9876)",
+            False,
+            "Start FreeCAD and run: import freecad_addon; freecad_addon.start()",
+        )
     return ok
 
 
 def check_freecad_new_doc() -> bool:
     """Create and close a test document to verify FreeCAD is responsive."""
-    resp = _tcp_command(FREECAD_HOST, FREECAD_PORT, "new_document",
-                        {"name": "_preflight_test"})
+    resp = _tcp_command(FREECAD_HOST, FREECAD_PORT, "new_document", {"name": "_preflight_test"})
     if resp and resp.get("ok"):
         # Clean up
-        _tcp_command(FREECAD_HOST, FREECAD_PORT, "close_document",
-                     {"name": "_preflight_test"}, timeout=5)
+        _tcp_command(
+            FREECAD_HOST, FREECAD_PORT, "close_document", {"name": "_preflight_test"}, timeout=5
+        )
         _status("FreeCAD create document", True)
         return True
     _status("FreeCAD create document", False, str(resp))
@@ -162,14 +177,18 @@ def check_hexapod_assets() -> bool:
     if len(stls) < 12:
         missing.append(f"STLs ({len(stls)}/12)")
     ok = len(missing) == 0
-    _status("Hexapod assets (URDF + STLs)", ok,
-            f"missing: {', '.join(missing)}" if missing else f"{len(stls)} STLs")
+    _status(
+        "Hexapod assets (URDF + STLs)",
+        ok,
+        f"missing: {', '.join(missing)}" if missing else f"{len(stls)} STLs",
+    )
     return ok
 
 
 def check_isaac_python() -> str | None:
-    isaac_py = os.environ.get("ISAAC_PYTHON",
-                              str(REPO.parent / "isaacsim/_build/linux-x86_64/release/python.sh"))
+    isaac_py = os.environ.get(
+        "ISAAC_PYTHON", str(REPO.parent / "isaacsim/_build/linux-x86_64/release/python.sh")
+    )
     exists = Path(isaac_py).exists()
     _status("ISAAC_PYTHON", exists, isaac_py if exists else f"not found: {isaac_py}")
     return isaac_py if exists else None
@@ -180,23 +199,25 @@ def check_isaac_bridge() -> bool:
     ok = resp is not None and resp.get("ok", False)
     if ok:
         caps = resp.get("result", {}).get("capabilities", {})
-        _status("Isaac bridge (localhost:9878)", True,
-                f"isaac_available={caps.get('isaac_available')}")
+        _status(
+            "Isaac bridge (localhost:9878)", True, f"isaac_available={caps.get('isaac_available')}"
+        )
     else:
-        _status("Isaac bridge (localhost:9878)", False,
-                "Start with: scripts/run_isaac_bridge.sh")
+        _status("Isaac bridge (localhost:9878)", False, "Start with: scripts/run_isaac_bridge.sh")
     return ok
 
 
 def check_isaac_urdf_import() -> bool:
     """Import the hexapod URDF into Isaac (slow ~60-180s)."""
     print("    Importing URDF (this takes ~60-180s)...")
-    resp = _tcp_command(ISAAC_HOST, ISAAC_PORT, "import_urdf",
-                        {"urdf_path": str(URDF_PATH.resolve())}, timeout=300)
+    resp = _tcp_command(
+        ISAAC_HOST, ISAAC_PORT, "import_urdf", {"urdf_path": str(URDF_PATH.resolve())}, timeout=300
+    )
     if resp and resp.get("ok"):
         r = resp["result"]
-        _status("Isaac URDF import", True,
-                f"joints={r.get('joint_count')} links={r.get('link_count')}")
+        _status(
+            "Isaac URDF import", True, f"joints={r.get('joint_count')} links={r.get('link_count')}"
+        )
         return True
     err = resp.get("error", resp) if resp else "timeout/connection error"
     _status("Isaac URDF import", False, str(err)[:100])
@@ -204,10 +225,12 @@ def check_isaac_urdf_import() -> bool:
 
 
 def check_isaac_screenshot() -> bool:
-    resp = _tcp_command(ISAAC_HOST, ISAAC_PORT, "screenshot",
-                        {"width": 640, "height": 480}, timeout=30)
+    resp = _tcp_command(
+        ISAAC_HOST, ISAAC_PORT, "screenshot", {"width": 640, "height": 480}, timeout=30
+    )
     if resp and resp.get("ok") and resp.get("result", {}).get("image_base64"):
         import base64
+
         png = base64.b64decode(resp["result"]["image_base64"])
         out = REPO / "preflight_screenshot.png"
         out.write_bytes(png)
@@ -221,10 +244,14 @@ def check_gear_engine() -> None:
     """Check that the Rust gear geometry engine is importable."""
     try:
         import solidmind_geometry  # noqa: F401
+
         _status("Gear engine (solidmind_geometry)", True)
     except ImportError:
-        _status("Gear engine (solidmind_geometry)", False,
-                "pip install -e solidmind_geometry/ or cargo build")
+        _status(
+            "Gear engine (solidmind_geometry)",
+            False,
+            "pip install -e solidmind_geometry/ or cargo build",
+        )
     except Exception as e:
         _status("Gear engine (solidmind_geometry)", False, str(e)[:80])
 
@@ -237,12 +264,16 @@ def check_hexapod_3dof_controller() -> None:
 
         from isaac_bridge.controllers import Hexapod3DOFController  # noqa: F401
         from isaac_bridge.hexapod_ik import LegGeometry, inverse_kinematics  # noqa: F401
+
         geom = LegGeometry(l_coxa=0.052, l_femur=0.066, l_tibia=0.133)
         angles = inverse_kinematics(0.15, 0.0, -0.10, geom)
         ok = all(math.isfinite(a) for a in (angles.coxa, angles.femur, angles.tibia))
-        _status("Hexapod3DOFController + IK", ok,
-                f"coxa={math.degrees(angles.coxa):.1f}° femur={math.degrees(angles.femur):.1f}° "
-                f"tibia={math.degrees(angles.tibia):.1f}°")
+        _status(
+            "Hexapod3DOFController + IK",
+            ok,
+            f"coxa={math.degrees(angles.coxa):.1f}° femur={math.degrees(angles.femur):.1f}° "
+            f"tibia={math.degrees(angles.tibia):.1f}°",
+        )
     except Exception as e:
         _status("Hexapod3DOFController + IK", False, str(e)[:80])
 
@@ -258,7 +289,10 @@ def check_18dof_build_script() -> None:
 
         r = subprocess.run(
             [sys.executable, str(build_script), "--print-mechanism"],
-            capture_output=True, text=True, cwd=str(REPO), timeout=10,
+            capture_output=True,
+            text=True,
+            cwd=str(REPO),
+            timeout=10,
         )
         if r.returncode != 0:
             _status("18-DOF build script", False, r.stderr.strip()[:80])
@@ -268,9 +302,12 @@ def check_18dof_build_script() -> None:
         parts = mechanism.get("parts", [])
         joints = mechanism.get("joints", [])
         revolute_joints = [j for j in joints if j.get("joint_type") == "revolute"]
-        _status("18-DOF build script", len(parts) == 37 and len(revolute_joints) == 18,
-                f"{len(parts)} parts, {len(revolute_joints)} revolute joints, "
-                f"{len(joints)} total joints")
+        _status(
+            "18-DOF build script",
+            len(parts) == 37 and len(revolute_joints) == 18,
+            f"{len(parts)} parts, {len(revolute_joints)} revolute joints, "
+            f"{len(joints)} total joints",
+        )
     except Exception as e:
         _status("18-DOF build script", False, str(e)[:80])
 
@@ -283,9 +320,13 @@ def check_18dof_hexapod_assets() -> bool:
     urdfs = list(HEXAPOD_18DOF_PKG.glob("*.urdf"))
     stls = list(HEXAPOD_18DOF_PKG.glob("*.stl"))
     ok = len(urdfs) >= 1 and len(stls) >= 37
-    _status("18-DOF hexapod assets", ok,
-            f"{len(urdfs)} URDFs, {len(stls)} STLs" if ok else
-            f"incomplete: {len(urdfs)} URDFs, {len(stls)}/37 STLs")
+    _status(
+        "18-DOF hexapod assets",
+        ok,
+        f"{len(urdfs)} URDFs, {len(stls)} STLs"
+        if ok
+        else f"incomplete: {len(urdfs)} URDFs, {len(stls)}/37 STLs",
+    )
     return ok
 
 
@@ -296,10 +337,10 @@ def main() -> None:
     global passed, failed, skipped
 
     parser = argparse.ArgumentParser(description="Demo preflight checks")
-    parser.add_argument("--full", action="store_true",
-                        help="Full dry run (imports URDF into Isaac, slow)")
-    parser.add_argument("--no-isaac", action="store_true",
-                        help="Skip all Isaac Sim checks")
+    parser.add_argument(
+        "--full", action="store_true", help="Full dry run (imports URDF into Isaac, slow)"
+    )
+    parser.add_argument("--no-isaac", action="store_true", help="Skip all Isaac Sim checks")
     args = parser.parse_args()
 
     print(f"\n{BOLD}{CYAN}=== SolidMind CAD — Demo Preflight ==={RESET}\n")

@@ -1,4 +1,5 @@
 """Tests for server.study_solvers."""
+
 from __future__ import annotations
 
 import math
@@ -43,11 +44,16 @@ from server.study_solvers import (
 # Helpers to create minimal binary STL data
 # ---------------------------------------------------------------------------
 
-def _make_binary_stl(triangles: list[tuple[
-    tuple[float, float, float],  # v1
-    tuple[float, float, float],  # v2
-    tuple[float, float, float],  # v3
-]]) -> bytes:
+
+def _make_binary_stl(
+    triangles: list[
+        tuple[
+            tuple[float, float, float],  # v1
+            tuple[float, float, float],  # v2
+            tuple[float, float, float],  # v3
+        ]
+    ],
+) -> bytes:
     """Create a minimal binary STL from a list of triangles (no normals needed)."""
     header = b"\x00" * 80
     n = len(triangles)
@@ -62,20 +68,27 @@ def _make_binary_stl(triangles: list[tuple[
     return bytes(data)
 
 
-def _write_stl_file(path: str, triangles: list[tuple[
-    tuple[float, float, float],
-    tuple[float, float, float],
-    tuple[float, float, float],
-]]) -> None:
+def _write_stl_file(
+    path: str,
+    triangles: list[
+        tuple[
+            tuple[float, float, float],
+            tuple[float, float, float],
+            tuple[float, float, float],
+        ]
+    ],
+) -> None:
     Path(path).write_bytes(_make_binary_stl(triangles))
 
 
 # A simple cube from (0,0,0) to (100,100,100) in mm — 2 triangles per face × 6 faces
-_CUBE_TRIS: list[tuple[
-    tuple[float, float, float],
-    tuple[float, float, float],
-    tuple[float, float, float],
-]] = [
+_CUBE_TRIS: list[
+    tuple[
+        tuple[float, float, float],
+        tuple[float, float, float],
+        tuple[float, float, float],
+    ]
+] = [
     # bottom (z=0)
     ((0, 0, 0), (100, 0, 0), (100, 100, 0)),
     ((0, 0, 0), (100, 100, 0), (0, 100, 0)),
@@ -138,6 +151,7 @@ class TestMockSolver(unittest.TestCase):
 # BEMT + XFOIL helper tests
 # ---------------------------------------------------------------------------
 
+
 class TestFlatPlatePolar(unittest.TestCase):
     def test_zero_alpha_near_zero_lift(self) -> None:
         cl, cd = _flat_plate_polar(0.0, 500_000.0)
@@ -189,10 +203,7 @@ class TestXfoilPolarParser(unittest.TestCase):
         self.assertIsNone(_parse_xfoil_polar(""))
 
     def test_header_only_returns_none(self) -> None:
-        text = (
-            "  alpha    CL        CD\n"
-            " ------- -------- ---------\n"
-        )
+        text = "  alpha    CL        CD\n ------- -------- ---------\n"
         self.assertIsNone(_parse_xfoil_polar(text))
 
     def test_multi_point_returns_last(self) -> None:
@@ -218,9 +229,7 @@ class TestXfoilRunner(unittest.TestCase):
     @patch("server.study_solvers.shutil.which", return_value="/usr/bin/xfoil")
     def test_successful_run(self, _mock_which: MagicMock, mock_subproc: MagicMock) -> None:
         polar_content = (
-            "  alpha    CL        CD\n"
-            " ------- -------- ---------\n"
-            "   5.000   0.9800   0.00920\n"
+            "  alpha    CL        CD\n ------- -------- ---------\n   5.000   0.9800   0.00920\n"
         )
 
         def write_polar(cmd, input=None, capture_output=False, text=False, timeout=None):
@@ -232,6 +241,7 @@ class TestXfoilRunner(unittest.TestCase):
                     break
             # Write to the temp directory — find it from input
             import re
+
             paths = re.findall(r"(/tmp/[^\s]+/polar\.dat)", input or "")
             for p in paths:
                 Path(p).parent.mkdir(parents=True, exist_ok=True)
@@ -246,7 +256,9 @@ class TestXfoilRunner(unittest.TestCase):
         # The important thing is no exception was raised
         self.assertTrue(result is None or len(result) == 2)
 
-    @patch("server.study_solvers.subprocess.run", side_effect=subprocess.TimeoutExpired(["xfoil"], 10))
+    @patch(
+        "server.study_solvers.subprocess.run", side_effect=subprocess.TimeoutExpired(["xfoil"], 10)
+    )
     @patch("server.study_solvers.shutil.which", return_value="/usr/bin/xfoil")
     def test_timeout_returns_none(self, _mock_which: MagicMock, _mock_subproc: MagicMock) -> None:
         result = _run_xfoil("NACA4412", 5.0, 500_000.0, timeout_s=0.1)
@@ -254,7 +266,9 @@ class TestXfoilRunner(unittest.TestCase):
 
     @patch("server.study_solvers.subprocess.run")
     @patch("server.study_solvers.shutil.which", return_value="/usr/bin/xfoil")
-    def test_no_convergence_returns_none(self, _mock_which: MagicMock, mock_subproc: MagicMock) -> None:
+    def test_no_convergence_returns_none(
+        self, _mock_which: MagicMock, mock_subproc: MagicMock
+    ) -> None:
         # XFOIL runs but produces no polar file
         mock_result = MagicMock()
         mock_result.returncode = 0
@@ -291,32 +305,48 @@ class TestXfoilCache(unittest.TestCase):
 class TestBladeGeometry(unittest.TestCase):
     def test_root_station(self) -> None:
         chord, twist = _blade_geometry(
-            0.15, chord_root_mm=50.0, chord_tip_mm=25.0,
-            twist_root_deg=20.0, twist_tip_deg=5.0, hub_r_frac=0.15,
+            0.15,
+            chord_root_mm=50.0,
+            chord_tip_mm=25.0,
+            twist_root_deg=20.0,
+            twist_tip_deg=5.0,
+            hub_r_frac=0.15,
         )
         self.assertAlmostEqual(chord, 50.0)
         self.assertAlmostEqual(twist, 20.0)
 
     def test_tip_station(self) -> None:
         chord, twist = _blade_geometry(
-            1.0, chord_root_mm=50.0, chord_tip_mm=25.0,
-            twist_root_deg=20.0, twist_tip_deg=5.0, hub_r_frac=0.15,
+            1.0,
+            chord_root_mm=50.0,
+            chord_tip_mm=25.0,
+            twist_root_deg=20.0,
+            twist_tip_deg=5.0,
+            hub_r_frac=0.15,
         )
         self.assertAlmostEqual(chord, 25.0)
         self.assertAlmostEqual(twist, 5.0)
 
     def test_mid_station(self) -> None:
         chord, twist = _blade_geometry(
-            0.575, chord_root_mm=50.0, chord_tip_mm=25.0,
-            twist_root_deg=20.0, twist_tip_deg=5.0, hub_r_frac=0.15,
+            0.575,
+            chord_root_mm=50.0,
+            chord_tip_mm=25.0,
+            twist_root_deg=20.0,
+            twist_tip_deg=5.0,
+            hub_r_frac=0.15,
         )
         self.assertAlmostEqual(chord, 37.5)
         self.assertAlmostEqual(twist, 12.5)
 
     def test_inside_hub_clamped_to_root(self) -> None:
         chord, twist = _blade_geometry(
-            0.05, chord_root_mm=50.0, chord_tip_mm=25.0,
-            twist_root_deg=20.0, twist_tip_deg=5.0, hub_r_frac=0.15,
+            0.05,
+            chord_root_mm=50.0,
+            chord_tip_mm=25.0,
+            twist_root_deg=20.0,
+            twist_tip_deg=5.0,
+            hub_r_frac=0.15,
         )
         self.assertAlmostEqual(chord, 50.0)
         self.assertAlmostEqual(twist, 20.0)
@@ -388,7 +418,8 @@ class TestBEMTSolve(unittest.TestCase):
         result = self._solve()
         # At least half of stations should converge with reasonable params
         self.assertGreaterEqual(
-            result.stations_converged, result.stations_total // 2,
+            result.stations_converged,
+            result.stations_total // 2,
             f"Only {result.stations_converged}/{result.stations_total} converged",
         )
 
@@ -397,7 +428,7 @@ class TestBEMTSolve(unittest.TestCase):
         result = self._solve()
         n = 8000.0 / 60.0
         D = 0.254
-        T_from_Ct = result.Ct * 1.225 * n * n * D ** 4
+        T_from_Ct = result.Ct * 1.225 * n * n * D**4
         self.assertAlmostEqual(result.thrust_N, T_from_Ct, places=3)
 
     def test_hover_efficiency_in_range(self) -> None:
@@ -457,7 +488,9 @@ class TestBEMTXfoilSolverClass(unittest.TestCase):
     def test_validate_passes_with_valid_params(self) -> None:
         solver = BEMTXfoilSolver()
         errors = solver.validate_params(
-            self._VALID_PARAMS, {"Re": 500_000}, {},  # type: ignore[arg-type]
+            self._VALID_PARAMS,
+            {"Re": 500_000},
+            {},  # type: ignore[arg-type]
         )
         self.assertEqual(errors, [])
 
@@ -470,8 +503,14 @@ class TestBEMTXfoilSolverClass(unittest.TestCase):
             config_params={},
         )
         expected_keys = {
-            "thrust_N", "torque_Nm", "power_W", "efficiency",
-            "Ct", "Cq", "stations_converged", "stations_total",
+            "thrust_N",
+            "torque_Nm",
+            "power_W",
+            "efficiency",
+            "Ct",
+            "Cq",
+            "stations_converged",
+            "stations_total",
         }
         self.assertEqual(set(result.keys()), expected_keys)
         # All values should be floats
@@ -534,14 +573,18 @@ class TestOpenFOAMSolver(unittest.TestCase):
     def test_validate_turbulence_model(self) -> None:
         solver = OpenFOAMSolver()
         errors = solver.validate_params(
-            {}, {}, {"mesh_refinement": 2, "turbulence_model": "badModel"},
+            {},
+            {},
+            {"mesh_refinement": 2, "turbulence_model": "badModel"},
         )
         self.assertTrue(any("turbulence_model" in e for e in errors))
 
     def test_validate_n_processors(self) -> None:
         solver = OpenFOAMSolver()
         errors = solver.validate_params(
-            {}, {}, {"mesh_refinement": 2, "n_processors": 4},
+            {},
+            {},
+            {"mesh_refinement": 2, "n_processors": 4},
         )
         self.assertTrue(any("n_processors" in e for e in errors))
 
@@ -564,6 +607,7 @@ class TestGetSolver(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # STL utility tests
 # ---------------------------------------------------------------------------
+
 
 class TestSTLUtils(unittest.TestCase):
     def test_read_bounds_cube(self) -> None:
@@ -640,6 +684,7 @@ class TestSTLUtils(unittest.TestCase):
 # Domain sizing tests
 # ---------------------------------------------------------------------------
 
+
 class TestDomainSizing(unittest.TestCase):
     def test_symmetric_domain(self) -> None:
         # Object centered at origin, 1m cube in meters
@@ -650,7 +695,9 @@ class TestDomainSizing(unittest.TestCase):
         self.assertAlmostEqual(char_len, 3**0.5, places=5)  # sqrt(3)
         # Domain should be centered at (0,0,0)
         self.assertAlmostEqual(
-            (domain["y_min"] + domain["y_max"]) / 2, 0.0, places=5,
+            (domain["y_min"] + domain["y_max"]) / 2,
+            0.0,
+            places=5,
         )
         # Downstream larger than upstream
         self.assertGreater(domain["x_max"], abs(domain["x_min"]))
@@ -681,6 +728,7 @@ class TestDomainSizing(unittest.TestCase):
 # Case writer tests
 # ---------------------------------------------------------------------------
 
+
 class TestCaseWriter(unittest.TestCase):
     def setUp(self) -> None:
         self.tmpdir = tempfile.mkdtemp()
@@ -689,6 +737,7 @@ class TestCaseWriter(unittest.TestCase):
 
     def tearDown(self) -> None:
         import shutil
+
         shutil.rmtree(self.tmpdir, ignore_errors=True)
 
     def _write_case(self, turbulence_model: str = "kOmegaSST") -> None:
@@ -808,6 +857,7 @@ class TestCaseWriter(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # OpenFOAM field parser tests
 # ---------------------------------------------------------------------------
+
 
 class TestOpenFOAMFieldParsers(unittest.TestCase):
     """Test parsers for OpenFOAM ASCII mesh and field files."""
@@ -1017,6 +1067,7 @@ internalField   uniform 0;
 # Face area vector tests
 # ---------------------------------------------------------------------------
 
+
 class TestFaceAreaVector(unittest.TestCase):
     def test_unit_square_z_normal(self) -> None:
         """Unit square in XY plane → area=1, normal=(0,0,1)."""
@@ -1052,6 +1103,7 @@ class TestFaceAreaVector(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # Compute forces from fields test
 # ---------------------------------------------------------------------------
+
 
 class TestComputeForcesFromFields(unittest.TestCase):
     """Synthetic mini-case: single quad face with known pressure."""
@@ -1196,7 +1248,10 @@ internalField uniform {pressure};
             self._make_mini_case(td, pressure=0.0)
             with self.assertRaises(RuntimeError) as ctx:
                 _compute_forces_from_fields(
-                    td, rho=1.225, velocity=10.0, ref_area=1.0,
+                    td,
+                    rho=1.225,
+                    velocity=10.0,
+                    ref_area=1.0,
                     patch_name="nonexistent",
                 )
             self.assertIn("nonexistent", str(ctx.exception))
@@ -1206,6 +1261,7 @@ internalField uniform {pressure};
 # Force parser tests (legacy — for use_function_objects=True path)
 # ---------------------------------------------------------------------------
 
+
 class TestForceParser(unittest.TestCase):
     def _make_coeff_file(self, case_dir: str, content: str) -> None:
         coeff_dir = Path(case_dir) / "postProcessing" / "forceCoeffs" / "0"
@@ -1214,11 +1270,9 @@ class TestForceParser(unittest.TestCase):
 
     def test_parse_known_values(self) -> None:
         with tempfile.TemporaryDirectory() as td:
-            self._make_coeff_file(td, (
-                "# Time Cd Cl CmPitch\n"
-                "100 0.5 1.2 0.03\n"
-                "200 0.5 1.2 0.03\n"
-            ))
+            self._make_coeff_file(
+                td, ("# Time Cd Cl CmPitch\n100 0.5 1.2 0.03\n200 0.5 1.2 0.03\n")
+            )
             result = _parse_force_coefficients(td, rho=1.225, velocity=10.0, ref_area=0.01)
             self.assertAlmostEqual(result["Cd"], 0.5)
             self.assertAlmostEqual(result["Cl"], 1.2)
@@ -1251,6 +1305,7 @@ class TestForceParser(unittest.TestCase):
 # Integration test: full OpenFOAM pipeline with mocked subprocesses
 # ---------------------------------------------------------------------------
 
+
 class TestOpenFOAMSolveIntegration(unittest.TestCase):
     """Test the full solve() pipeline with all external calls mocked."""
 
@@ -1266,9 +1321,11 @@ class TestOpenFOAMSolveIntegration(unittest.TestCase):
 
     def _mock_run_geometry(self, stl_path_holder: list[str]):
         """Return a side_effect for _run_geometry_script that creates a real STL."""
+
         def side_effect(script_path, params, fixed, output_stl, timeout_s=120.0):
             self._make_stl(output_stl)
             stl_path_holder.append(output_stl)
+
         return side_effect
 
     def _mock_subprocess_run_success(self, case_dir_holder: list[str]):
@@ -1277,6 +1334,7 @@ class TestOpenFOAMSolveIntegration(unittest.TestCase):
         Creates a synthetic 1-cell mesh with a single 'geometry' boundary face
         and a pressure field, so _compute_forces_from_fields can parse it.
         """
+
         def side_effect(cmd, cwd=None, **kwargs):
             if cwd:
                 case_dir_holder.append(cwd)
@@ -1355,6 +1413,7 @@ internalField uniform 5.0;
             mock_result.stdout = ""
             mock_result.stderr = ""
             return mock_result
+
         return side_effect
 
     @patch("server.study_solvers._run_geometry_script")
@@ -1425,6 +1484,7 @@ internalField uniform 5.0;
     @patch("server.study_solvers.subprocess.run")
     def test_simplefoam_timeout_raises(self, mock_subproc, mock_geom):
         import subprocess as sp
+
         stl_holder: list[str] = []
         mock_geom.side_effect = self._mock_run_geometry(stl_holder)
 
@@ -1485,6 +1545,7 @@ internalField uniform 5.0;
             self.assertTrue(Path(case_holder[0]).exists())
             # Clean up manually
             import shutil
+
             shutil.rmtree(case_holder[0], ignore_errors=True)
 
     @patch("server.study_solvers._run_geometry_script")
@@ -1515,6 +1576,7 @@ internalField uniform 5.0;
             text = u_file.read_text()
             self.assertIn("10.0", text)
             import shutil
+
             shutil.rmtree(case_holder[0], ignore_errors=True)
 
     def test_missing_geometry_script_raises(self) -> None:
@@ -1526,7 +1588,8 @@ internalField uniform 5.0;
         solver = OpenFOAMSolver()
         with self.assertRaises(RuntimeError):
             solver.solve(
-                {}, {},
+                {},
+                {},
                 {"mesh_refinement": 2, "geometry_script": "/nonexistent/script.py"},
             )
 

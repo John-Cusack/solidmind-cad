@@ -272,7 +272,7 @@ def _prompts() -> dict[str, Prompt]:
                 "  - View 2: targeted at the operation area (sketch normal for pad/pocket,\n"
                 "    face normal for holes, detail angle for fillets, top-down for patterns, etc.)\n"
                 "  The text result includes `verification_views` listing the view labels in order,\n"
-                "  e.g. `[\"iso\", \"sketch-normal\"]` — use these to know what each image shows.\n"
+                '  e.g. `["iso", "sketch-normal"]` — use these to know what each image shows.\n'
                 "  Cross-reference what you see in the images with the face_map data.\n"
                 "  If something looks wrong, say what you see and ask for guidance.\n"
                 "\n"

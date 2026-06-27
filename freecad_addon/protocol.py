@@ -4,6 +4,7 @@ Commands are JSON objects with ``cmd`` and ``args`` fields.
 Responses are JSON objects with ``ok``, and either ``result`` or ``error``.
 Each message is a single line terminated by ``\\n``.
 """
+
 from __future__ import annotations
 
 import json

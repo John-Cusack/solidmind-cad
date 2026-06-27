@@ -6,6 +6,7 @@ responses for ``cad_find_holes``, ``cad_get_body_topology``, and
 ``cad_get_dimensions``.  The integration coverage (real STEP import +
 re-measure) lives in ``tests/test_orchestrator_real_worker_e2e.py``.
 """
+
 from __future__ import annotations
 
 import unittest
@@ -44,16 +45,27 @@ class TestStrategyRegistry(unittest.TestCase):
     def test_registered_keys(self) -> None:
         for key in [
             # Bore family
-            "bore_diameter", "bore_dia", "central_bore_dia",
-            "axle_bore_dia", "hip_yaw_bore_dia", "hip_pitch_bore_dia",
+            "bore_diameter",
+            "bore_dia",
+            "central_bore_dia",
+            "axle_bore_dia",
+            "hip_yaw_bore_dia",
+            "hip_pitch_bore_dia",
             "knee_bore_dia",
             # PCD family
-            "pin_circle_dia", "pcd_diameter", "bolt_circle_dia",
-            "motor_mount_pcd", "mounting_pcd",
+            "pin_circle_dia",
+            "pcd_diameter",
+            "bolt_circle_dia",
+            "motor_mount_pcd",
+            "mounting_pcd",
             # Pocket family
-            "pocket_depth", "servo_pocket_depth",
+            "pocket_depth",
+            "servo_pocket_depth",
             # Segment family
-            "segment_length", "coxa_length", "femur_length", "tibia_length",
+            "segment_length",
+            "coxa_length",
+            "femur_length",
+            "tibia_length",
             # Bbox
             "bbox_diagonal",
         ]:
@@ -64,11 +76,13 @@ class TestMeasureBoreDiameter(unittest.TestCase):
     """Smoke-test the existing strategy still behaves after registry changes."""
 
     def test_picks_closest_to_expected(self) -> None:
-        cad = _mock_cad(holes=[
-            {"diameter_mm": 8.0},
-            {"diameter_mm": 17.5},
-            {"diameter_mm": 22.0},
-        ])
+        cad = _mock_cad(
+            holes=[
+                {"diameter_mm": 8.0},
+                {"diameter_mm": 17.5},
+                {"diameter_mm": 22.0},
+            ]
+        )
         # Expected 8 mm: pick 8.0
         self.assertEqual(
             _measure_bore_diameter(cad, "Body", "Doc", expected_mm=8.0),
@@ -81,11 +95,13 @@ class TestMeasureBoreDiameter(unittest.TestCase):
         )
 
     def test_no_hint_picks_smallest(self) -> None:
-        cad = _mock_cad(holes=[
-            {"diameter_mm": 22.0},
-            {"diameter_mm": 8.0},
-            {"diameter_mm": 17.5},
-        ])
+        cad = _mock_cad(
+            holes=[
+                {"diameter_mm": 22.0},
+                {"diameter_mm": 8.0},
+                {"diameter_mm": 17.5},
+            ]
+        )
         self.assertEqual(
             _measure_bore_diameter(cad, "Body", "Doc"),
             8.0,
@@ -103,6 +119,7 @@ class TestMeasurePinCircleDiameter(unittest.TestCase):
         """Planet carrier: 3 pins at PCD=22, all 4 mm diameter."""
         # Planet carrier has central bore (8 mm at origin) + 3 pins (4 mm) at 120°.
         import math
+
         pcd = 22.0
         r = pcd / 2
         pin_centers = [
@@ -112,15 +129,15 @@ class TestMeasurePinCircleDiameter(unittest.TestCase):
         holes = [
             # Central bore
             {"diameter_mm": 8.0, "center": [0.0, 0.0, 0.0]},
-        ] + [
-            {"diameter_mm": 4.0, "center": [x, y, z]}
-            for (x, y, z) in pin_centers
-        ]
+        ] + [{"diameter_mm": 4.0, "center": [x, y, z]} for (x, y, z) in pin_centers]
         cad = _mock_cad(holes=holes)
 
         # With expected hint: picks the 22.0 PCD group (the 4-mm pins).
         result = _measure_pin_circle_diameter(
-            cad, "Body", "Doc", expected_mm=22.0,
+            cad,
+            "Body",
+            "Doc",
+            expected_mm=22.0,
         )
         self.assertIsNotNone(result)
         self.assertAlmostEqual(result, 22.0, places=2)
@@ -131,6 +148,7 @@ class TestMeasurePinCircleDiameter(unittest.TestCase):
         PCD for a square pattern = side × √2 = 16 × 1.4142 ≈ 22.6 mm.
         """
         import math
+
         side = 16.0
         half = side / 2
         # 4 holes at (±half, ±half), all 3.2 mm
@@ -143,7 +161,10 @@ class TestMeasurePinCircleDiameter(unittest.TestCase):
         cad = _mock_cad(holes=holes)
         expected_pcd = side * math.sqrt(2)
         result = _measure_pin_circle_diameter(
-            cad, "Body", "Doc", expected_mm=expected_pcd,
+            cad,
+            "Body",
+            "Doc",
+            expected_mm=expected_pcd,
         )
         self.assertIsNotNone(result)
         self.assertAlmostEqual(result, expected_pcd, places=2)
@@ -157,6 +178,7 @@ class TestMeasurePinCircleDiameter(unittest.TestCase):
         """
         # Three pins at PCD=22, but each appears as 4 face segments.
         import math
+
         pcd = 22.0
         r = pcd / 2
         holes: list[dict] = []
@@ -164,13 +186,18 @@ class TestMeasurePinCircleDiameter(unittest.TestCase):
             x = r * math.cos(math.radians(angle))
             y = r * math.sin(math.radians(angle))
             for seg_z in (0.0, 1.5, 3.0, 4.5):
-                holes.append({
-                    "diameter_mm": 4.0,
-                    "center": [x, y, seg_z],
-                })
+                holes.append(
+                    {
+                        "diameter_mm": 4.0,
+                        "center": [x, y, seg_z],
+                    }
+                )
         cad = _mock_cad(holes=holes)
         result = _measure_pin_circle_diameter(
-            cad, "Body", "Doc", expected_mm=22.0,
+            cad,
+            "Body",
+            "Doc",
+            expected_mm=22.0,
         )
         # Without dedup the centroid drift would corrupt this; with it,
         # we get the true PCD back.
@@ -179,15 +206,18 @@ class TestMeasurePinCircleDiameter(unittest.TestCase):
 
     def test_too_few_holes_returns_none(self) -> None:
         """Need at least 3 unique centers for a circle."""
-        cad = _mock_cad(holes=[
-            {"diameter_mm": 4.0, "center": [10.0, 0.0, 0.0]},
-            {"diameter_mm": 4.0, "center": [-10.0, 0.0, 0.0]},
-        ])
+        cad = _mock_cad(
+            holes=[
+                {"diameter_mm": 4.0, "center": [10.0, 0.0, 0.0]},
+                {"diameter_mm": 4.0, "center": [-10.0, 0.0, 0.0]},
+            ]
+        )
         self.assertIsNone(_measure_pin_circle_diameter(cad, "Body", "Doc"))
 
     def test_no_hint_picks_largest_pattern(self) -> None:
         """With no expected hint, the strategy picks the densest group."""
         import math
+
         # 3-hole group at PCD=20, 6-hole group at PCD=40 (different dia).
         small_r = 10.0
         big_r = 20.0

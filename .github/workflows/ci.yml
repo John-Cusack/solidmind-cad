@@ -59,9 +59,8 @@ jobs:
   lint:
     name: Ruff lint
     runs-on: ubuntu-latest
-    # Non-blocking for now — the codebase hasn't been linted yet and we
-    # want visibility into violations before we make them enforcing.
-    continue-on-error: true
+    # Enforcing: the codebase is clean (ruff check + ruff format both pass).
+    # This gate now blocks regressions.
     steps:
       - name: Checkout
         uses: actions/checkout@v4

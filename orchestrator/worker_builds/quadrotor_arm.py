@@ -13,6 +13,7 @@ The orchestrator-side measurement uses two strategies:
   - ``bore_dia`` for individual hole diameters (root + motor holes)
   - ``motor_mount_pcd`` for the pitch-circle of the 4-hole pattern
 """
+
 from __future__ import annotations
 
 import math
@@ -101,24 +102,32 @@ def build_quadrotor_arm(
     motor_cy = 0.0
 
     motor_positions = _motor_mount_positions(
-        pattern, pcd_mm, hole_count, motor_cx, motor_cy,
+        pattern,
+        pcd_mm,
+        hole_count,
+        motor_cx,
+        motor_cy,
     )
 
     envelope_holes: list[dict[str, Any]] = [
         {
-            "cx": root_cx, "cy": root_cy,
+            "cx": root_cx,
+            "cy": root_cy,
             "diameter_mm": root_dia,
             "type": "pocket",
             "depth_mm": 0.0,  # ThroughAll
         },
     ]
-    for (mcx, mcy) in motor_positions:
-        envelope_holes.append({
-            "cx": mcx, "cy": mcy,
-            "diameter_mm": hole_dia,
-            "type": "pocket",
-            "depth_mm": 0.0,  # ThroughAll
-        })
+    for mcx, mcy in motor_positions:
+        envelope_holes.append(
+            {
+                "cx": mcx,
+                "cy": mcy,
+                "diameter_mm": hole_dia,
+                "type": "pocket",
+                "depth_mm": 0.0,  # ThroughAll
+            }
+        )
 
     build_spec: dict[str, Any] = dict(sub_spec)
     build_spec["name"] = part_name
@@ -138,11 +147,7 @@ def build_quadrotor_arm(
 
     if interfaces is not None and interfaces:
         root_id = interfaces[0].get("id", "ifc_root")
-        motor_id = (
-            interfaces[1].get("id", "ifc_motor")
-            if len(interfaces) > 1
-            else "ifc_motor"
-        )
+        motor_id = interfaces[1].get("id", "ifc_motor") if len(interfaces) > 1 else "ifc_motor"
     else:
         root_id, motor_id = "ifc_root", "ifc_motor"
 

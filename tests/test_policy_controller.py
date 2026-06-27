@@ -1,4 +1,5 @@
 """Tests for PolicyController — mock JIT model, protocol compliance, residual blending."""
+
 from __future__ import annotations
 
 import json
@@ -76,7 +77,9 @@ class TestPolicyControllerFallback(unittest.TestCase):
             self.assertAlmostEqual(phase_pc, phase_base, places=6)
             for name in config.joint_names:
                 self.assertAlmostEqual(
-                    targets_pc[name], targets_base[name], places=6,
+                    targets_pc[name],
+                    targets_base[name],
+                    places=6,
                     msg=f"Mismatch for {name}",
                 )
 
@@ -91,7 +94,9 @@ class TestPolicyControllerWithMockPolicy(unittest.TestCase):
         mock_output = MagicMock()
         mock_output.shape = (1, len(output_values))
         mock_output.__getitem__ = lambda self, idx: MagicMock(
-            __float__=lambda _: output_values[idx[1]] if isinstance(idx, tuple) else output_values[idx]
+            __float__=lambda _: (
+                output_values[idx[1]] if isinstance(idx, tuple) else output_values[idx]
+            )
         )
         # For indexing [0, i]
         row_mock = MagicMock()
@@ -107,6 +112,7 @@ class TestPolicyControllerWithMockPolicy(unittest.TestCase):
             m = MagicMock()
             m.__float__ = lambda _: values[idx] if idx < len(values) else 0.0
             return m
+
         return getitem
 
     @staticmethod
@@ -121,6 +127,7 @@ class TestPolicyControllerWithMockPolicy(unittest.TestCase):
             row = MagicMock()
             row.__getitem__ = TestPolicyControllerWithMockPolicy._make_getitem(values)
             return row
+
         return getitem
 
     @patch("isaac_bridge.controllers.PolicyController._load_policy")

@@ -22,6 +22,7 @@ When fixed-wing comes online, fill in:
   multicopter's ``hover_throttle``; depends on wing area, drag
   coefficient, and target cruise speed.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -41,6 +42,7 @@ class Motor:
     Position is in chassis frame.  Direction is the propeller axis,
     typically ``+X`` (pulling forward).
     """
+
     name: str
     position_m: tuple[float, float, float]
     direction_axis: tuple[float, float, float] = (1.0, 0.0, 0.0)
@@ -51,16 +53,18 @@ class Motor:
 @dataclass(frozen=True, slots=True)
 class ControlSurface:
     """A movable aerodynamic surface (aileron, elevator, rudder, flap)."""
+
     name: str
     surface_type: Literal["aileron", "elevator", "rudder", "flap"]
     hinge_position_m: tuple[float, float, float]
     hinge_axis: tuple[float, float, float]
-    deflection_limits_rad: tuple[float, float] = (-0.524, 0.524)   # ±30°
+    deflection_limits_rad: tuple[float, float] = (-0.524, 0.524)  # ±30°
 
 
 @dataclass(frozen=True, slots=True)
 class Wing:
     """Aerodynamic surface used for trim-throttle and lift calculations."""
+
     span_m: float
     chord_m: float
     area_m2: float
@@ -97,7 +101,7 @@ class FixedWingAirframe:
         )
 
     def ca_airframe_id(self) -> int:
-        return 3   # PX4: standard plane
+        return 3  # PX4: standard plane
 
 
 __all__ = ["FixedWingAirframe", "Motor", "ControlSurface", "Wing"]

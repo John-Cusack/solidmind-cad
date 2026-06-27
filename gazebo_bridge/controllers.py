@@ -1,4 +1,5 @@
 """Controllers used by the Gazebo runtime teleop sessions."""
+
 from __future__ import annotations
 
 import logging
@@ -143,9 +144,5 @@ def create_controller(
         return Px4OffboardController()
 
     raise ControllerError(
-        (
-            "Gazebo profile.controller_type must be one of "
-            "['multirotor_direct', 'px4_offboard']"
-        ),
+        ("Gazebo profile.controller_type must be one of ['multirotor_direct', 'px4_offboard']"),
     )
-

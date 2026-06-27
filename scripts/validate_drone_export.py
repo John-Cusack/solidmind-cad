@@ -14,6 +14,7 @@ Exit codes:
   0 = all checks pass (warnings allowed)
   1 = at least one BLOCKER detected
 """
+
 from __future__ import annotations
 
 import argparse
@@ -74,7 +75,8 @@ def stl_bbox(path: Path) -> tuple[tuple[float, float, float], tuple[float, float
 
 def struct_unpack_float(buf: bytes, off: int) -> float:
     import struct
-    return struct.unpack("<f", buf[off:off+4])[0]
+
+    return struct.unpack("<f", buf[off : off + 4])[0]
 
 
 def parse_sdf_rotors(sdf_path: Path) -> list[dict]:
@@ -141,15 +143,15 @@ def check_prop_completeness(rotor: dict, findings: list[Finding]) -> None:
     is the classic 'polar_pattern not promoted to Tip' artifact."""
     mesh_uri = rotor["mesh_uri"]
     if not mesh_uri:
-        findings.append(Finding("warn", "rotor.no_mesh",
-                                f"{rotor['name']}: no mesh URI in SDF"))
+        findings.append(Finding("warn", "rotor.no_mesh", f"{rotor['name']}: no mesh URI in SDF"))
         return
     path = Path(mesh_uri.replace("model://", ""))
     if not path.is_absolute():
         path = Path(mesh_uri)
     if not path.exists():
-        findings.append(Finding("warn", "rotor.mesh_missing",
-                                f"{rotor['name']}: mesh not found at {path}"))
+        findings.append(
+            Finding("warn", "rotor.mesh_missing", f"{rotor['name']}: mesh not found at {path}")
+        )
         return
     (xmin, xmax), (ymin, ymax), (zmin, zmax), tris = stl_bbox(path)
     spans = [xmax - xmin, ymax - ymin, zmax - zmin]
@@ -166,21 +168,27 @@ def check_prop_completeness(rotor: dict, findings: list[Finding]) -> None:
         midpoint = (zmin + zmax) / 2.0
     asymmetry = abs(midpoint) / max(radial_span / 2.0, 1.0)
 
-    findings.append(Finding(
-        "info", "rotor.geometry",
-        f"{rotor['name']}: tris={tris} bbox=({spans[0]:.1f},{spans[1]:.1f},{spans[2]:.1f}) mm, "
-        f"radial_axis={radial_axis} span={radial_span:.1f} mm, midpoint={midpoint:+.1f} mm",
-    ))
+    findings.append(
+        Finding(
+            "info",
+            "rotor.geometry",
+            f"{rotor['name']}: tris={tris} bbox=({spans[0]:.1f},{spans[1]:.1f},{spans[2]:.1f}) mm, "
+            f"radial_axis={radial_axis} span={radial_span:.1f} mm, midpoint={midpoint:+.1f} mm",
+        )
+    )
 
     # 2-blade prop: midpoint should be near 0 (within 5% of half-span)
     if asymmetry > 0.20:
-        findings.append(Finding(
-            "block", "rotor.incomplete_blades",
-            f"{rotor['name']}: radial bbox is asymmetric "
-            f"(midpoint {midpoint:+.1f} mm, half-span {radial_span/2:.1f} mm, "
-            f"asymmetry={asymmetry:.0%}). Likely only one blade exported — "
-            f"check that the body's polar_pattern feature was promoted to body.Tip.",
-        ))
+        findings.append(
+            Finding(
+                "block",
+                "rotor.incomplete_blades",
+                f"{rotor['name']}: radial bbox is asymmetric "
+                f"(midpoint {midpoint:+.1f} mm, half-span {radial_span / 2:.1f} mm, "
+                f"asymmetry={asymmetry:.0%}). Likely only one blade exported — "
+                f"check that the body's polar_pattern feature was promoted to body.Tip.",
+            )
+        )
 
 
 def check_airframe_consistency(
@@ -194,21 +202,39 @@ def check_airframe_consistency(
     h = airframe.get("hover_throttle") or airframe.get("mpc_thr_hover")
     if h is not None:
         if h < 0.30:
-            findings.append(Finding("block", "airframe.thr_too_low",
-                f"hover_throttle={h:.3f} is suspiciously low — motor constant likely oversized"))
+            findings.append(
+                Finding(
+                    "block",
+                    "airframe.thr_too_low",
+                    f"hover_throttle={h:.3f} is suspiciously low — motor constant likely oversized",
+                )
+            )
         elif h > 0.80:
-            findings.append(Finding("block", "airframe.thr_too_high",
-                f"hover_throttle={h:.3f} is too high — drone too heavy or motor constant undersized"))
+            findings.append(
+                Finding(
+                    "block",
+                    "airframe.thr_too_high",
+                    f"hover_throttle={h:.3f} is too high — drone too heavy or motor constant undersized",
+                )
+            )
         else:
-            findings.append(Finding("info", "airframe.thr_ok",
-                f"hover_throttle={h:.3f} (within plausible band)"))
+            findings.append(
+                Finding(
+                    "info", "airframe.thr_ok", f"hover_throttle={h:.3f} (within plausible band)"
+                )
+            )
 
     # Rotor count must match
     n_sdf = len(sdf_rotors)
     n_af = airframe.get("rotor_count") or len(airframe.get("rotor_positions_frd", []))
     if n_sdf and n_af and n_sdf != n_af:
-        findings.append(Finding("block", "airframe.rotor_count_mismatch",
-            f"SDF has {n_sdf} rotors, airframe declares {n_af}"))
+        findings.append(
+            Finding(
+                "block",
+                "airframe.rotor_count_mismatch",
+                f"SDF has {n_sdf} rotors, airframe declares {n_af}",
+            )
+        )
 
 
 def check_rotor_distribution(sdf_rotors: list[dict], findings: list[Finding]) -> None:
@@ -220,18 +246,30 @@ def check_rotor_distribution(sdf_rotors: list[dict], findings: list[Finding]) ->
     n = len(sdf_rotors)
     cx, cy = sx / n, sy / n
     if abs(cx) > 0.05 or abs(cy) > 0.05:  # 5 cm offset threshold
-        findings.append(Finding("warn", "rotor.offset_centroid",
-            f"rotor centroid at ({cx:+.3f}, {cy:+.3f}) m — non-symmetric layout, may need CoM offset"))
+        findings.append(
+            Finding(
+                "warn",
+                "rotor.offset_centroid",
+                f"rotor centroid at ({cx:+.3f}, {cy:+.3f}) m — non-symmetric layout, may need CoM offset",
+            )
+        )
     # Pairs should be at opposite corners
-    findings.append(Finding("info", "rotor.layout",
-        f"{n} rotors at: " + ", ".join(f"({r['position_m'][0]:+.3f},{r['position_m'][1]:+.3f})" for r in sdf_rotors)))
+    findings.append(
+        Finding(
+            "info",
+            "rotor.layout",
+            f"{n} rotors at: "
+            + ", ".join(
+                f"({r['position_m'][0]:+.3f},{r['position_m'][1]:+.3f})" for r in sdf_rotors
+            ),
+        )
+    )
 
 
 def main() -> int:
     p = argparse.ArgumentParser()
     p.add_argument("pkg_dir", help="Output dir from cad.export_sim_package")
-    p.add_argument("--airframe", help="PX4 airframe init script path",
-                   default=None)
+    p.add_argument("--airframe", help="PX4 airframe init script path", default=None)
     args = p.parse_args()
 
     pkg = Path(args.pkg_dir)
@@ -250,8 +288,11 @@ def main() -> int:
 
     sdf_rotors = parse_sdf_rotors(sdf)
     if not sdf_rotors:
-        findings.append(Finding("warn", "sdf.no_rotors",
-            "No rotor* links found in SDF — not a multirotor model?"))
+        findings.append(
+            Finding(
+                "warn", "sdf.no_rotors", "No rotor* links found in SDF — not a multirotor model?"
+            )
+        )
 
     for rotor in sdf_rotors:
         check_prop_completeness(rotor, findings)

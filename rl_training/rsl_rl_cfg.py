@@ -3,6 +3,7 @@
 Uses Isaac Lab's ``RslRlOnPolicyRunnerCfg`` which serializes to the dict
 format RSL-RL v5 expects via ``.to_dict()``.
 """
+
 from __future__ import annotations
 
 from isaaclab.utils import configclass  # type: ignore[import-not-found]

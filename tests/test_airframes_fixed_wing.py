@@ -5,6 +5,7 @@ just lock in the dataclass shape (so the multi-frame-type architecture
 holds) and confirm the explicit ``NotImplementedError`` keeps callers
 honest.
 """
+
 from __future__ import annotations
 
 import unittest
@@ -49,7 +50,7 @@ class TestFixedWingStub(unittest.TestCase):
         af = self._make()
         # Just chassis + structural; no rotors on a fixed-wing.
         self.assertAlmostEqual(af.total_mass_kg(), 1.5, places=4)
-        self.assertEqual(af.ca_airframe_id(), 3)   # PX4 plane
+        self.assertEqual(af.ca_airframe_id(), 3)  # PX4 plane
 
     def test_to_sim_model_raises_not_implemented(self) -> None:
         af = self._make()

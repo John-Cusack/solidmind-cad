@@ -97,11 +97,15 @@ def build_freecad_model(spec: dict[str, Any], out_path: str) -> None:
 
     # Store a few spec fields as document properties (non-authoritative; for human reference).
     try:
-        doc.addProperty("App::PropertyString", "SpecVersion", "Spec", "Spec version").SpecVersion = str(
-            meta.get("spec_version", "")
+        doc.addProperty(
+            "App::PropertyString", "SpecVersion", "Spec", "Spec version"
+        ).SpecVersion = str(meta.get("spec_version", ""))
+        doc.addProperty("App::PropertyString", "Process", "Spec", "Process").Process = str(
+            meta.get("process", "")
         )
-        doc.addProperty("App::PropertyString", "Process", "Spec", "Process").Process = str(meta.get("process", ""))
-        doc.addProperty("App::PropertyString", "Maturity", "Spec", "Maturity").Maturity = str(meta.get("maturity_level", ""))
+        doc.addProperty("App::PropertyString", "Maturity", "Spec", "Maturity").Maturity = str(
+            meta.get("maturity_level", "")
+        )
     except Exception:
         pass
 
@@ -123,8 +127,12 @@ def build_freecad_model(spec: dict[str, Any], out_path: str) -> None:
 
 
 def main(argv: list[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(description="Create a minimal FreeCAD model (envelope box) from a finalized spec JSON.")
-    parser.add_argument("--spec", required=True, help="Path to finalized spec JSON (from spec.finalize)")
+    parser = argparse.ArgumentParser(
+        description="Create a minimal FreeCAD model (envelope box) from a finalized spec JSON."
+    )
+    parser.add_argument(
+        "--spec", required=True, help="Path to finalized spec JSON (from spec.finalize)"
+    )
     parser.add_argument("--out", required=True, help="Output path (.FCStd or .step/.stp)")
     args = parser.parse_args(argv)
 

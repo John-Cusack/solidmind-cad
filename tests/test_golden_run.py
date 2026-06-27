@@ -7,6 +7,7 @@ This simulates a complete orchestration run:
 4. Verify gates G0→G4 pass on good data, fail on bad data
 5. Verify result collection and summary
 """
+
 from __future__ import annotations
 
 import json
@@ -196,7 +197,9 @@ def _plant_bad_output(run_dir: Path, subsystem: str, variant: int) -> None:
     """Plant incomplete output (no STEP file)."""
     out = run_dir / f"{subsystem}_{variant}" / "output"
     out.mkdir(parents=True, exist_ok=True)
-    (out / "metadata.json").write_text('{"subsystem": "' + subsystem + '", "notes": "build failed"}')
+    (out / "metadata.json").write_text(
+        '{"subsystem": "' + subsystem + '", "notes": "build failed"}'
+    )
 
 
 class TestGoldenRunHappyPath(unittest.TestCase):
@@ -404,7 +407,9 @@ class TestGoldenRunMetadataIntegrity(unittest.TestCase):
 
     def test_interface_actuals_values(self) -> None:
         results = collect_worker_results(self.run)
-        cube_a = next(r for r in results if r["subsystem"] == "cube_a" and r["status"] == "complete")
+        cube_a = next(
+            r for r in results if r["subsystem"] == "cube_a" and r["status"] == "complete"
+        )
         actuals = cube_a["metadata"]["interface_actuals"]["ifc_mate"]
         self.assertAlmostEqual(actuals["boss_diameter"], 10.003)
         self.assertAlmostEqual(actuals["boss_height"], 5.01)

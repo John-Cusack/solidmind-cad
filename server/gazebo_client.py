@@ -3,6 +3,7 @@
 Mirrors the Isaac client pattern so motion tools can route dynamic simulation
 requests to a Gazebo sidecar when available.
 """
+
 from __future__ import annotations
 
 import logging
@@ -138,7 +139,7 @@ class GazeboClient:
             except GazeboConnectionError as exc:
                 last_error = exc
                 if attempt < max_retries - 1:
-                    delay = retry_delay * (2 ** attempt)
+                    delay = retry_delay * (2**attempt)
                     logger.warning(
                         "Gazebo bridge connection attempt %d/%d failed, retrying in %.1fs",
                         attempt + 1,
@@ -382,9 +383,7 @@ class GazeboClient:
                 ) from exc
             except (ConnectionResetError, OSError) as exc:
                 self._sock = None
-                raise GazeboConnectionError(
-                    f"Connection lost while reading: {exc}"
-                ) from exc
+                raise GazeboConnectionError(f"Connection lost while reading: {exc}") from exc
 
             if not data:
                 logger.error("Gazebo bridge closed the connection (recv returned empty)")

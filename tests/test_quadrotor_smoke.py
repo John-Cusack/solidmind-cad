@@ -22,6 +22,7 @@ Matches the pattern of ``tests/test_gazebo_px4_e2e.py``: long-running
 real-process tests are off the regular ``python3 -m unittest`` happy
 path so they don't block normal development.
 """
+
 from __future__ import annotations
 
 import os
@@ -50,8 +51,9 @@ def _gazebo_on_path() -> bool:
 
 
 @unittest.skipUnless(_smoke_enabled(), "Set SOLIDMIND_RUN_SITL_SMOKE=1 to enable")
-@unittest.skipUnless(_resolve_px4_install() is not None,
-                     "PX4-Autopilot not installed (set SOLIDMIND_PX4_INSTALL)")
+@unittest.skipUnless(
+    _resolve_px4_install() is not None, "PX4-Autopilot not installed (set SOLIDMIND_PX4_INSTALL)"
+)
 @unittest.skipUnless(_gazebo_on_path(), "gz CLI not on PATH (install Gazebo Harmonic)")
 class TestQuadrotorSmoke(unittest.TestCase):
     """Build, deploy, and fly an x500-class airframe through PX4 SITL."""
@@ -75,21 +77,31 @@ class TestQuadrotorSmoke(unittest.TestCase):
         # 1. Sim model + SDF
         sim_model = af.to_sim_model()
         from server.sim_export import write_sdf
+
         sdf_dir = self.px4 / "Tools" / "simulation" / "gz" / "models" / "smoke_test_quad"
         sdf_dir.mkdir(parents=True, exist_ok=True)
         sdf_path = sdf_dir / "model.sdf"
-        write_sdf(sim_model, str(sdf_path), drone_config={
-            "rotors": [
-                {"index": i, "joint": f"{r.name}_joint",
-                 "direction": r.direction, "link": r.name}
-                for i, r in enumerate(af.rotors)
-            ],
-            "sensors": True,
-        })
+        write_sdf(
+            sim_model,
+            str(sdf_path),
+            drone_config={
+                "rotors": [
+                    {
+                        "index": i,
+                        "joint": f"{r.name}_joint",
+                        "direction": r.direction,
+                        "link": r.name,
+                    }
+                    for i, r in enumerate(af.rotors)
+                ],
+                "sensors": True,
+            },
+        )
         # 2. Airframe init script
         from server.px4_airframe_generator import (
             register_airframe,
         )
+
         params = af.to_px4_airframe_params()
         register_airframe(params, install_path=self.px4)
 

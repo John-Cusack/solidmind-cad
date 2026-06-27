@@ -1,4 +1,5 @@
 """Tests for the design brief pipeline including parts and interfaces."""
+
 from __future__ import annotations
 
 import unittest
@@ -21,7 +22,6 @@ from server.tools_design import (
 
 
 class TestDesignModels(unittest.TestCase):
-
     def test_brief_round_trip(self) -> None:
         b = DesignBrief(
             brief_id="brief_abc123",
@@ -84,8 +84,10 @@ class TestDesignModels(unittest.TestCase):
             ],
             interfaces=[
                 InterfaceEntry(
-                    part_a="frame", port_a="mount",
-                    part_b="motor", port_b="base",
+                    part_a="frame",
+                    port_a="mount",
+                    part_b="motor",
+                    port_b="base",
                     spec={"pattern": "M3"},
                 ),
             ],
@@ -123,7 +125,6 @@ class TestDesignModels(unittest.TestCase):
 
 
 class TestBriefCRUD(unittest.TestCase):
-
     def setUp(self) -> None:
         clear_briefs()
 
@@ -241,7 +242,6 @@ class TestBriefCRUD(unittest.TestCase):
 
 
 class TestStatusLifecycle(unittest.TestCase):
-
     def setUp(self) -> None:
         clear_briefs()
 
@@ -280,7 +280,6 @@ class TestStatusLifecycle(unittest.TestCase):
 
 
 class TestPartManagement(unittest.TestCase):
-
     def setUp(self) -> None:
         clear_briefs()
 
@@ -293,8 +292,13 @@ class TestPartManagement(unittest.TestCase):
 
     def test_add_part(self) -> None:
         bid = self._make_brief()
-        result = design_add_part(bid, name="motor", kind="purchased", quantity=4,
-                                 specs={"model": "Emax 2306", "mass_g": 33})
+        result = design_add_part(
+            bid,
+            name="motor",
+            kind="purchased",
+            quantity=4,
+            specs={"model": "Emax 2306", "mass_g": 33},
+        )
         self.assertTrue(result["ok"])
         self.assertEqual(result["part"]["name"], "motor")
         self.assertEqual(result["part"]["kind"], "purchased")
@@ -336,8 +340,7 @@ class TestPartManagement(unittest.TestCase):
         bid = self._make_brief()
         design_add_part(bid, name="frame", kind="custom")
 
-        result = design_update_part(bid, name="frame", status="built",
-                                     body_label="frame_plate")
+        result = design_update_part(bid, name="frame", status="built", body_label="frame_plate")
         self.assertTrue(result["ok"])
         self.assertEqual(result["part"]["status"], "built")
         self.assertEqual(result["part"]["body_label"], "frame_plate")
@@ -346,8 +349,7 @@ class TestPartManagement(unittest.TestCase):
         bid = self._make_brief()
         design_add_part(bid, name="motor", specs={"mass_g": 33})
 
-        result = design_update_part(bid, name="motor",
-                                     specs={"mass_g": 33, "kv": 2400})
+        result = design_update_part(bid, name="motor", specs={"mass_g": 33, "kv": 2400})
         self.assertTrue(result["ok"])
         self.assertEqual(result["part"]["specs"]["kv"], 2400)
 
@@ -366,9 +368,14 @@ class TestPartManagement(unittest.TestCase):
         bid = self._make_brief()
         design_add_part(bid, name="frame", specs={"material": "CF"})
         design_add_part(bid, name="motor", kind="purchased")
-        design_add_interface(bid, part_a="frame", port_a="mount",
-                             part_b="motor", port_b="base",
-                             spec={"pattern": "M3"})
+        design_add_interface(
+            bid,
+            part_a="frame",
+            port_a="mount",
+            part_b="motor",
+            port_b="base",
+            spec={"pattern": "M3"},
+        )
 
         result = design_get_part(bid, name="frame")
         self.assertTrue(result["ok"])
@@ -395,7 +402,6 @@ class TestPartManagement(unittest.TestCase):
 
 
 class TestInterfaceManagement(unittest.TestCase):
-
     def setUp(self) -> None:
         clear_briefs()
 
@@ -414,8 +420,10 @@ class TestInterfaceManagement(unittest.TestCase):
         bid = self._make_brief_with_parts()
         result = design_add_interface(
             bid,
-            part_a="frame", port_a="arm_slot",
-            part_b="arm", port_b="root",
+            part_a="frame",
+            port_a="arm_slot",
+            part_b="arm",
+            port_b="root",
             spec={"pattern": "M3_bolt_pair", "spacing_mm": 15},
         )
         self.assertTrue(result["ok"])
@@ -425,37 +433,39 @@ class TestInterfaceManagement(unittest.TestCase):
 
     def test_add_multiple_interfaces(self) -> None:
         bid = self._make_brief_with_parts()
-        design_add_interface(bid, part_a="frame", port_a="slot",
-                             part_b="arm", port_b="root")
-        result = design_add_interface(bid, part_a="arm", port_a="tip",
-                                       part_b="motor", port_b="base",
-                                       spec={"pattern": "M3_16mm_square"})
+        design_add_interface(bid, part_a="frame", port_a="slot", part_b="arm", port_b="root")
+        result = design_add_interface(
+            bid,
+            part_a="arm",
+            port_a="tip",
+            part_b="motor",
+            port_b="base",
+            spec={"pattern": "M3_16mm_square"},
+        )
         self.assertEqual(result["interface_count"], 2)
 
     def test_add_interface_part_not_found(self) -> None:
         bid = self._make_brief_with_parts()
-        result = design_add_interface(bid, part_a="frame", port_a="x",
-                                       part_b="nonexistent", port_b="y")
+        result = design_add_interface(
+            bid, part_a="frame", port_a="x", part_b="nonexistent", port_b="y"
+        )
         self.assertFalse(result["ok"])
         self.assertEqual(result["error"]["code"], "PART_NOT_FOUND")
 
     def test_add_interface_brief_not_found(self) -> None:
-        result = design_add_interface("brief_xxx", part_a="a", port_a="x",
-                                       part_b="b", port_b="y")
+        result = design_add_interface("brief_xxx", part_a="a", port_a="x", part_b="b", port_b="y")
         self.assertFalse(result["ok"])
 
     def test_interfaces_in_get_brief(self) -> None:
         bid = self._make_brief_with_parts()
-        design_add_interface(bid, part_a="frame", port_a="slot",
-                             part_b="arm", port_b="root")
+        design_add_interface(bid, part_a="frame", port_a="slot", part_b="arm", port_b="root")
 
         brief = design_get_brief(bid)
         self.assertEqual(len(brief["brief"]["interfaces"]), 1)
 
     def test_interfaces_preserved_on_brief_update(self) -> None:
         bid = self._make_brief_with_parts()
-        design_add_interface(bid, part_a="frame", port_a="slot",
-                             part_b="arm", port_b="root")
+        design_add_interface(bid, part_a="frame", port_a="slot", part_b="arm", port_b="root")
 
         design_update_brief(bid, status="layout")
         brief = design_get_brief(bid)
@@ -482,30 +492,52 @@ class TestFullPipeline(unittest.TestCase):
 
         # Phase 2: Sizing — add parts
         design_update_brief(bid, status="sizing")
-        design_add_part(bid, name="motor", kind="purchased", quantity=4,
-                        specs={"model": "Emax 2306", "mass_g": 33,
-                               "mount_pattern": "M3_16mm_square"})
-        design_add_part(bid, name="frame_plate", kind="custom",
-                        specs={"material": "CF 2mm"})
+        design_add_part(
+            bid,
+            name="motor",
+            kind="purchased",
+            quantity=4,
+            specs={"model": "Emax 2306", "mass_g": 33, "mount_pattern": "M3_16mm_square"},
+        )
+        design_add_part(bid, name="frame_plate", kind="custom", specs={"material": "CF 2mm"})
         design_add_part(bid, name="arm", kind="custom", quantity=4)
         design_add_part(bid, name="motor_mount", kind="custom", quantity=4)
 
         # Phase 3: Layout — add interfaces
         design_update_brief(bid, status="layout")
-        design_add_interface(bid, part_a="motor_mount", port_a="top",
-                             part_b="motor", port_b="base",
-                             spec={"pattern": "M3_16mm_square"})
-        design_add_interface(bid, part_a="motor_mount", port_a="bottom",
-                             part_b="arm", port_b="tip",
-                             spec={"type": "clamp", "tube_od_mm": 10})
-        design_add_interface(bid, part_a="arm", port_a="root",
-                             part_b="frame_plate", port_b="arm_slot",
-                             spec={"pattern": "M3_bolt_pair"})
+        design_add_interface(
+            bid,
+            part_a="motor_mount",
+            port_a="top",
+            part_b="motor",
+            port_b="base",
+            spec={"pattern": "M3_16mm_square"},
+        )
+        design_add_interface(
+            bid,
+            part_a="motor_mount",
+            port_a="bottom",
+            part_b="arm",
+            port_b="tip",
+            spec={"type": "clamp", "tube_od_mm": 10},
+        )
+        design_add_interface(
+            bid,
+            part_a="arm",
+            port_a="root",
+            part_b="frame_plate",
+            port_b="arm_slot",
+            spec={"pattern": "M3_bolt_pair"},
+        )
 
-        design_update_brief(bid, parameters={
-            "intent": "5-inch racing quad", "max_auw_g": 600,
-            "layout": {"arm_length_mm": 110, "arm_angles_deg": [45, 135, 225, 315]},
-        })
+        design_update_brief(
+            bid,
+            parameters={
+                "intent": "5-inch racing quad",
+                "max_auw_g": 600,
+                "layout": {"arm_length_mm": 110, "arm_angles_deg": [45, 135, 225, 315]},
+            },
+        )
 
         # Approve
         design_update_brief(bid, status="approved")
@@ -537,7 +569,6 @@ class TestFullPipeline(unittest.TestCase):
 
 
 class TestListBriefs(unittest.TestCase):
-
     def setUp(self) -> None:
         clear_briefs()
 
@@ -573,7 +604,6 @@ def _body(label: str, size: list[float] | None = None) -> dict[str, Any]:
 
 
 class TestVerifyBuild(unittest.TestCase):
-
     def setUp(self) -> None:
         clear_briefs()
 
@@ -594,11 +624,13 @@ class TestVerifyBuild(unittest.TestCase):
         design_update_part(bid, name="arm", body_label="arm")
         design_update_part(bid, name="leg", body_label="leg")
 
-        mock_tree_fn.return_value = _mock_tree([
-            _body("frame", [100, 50, 5]),
-            _body("arm", [80, 10, 10]),
-            _body("leg", [60, 15, 15]),
-        ])
+        mock_tree_fn.return_value = _mock_tree(
+            [
+                _body("frame", [100, 50, 5]),
+                _body("arm", [80, 10, 10]),
+                _body("leg", [60, 15, 15]),
+            ]
+        )
 
         result = design_verify_build(bid)
         self.assertTrue(result["ok"])
@@ -619,10 +651,12 @@ class TestVerifyBuild(unittest.TestCase):
         design_update_part(bid, name="frame", body_label="frame")
         design_update_part(bid, name="arm", body_label="arm")
 
-        mock_tree_fn.return_value = _mock_tree([
-            _body("frame", [100, 50, 5]),
-            _body("arm", [80, 10, 10]),
-        ])
+        mock_tree_fn.return_value = _mock_tree(
+            [
+                _body("frame", [100, 50, 5]),
+                _body("arm", [80, 10, 10]),
+            ]
+        )
 
         result = design_verify_build(bid)
         self.assertTrue(result["ok"])
@@ -652,14 +686,20 @@ class TestVerifyBuild(unittest.TestCase):
     @patch("server.tools_cad.cad_get_model_tree")
     def test_dimension_warning(self, mock_tree_fn: Any) -> None:
         bid = self._make_brief()
-        design_add_part(bid, name="plate", kind="custom",
-                        specs={"length_mm": 100, "width_mm": 50, "thickness_mm": 5})
+        design_add_part(
+            bid,
+            name="plate",
+            kind="custom",
+            specs={"length_mm": 100, "width_mm": 50, "thickness_mm": 5},
+        )
         design_update_part(bid, name="plate", body_label="plate")
 
         # Size that is off by more than 10% on length
-        mock_tree_fn.return_value = _mock_tree([
-            _body("plate", [85, 50, 5]),
-        ])
+        mock_tree_fn.return_value = _mock_tree(
+            [
+                _body("plate", [85, 50, 5]),
+            ]
+        )
 
         result = design_verify_build(bid)
         self.assertTrue(result["ok"])
@@ -690,10 +730,12 @@ class TestVerifyBuild(unittest.TestCase):
         bid = self._make_brief()
         design_add_part(bid, name="arm", kind="custom", quantity=4)
 
-        mock_tree_fn.return_value = _mock_tree([
-            _body("arm_FL"),
-            _body("arm_FR"),
-        ])
+        mock_tree_fn.return_value = _mock_tree(
+            [
+                _body("arm_FL"),
+                _body("arm_FR"),
+            ]
+        )
 
         result = design_verify_build(bid)
         self.assertTrue(result["ok"])
@@ -708,9 +750,11 @@ class TestVerifyBuild(unittest.TestCase):
         bid = self._make_brief()
         design_add_part(bid, name="motor_mount", kind="custom")
 
-        mock_tree_fn.return_value = _mock_tree([
-            _body("Motor_Mount"),
-        ])
+        mock_tree_fn.return_value = _mock_tree(
+            [
+                _body("Motor_Mount"),
+            ]
+        )
 
         result = design_verify_build(bid)
         self.assertTrue(result["ok"])
@@ -740,11 +784,13 @@ class TestVerifyBuild(unittest.TestCase):
         design_add_part(bid, name="frame", kind="custom")
         design_update_part(bid, name="frame", body_label="frame")
 
-        mock_tree_fn.return_value = _mock_tree([
-            _body("frame"),
-            _body("Origin"),
-            _body("random_extra"),
-        ])
+        mock_tree_fn.return_value = _mock_tree(
+            [
+                _body("frame"),
+                _body("Origin"),
+                _body("random_extra"),
+            ]
+        )
 
         result = design_verify_build(bid)
         self.assertTrue(result["ok"])
@@ -765,7 +811,9 @@ class TestVerifyBuildTolerance(unittest.TestCase):
         result = design_save_brief(name="ToleranceTest", parameters={}, status="building")
         bid = result["brief"]["brief_id"]
         design_add_part(
-            bid, name="gear", kind="custom",
+            bid,
+            name="gear",
+            kind="custom",
             specs={"diameter_mm": spec_diameter},
         )
         design_update_part(bid, name="gear", body_label="gear")
@@ -822,7 +870,8 @@ class TestDesignUpdateBriefAutoRegistersPlan(unittest.TestCase):
 
     @patch("server.tools_cad.cad_register_placement_plan")
     def test_auto_registers_plan_on_building_transition(
-        self, mock_register: Any,
+        self,
+        mock_register: Any,
     ) -> None:
         mock_register.return_value = {"ok": True, "registered": 2}
 
@@ -840,8 +889,7 @@ class TestDesignUpdateBriefAutoRegistersPlan(unittest.TestCase):
         )
         bid = result["brief"]["brief_id"]
         design_add_part(bid, name="chassis", kind="custom")
-        design_add_part(bid, name="arm", kind="custom",
-                        specs={"position_mm": [50, 0, 5]})
+        design_add_part(bid, name="arm", kind="custom", specs={"position_mm": [50, 0, 5]})
 
         update = design_update_brief(bid, status="building")
         self.assertTrue(update["ok"])
@@ -858,7 +906,8 @@ class TestDesignUpdateBriefAutoRegistersPlan(unittest.TestCase):
 
     @patch("server.tools_cad.cad_register_placement_plan")
     def test_no_reregister_when_already_building(
-        self, mock_register: Any,
+        self,
+        mock_register: Any,
     ) -> None:
         """Updating a brief that's already 'building' should NOT re-register."""
         result = design_save_brief(
@@ -876,7 +925,8 @@ class TestDesignUpdateBriefAutoRegistersPlan(unittest.TestCase):
 
     @patch("server.tools_cad.cad_register_placement_plan")
     def test_no_plan_when_no_positions(
-        self, mock_register: Any,
+        self,
+        mock_register: Any,
     ) -> None:
         """No plan registered when brief has no position data."""
         result = design_save_brief(
@@ -894,7 +944,8 @@ class TestDesignUpdateBriefAutoRegistersPlan(unittest.TestCase):
 
     @patch("server.tools_cad.cad_register_placement_plan")
     def test_purchased_parts_excluded(
-        self, mock_register: Any,
+        self,
+        mock_register: Any,
     ) -> None:
         """Purchased parts should not appear in the placement plan."""
         mock_register.return_value = {"ok": True, "registered": 1}

@@ -1,4 +1,5 @@
 """Tests for orchestrator.knowledge."""
+
 from __future__ import annotations
 
 import tempfile

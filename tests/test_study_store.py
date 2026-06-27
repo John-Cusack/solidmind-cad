@@ -1,4 +1,5 @@
 """Tests for server.study_store."""
+
 from __future__ import annotations
 
 import tempfile
@@ -35,7 +36,9 @@ class TestStudyStore(unittest.TestCase):
             id=study_id,
             name=name,
             variables=[
-                DesignVariable(name="x", var_type="continuous", min_val=0, max_val=10, coarse_step=5),
+                DesignVariable(
+                    name="x", var_type="continuous", min_val=0, max_val=10, coarse_step=5
+                ),
             ],
             solver=SolverConfig(solver_type="mock"),
             objective=ObjectiveConfig(primary_metric="objective"),
@@ -82,8 +85,20 @@ class TestStudyStore(unittest.TestCase):
     def test_save_with_variants(self) -> None:
         study = self._make_study()
         study.coarse_variants = [
-            Variant(variant_id="c0000", params={"x": 0}, phase="coarse", status="done", metrics={"objective": 100}),
-            Variant(variant_id="c0001", params={"x": 5}, phase="coarse", status="done", metrics={"objective": 200}),
+            Variant(
+                variant_id="c0000",
+                params={"x": 0},
+                phase="coarse",
+                status="done",
+                metrics={"objective": 100},
+            ),
+            Variant(
+                variant_id="c0001",
+                params={"x": 5},
+                phase="coarse",
+                status="done",
+                metrics={"objective": 200},
+            ),
         ]
         study.best_variant_id = "c0001"
         study.status = StudyStatus.COMPLETE

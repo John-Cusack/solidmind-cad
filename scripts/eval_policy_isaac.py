@@ -16,6 +16,7 @@ Usage::
         --policy training_runs/.../deployed/policy.pt \
         --num-steps 2000
 """
+
 from __future__ import annotations
 
 import argparse
@@ -40,12 +41,21 @@ def main() -> int:
     parser.add_argument("--checkpoint", default=None, help="RSL-RL model_*.pt checkpoint")
     parser.add_argument("--num-steps", type=int, default=2000)
     parser.add_argument("--num-envs", type=int, default=1)
-    parser.add_argument("--forward-vel", type=float, default=None,
-                        help="Override velocity command with constant forward speed (m/s)")
-    parser.add_argument("--no-reset", action="store_true",
-                        help="Disable episode resets (run continuously)")
-    parser.add_argument("--headless", action="store_true", default=False,
-                        help="Run without GUI (for capturing stdout proof of policy execution)")
+    parser.add_argument(
+        "--forward-vel",
+        type=float,
+        default=None,
+        help="Override velocity command with constant forward speed (m/s)",
+    )
+    parser.add_argument(
+        "--no-reset", action="store_true", help="Disable episode resets (run continuously)"
+    )
+    parser.add_argument(
+        "--headless",
+        action="store_true",
+        default=False,
+        help="Run without GUI (for capturing stdout proof of policy execution)",
+    )
     args = parser.parse_args()
 
     if not args.policy and not args.checkpoint:
@@ -53,6 +63,7 @@ def main() -> int:
 
     # Boot Isaac Sim
     from isaaclab.app import AppLauncher
+
     launcher = AppLauncher(headless=args.headless)
     simulation_app = launcher.app
 
@@ -84,11 +95,14 @@ def main() -> int:
         env_cfg.terminations.base_contact = None  # type: ignore[assignment]
         env_cfg.terminations.bad_orientation = None  # type: ignore[assignment]
         env_cfg.terminations.low_height = None  # type: ignore[assignment]
-        env_cfg.episode_length_s = args.num_steps * env_cfg.sim.dt * env_cfg.decimation * 2  # long enough
+        env_cfg.episode_length_s = (
+            args.num_steps * env_cfg.sim.dt * env_cfg.decimation * 2
+        )  # long enough
 
     # For eval: force constant forward velocity instead of random sampling
     if args.forward_vel is not None:
         import isaaclab.envs.mdp as mdp_mod  # type: ignore[import-not-found]
+
         env_cfg.commands.base_velocity = mdp_mod.UniformVelocityCommandCfg(
             asset_name="robot",
             resampling_time_range=(1000.0, 1000.0),  # never resample
@@ -109,6 +123,7 @@ def main() -> int:
     except Exception as exc:
         print(f"FATAL: env creation failed: {exc}", flush=True)
         import traceback
+
         traceback.print_exc()
         simulation_app.close()
         return 1
@@ -116,6 +131,7 @@ def main() -> int:
     # ── Point camera at the robot ──────────────────────────────────
     try:
         from isaaclab.envs.ui import ViewportCameraController  # type: ignore[import-not-found]
+
         _cam = ViewportCameraController(env, cfg=ViewportCameraController.cfg)
         _cam.cfg.eye = (1.5, 1.5, 1.0)  # type: ignore[attr-defined]
         _cam.cfg.lookat = (0.0, 0.0, 0.15)  # type: ignore[attr-defined]
@@ -125,14 +141,15 @@ def main() -> int:
         # Fallback: set camera via USD stage
         try:
             import omni.kit.viewport.utility as vp_util  # type: ignore[import-not-found]
+
             viewport = vp_util.get_active_viewport()
             if viewport is not None:
-
                 # Create a camera prim and set it as active
                 from omni.kit.viewport.utility.camera_state import (
                     ViewportCameraState,  # type: ignore[import-not-found]
                 )
                 from pxr import Gf  # type: ignore[import-not-found]
+
                 cam_state = ViewportCameraState(viewport)
                 cam_state.set_position_world(Gf.Vec3d(1.5, 1.5, 1.0), True)
                 cam_state.set_target_world(Gf.Vec3d(0.0, 0.0, 0.15), True)
@@ -194,12 +211,19 @@ def main() -> int:
             dx = (pos[:, 0] - initial_pos[:, 0]).cpu().numpy()
             dy = (pos[:, 1] - initial_pos[:, 1]).cpu().numpy()
             h = pos[:, 2].cpu().numpy()
-            print(f"\nFinal rollout summary ({args.num_envs} envs, {args.num_steps} steps):", flush=True)
+            print(
+                f"\nFinal rollout summary ({args.num_envs} envs, {args.num_steps} steps):",
+                flush=True,
+            )
             for i in range(len(dx)):
-                print(f"  env {i}: forward dx={dx[i]:+.3f}m, lateral dy={dy[i]:+.3f}m, "
-                      f"final height={h[i]:.3f}m", flush=True)
-            print(f"  mean: dx={dx.mean():+.3f}m, dy={dy.mean():+.3f}m, h={h.mean():.3f}m",
-                  flush=True)
+                print(
+                    f"  env {i}: forward dx={dx[i]:+.3f}m, lateral dy={dy[i]:+.3f}m, "
+                    f"final height={h[i]:.3f}m",
+                    flush=True,
+                )
+            print(
+                f"  mean: dx={dx.mean():+.3f}m, dy={dy.mean():+.3f}m, h={h.mean():.3f}m", flush=True
+            )
     else:
         # JIT policy path
         device = "cuda:0" if torch.cuda.is_available() else "cpu"
@@ -218,7 +242,10 @@ def main() -> int:
             obs = obs_dict["policy"]
 
             if step % 200 == 0:
-                print(f"  step {step}/{args.num_steps}, reward={rewards.mean().item():.3f}", flush=True)
+                print(
+                    f"  step {step}/{args.num_steps}, reward={rewards.mean().item():.3f}",
+                    flush=True,
+                )
 
             time.sleep(0.005)
 

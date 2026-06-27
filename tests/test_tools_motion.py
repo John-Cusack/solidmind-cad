@@ -1,4 +1,5 @@
 """Tests for server.tools_motion — MCP tool wrappers for motion validation."""
+
 from __future__ import annotations
 
 import math
@@ -34,11 +35,13 @@ class TestMotionToolsBase(unittest.TestCase):
     def setUp(self):
         motion_store.clear()
         from server.tools_motion import _active_sessions
+
         _active_sessions.clear()
 
     def tearDown(self):
         motion_store.clear()
         from server.tools_motion import _active_sessions
+
         _active_sessions.clear()
 
 
@@ -119,12 +122,14 @@ class TestListMechanisms(TestMotionToolsBase):
         self.assertEqual(result["mechanisms"], [])
 
     def test_after_define(self):
-        motion_define_mechanism({
-            "name": "test",
-            "parts": [{"id": "a", "is_ground": True}],
-            "joints": [],
-            "drives": [],
-        })
+        motion_define_mechanism(
+            {
+                "name": "test",
+                "parts": [{"id": "a", "is_ground": True}],
+                "joints": [],
+                "drives": [],
+            }
+        )
         result = motion_list_mechanisms()
         self.assertEqual(len(result["mechanisms"]), 1)
         self.assertEqual(result["mechanisms"][0]["name"], "test")
@@ -132,28 +137,30 @@ class TestListMechanisms(TestMotionToolsBase):
 
 class TestValidate(TestMotionToolsBase):
     def _define_gear_pair(self) -> str:
-        result = motion_define_mechanism({
-            "name": "gear_pair",
-            "parts": [
-                {"id": "gear_a"},
-                {"id": "gear_b"},
-                {"id": "frame", "is_ground": True},
-            ],
-            "joints": [
-                {
-                    "id": "mesh",
-                    "joint_type": "gear_mesh",
-                    "parent_part": "gear_a",
-                    "child_part": "gear_b",
-                    "teeth_parent": 20,
-                    "teeth_child": 40,
-                    "gear_ratio": 0.5,
-                },
-            ],
-            "drives": [
-                {"joint_id": "mesh", "speed_rpm": 1000, "torque_nm": 5.0},
-            ],
-        })
+        result = motion_define_mechanism(
+            {
+                "name": "gear_pair",
+                "parts": [
+                    {"id": "gear_a"},
+                    {"id": "gear_b"},
+                    {"id": "frame", "is_ground": True},
+                ],
+                "joints": [
+                    {
+                        "id": "mesh",
+                        "joint_type": "gear_mesh",
+                        "parent_part": "gear_a",
+                        "child_part": "gear_b",
+                        "teeth_parent": 20,
+                        "teeth_child": 40,
+                        "gear_ratio": 0.5,
+                    },
+                ],
+                "drives": [
+                    {"joint_id": "mesh", "speed_rpm": 1000, "torque_nm": 5.0},
+                ],
+            }
+        )
         return result["mechanism_id"]
 
     def test_validate_all(self):
@@ -178,28 +185,30 @@ class TestValidate(TestMotionToolsBase):
 
 class TestPropagateMotion(TestMotionToolsBase):
     def test_propagate(self):
-        result = motion_define_mechanism({
-            "name": "gear_pair",
-            "parts": [
-                {"id": "gear_a"},
-                {"id": "gear_b"},
-                {"id": "frame", "is_ground": True},
-            ],
-            "joints": [
-                {
-                    "id": "mesh",
-                    "joint_type": "gear_mesh",
-                    "parent_part": "gear_a",
-                    "child_part": "gear_b",
-                    "teeth_parent": 20,
-                    "teeth_child": 40,
-                    "gear_ratio": 0.5,
-                },
-            ],
-            "drives": [
-                {"joint_id": "mesh", "speed_rpm": 1000, "torque_nm": 5.0},
-            ],
-        })
+        result = motion_define_mechanism(
+            {
+                "name": "gear_pair",
+                "parts": [
+                    {"id": "gear_a"},
+                    {"id": "gear_b"},
+                    {"id": "frame", "is_ground": True},
+                ],
+                "joints": [
+                    {
+                        "id": "mesh",
+                        "joint_type": "gear_mesh",
+                        "parent_part": "gear_a",
+                        "child_part": "gear_b",
+                        "teeth_parent": 20,
+                        "teeth_child": 40,
+                        "gear_ratio": 0.5,
+                    },
+                ],
+                "drives": [
+                    {"joint_id": "mesh", "speed_rpm": 1000, "torque_nm": 5.0},
+                ],
+            }
+        )
         mid = result["mechanism_id"]
         prop = motion_propagate_motion(mid)
         self.assertTrue(prop["ok"])
@@ -215,20 +224,24 @@ class TestPropagateMotion(TestMotionToolsBase):
 
 class TestCheckGearTrain(TestMotionToolsBase):
     def test_check(self):
-        result = motion_define_mechanism({
-            "name": "gear_pair",
-            "parts": [{"id": "a"}, {"id": "b"}, {"id": "frame", "is_ground": True}],
-            "joints": [{
-                "id": "mesh",
-                "joint_type": "gear_mesh",
-                "parent_part": "a",
-                "child_part": "b",
-                "teeth_parent": 20,
-                "teeth_child": 40,
-                "gear_ratio": 0.5,
-            }],
-            "drives": [],
-        })
+        result = motion_define_mechanism(
+            {
+                "name": "gear_pair",
+                "parts": [{"id": "a"}, {"id": "b"}, {"id": "frame", "is_ground": True}],
+                "joints": [
+                    {
+                        "id": "mesh",
+                        "joint_type": "gear_mesh",
+                        "parent_part": "a",
+                        "child_part": "b",
+                        "teeth_parent": 20,
+                        "teeth_child": 40,
+                        "gear_ratio": 0.5,
+                    }
+                ],
+                "drives": [],
+            }
+        )
         mid = result["mechanism_id"]
         gt = motion_check_gear_train(mid)
         self.assertTrue(gt["ok"])
@@ -249,23 +262,27 @@ class TestCreateAssembly(TestMotionToolsBase):
         COMMAND_ERROR if it's running but the Assembly workbench or
         document isn't available.
         """
-        result = motion_define_mechanism({
-            "name": "test_asm",
-            "parts": [
-                {"id": "gear_a", "body_name": "Body_A"},
-                {"id": "gear_b", "body_name": "Body_B"},
-                {"id": "frame", "is_ground": True},
-            ],
-            "joints": [{
-                "id": "mesh",
-                "joint_type": "gear_mesh",
-                "parent_part": "gear_a",
-                "child_part": "gear_b",
-                "teeth_parent": 20,
-                "teeth_child": 40,
-            }],
-            "drives": [],
-        })
+        result = motion_define_mechanism(
+            {
+                "name": "test_asm",
+                "parts": [
+                    {"id": "gear_a", "body_name": "Body_A"},
+                    {"id": "gear_b", "body_name": "Body_B"},
+                    {"id": "frame", "is_ground": True},
+                ],
+                "joints": [
+                    {
+                        "id": "mesh",
+                        "joint_type": "gear_mesh",
+                        "parent_part": "gear_a",
+                        "child_part": "gear_b",
+                        "teeth_parent": 20,
+                        "teeth_child": 40,
+                    }
+                ],
+                "drives": [],
+            }
+        )
         mid = result["mechanism_id"]
         asm_result = motion_create_assembly(mid)
         self.assertFalse(asm_result["ok"])
@@ -283,21 +300,25 @@ class TestAssemblyJointMapping(TestMotionToolsBase):
         from server.tools_motion import _assembly_joint_maps
 
         # The map starts empty or doesn't have our mechanism
-        result = motion_define_mechanism({
-            "name": "map_test",
-            "parts": [
-                {"id": "gear_a", "body_name": "Body_A"},
-                {"id": "gear_b", "body_name": "Body_B"},
-                {"id": "frame", "is_ground": True},
-            ],
-            "joints": [{
-                "id": "sun_rev",
-                "joint_type": "revolute",
-                "parent_part": "frame",
-                "child_part": "gear_a",
-            }],
-            "drives": [],
-        })
+        result = motion_define_mechanism(
+            {
+                "name": "map_test",
+                "parts": [
+                    {"id": "gear_a", "body_name": "Body_A"},
+                    {"id": "gear_b", "body_name": "Body_B"},
+                    {"id": "frame", "is_ground": True},
+                ],
+                "joints": [
+                    {
+                        "id": "sun_rev",
+                        "joint_type": "revolute",
+                        "parent_part": "frame",
+                        "child_part": "gear_a",
+                    }
+                ],
+                "drives": [],
+            }
+        )
         mid = result["mechanism_id"]
         # create_assembly will fail (no FreeCAD), but the mapping logic is tested
         # via the drive_joint resolution path
@@ -307,20 +328,24 @@ class TestAssemblyJointMapping(TestMotionToolsBase):
         """Verify drive_joint uses the joint map for name resolution."""
         from server.tools_motion import _assembly_joint_maps
 
-        result = motion_define_mechanism({
-            "name": "resolve_test",
-            "parts": [
-                {"id": "gear_a", "body_name": "Body_A"},
-                {"id": "frame", "is_ground": True},
-            ],
-            "joints": [{
-                "id": "sun_rev",
-                "joint_type": "revolute",
-                "parent_part": "frame",
-                "child_part": "gear_a",
-            }],
-            "drives": [],
-        })
+        result = motion_define_mechanism(
+            {
+                "name": "resolve_test",
+                "parts": [
+                    {"id": "gear_a", "body_name": "Body_A"},
+                    {"id": "frame", "is_ground": True},
+                ],
+                "joints": [
+                    {
+                        "id": "sun_rev",
+                        "joint_type": "revolute",
+                        "parent_part": "frame",
+                        "child_part": "gear_a",
+                    }
+                ],
+                "drives": [],
+            }
+        )
         mid = result["mechanism_id"]
 
         # Manually populate the map as create_assembly would
@@ -340,35 +365,37 @@ class TestAssemblyJointMapping(TestMotionToolsBase):
 
     def _make_analytical_mechanism(self):
         """Helper: define a sun+planet mechanism, return mechanism_id."""
-        result = motion_define_mechanism({
-            "name": "analytical_test",
-            "parts": [
-                {"id": "frame", "body_name": "Body_Frame", "is_ground": True},
-                {"id": "sun", "body_name": "Body_Sun"},
-                {"id": "planet", "body_name": "Body_Planet"},
-            ],
-            "joints": [
-                {
-                    "id": "sun_rev",
-                    "joint_type": "revolute",
-                    "parent_part": "frame",
-                    "child_part": "sun",
-                    "origin": [0.0, 0.0, 0.0],
-                    "axis": [0.0, 0.0, 1.0],
-                },
-                {
-                    "id": "mesh_sp",
-                    "joint_type": "gear_mesh",
-                    "parent_part": "sun",
-                    "child_part": "planet",
-                    "teeth_parent": 20,
-                    "teeth_child": 10,
-                    "origin": [30.0, 0.0, 0.0],
-                    "axis": [0.0, 0.0, 1.0],
-                },
-            ],
-            "drives": [{"joint_id": "sun_rev", "speed_rpm": 100}],
-        })
+        result = motion_define_mechanism(
+            {
+                "name": "analytical_test",
+                "parts": [
+                    {"id": "frame", "body_name": "Body_Frame", "is_ground": True},
+                    {"id": "sun", "body_name": "Body_Sun"},
+                    {"id": "planet", "body_name": "Body_Planet"},
+                ],
+                "joints": [
+                    {
+                        "id": "sun_rev",
+                        "joint_type": "revolute",
+                        "parent_part": "frame",
+                        "child_part": "sun",
+                        "origin": [0.0, 0.0, 0.0],
+                        "axis": [0.0, 0.0, 1.0],
+                    },
+                    {
+                        "id": "mesh_sp",
+                        "joint_type": "gear_mesh",
+                        "parent_part": "sun",
+                        "child_part": "planet",
+                        "teeth_parent": 20,
+                        "teeth_child": 10,
+                        "origin": [30.0, 0.0, 0.0],
+                        "axis": [0.0, 0.0, 1.0],
+                    },
+                ],
+                "drives": [{"joint_id": "sun_rev", "speed_rpm": 100}],
+            }
+        )
         return result["mechanism_id"]
 
     def _make_mock_client(self, with_get_links: bool = False):
@@ -420,7 +447,8 @@ class TestAssemblyJointMapping(TestMotionToolsBase):
 
         # Check that set_placements was called
         set_calls = [
-            c for c in mock_client.send_command.call_args_list
+            c
+            for c in mock_client.send_command.call_args_list
             if c[0][0] == "assembly_set_placements"
         ]
         self.assertEqual(len(set_calls), 2)  # one per step
@@ -460,14 +488,14 @@ class TestAssemblyJointMapping(TestMotionToolsBase):
 
         # assembly_get_links should have been called once
         get_links_calls = [
-            c for c in mock_client.send_command.call_args_list
-            if c[0][0] == "assembly_get_links"
+            c for c in mock_client.send_command.call_args_list if c[0][0] == "assembly_get_links"
         ]
         self.assertEqual(len(get_links_calls), 1)
 
         # Placements should still contain both parts
         set_calls = [
-            c for c in mock_client.send_command.call_args_list
+            c
+            for c in mock_client.send_command.call_args_list
             if c[0][0] == "assembly_set_placements"
         ]
         self.assertGreater(len(set_calls), 0)
@@ -484,22 +512,26 @@ class TestJointOriginAxisPassthrough(TestMotionToolsBase):
         the assembly_add_joint command kwargs."""
         from unittest.mock import MagicMock, patch
 
-        result = motion_define_mechanism({
-            "name": "origin_axis_test",
-            "parts": [
-                {"id": "sun", "body_name": "Body_Sun"},
-                {"id": "frame", "body_name": "Body_Frame", "is_ground": True},
-            ],
-            "joints": [{
-                "id": "sun_rev",
-                "joint_type": "revolute",
-                "parent_part": "frame",
-                "child_part": "sun",
-                "origin": [10.0, 20.0, 0.0],
-                "axis": [0.0, 0.0, 1.0],
-            }],
-            "drives": [],
-        })
+        result = motion_define_mechanism(
+            {
+                "name": "origin_axis_test",
+                "parts": [
+                    {"id": "sun", "body_name": "Body_Sun"},
+                    {"id": "frame", "body_name": "Body_Frame", "is_ground": True},
+                ],
+                "joints": [
+                    {
+                        "id": "sun_rev",
+                        "joint_type": "revolute",
+                        "parent_part": "frame",
+                        "child_part": "sun",
+                        "origin": [10.0, 20.0, 0.0],
+                        "axis": [0.0, 0.0, 1.0],
+                    }
+                ],
+                "drives": [],
+            }
+        )
         mid = result["mechanism_id"]
 
         # Build a mock client that records send_command calls
@@ -526,8 +558,7 @@ class TestJointOriginAxisPassthrough(TestMotionToolsBase):
 
         # Find the assembly_add_joint call
         joint_calls = [
-            c for c in mock_client.send_command.call_args_list
-            if c[0][0] == "assembly_add_joint"
+            c for c in mock_client.send_command.call_args_list if c[0][0] == "assembly_add_joint"
         ]
         self.assertEqual(len(joint_calls), 1)
         kw = joint_calls[0][1]
@@ -540,62 +571,64 @@ class TestDriveJointPlanetaryCompound(TestMotionToolsBase):
 
     def _make_planetary_mechanism(self):
         """Define a planetary mechanism with ring fixed, sun driven."""
-        result = motion_define_mechanism({
-            "name": "planetary_drive_test",
-            "parts": [
-                {"id": "frame", "body_name": "Body_Frame", "is_ground": True},
-                {"id": "sun", "body_name": "Body_Sun"},
-                {"id": "carrier", "body_name": "Body_Carrier"},
-                {"id": "ring", "body_name": "Body_Ring", "is_ground": True},
-                {"id": "planet_0", "body_name": "Body_Planet0"},
-            ],
-            "joints": [
-                {
-                    "id": "sun_rev",
-                    "joint_type": "revolute",
-                    "parent_part": "frame",
-                    "child_part": "sun",
-                    "origin": [0.0, 0.0, 0.0],
-                    "axis": [0.0, 0.0, 1.0],
-                },
-                {
-                    "id": "carrier_rev",
-                    "joint_type": "revolute",
-                    "parent_part": "frame",
-                    "child_part": "carrier",
-                    "origin": [0.0, 0.0, 0.0],
-                    "axis": [0.0, 0.0, 1.0],
-                },
-                {
-                    "id": "sun_planet_0",
-                    "joint_type": "gear_mesh",
-                    "parent_part": "sun",
-                    "child_part": "planet_0",
-                    "teeth_parent": 18,
-                    "teeth_child": 9,
-                    "gear_ratio": 2.0,
-                },
-                {
-                    "id": "planet_ring_0",
-                    "joint_type": "gear_mesh",
-                    "parent_part": "planet_0",
-                    "child_part": "ring",
-                    "teeth_parent": 9,
-                    "teeth_child": 36,
-                    "gear_ratio": 0.25,
-                    "internal": True,
-                },
-                {
-                    "id": "planet_carrier_0",
-                    "joint_type": "revolute",
-                    "parent_part": "carrier",
-                    "child_part": "planet_0",
-                    "origin": [27.0, 0.0, 0.0],
-                    "axis": [0.0, 0.0, 1.0],
-                },
-            ],
-            "drives": [{"joint_id": "sun_planet_0", "speed_rpm": 1000}],
-        })
+        result = motion_define_mechanism(
+            {
+                "name": "planetary_drive_test",
+                "parts": [
+                    {"id": "frame", "body_name": "Body_Frame", "is_ground": True},
+                    {"id": "sun", "body_name": "Body_Sun"},
+                    {"id": "carrier", "body_name": "Body_Carrier"},
+                    {"id": "ring", "body_name": "Body_Ring", "is_ground": True},
+                    {"id": "planet_0", "body_name": "Body_Planet0"},
+                ],
+                "joints": [
+                    {
+                        "id": "sun_rev",
+                        "joint_type": "revolute",
+                        "parent_part": "frame",
+                        "child_part": "sun",
+                        "origin": [0.0, 0.0, 0.0],
+                        "axis": [0.0, 0.0, 1.0],
+                    },
+                    {
+                        "id": "carrier_rev",
+                        "joint_type": "revolute",
+                        "parent_part": "frame",
+                        "child_part": "carrier",
+                        "origin": [0.0, 0.0, 0.0],
+                        "axis": [0.0, 0.0, 1.0],
+                    },
+                    {
+                        "id": "sun_planet_0",
+                        "joint_type": "gear_mesh",
+                        "parent_part": "sun",
+                        "child_part": "planet_0",
+                        "teeth_parent": 18,
+                        "teeth_child": 9,
+                        "gear_ratio": 2.0,
+                    },
+                    {
+                        "id": "planet_ring_0",
+                        "joint_type": "gear_mesh",
+                        "parent_part": "planet_0",
+                        "child_part": "ring",
+                        "teeth_parent": 9,
+                        "teeth_child": 36,
+                        "gear_ratio": 0.25,
+                        "internal": True,
+                    },
+                    {
+                        "id": "planet_carrier_0",
+                        "joint_type": "revolute",
+                        "parent_part": "carrier",
+                        "child_part": "planet_0",
+                        "origin": [27.0, 0.0, 0.0],
+                        "axis": [0.0, 0.0, 1.0],
+                    },
+                ],
+                "drives": [{"joint_id": "sun_planet_0", "speed_rpm": 1000}],
+            }
+        )
         return result["mechanism_id"]
 
     def test_drive_joint_planetary_compound_motion(self):
@@ -624,7 +657,8 @@ class TestDriveJointPlanetaryCompound(TestMotionToolsBase):
 
         # Find the last set_placements call
         set_calls = [
-            c for c in mock_client.send_command.call_args_list
+            c
+            for c in mock_client.send_command.call_args_list
             if c[0][0] == "assembly_set_placements"
         ]
         self.assertGreater(len(set_calls), 0)
@@ -655,12 +689,14 @@ class TestDriveJoint(TestMotionToolsBase):
         self.assertEqual(result["error"]["code"], "NOT_FOUND")
 
     def test_drive_joint_not_found_joint(self):
-        result = motion_define_mechanism({
-            "name": "test",
-            "parts": [{"id": "a", "is_ground": True}],
-            "joints": [],
-            "drives": [],
-        })
+        result = motion_define_mechanism(
+            {
+                "name": "test",
+                "parts": [{"id": "a", "is_ground": True}],
+                "joints": [],
+                "drives": [],
+            }
+        )
         mid = result["mechanism_id"]
         result = motion_drive_joint(mid, "nonexistent_joint", 360.0)
         self.assertFalse(result["ok"])
@@ -680,12 +716,17 @@ class TestCheckInterference(TestMotionToolsBase):
         COMMAND_ERROR if it's running but the Assembly workbench or
         document isn't available.
         """
-        result = motion_define_mechanism({
-            "name": "test_interf",
-            "parts": [{"id": "a", "body_name": "Body_A", "is_ground": True}, {"id": "b", "body_name": "Body_B"}],
-            "joints": [],
-            "drives": [],
-        })
+        result = motion_define_mechanism(
+            {
+                "name": "test_interf",
+                "parts": [
+                    {"id": "a", "body_name": "Body_A", "is_ground": True},
+                    {"id": "b", "body_name": "Body_B"},
+                ],
+                "joints": [],
+                "drives": [],
+            }
+        )
         mid = result["mechanism_id"]
         interf_result = motion_check_interference(mid)
         self.assertFalse(interf_result["ok"])
@@ -703,19 +744,23 @@ class TestSimulate(TestMotionToolsBase):
 
     def test_simulate_default_backend_is_isaac(self):
         """When backend is omitted, motion_simulate defaults to Isaac."""
-        result = motion_define_mechanism({
-            "name": "gear_pair",
-            "parts": [{"id": "a"}, {"id": "b"}, {"id": "f", "is_ground": True}],
-            "joints": [{
-                "id": "mesh",
-                "joint_type": "gear_mesh",
-                "parent_part": "a",
-                "child_part": "b",
-                "teeth_parent": 20,
-                "teeth_child": 40,
-            }],
-            "drives": [{"joint_id": "mesh", "speed_rpm": 1000}],
-        })
+        result = motion_define_mechanism(
+            {
+                "name": "gear_pair",
+                "parts": [{"id": "a"}, {"id": "b"}, {"id": "f", "is_ground": True}],
+                "joints": [
+                    {
+                        "id": "mesh",
+                        "joint_type": "gear_mesh",
+                        "parent_part": "a",
+                        "child_part": "b",
+                        "teeth_parent": 20,
+                        "teeth_child": 40,
+                    }
+                ],
+                "drives": [{"joint_id": "mesh", "speed_rpm": 1000}],
+            }
+        )
         mid = result["mechanism_id"]
         sim_result = motion_simulate(mid)
         if sim_result["ok"]:
@@ -729,19 +774,23 @@ class TestSimulate(TestMotionToolsBase):
 
     def test_simulate_explicit_chrono_no_daemon(self):
         """Chrono remains available when requested explicitly."""
-        result = motion_define_mechanism({
-            "name": "gear_pair",
-            "parts": [{"id": "a"}, {"id": "b"}, {"id": "f", "is_ground": True}],
-            "joints": [{
-                "id": "mesh",
-                "joint_type": "gear_mesh",
-                "parent_part": "a",
-                "child_part": "b",
-                "teeth_parent": 20,
-                "teeth_child": 40,
-            }],
-            "drives": [{"joint_id": "mesh", "speed_rpm": 1000}],
-        })
+        result = motion_define_mechanism(
+            {
+                "name": "gear_pair",
+                "parts": [{"id": "a"}, {"id": "b"}, {"id": "f", "is_ground": True}],
+                "joints": [
+                    {
+                        "id": "mesh",
+                        "joint_type": "gear_mesh",
+                        "parent_part": "a",
+                        "child_part": "b",
+                        "teeth_parent": 20,
+                        "teeth_child": 40,
+                    }
+                ],
+                "drives": [{"joint_id": "mesh", "speed_rpm": 1000}],
+            }
+        )
         mid = result["mechanism_id"]
         sim_result = motion_simulate(mid, backend="chrono")
         if sim_result["ok"]:
@@ -754,19 +803,23 @@ class TestSimulate(TestMotionToolsBase):
 
     def test_simulate_driven_part_in_define(self):
         """driven_part should be accepted in mechanism definition."""
-        result = motion_define_mechanism({
-            "name": "driven_test",
-            "parts": [{"id": "a"}, {"id": "b"}, {"id": "f", "is_ground": True}],
-            "joints": [{
-                "id": "mesh",
-                "joint_type": "gear_mesh",
-                "parent_part": "a",
-                "child_part": "b",
-                "teeth_parent": 20,
-                "teeth_child": 40,
-            }],
-            "drives": [{"joint_id": "mesh", "speed_rpm": 500, "driven_part": "b"}],
-        })
+        result = motion_define_mechanism(
+            {
+                "name": "driven_test",
+                "parts": [{"id": "a"}, {"id": "b"}, {"id": "f", "is_ground": True}],
+                "joints": [
+                    {
+                        "id": "mesh",
+                        "joint_type": "gear_mesh",
+                        "parent_part": "a",
+                        "child_part": "b",
+                        "teeth_parent": 20,
+                        "teeth_child": 40,
+                    }
+                ],
+                "drives": [{"joint_id": "mesh", "speed_rpm": 500, "driven_part": "b"}],
+            }
+        )
         self.assertTrue(result["ok"])
 
 
@@ -775,17 +828,21 @@ class TestSimulateSpecValidation(TestMotionToolsBase):
 
     def test_no_drives_produces_spec_error(self):
         """A mechanism with no drives should fail spec validation (no motors)."""
-        result = motion_define_mechanism({
-            "name": "no_drives",
-            "parts": [{"id": "a"}, {"id": "f", "is_ground": True}],
-            "joints": [{
-                "id": "rev",
-                "joint_type": "revolute",
-                "parent_part": "f",
-                "child_part": "a",
-            }],
-            "drives": [],
-        })
+        result = motion_define_mechanism(
+            {
+                "name": "no_drives",
+                "parts": [{"id": "a"}, {"id": "f", "is_ground": True}],
+                "joints": [
+                    {
+                        "id": "rev",
+                        "joint_type": "revolute",
+                        "parent_part": "f",
+                        "child_part": "a",
+                    }
+                ],
+                "drives": [],
+            }
+        )
         mid = result["mechanism_id"]
         sim_result = motion_simulate(mid, backend="chrono")
         if not sim_result["ok"]:
@@ -796,19 +853,23 @@ class TestSimulateSpecValidation(TestMotionToolsBase):
 
 class TestSimulateBackendBehavior(TestMotionToolsBase):
     def _make_mechanism(self) -> str:
-        result = motion_define_mechanism({
-            "name": "backend_behavior",
-            "parts": [{"id": "a"}, {"id": "b"}, {"id": "f", "is_ground": True}],
-            "joints": [{
-                "id": "mesh",
-                "joint_type": "gear_mesh",
-                "parent_part": "a",
-                "child_part": "b",
-                "teeth_parent": 20,
-                "teeth_child": 40,
-            }],
-            "drives": [{"joint_id": "mesh", "speed_rpm": 1000}],
-        })
+        result = motion_define_mechanism(
+            {
+                "name": "backend_behavior",
+                "parts": [{"id": "a"}, {"id": "b"}, {"id": "f", "is_ground": True}],
+                "joints": [
+                    {
+                        "id": "mesh",
+                        "joint_type": "gear_mesh",
+                        "parent_part": "a",
+                        "child_part": "b",
+                        "teeth_parent": 20,
+                        "teeth_child": 40,
+                    }
+                ],
+                "drives": [{"joint_id": "mesh", "speed_rpm": 1000}],
+            }
+        )
         return result["mechanism_id"]
 
     def test_invalid_backend(self):
@@ -827,10 +888,16 @@ class TestSimulateBackendBehavior(TestMotionToolsBase):
         from unittest.mock import patch
 
         mid = self._make_mechanism()
-        with patch("server.isaac_adapter.simulate_start", return_value={
-            "ok": False,
-            "error": {"code": "ISAAC_NOT_CONNECTED", "message": "unavailable"},
-        }), patch("server.tools_motion._simulate_with_chrono") as chrono_fallback:
+        with (
+            patch(
+                "server.isaac_adapter.simulate_start",
+                return_value={
+                    "ok": False,
+                    "error": {"code": "ISAAC_NOT_CONNECTED", "message": "unavailable"},
+                },
+            ),
+            patch("server.tools_motion._simulate_with_chrono") as chrono_fallback,
+        ):
             result = motion_simulate(mid, backend="isaac")
         self.assertFalse(result["ok"])
         self.assertEqual(result["error"]["code"], "BACKEND_UNAVAILABLE_CHOOSE")
@@ -840,13 +907,16 @@ class TestSimulateBackendBehavior(TestMotionToolsBase):
         from unittest.mock import patch
 
         mid = self._make_mechanism()
-        with patch("server.isaac_adapter.simulate_start", return_value={
-            "ok": False,
-            "error": {
-                "code": "UNSUPPORTED_JOINT_TYPE",
-                "message": "Unsupported joints present",
+        with patch(
+            "server.isaac_adapter.simulate_start",
+            return_value={
+                "ok": False,
+                "error": {
+                    "code": "UNSUPPORTED_JOINT_TYPE",
+                    "message": "Unsupported joints present",
+                },
             },
-        }):
+        ):
             result = motion_simulate(mid, backend="isaac")
         self.assertFalse(result["ok"])
         self.assertEqual(result["error"]["code"], "UNSUPPORTED_JOINT_TYPE")
@@ -892,10 +962,13 @@ class TestSimulateBackendBehavior(TestMotionToolsBase):
 
         mid = self._make_mechanism()
         # Gazebo teleop is valid — but bridge is unavailable
-        with patch("server.gazebo_adapter.teleop_start", return_value={
-            "ok": False,
-            "error": {"code": "GAZEBO_NOT_CONNECTED", "message": "unavailable"},
-        }):
+        with patch(
+            "server.gazebo_adapter.teleop_start",
+            return_value={
+                "ok": False,
+                "error": {"code": "GAZEBO_NOT_CONNECTED", "message": "unavailable"},
+            },
+        ):
             result = motion_simulate(
                 mid,
                 backend="gazebo",
@@ -910,11 +983,17 @@ class TestSimulateBackendBehavior(TestMotionToolsBase):
         from unittest.mock import patch
 
         mid = self._make_mechanism()
-        with patch("server.gazebo_adapter.simulate", return_value={
-            "ok": False,
-            "error": {"code": "GAZEBO_NOT_CONNECTED", "message": "unavailable"},
-        }), patch("server.tools_motion._simulate_with_chrono") as chrono_fallback, \
-             patch("server.tools_motion._simulate_with_isaac") as isaac_fallback:
+        with (
+            patch(
+                "server.gazebo_adapter.simulate",
+                return_value={
+                    "ok": False,
+                    "error": {"code": "GAZEBO_NOT_CONNECTED", "message": "unavailable"},
+                },
+            ),
+            patch("server.tools_motion._simulate_with_chrono") as chrono_fallback,
+            patch("server.tools_motion._simulate_with_isaac") as isaac_fallback,
+        ):
             result = motion_simulate(mid, backend="gazebo", urdf_path="/tmp/robot.urdf")
         self.assertFalse(result["ok"])
         self.assertEqual(result["error"]["code"], "BACKEND_UNAVAILABLE_CHOOSE")
@@ -925,10 +1004,13 @@ class TestSimulateBackendBehavior(TestMotionToolsBase):
         from unittest.mock import patch
 
         mid = self._make_mechanism()
-        with patch("server.gazebo_adapter.simulate", return_value={
-            "ok": False,
-            "error": {"code": "GAZEBO_NOT_CONNECTED", "message": "unavailable"},
-        }):
+        with patch(
+            "server.gazebo_adapter.simulate",
+            return_value={
+                "ok": False,
+                "error": {"code": "GAZEBO_NOT_CONNECTED", "message": "unavailable"},
+            },
+        ):
             result = motion_simulate(mid, backend="gazebo", urdf_path="/tmp/robot.urdf")
         self.assertFalse(result["ok"])
         choice_backends = {entry["backend"] for entry in result.get("choices", [])}
@@ -947,10 +1029,13 @@ class TestSimulateBackendBehavior(TestMotionToolsBase):
         from unittest.mock import patch
 
         mid = self._make_mechanism()
-        with patch("server.gazebo_adapter.simulate", return_value={
-            "ok": False,
-            "error": {"code": "GAZEBO_NOT_CONNECTED", "message": "unavailable"},
-        }) as gz_sim:
+        with patch(
+            "server.gazebo_adapter.simulate",
+            return_value={
+                "ok": False,
+                "error": {"code": "GAZEBO_NOT_CONNECTED", "message": "unavailable"},
+            },
+        ) as gz_sim:
             result = motion_simulate(mid, backend="gazebo", sdf_path="/tmp/robot.sdf")
         self.assertFalse(result["ok"])
         gz_sim.assert_called_once()
@@ -965,26 +1050,39 @@ class TestSimulateBackendBehavior(TestMotionToolsBase):
         from unittest.mock import patch
 
         mid = self._make_mechanism()
-        with patch("server.isaac_adapter.simulate_start", return_value={
-            "ok": True,
-            "session_id": "sim_mock",
-            "status": "complete",
-            "target_steps": 100,
-            "steady_state_speeds": {},
-            "profile_used": {"stiffness": 0.2},
-        }) as isaac_start, patch("server.isaac_adapter.simulate_status", return_value={
-            "ok": True,
-            "status": "complete",
-            "completed_steps": 100,
-            "target_steps": 100,
-            "samples_count": 0,
-        }), patch("server.isaac_adapter.simulate_stop", return_value={
-            "ok": True,
-            "stopped": True,
-            "completed_steps": 100,
-            "target_steps": 100,
-            "samples": [],
-        }):
+        with (
+            patch(
+                "server.isaac_adapter.simulate_start",
+                return_value={
+                    "ok": True,
+                    "session_id": "sim_mock",
+                    "status": "complete",
+                    "target_steps": 100,
+                    "steady_state_speeds": {},
+                    "profile_used": {"stiffness": 0.2},
+                },
+            ) as isaac_start,
+            patch(
+                "server.isaac_adapter.simulate_status",
+                return_value={
+                    "ok": True,
+                    "status": "complete",
+                    "completed_steps": 100,
+                    "target_steps": 100,
+                    "samples_count": 0,
+                },
+            ),
+            patch(
+                "server.isaac_adapter.simulate_stop",
+                return_value={
+                    "ok": True,
+                    "stopped": True,
+                    "completed_steps": 100,
+                    "target_steps": 100,
+                    "samples": [],
+                },
+            ),
+        ):
             result = motion_simulate(mid, backend="isaac", profile={"stiffness": 0.2})
         self.assertTrue(result["ok"])
         self.assertEqual(isaac_start.call_args.kwargs.get("profile"), {"stiffness": 0.2})
@@ -992,37 +1090,58 @@ class TestSimulateBackendBehavior(TestMotionToolsBase):
 
 class TestTeleopTools(TestMotionToolsBase):
     def _make_mechanism(self) -> str:
-        result = motion_define_mechanism({
-            "name": "teleop_test",
-            "parts": [{"id": "base"}, {"id": "frame", "is_ground": True}],
-            "joints": [{
-                "id": "base_rev",
-                "joint_type": "revolute",
-                "parent_part": "frame",
-                "child_part": "base",
-            }],
-            "drives": [{"joint_id": "base_rev", "speed_rpm": 100.0}],
-        })
+        result = motion_define_mechanism(
+            {
+                "name": "teleop_test",
+                "parts": [{"id": "base"}, {"id": "frame", "is_ground": True}],
+                "joints": [
+                    {
+                        "id": "base_rev",
+                        "joint_type": "revolute",
+                        "parent_part": "frame",
+                        "child_part": "base",
+                    }
+                ],
+                "drives": [{"joint_id": "base_rev", "speed_rpm": 100.0}],
+            }
+        )
         return result["mechanism_id"]
 
     def test_teleop_lifecycle(self):
         from unittest.mock import patch
 
         mid = self._make_mechanism()
-        with patch("server.isaac_adapter.teleop_start", return_value={
-            "ok": True,
-            "session_id": "sess_1",
-            "status": "started",
-        }), patch("server.isaac_adapter.teleop_command", return_value={
-            "ok": True,
-            "applied": True,
-        }), patch("server.isaac_adapter.teleop_state", return_value={
-            "ok": True,
-            "state": {"vx_mps": 0.2},
-        }), patch("server.isaac_adapter.teleop_stop", return_value={
-            "ok": True,
-            "stopped": True,
-        }):
+        with (
+            patch(
+                "server.isaac_adapter.teleop_start",
+                return_value={
+                    "ok": True,
+                    "session_id": "sess_1",
+                    "status": "started",
+                },
+            ),
+            patch(
+                "server.isaac_adapter.teleop_command",
+                return_value={
+                    "ok": True,
+                    "applied": True,
+                },
+            ),
+            patch(
+                "server.isaac_adapter.teleop_state",
+                return_value={
+                    "ok": True,
+                    "state": {"vx_mps": 0.2},
+                },
+            ),
+            patch(
+                "server.isaac_adapter.teleop_stop",
+                return_value={
+                    "ok": True,
+                    "stopped": True,
+                },
+            ),
+        ):
             start = motion_teleop_start(mid)
             self.assertTrue(start["ok"])
             self.assertEqual(start["session_id"], "sess_1")
@@ -1042,10 +1161,13 @@ class TestTeleopTools(TestMotionToolsBase):
         from unittest.mock import patch
 
         mid = self._make_mechanism()
-        with patch("server.isaac_adapter.teleop_start", return_value={
-            "ok": True,
-            "status": "started",
-        }):
+        with patch(
+            "server.isaac_adapter.teleop_start",
+            return_value={
+                "ok": True,
+                "status": "started",
+            },
+        ):
             start = motion_teleop_start(mid)
         self.assertFalse(start["ok"])
         self.assertEqual(start["error"]["code"], "ISAAC_PROTOCOL_ERROR")
@@ -1054,18 +1176,24 @@ class TestTeleopTools(TestMotionToolsBase):
         from unittest.mock import patch
 
         mid = self._make_mechanism()
-        with patch("server.isaac_adapter.teleop_start", return_value={
-            "ok": True,
-            "session_id": "sess_evict",
-            "status": "started",
-        }):
+        with patch(
+            "server.isaac_adapter.teleop_start",
+            return_value={
+                "ok": True,
+                "session_id": "sess_evict",
+                "status": "started",
+            },
+        ):
             started = motion_teleop_start(mid)
         self.assertTrue(started["ok"])
 
-        with patch("server.isaac_adapter.teleop_command", return_value={
-            "ok": False,
-            "error": {"code": "ISAAC_UNKNOWN_SESSION", "message": "unknown session sess_evict"},
-        }):
+        with patch(
+            "server.isaac_adapter.teleop_command",
+            return_value={
+                "ok": False,
+                "error": {"code": "ISAAC_UNKNOWN_SESSION", "message": "unknown session sess_evict"},
+            },
+        ):
             cmd = motion_teleop_command("sess_evict", vx_mps=0.1)
         self.assertFalse(cmd["ok"])
         self.assertEqual(cmd["error"]["code"], "ISAAC_UNKNOWN_SESSION")
@@ -1078,17 +1206,23 @@ class TestTeleopTools(TestMotionToolsBase):
         from unittest.mock import patch
 
         mid = self._make_mechanism()
-        with patch("server.isaac_adapter.teleop_start", return_value={
-            "ok": True,
-            "session_id": "sess_stop",
-        }):
+        with patch(
+            "server.isaac_adapter.teleop_start",
+            return_value={
+                "ok": True,
+                "session_id": "sess_stop",
+            },
+        ):
             started = motion_teleop_start(mid)
         self.assertTrue(started["ok"])
 
-        with patch("server.isaac_adapter.teleop_stop", return_value={
-            "ok": False,
-            "error": {"code": "ISAAC_COMMAND_ERROR", "message": "unknown session sess_stop"},
-        }):
+        with patch(
+            "server.isaac_adapter.teleop_stop",
+            return_value={
+                "ok": False,
+                "error": {"code": "ISAAC_COMMAND_ERROR", "message": "unknown session sess_stop"},
+            },
+        ):
             stopped = motion_teleop_stop("sess_stop")
         self.assertFalse(stopped["ok"])
 
@@ -1100,10 +1234,13 @@ class TestTeleopTools(TestMotionToolsBase):
         from unittest.mock import patch
 
         mid = self._make_mechanism()
-        with patch("server.isaac_adapter.teleop_start", return_value={
-            "ok": True,
-            "session_id": "sess_sim_mode",
-        }) as teleop_start:
+        with patch(
+            "server.isaac_adapter.teleop_start",
+            return_value={
+                "ok": True,
+                "session_id": "sess_sim_mode",
+            },
+        ) as teleop_start:
             result = motion_simulate(
                 mid,
                 backend="isaac",
@@ -1122,28 +1259,49 @@ class TestTeleopTools(TestMotionToolsBase):
         from unittest.mock import patch
 
         mid = self._make_mechanism()
-        with patch("server.gazebo_adapter.teleop_start", return_value={
-            "ok": True,
-            "session_id": "gz_sess_1",
-            "status": "started",
-        }), patch("server.gazebo_adapter.teleop_command", return_value={
-            "ok": True,
-            "applied": True,
-        }), patch("server.gazebo_adapter.teleop_state", return_value={
-            "ok": True,
-            "state": {"vx_mps": 0.2, "vy_mps": 0.1, "vz_mps": 0.0},
-        }), patch("server.gazebo_adapter.teleop_stop", return_value={
-            "ok": True,
-            "stopped": True,
-        }):
+        with (
+            patch(
+                "server.gazebo_adapter.teleop_start",
+                return_value={
+                    "ok": True,
+                    "session_id": "gz_sess_1",
+                    "status": "started",
+                },
+            ),
+            patch(
+                "server.gazebo_adapter.teleop_command",
+                return_value={
+                    "ok": True,
+                    "applied": True,
+                },
+            ),
+            patch(
+                "server.gazebo_adapter.teleop_state",
+                return_value={
+                    "ok": True,
+                    "state": {"vx_mps": 0.2, "vy_mps": 0.1, "vz_mps": 0.0},
+                },
+            ),
+            patch(
+                "server.gazebo_adapter.teleop_stop",
+                return_value={
+                    "ok": True,
+                    "stopped": True,
+                },
+            ),
+        ):
             start = motion_teleop_start(mid, backend="gazebo", urdf_path="/tmp/robot.urdf")
             self.assertTrue(start["ok"])
             self.assertEqual(start["session_id"], "gz_sess_1")
             self.assertEqual(start["backend_used"], "gazebo")
 
             cmd = motion_teleop_command(
-                "gz_sess_1", vx_mps=0.2, yaw_rate_rps=0.1,
-                body_height_m=0.0, vy_mps=0.1, vz_mps=0.0,
+                "gz_sess_1",
+                vx_mps=0.2,
+                yaw_rate_rps=0.1,
+                body_height_m=0.0,
+                vy_mps=0.1,
+                vz_mps=0.0,
             )
             self.assertTrue(cmd["ok"])
             self.assertEqual(cmd["backend_used"], "gazebo")
@@ -1158,11 +1316,14 @@ class TestTeleopTools(TestMotionToolsBase):
         from unittest.mock import patch
 
         mid = self._make_mechanism()
-        with patch("server.isaac_adapter.teleop_start", return_value={
-            "ok": True,
-            "session_id": "sess_vy",
-            "status": "started",
-        }):
+        with patch(
+            "server.isaac_adapter.teleop_start",
+            return_value={
+                "ok": True,
+                "session_id": "sess_vy",
+                "status": "started",
+            },
+        ):
             motion_teleop_start(mid, backend="isaac")
 
         result = motion_teleop_command("sess_vy", vx_mps=0.0, vy_mps=0.5)
@@ -1173,11 +1334,14 @@ class TestTeleopTools(TestMotionToolsBase):
         from unittest.mock import patch
 
         mid = self._make_mechanism()
-        with patch("server.isaac_adapter.teleop_start", return_value={
-            "ok": True,
-            "session_id": "sess_vz",
-            "status": "started",
-        }):
+        with patch(
+            "server.isaac_adapter.teleop_start",
+            return_value={
+                "ok": True,
+                "session_id": "sess_vz",
+                "status": "started",
+            },
+        ):
             motion_teleop_start(mid, backend="isaac")
 
         result = motion_teleop_command("sess_vz", vz_mps=0.3)
@@ -1188,19 +1352,28 @@ class TestTeleopTools(TestMotionToolsBase):
         from unittest.mock import patch
 
         mid = self._make_mechanism()
-        with patch("server.gazebo_adapter.teleop_start", return_value={
-            "ok": True,
-            "session_id": "gz_vy_vz",
-            "status": "started",
-        }):
+        with patch(
+            "server.gazebo_adapter.teleop_start",
+            return_value={
+                "ok": True,
+                "session_id": "gz_vy_vz",
+                "status": "started",
+            },
+        ):
             motion_teleop_start(mid, backend="gazebo", urdf_path="/tmp/robot.urdf")
 
-        with patch("server.gazebo_adapter.teleop_command", return_value={
-            "ok": True,
-            "applied": True,
-        }) as gz_cmd:
+        with patch(
+            "server.gazebo_adapter.teleop_command",
+            return_value={
+                "ok": True,
+                "applied": True,
+            },
+        ) as gz_cmd:
             result = motion_teleop_command(
-                "gz_vy_vz", vx_mps=0.1, vy_mps=0.5, vz_mps=0.3,
+                "gz_vy_vz",
+                vx_mps=0.1,
+                vy_mps=0.5,
+                vz_mps=0.3,
             )
         self.assertTrue(result["ok"])
         gz_cmd.assert_called_once()
@@ -1213,18 +1386,27 @@ class TestTeleopTools(TestMotionToolsBase):
         from unittest.mock import patch
 
         mid = self._make_mechanism()
-        with patch("server.gazebo_adapter.teleop_start", return_value={
-            "ok": True,
-            "session_id": "gz_route",
-            "status": "started",
-        }):
+        with patch(
+            "server.gazebo_adapter.teleop_start",
+            return_value={
+                "ok": True,
+                "session_id": "gz_route",
+                "status": "started",
+            },
+        ):
             motion_teleop_start(mid, backend="gazebo", urdf_path="/tmp/robot.urdf")
 
         # Verify state routes to gazebo, not isaac
-        with patch("server.gazebo_adapter.teleop_state", return_value={
-            "ok": True,
-            "state": {"vx_mps": 0.0},
-        }) as gz_state, patch("server.isaac_adapter.teleop_state") as isaac_state:
+        with (
+            patch(
+                "server.gazebo_adapter.teleop_state",
+                return_value={
+                    "ok": True,
+                    "state": {"vx_mps": 0.0},
+                },
+            ) as gz_state,
+            patch("server.isaac_adapter.teleop_state") as isaac_state,
+        ):
             motion_teleop_state("gz_route")
         gz_state.assert_called_once()
         isaac_state.assert_not_called()
@@ -1232,6 +1414,7 @@ class TestTeleopTools(TestMotionToolsBase):
     def test_unknown_session_backend_returns_not_found(self):
         """A session with an unrecognized backend should return NOT_FOUND."""
         from server.tools_motion import _active_sessions
+
         _active_sessions["bad_backend_sess"] = {
             "mechanism_id": "m1",
             "backend": "nonexistent",
@@ -1246,20 +1429,30 @@ class TestTeleopTools(TestMotionToolsBase):
         from unittest.mock import patch
 
         mid = self._make_mechanism()
-        with patch("server.isaac_adapter.teleop_start", return_value={
-            "ok": True,
-            "session_id": "sess_compat",
-            "status": "started",
-        }):
+        with patch(
+            "server.isaac_adapter.teleop_start",
+            return_value={
+                "ok": True,
+                "session_id": "sess_compat",
+                "status": "started",
+            },
+        ):
             motion_teleop_start(mid, backend="isaac")
 
-        with patch("server.isaac_adapter.teleop_command", return_value={
-            "ok": True,
-            "applied": True,
-        }) as isaac_cmd:
+        with patch(
+            "server.isaac_adapter.teleop_command",
+            return_value={
+                "ok": True,
+                "applied": True,
+            },
+        ) as isaac_cmd:
             result = motion_teleop_command(
-                "sess_compat", vx_mps=0.2, yaw_rate_rps=0.1,
-                body_height_m=0.0, vy_mps=0.0, vz_mps=0.0,
+                "sess_compat",
+                vx_mps=0.2,
+                yaw_rate_rps=0.1,
+                body_height_m=0.0,
+                vy_mps=0.0,
+                vz_mps=0.0,
             )
         self.assertTrue(result["ok"])
         isaac_cmd.assert_called_once()
@@ -1286,12 +1479,15 @@ class TestTeleopTools(TestMotionToolsBase):
         from unittest.mock import patch
 
         mid = self._make_mechanism()
-        with patch("server.gazebo_adapter.teleop_start", return_value={
-            "ok": True,
-            "session_id": "gz_px4",
-            "status": "started",
-            "controller_type": "px4_offboard",
-        }) as gz_start:
+        with patch(
+            "server.gazebo_adapter.teleop_start",
+            return_value={
+                "ok": True,
+                "session_id": "gz_px4",
+                "status": "started",
+                "controller_type": "px4_offboard",
+            },
+        ) as gz_start:
             result = motion_teleop_start(
                 mid,
                 backend="gazebo",
@@ -1315,12 +1511,12 @@ class TestBuildProfileFromMechanism(unittest.TestCase):
         # 6 legs: LF, LM, LR, RF, RM, RR
         # Each leg has coxa, femur, tibia joints
         hip_positions = [
-            (70.0, 75.0),   # LF
-            (0.0, 75.0),    # LM
+            (70.0, 75.0),  # LF
+            (0.0, 75.0),  # LM
             (-70.0, 75.0),  # LR
             (70.0, -75.0),  # RF
-            (0.0, -75.0),   # RM
-            (-70.0, -75.0), # RR
+            (0.0, -75.0),  # RM
+            (-70.0, -75.0),  # RR
         ]
         leg_names = ["lf", "lm", "lr", "rf", "rm", "rr"]
 
@@ -1334,33 +1530,42 @@ class TestBuildProfileFromMechanism(unittest.TestCase):
             parts.append(PartNode(id=f"femur_seg_{leg}"))
             parts.append(PartNode(id=f"tibia_seg_{leg}"))
 
-            joints.append(JointEdge(
-                id=coxa_id,
-                joint_type=JointType.REVOLUTE,
-                parent_part="chassis",
-                child_part=f"coxa_seg_{leg}",
-                axis=(0.0, 0.0, 1.0),
-                origin=(hx, hy, 0.0),
-                min_angle_deg=-45.0, max_angle_deg=45.0,
-            ))
-            joints.append(JointEdge(
-                id=femur_id,
-                joint_type=JointType.REVOLUTE,
-                parent_part=f"coxa_seg_{leg}",
-                child_part=f"femur_seg_{leg}",
-                axis=(0.0, 1.0, 0.0),
-                origin=(hx + 52.0, hy, 0.0),
-                min_angle_deg=-90.0, max_angle_deg=90.0,
-            ))
-            joints.append(JointEdge(
-                id=tibia_id,
-                joint_type=JointType.REVOLUTE,
-                parent_part=f"femur_seg_{leg}",
-                child_part=f"tibia_seg_{leg}",
-                axis=(0.0, 1.0, 0.0),
-                origin=(hx + 52.0 + 66.0, hy, 0.0),
-                min_angle_deg=-120.0, max_angle_deg=0.0,
-            ))
+            joints.append(
+                JointEdge(
+                    id=coxa_id,
+                    joint_type=JointType.REVOLUTE,
+                    parent_part="chassis",
+                    child_part=f"coxa_seg_{leg}",
+                    axis=(0.0, 0.0, 1.0),
+                    origin=(hx, hy, 0.0),
+                    min_angle_deg=-45.0,
+                    max_angle_deg=45.0,
+                )
+            )
+            joints.append(
+                JointEdge(
+                    id=femur_id,
+                    joint_type=JointType.REVOLUTE,
+                    parent_part=f"coxa_seg_{leg}",
+                    child_part=f"femur_seg_{leg}",
+                    axis=(0.0, 1.0, 0.0),
+                    origin=(hx + 52.0, hy, 0.0),
+                    min_angle_deg=-90.0,
+                    max_angle_deg=90.0,
+                )
+            )
+            joints.append(
+                JointEdge(
+                    id=tibia_id,
+                    joint_type=JointType.REVOLUTE,
+                    parent_part=f"femur_seg_{leg}",
+                    child_part=f"tibia_seg_{leg}",
+                    axis=(0.0, 1.0, 0.0),
+                    origin=(hx + 52.0 + 66.0, hy, 0.0),
+                    min_angle_deg=-120.0,
+                    max_angle_deg=0.0,
+                )
+            )
 
         return Mechanism(
             name="hexapod_18dof",
@@ -1442,12 +1647,12 @@ class TestBuildProfileFromMechanism(unittest.TestCase):
 
         # Shuffled order: RF, LR, RM, LF, RR, LM
         hip_positions = [
-            (70.0, -75.0),   # RF
-            (-70.0, 75.0),   # LR
-            (0.0, -75.0),    # RM
-            (70.0, 75.0),    # LF
+            (70.0, -75.0),  # RF
+            (-70.0, 75.0),  # LR
+            (0.0, -75.0),  # RM
+            (70.0, 75.0),  # LF
             (-70.0, -75.0),  # RR
-            (0.0, 75.0),     # LM
+            (0.0, 75.0),  # LM
         ]
         leg_names = ["rf", "lr", "rm", "lf", "rr", "lm"]
 
@@ -1457,33 +1662,42 @@ class TestBuildProfileFromMechanism(unittest.TestCase):
             parts.append(PartNode(id=f"femur_seg_{leg}"))
             parts.append(PartNode(id=f"tibia_seg_{leg}"))
 
-            joints.append(JointEdge(
-                id=f"coxa_{leg}",
-                joint_type=JointType.REVOLUTE,
-                parent_part="chassis",
-                child_part=f"coxa_seg_{leg}",
-                axis=(0.0, 0.0, 1.0),
-                origin=(hx, hy, 0.0),
-                min_angle_deg=-45.0, max_angle_deg=45.0,
-            ))
-            joints.append(JointEdge(
-                id=f"femur_{leg}",
-                joint_type=JointType.REVOLUTE,
-                parent_part=f"coxa_seg_{leg}",
-                child_part=f"femur_seg_{leg}",
-                axis=(0.0, 1.0, 0.0),
-                origin=(hx + 52.0, hy, 0.0),
-                min_angle_deg=-90.0, max_angle_deg=90.0,
-            ))
-            joints.append(JointEdge(
-                id=f"tibia_{leg}",
-                joint_type=JointType.REVOLUTE,
-                parent_part=f"femur_seg_{leg}",
-                child_part=f"tibia_seg_{leg}",
-                axis=(0.0, 1.0, 0.0),
-                origin=(hx + 52.0 + 66.0, hy, 0.0),
-                min_angle_deg=-120.0, max_angle_deg=0.0,
-            ))
+            joints.append(
+                JointEdge(
+                    id=f"coxa_{leg}",
+                    joint_type=JointType.REVOLUTE,
+                    parent_part="chassis",
+                    child_part=f"coxa_seg_{leg}",
+                    axis=(0.0, 0.0, 1.0),
+                    origin=(hx, hy, 0.0),
+                    min_angle_deg=-45.0,
+                    max_angle_deg=45.0,
+                )
+            )
+            joints.append(
+                JointEdge(
+                    id=f"femur_{leg}",
+                    joint_type=JointType.REVOLUTE,
+                    parent_part=f"coxa_seg_{leg}",
+                    child_part=f"femur_seg_{leg}",
+                    axis=(0.0, 1.0, 0.0),
+                    origin=(hx + 52.0, hy, 0.0),
+                    min_angle_deg=-90.0,
+                    max_angle_deg=90.0,
+                )
+            )
+            joints.append(
+                JointEdge(
+                    id=f"tibia_{leg}",
+                    joint_type=JointType.REVOLUTE,
+                    parent_part=f"femur_seg_{leg}",
+                    child_part=f"tibia_seg_{leg}",
+                    axis=(0.0, 1.0, 0.0),
+                    origin=(hx + 52.0 + 66.0, hy, 0.0),
+                    min_angle_deg=-120.0,
+                    max_angle_deg=0.0,
+                )
+            )
 
         return Mechanism(
             name="hexapod_18dof_shuffled",
@@ -1504,13 +1718,14 @@ class TestBuildProfileFromMechanism(unittest.TestCase):
 
         # Expected canonical order: LF, LM, LR, RF, RM, RR
         expected_first_joints = [
-            "coxa_lf", "coxa_lm", "coxa_lr",
-            "coxa_rf", "coxa_rm", "coxa_rr",
+            "coxa_lf",
+            "coxa_lm",
+            "coxa_lr",
+            "coxa_rf",
+            "coxa_rm",
+            "coxa_rr",
         ]
-        actual_first_joints = [
-            profile["leg_joint_names"][i * 3]
-            for i in range(6)
-        ]
+        actual_first_joints = [profile["leg_joint_names"][i * 3] for i in range(6)]
         self.assertEqual(actual_first_joints, expected_first_joints)
 
         # Verify hip mount positions match canonical order
@@ -1540,8 +1755,15 @@ class TestBuildProfileFromMechanism(unittest.TestCase):
         shuffled = _build_profile_from_mechanism(self._make_hexapod_18dof_shuffled())
 
         # Core profile keys must match exactly
-        for key in ("dofs_per_leg", "controller_type", "leg_phase_offsets",
-                     "l_coxa", "l_femur", "body_length", "body_width"):
+        for key in (
+            "dofs_per_leg",
+            "controller_type",
+            "leg_phase_offsets",
+            "l_coxa",
+            "l_femur",
+            "body_length",
+            "body_width",
+        ):
             self.assertEqual(canonical[key], shuffled[key], f"mismatch on {key}")
 
         # Joint name order must match
@@ -1616,9 +1838,7 @@ class TestGearMeshPhasing(TestMotionToolsBase):
                     origin=origin_b,
                 ),
             ),
-            drives=(
-                DriveCondition(joint_id="mesh_ab", speed_rpm=100),
-            ),
+            drives=(DriveCondition(joint_id="mesh_ab", speed_rpm=100),),
         )
 
     def test_compute_gear_mesh_phases_simple_pair(self):
@@ -1643,7 +1863,8 @@ class TestGearMeshPhasing(TestMotionToolsBase):
         ox = d * math.cos(math.radians(45))
         oy = d * math.sin(math.radians(45))
         mech = self._simple_pair_mech(
-            z_a=16, z_b=32,
+            z_a=16,
+            z_b=32,
             origin_b=(ox, oy, 0.0),
         )
         phases = compute_gear_mesh_phases(mech)
@@ -1666,34 +1887,44 @@ class TestGearMeshPhasing(TestMotionToolsBase):
             ),
             joints=(
                 JointEdge(
-                    id="mesh_ab", joint_type=JointType.GEAR_MESH,
-                    parent_part="ga", child_part="gb",
-                    teeth_parent=16, teeth_child=32,
+                    id="mesh_ab",
+                    joint_type=JointType.GEAR_MESH,
+                    parent_part="ga",
+                    child_part="gb",
+                    teeth_parent=16,
+                    teeth_child=32,
                 ),
                 JointEdge(
-                    id="mesh_bc", joint_type=JointType.GEAR_MESH,
-                    parent_part="gb", child_part="gc",
-                    teeth_parent=32, teeth_child=24,
+                    id="mesh_bc",
+                    joint_type=JointType.GEAR_MESH,
+                    parent_part="gb",
+                    child_part="gc",
+                    teeth_parent=32,
+                    teeth_child=24,
                 ),
                 JointEdge(
-                    id="rev_a", joint_type=JointType.REVOLUTE,
-                    parent_part="frame", child_part="ga",
+                    id="rev_a",
+                    joint_type=JointType.REVOLUTE,
+                    parent_part="frame",
+                    child_part="ga",
                     origin=(0.0, 0.0, 0.0),
                 ),
                 JointEdge(
-                    id="rev_b", joint_type=JointType.REVOLUTE,
-                    parent_part="frame", child_part="gb",
+                    id="rev_b",
+                    joint_type=JointType.REVOLUTE,
+                    parent_part="frame",
+                    child_part="gb",
                     origin=(24.0, 0.0, 0.0),
                 ),
                 JointEdge(
-                    id="rev_c", joint_type=JointType.REVOLUTE,
-                    parent_part="frame", child_part="gc",
+                    id="rev_c",
+                    joint_type=JointType.REVOLUTE,
+                    parent_part="frame",
+                    child_part="gc",
                     origin=(52.0, 0.0, 0.0),
                 ),
             ),
-            drives=(
-                DriveCondition(joint_id="mesh_ab", speed_rpm=100),
-            ),
+            drives=(DriveCondition(joint_id="mesh_ab", speed_rpm=100),),
         )
         phases = compute_gear_mesh_phases(mech)
 
@@ -1707,33 +1938,32 @@ class TestGearMeshPhasing(TestMotionToolsBase):
     def test_mesh_phasing_validator(self):
         """Run the mesh_phasing validator, check measured data."""
         mech = self._simple_pair_mech()
-        result = motion_define_mechanism({
-            "name": mech.name,
-            "parts": [p.to_dict() for p in mech.parts],
-            "joints": [
-                {
-                    "id": j.id,
-                    "joint_type": j.joint_type.value,
-                    "parent_part": j.parent_part,
-                    "child_part": j.child_part,
-                    "teeth_parent": j.teeth_parent,
-                    "teeth_child": j.teeth_child,
-                    "origin": list(j.origin),
-                }
-                for j in mech.joints
-            ],
-            "drives": [{"joint_id": d.joint_id, "speed_rpm": d.speed_rpm} for d in mech.drives],
-        })
+        result = motion_define_mechanism(
+            {
+                "name": mech.name,
+                "parts": [p.to_dict() for p in mech.parts],
+                "joints": [
+                    {
+                        "id": j.id,
+                        "joint_type": j.joint_type.value,
+                        "parent_part": j.parent_part,
+                        "child_part": j.child_part,
+                        "teeth_parent": j.teeth_parent,
+                        "teeth_child": j.teeth_child,
+                        "origin": list(j.origin),
+                    }
+                    for j in mech.joints
+                ],
+                "drives": [{"joint_id": d.joint_id, "speed_rpm": d.speed_rpm} for d in mech.drives],
+            }
+        )
         self.assertTrue(result["ok"])
         mech_id = result["mechanism_id"]
 
         val_result = motion_validate(mechanism_id=mech_id)
         self.assertTrue(val_result["ok"])
 
-        phasing_results = [
-            r for r in val_result["results"]
-            if r["name"] == "mesh_phasing"
-        ]
+        phasing_results = [r for r in val_result["results"] if r["name"] == "mesh_phasing"]
         self.assertEqual(len(phasing_results), 1)
         pr = phasing_results[0]
         self.assertEqual(pr["status"], "pass")
@@ -1743,23 +1973,25 @@ class TestGearMeshPhasing(TestMotionToolsBase):
     def test_check_gear_train_includes_phases(self):
         """motion.check_gear_train should include phase_offsets_deg."""
         mech = self._simple_pair_mech()
-        result = motion_define_mechanism({
-            "name": mech.name,
-            "parts": [p.to_dict() for p in mech.parts],
-            "joints": [
-                {
-                    "id": j.id,
-                    "joint_type": j.joint_type.value,
-                    "parent_part": j.parent_part,
-                    "child_part": j.child_part,
-                    "teeth_parent": j.teeth_parent,
-                    "teeth_child": j.teeth_child,
-                    "origin": list(j.origin),
-                }
-                for j in mech.joints
-            ],
-            "drives": [{"joint_id": d.joint_id, "speed_rpm": d.speed_rpm} for d in mech.drives],
-        })
+        result = motion_define_mechanism(
+            {
+                "name": mech.name,
+                "parts": [p.to_dict() for p in mech.parts],
+                "joints": [
+                    {
+                        "id": j.id,
+                        "joint_type": j.joint_type.value,
+                        "parent_part": j.parent_part,
+                        "child_part": j.child_part,
+                        "teeth_parent": j.teeth_parent,
+                        "teeth_child": j.teeth_child,
+                        "origin": list(j.origin),
+                    }
+                    for j in mech.joints
+                ],
+                "drives": [{"joint_id": d.joint_id, "speed_rpm": d.speed_rpm} for d in mech.drives],
+            }
+        )
         self.assertTrue(result["ok"])
         mech_id = result["mechanism_id"]
 
@@ -1767,7 +1999,9 @@ class TestGearMeshPhasing(TestMotionToolsBase):
         self.assertTrue(gt_result["ok"])
         self.assertIn("phase_offsets_deg", gt_result)
         self.assertAlmostEqual(
-            gt_result["phase_offsets_deg"]["gear_b"], 5.625, places=3,
+            gt_result["phase_offsets_deg"]["gear_b"],
+            5.625,
+            places=3,
         )
         # Geometric interference check should be included
         self.assertIn("tooth_interference", gt_result)
@@ -1786,13 +2020,13 @@ class TestGearMeshPhasing(TestMotionToolsBase):
             ),
             joints=(
                 JointEdge(
-                    id="rev_a", joint_type=JointType.REVOLUTE,
-                    parent_part="frame", child_part="a",
+                    id="rev_a",
+                    joint_type=JointType.REVOLUTE,
+                    parent_part="frame",
+                    child_part="a",
                 ),
             ),
-            drives=(
-                DriveCondition(joint_id="rev_a", speed_rpm=100),
-            ),
+            drives=(DriveCondition(joint_id="rev_a", speed_rpm=100),),
         )
         phases = compute_gear_mesh_phases(mech)
         self.assertEqual(phases, {})
@@ -1833,34 +2067,44 @@ class TestGearMeshPhasing(TestMotionToolsBase):
             ),
             joints=(
                 JointEdge(
-                    id="mesh_ab", joint_type=JointType.GEAR_MESH,
-                    parent_part="ga", child_part="gb",
-                    teeth_parent=16, teeth_child=32,
+                    id="mesh_ab",
+                    joint_type=JointType.GEAR_MESH,
+                    parent_part="ga",
+                    child_part="gb",
+                    teeth_parent=16,
+                    teeth_child=32,
                 ),
                 JointEdge(
-                    id="mesh_bc", joint_type=JointType.GEAR_MESH,
-                    parent_part="gb", child_part="gc",
-                    teeth_parent=32, teeth_child=24,
+                    id="mesh_bc",
+                    joint_type=JointType.GEAR_MESH,
+                    parent_part="gb",
+                    child_part="gc",
+                    teeth_parent=32,
+                    teeth_child=24,
                 ),
                 JointEdge(
-                    id="rev_a", joint_type=JointType.REVOLUTE,
-                    parent_part="frame", child_part="ga",
+                    id="rev_a",
+                    joint_type=JointType.REVOLUTE,
+                    parent_part="frame",
+                    child_part="ga",
                     origin=(0.0, 0.0, 0.0),
                 ),
                 JointEdge(
-                    id="rev_b", joint_type=JointType.REVOLUTE,
-                    parent_part="frame", child_part="gb",
+                    id="rev_b",
+                    joint_type=JointType.REVOLUTE,
+                    parent_part="frame",
+                    child_part="gb",
                     origin=(24.0, 0.0, 0.0),
                 ),
                 JointEdge(
-                    id="rev_c", joint_type=JointType.REVOLUTE,
-                    parent_part="frame", child_part="gc",
+                    id="rev_c",
+                    joint_type=JointType.REVOLUTE,
+                    parent_part="frame",
+                    child_part="gc",
                     origin=(52.0, 0.0, 0.0),
                 ),
             ),
-            drives=(
-                DriveCondition(joint_id="mesh_ab", speed_rpm=100),
-            ),
+            drives=(DriveCondition(joint_id="mesh_ab", speed_rpm=100),),
         )
         ratios = compute_gear_animation_ratios(mech)
 
@@ -1925,9 +2169,7 @@ class TestToothInterference(TestMotionToolsBase):
                     origin=origin_b,
                 ),
             ),
-            drives=(
-                DriveCondition(joint_id="mesh_ab", speed_rpm=100),
-            ),
+            drives=(DriveCondition(joint_id="mesh_ab", speed_rpm=100),),
         )
 
     def test_computed_phases_pass_interference_check(self):
@@ -2011,34 +2253,44 @@ class TestToothInterference(TestMotionToolsBase):
             ),
             joints=(
                 JointEdge(
-                    id="mesh_ab", joint_type=JointType.GEAR_MESH,
-                    parent_part="ga", child_part="gb",
-                    teeth_parent=16, teeth_child=32,
+                    id="mesh_ab",
+                    joint_type=JointType.GEAR_MESH,
+                    parent_part="ga",
+                    child_part="gb",
+                    teeth_parent=16,
+                    teeth_child=32,
                 ),
                 JointEdge(
-                    id="mesh_bc", joint_type=JointType.GEAR_MESH,
-                    parent_part="gb", child_part="gc",
-                    teeth_parent=32, teeth_child=24,
+                    id="mesh_bc",
+                    joint_type=JointType.GEAR_MESH,
+                    parent_part="gb",
+                    child_part="gc",
+                    teeth_parent=32,
+                    teeth_child=24,
                 ),
                 JointEdge(
-                    id="rev_a", joint_type=JointType.REVOLUTE,
-                    parent_part="frame", child_part="ga",
+                    id="rev_a",
+                    joint_type=JointType.REVOLUTE,
+                    parent_part="frame",
+                    child_part="ga",
                     origin=(0.0, 0.0, 0.0),
                 ),
                 JointEdge(
-                    id="rev_b", joint_type=JointType.REVOLUTE,
-                    parent_part="frame", child_part="gb",
+                    id="rev_b",
+                    joint_type=JointType.REVOLUTE,
+                    parent_part="frame",
+                    child_part="gb",
                     origin=(24.0, 0.0, 0.0),
                 ),
                 JointEdge(
-                    id="rev_c", joint_type=JointType.REVOLUTE,
-                    parent_part="frame", child_part="gc",
+                    id="rev_c",
+                    joint_type=JointType.REVOLUTE,
+                    parent_part="frame",
+                    child_part="gc",
                     origin=(52.0, 0.0, 0.0),
                 ),
             ),
-            drives=(
-                DriveCondition(joint_id="mesh_ab", speed_rpm=100),
-            ),
+            drives=(DriveCondition(joint_id="mesh_ab", speed_rpm=100),),
         )
         phases = compute_gear_mesh_phases(mech)
         results = check_tooth_interference(mech, phases)
@@ -2050,32 +2302,31 @@ class TestToothInterference(TestMotionToolsBase):
     def test_validator_reports_interference_info(self):
         """mesh_phasing validator should include tooth_interference in measured."""
         mech = self._simple_pair_mech()
-        result = motion_define_mechanism({
-            "name": mech.name,
-            "parts": [p.to_dict() for p in mech.parts],
-            "joints": [
-                {
-                    "id": j.id,
-                    "joint_type": j.joint_type.value,
-                    "parent_part": j.parent_part,
-                    "child_part": j.child_part,
-                    "teeth_parent": j.teeth_parent,
-                    "teeth_child": j.teeth_child,
-                    "origin": list(j.origin),
-                }
-                for j in mech.joints
-            ],
-            "drives": [{"joint_id": d.joint_id, "speed_rpm": d.speed_rpm} for d in mech.drives],
-        })
+        result = motion_define_mechanism(
+            {
+                "name": mech.name,
+                "parts": [p.to_dict() for p in mech.parts],
+                "joints": [
+                    {
+                        "id": j.id,
+                        "joint_type": j.joint_type.value,
+                        "parent_part": j.parent_part,
+                        "child_part": j.child_part,
+                        "teeth_parent": j.teeth_parent,
+                        "teeth_child": j.teeth_child,
+                        "origin": list(j.origin),
+                    }
+                    for j in mech.joints
+                ],
+                "drives": [{"joint_id": d.joint_id, "speed_rpm": d.speed_rpm} for d in mech.drives],
+            }
+        )
         self.assertTrue(result["ok"])
 
         val_result = motion_validate(mechanism_id=result["mechanism_id"])
         self.assertTrue(val_result["ok"])
 
-        phasing_results = [
-            r for r in val_result["results"]
-            if r["name"] == "mesh_phasing"
-        ]
+        phasing_results = [r for r in val_result["results"] if r["name"] == "mesh_phasing"]
         self.assertEqual(len(phasing_results), 1)
         pr = phasing_results[0]
         self.assertEqual(pr["status"], "pass")
@@ -2105,35 +2356,37 @@ class TestDriveJointCheckCollisions(TestMotionToolsBase):
     """Tests for the check_collisions parameter on motion_drive_joint."""
 
     def _make_gear_pair(self) -> str:
-        result = motion_define_mechanism({
-            "name": "collision_test",
-            "parts": [
-                {"id": "frame", "body_name": "Body_Frame", "is_ground": True},
-                {"id": "gear_a", "body_name": "Body_A"},
-                {"id": "gear_b", "body_name": "Body_B"},
-            ],
-            "joints": [
-                {
-                    "id": "rev_a",
-                    "joint_type": "revolute",
-                    "parent_part": "frame",
-                    "child_part": "gear_a",
-                    "origin": [0.0, 0.0, 0.0],
-                    "axis": [0.0, 0.0, 1.0],
-                },
-                {
-                    "id": "mesh_ab",
-                    "joint_type": "gear_mesh",
-                    "parent_part": "gear_a",
-                    "child_part": "gear_b",
-                    "teeth_parent": 16,
-                    "teeth_child": 32,
-                    "origin": [24.0, 0.0, 0.0],
-                    "axis": [0.0, 0.0, 1.0],
-                },
-            ],
-            "drives": [{"joint_id": "rev_a", "speed_rpm": 60}],
-        })
+        result = motion_define_mechanism(
+            {
+                "name": "collision_test",
+                "parts": [
+                    {"id": "frame", "body_name": "Body_Frame", "is_ground": True},
+                    {"id": "gear_a", "body_name": "Body_A"},
+                    {"id": "gear_b", "body_name": "Body_B"},
+                ],
+                "joints": [
+                    {
+                        "id": "rev_a",
+                        "joint_type": "revolute",
+                        "parent_part": "frame",
+                        "child_part": "gear_a",
+                        "origin": [0.0, 0.0, 0.0],
+                        "axis": [0.0, 0.0, 1.0],
+                    },
+                    {
+                        "id": "mesh_ab",
+                        "joint_type": "gear_mesh",
+                        "parent_part": "gear_a",
+                        "child_part": "gear_b",
+                        "teeth_parent": 16,
+                        "teeth_child": 32,
+                        "origin": [24.0, 0.0, 0.0],
+                        "axis": [0.0, 0.0, 1.0],
+                    },
+                ],
+                "drives": [{"joint_id": "rev_a", "speed_rpm": 60}],
+            }
+        )
         return result["mechanism_id"]
 
     def test_check_collisions_no_collisions(self):
@@ -2186,12 +2439,14 @@ class TestDriveJointCheckCollisions(TestMotionToolsBase):
                 call_count += 1
                 # Simulate collision on every step
                 return {
-                    "violations": [{
-                        "body_a": "Body_A",
-                        "body_b": "Body_B",
-                        "distance_mm": 0.0,
-                        "intersecting": True,
-                    }],
+                    "violations": [
+                        {
+                            "body_a": "Body_A",
+                            "body_b": "Body_B",
+                            "distance_mm": 0.0,
+                            "intersecting": True,
+                        }
+                    ],
                     "all_clear": False,
                 }
             return {"applied": ["Link_A", "Link_B"]}
@@ -2270,16 +2525,18 @@ class TestCreateAssemblyEmptyWarning(TestMotionToolsBase):
         """Parts without body_name → link_map empty but no warning (expected_parts=0)."""
         from unittest.mock import MagicMock, patch
 
-        result = motion_define_mechanism({
-            "name": "no_bodies",
-            "parts": [
-                {"id": "frame", "is_ground": True},
-                {"id": "gear_a"},  # no body_name
-                {"id": "gear_b"},  # no body_name
-            ],
-            "joints": [],
-            "drives": [],
-        })
+        result = motion_define_mechanism(
+            {
+                "name": "no_bodies",
+                "parts": [
+                    {"id": "frame", "is_ground": True},
+                    {"id": "gear_a"},  # no body_name
+                    {"id": "gear_b"},  # no body_name
+                ],
+                "joints": [],
+                "drives": [],
+            }
+        )
         mid = result["mechanism_id"]
 
         mock_client = MagicMock()
@@ -2310,15 +2567,17 @@ class TestCreateAssemblyEmptyWarning(TestMotionToolsBase):
         """
         from unittest.mock import MagicMock, patch
 
-        result = motion_define_mechanism({
-            "name": "ground_only",
-            "parts": [
-                {"id": "frame", "body_name": "Body_Frame", "is_ground": True},
-                {"id": "gear_a"},  # no body_name, not ground
-            ],
-            "joints": [],
-            "drives": [],
-        })
+        result = motion_define_mechanism(
+            {
+                "name": "ground_only",
+                "parts": [
+                    {"id": "frame", "body_name": "Body_Frame", "is_ground": True},
+                    {"id": "gear_a"},  # no body_name, not ground
+                ],
+                "joints": [],
+                "drives": [],
+            }
+        )
         mid = result["mechanism_id"]
 
         mock_client = MagicMock()
@@ -2346,15 +2605,17 @@ class TestCreateAssemblyEmptyWarning(TestMotionToolsBase):
         """Parts successfully linked → no empty assembly warning."""
         from unittest.mock import MagicMock, patch
 
-        result = motion_define_mechanism({
-            "name": "linked_ok",
-            "parts": [
-                {"id": "frame", "is_ground": True},
-                {"id": "gear_a", "body_name": "Body_A"},
-            ],
-            "joints": [],
-            "drives": [],
-        })
+        result = motion_define_mechanism(
+            {
+                "name": "linked_ok",
+                "parts": [
+                    {"id": "frame", "is_ground": True},
+                    {"id": "gear_a", "body_name": "Body_A"},
+                ],
+                "joints": [],
+                "drives": [],
+            }
+        )
         mid = result["mechanism_id"]
 
         mock_client = MagicMock()
@@ -2384,43 +2645,45 @@ class TestGearAnimationRatiosWithGround(TestMotionToolsBase):
 
     def _make_16_32_mech(self) -> str:
         """16T/32T gear pair with drive on frame→gear_16t revolute."""
-        result = motion_define_mechanism({
-            "name": "gear_16_32",
-            "parts": [
-                {"id": "frame", "is_ground": True},
-                {"id": "gear_16t", "body_name": "Gear_16T"},
-                {"id": "gear_32t", "body_name": "Gear_32T"},
-            ],
-            "joints": [
-                {
-                    "id": "rev_16t",
-                    "joint_type": "revolute",
-                    "parent_part": "frame",
-                    "child_part": "gear_16t",
-                    "origin": [0.0, 0.0, 0.0],
-                    "axis": [0.0, 0.0, 1.0],
-                },
-                {
-                    "id": "rev_32t",
-                    "joint_type": "revolute",
-                    "parent_part": "frame",
-                    "child_part": "gear_32t",
-                    "origin": [24.0, 0.0, 0.0],
-                    "axis": [0.0, 0.0, 1.0],
-                },
-                {
-                    "id": "mesh_16_32",
-                    "joint_type": "gear_mesh",
-                    "parent_part": "gear_16t",
-                    "child_part": "gear_32t",
-                    "teeth_parent": 16,
-                    "teeth_child": 32,
-                    "origin": [13.5, 0.0, 0.0],
-                    "axis": [0.0, 0.0, 1.0],
-                },
-            ],
-            "drives": [{"joint_id": "rev_16t", "speed_rpm": 60}],
-        })
+        result = motion_define_mechanism(
+            {
+                "name": "gear_16_32",
+                "parts": [
+                    {"id": "frame", "is_ground": True},
+                    {"id": "gear_16t", "body_name": "Gear_16T"},
+                    {"id": "gear_32t", "body_name": "Gear_32T"},
+                ],
+                "joints": [
+                    {
+                        "id": "rev_16t",
+                        "joint_type": "revolute",
+                        "parent_part": "frame",
+                        "child_part": "gear_16t",
+                        "origin": [0.0, 0.0, 0.0],
+                        "axis": [0.0, 0.0, 1.0],
+                    },
+                    {
+                        "id": "rev_32t",
+                        "joint_type": "revolute",
+                        "parent_part": "frame",
+                        "child_part": "gear_32t",
+                        "origin": [24.0, 0.0, 0.0],
+                        "axis": [0.0, 0.0, 1.0],
+                    },
+                    {
+                        "id": "mesh_16_32",
+                        "joint_type": "gear_mesh",
+                        "parent_part": "gear_16t",
+                        "child_part": "gear_32t",
+                        "teeth_parent": 16,
+                        "teeth_child": 32,
+                        "origin": [13.5, 0.0, 0.0],
+                        "axis": [0.0, 0.0, 1.0],
+                    },
+                ],
+                "drives": [{"joint_id": "rev_16t", "speed_rpm": 60}],
+            }
+        )
         self.assertTrue(result["ok"])
         return result["mechanism_id"]
 
@@ -2494,24 +2757,26 @@ class TestGearAnimationRatiosWithGround(TestMotionToolsBase):
 
         # Use a mechanism WITHOUT mesh phases for cleaner math:
         # single revolute, single part, no gear_mesh
-        result = motion_define_mechanism({
-            "name": "rotation_center_test",
-            "parts": [
-                {"id": "frame", "is_ground": True},
-                {"id": "wheel", "body_name": "Body_Wheel"},
-            ],
-            "joints": [
-                {
-                    "id": "rev_wheel",
-                    "joint_type": "revolute",
-                    "parent_part": "frame",
-                    "child_part": "wheel",
-                    "origin": [24.0, 0.0, 0.0],
-                    "axis": [0.0, 0.0, 1.0],
-                },
-            ],
-            "drives": [{"joint_id": "rev_wheel", "speed_rpm": 60}],
-        })
+        result = motion_define_mechanism(
+            {
+                "name": "rotation_center_test",
+                "parts": [
+                    {"id": "frame", "is_ground": True},
+                    {"id": "wheel", "body_name": "Body_Wheel"},
+                ],
+                "joints": [
+                    {
+                        "id": "rev_wheel",
+                        "joint_type": "revolute",
+                        "parent_part": "frame",
+                        "child_part": "wheel",
+                        "origin": [24.0, 0.0, 0.0],
+                        "axis": [0.0, 0.0, 1.0],
+                    },
+                ],
+                "drives": [{"joint_id": "rev_wheel", "speed_rpm": 60}],
+            }
+        )
         mid = result["mechanism_id"]
 
         mock_client = MagicMock()
@@ -2528,14 +2793,19 @@ class TestGearAnimationRatiosWithGround(TestMotionToolsBase):
         mock_client.send_command.side_effect = fake_send
 
         # Mock model tree: body placed at joint origin (24, 0, 0)
-        fake_tree = {"ok": True, "bodies": [
-            {"label": "Body_Wheel", "position": [24.0, 0.0, 0.0]},
-        ]}
+        fake_tree = {
+            "ok": True,
+            "bodies": [
+                {"label": "Body_Wheel", "position": [24.0, 0.0, 0.0]},
+            ],
+        }
 
         # Drive 90°
-        with patch("server.freecad_client.get_client", return_value=mock_client), \
-             patch("server.tools_motion.cad_get_model_tree", return_value=fake_tree, create=True), \
-             patch("server.tools_cad.cad_get_model_tree", return_value=fake_tree):
+        with (
+            patch("server.freecad_client.get_client", return_value=mock_client),
+            patch("server.tools_motion.cad_get_model_tree", return_value=fake_tree, create=True),
+            patch("server.tools_cad.cad_get_model_tree", return_value=fake_tree),
+        ):
             result = motion_drive_joint(mid, "rev_wheel", 90.0, steps=1)
 
         self.assertTrue(result["ok"])
@@ -2557,24 +2827,26 @@ class TestGearAnimationRatiosWithGround(TestMotionToolsBase):
         """
         from unittest.mock import MagicMock, patch
 
-        result = motion_define_mechanism({
-            "name": "offset_orbit_test",
-            "parts": [
-                {"id": "frame", "is_ground": True},
-                {"id": "wheel", "body_name": "Body_Wheel"},
-            ],
-            "joints": [
-                {
-                    "id": "rev_wheel",
-                    "joint_type": "revolute",
-                    "parent_part": "frame",
-                    "child_part": "wheel",
-                    "origin": [24.0, 0.0, 0.0],
-                    "axis": [0.0, 0.0, 1.0],
-                },
-            ],
-            "drives": [{"joint_id": "rev_wheel", "speed_rpm": 60}],
-        })
+        result = motion_define_mechanism(
+            {
+                "name": "offset_orbit_test",
+                "parts": [
+                    {"id": "frame", "is_ground": True},
+                    {"id": "wheel", "body_name": "Body_Wheel"},
+                ],
+                "joints": [
+                    {
+                        "id": "rev_wheel",
+                        "joint_type": "revolute",
+                        "parent_part": "frame",
+                        "child_part": "wheel",
+                        "origin": [24.0, 0.0, 0.0],
+                        "axis": [0.0, 0.0, 1.0],
+                    },
+                ],
+                "drives": [{"joint_id": "rev_wheel", "speed_rpm": 60}],
+            }
+        )
         mid = result["mechanism_id"]
 
         mock_client = MagicMock()
@@ -2591,13 +2863,18 @@ class TestGearAnimationRatiosWithGround(TestMotionToolsBase):
         mock_client.send_command.side_effect = fake_send
 
         # Body initially at (30, 0, 0) — offset 6mm from joint origin
-        fake_tree = {"ok": True, "bodies": [
-            {"label": "Body_Wheel", "position": [30.0, 0.0, 0.0]},
-        ]}
+        fake_tree = {
+            "ok": True,
+            "bodies": [
+                {"label": "Body_Wheel", "position": [30.0, 0.0, 0.0]},
+            ],
+        }
 
-        with patch("server.freecad_client.get_client", return_value=mock_client), \
-             patch("server.tools_motion.cad_get_model_tree", return_value=fake_tree, create=True), \
-             patch("server.tools_cad.cad_get_model_tree", return_value=fake_tree):
+        with (
+            patch("server.freecad_client.get_client", return_value=mock_client),
+            patch("server.tools_motion.cad_get_model_tree", return_value=fake_tree, create=True),
+            patch("server.tools_cad.cad_get_model_tree", return_value=fake_tree),
+        ):
             result = motion_drive_joint(mid, "rev_wheel", 90.0, steps=1)
 
         self.assertTrue(result["ok"])
@@ -2617,6 +2894,7 @@ class TestRotatePointAroundCenter(unittest.TestCase):
 
     def test_identity_rotation(self):
         from server.tools_motion import _rotate_point_around_center
+
         p = (10.0, 5.0, 3.0)
         result = _rotate_point_around_center(p, (0.0, 0.0, 0.0), (0.0, 0.0, 1.0), 0.0)
         for i in range(3):
@@ -2624,6 +2902,7 @@ class TestRotatePointAroundCenter(unittest.TestCase):
 
     def test_center_equals_point(self):
         from server.tools_motion import _rotate_point_around_center
+
         p = (5.0, 5.0, 5.0)
         result = _rotate_point_around_center(p, p, (0.0, 0.0, 1.0), 90.0)
         for i in range(3):
@@ -2631,23 +2910,30 @@ class TestRotatePointAroundCenter(unittest.TestCase):
 
     def test_90_deg_z_rotation(self):
         from server.tools_motion import _rotate_point_around_center
+
         # (1,0,0) rotated 90° about Z around origin → (0,1,0)
-        result = _rotate_point_around_center((1.0, 0.0, 0.0), (0.0, 0.0, 0.0), (0.0, 0.0, 1.0), 90.0)
+        result = _rotate_point_around_center(
+            (1.0, 0.0, 0.0), (0.0, 0.0, 0.0), (0.0, 0.0, 1.0), 90.0
+        )
         self.assertAlmostEqual(result[0], 0.0, places=10)
         self.assertAlmostEqual(result[1], 1.0, places=10)
         self.assertAlmostEqual(result[2], 0.0, places=10)
 
     def test_off_center_rotation(self):
         from server.tools_motion import _rotate_point_around_center
+
         # Point (30,0,0) around center (24,0,0), 90° about Z
         # offset (6,0,0) → rotated (0,6,0) → result (24,6,0)
-        result = _rotate_point_around_center((30.0, 0.0, 0.0), (24.0, 0.0, 0.0), (0.0, 0.0, 1.0), 90.0)
+        result = _rotate_point_around_center(
+            (30.0, 0.0, 0.0), (24.0, 0.0, 0.0), (0.0, 0.0, 1.0), 90.0
+        )
         self.assertAlmostEqual(result[0], 24.0, places=10)
         self.assertAlmostEqual(result[1], 6.0, places=10)
         self.assertAlmostEqual(result[2], 0.0, places=10)
 
     def test_360_deg_returns_to_start(self):
         from server.tools_motion import _rotate_point_around_center
+
         p = (7.0, 3.0, -2.0)
         c = (1.0, 1.0, 1.0)
         result = _rotate_point_around_center(p, c, (0.0, 0.0, 1.0), 360.0)
@@ -2663,11 +2949,14 @@ class TestDeriveCaptures(unittest.TestCase):
 
     def test_thrust_signals_from_summary(self):
         from server.tools_motion import _derive_captures
-        resp = self._resp({
-            "applied_force_world_z_mean_N": 14.7,
-            "applied_force_world_z_std_N": 0.02,
-            "applied_force_count": 30,
-        })
+
+        resp = self._resp(
+            {
+                "applied_force_world_z_mean_N": 14.7,
+                "applied_force_world_z_std_N": 0.02,
+                "applied_force_count": 30,
+            }
+        )
         out = _derive_captures(resp, ["thrust_mean_N", "thrust_std_N", "applied_force_count"])
         self.assertEqual(out["signals"]["thrust_mean_N"], 14.7)
         self.assertEqual(out["signals"]["thrust_std_N"], 0.02)
@@ -2676,29 +2965,35 @@ class TestDeriveCaptures(unittest.TestCase):
 
     def test_hub_bearing_load_returns_dict_of_joints(self):
         from server.tools_motion import _derive_captures
-        resp = self._resp({
-            "mean_joint_forces": {"rotor_test_joint": 14.71, "other": 0.0},
-            "peak_joint_forces": {"rotor_test_joint": 18.55, "other": 0.0},
-        })
+
+        resp = self._resp(
+            {
+                "mean_joint_forces": {"rotor_test_joint": 14.71, "other": 0.0},
+                "peak_joint_forces": {"rotor_test_joint": 18.55, "other": 0.0},
+            }
+        )
         out = _derive_captures(resp, ["hub_bearing_load_N", "peak_hub_bearing_load_N"])
         self.assertEqual(out["signals"]["hub_bearing_load_N"]["rotor_test_joint"], 14.71)
         self.assertEqual(out["signals"]["peak_hub_bearing_load_N"]["rotor_test_joint"], 18.55)
 
     def test_unknown_signals_listed_in_unrecognized(self):
         from server.tools_motion import _derive_captures
-        out = _derive_captures(self._resp({}),
-                               ["thrust_mean_N", "blade_root_moment_Nm", "tip_deflection_mm"])
-        self.assertEqual(out["unrecognized"],
-                         ["blade_root_moment_Nm", "tip_deflection_mm"])
+
+        out = _derive_captures(
+            self._resp({}), ["thrust_mean_N", "blade_root_moment_Nm", "tip_deflection_mm"]
+        )
+        self.assertEqual(out["unrecognized"], ["blade_root_moment_Nm", "tip_deflection_mm"])
 
     def test_missing_summary_fields_yield_none(self):
         from server.tools_motion import _derive_captures
+
         out = _derive_captures(self._resp({}), ["thrust_mean_N", "thrust_std_N"])
         self.assertIsNone(out["signals"]["thrust_mean_N"])
         self.assertIsNone(out["signals"]["thrust_std_N"])
 
     def test_missing_joint_dicts_yield_empty(self):
         from server.tools_motion import _derive_captures
+
         out = _derive_captures(self._resp({}), ["hub_bearing_load_N"])
         self.assertEqual(out["signals"]["hub_bearing_load_N"], {})
 

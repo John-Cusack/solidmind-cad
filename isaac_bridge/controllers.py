@@ -22,6 +22,7 @@ Adding a new controller
 4. If the controller needs extra config fields, add them to
    ``TeleopConfig`` (with defaults) and ``from_profile()`` parsing.
 """
+
 from __future__ import annotations
 
 import json
@@ -60,8 +61,12 @@ def _clamp(value: float, lo: float, hi: float) -> tuple[float, bool]:
 
 
 def _body_to_world(
-    bx: float, by: float, bz: float,
-    wx: float, wy: float, wyaw: float,
+    bx: float,
+    by: float,
+    bz: float,
+    wx: float,
+    wy: float,
+    wyaw: float,
 ) -> tuple[float, float, float]:
     """Rotate+translate a body-frame point to world frame."""
     c = math.cos(wyaw)
@@ -70,8 +75,12 @@ def _body_to_world(
 
 
 def _world_to_body(
-    wx: float, wy: float, wz: float,
-    body_wx: float, body_wy: float, body_wyaw: float,
+    wx: float,
+    wy: float,
+    wz: float,
+    body_wx: float,
+    body_wy: float,
+    body_wyaw: float,
 ) -> tuple[float, float, float]:
     """Inverse: world-frame point to body frame."""
     dx = wx - body_wx
@@ -141,7 +150,9 @@ class HexapodTripodController:
 
         self._filtered_vx = _slew(self._filtered_vx, target_vx_norm, slew_vx_norm, dt_s)
         self._filtered_yaw = _slew(self._filtered_yaw, target_yaw_norm, slew_yaw_norm, dt_s)
-        self._filtered_height = _slew(self._filtered_height, target_height_norm, slew_height_norm, dt_s)
+        self._filtered_height = _slew(
+            self._filtered_height, target_height_norm, slew_height_norm, dt_s
+        )
 
         # ── 2. Advance gait phase ───────────────────────────────────
         #    Phase advances proportional to filtered forward speed.
@@ -238,9 +249,7 @@ class Hexapod2DOFController:
         n_legs = len(config.leg_joint_names) // 2
 
         if dt_s <= 0:
-            targets: dict[str, float] = {
-                name: 0.0 for name in config.leg_joint_names
-            }
+            targets: dict[str, float] = {name: 0.0 for name in config.leg_joint_names}
             return targets, phase
 
         # ── 1. Slew-filter commanded inputs ──────────────────────────
@@ -254,7 +263,9 @@ class Hexapod2DOFController:
 
         self._filtered_vx = _slew(self._filtered_vx, target_vx_norm, slew_vx_norm, dt_s)
         self._filtered_yaw = _slew(self._filtered_yaw, target_yaw_norm, slew_yaw_norm, dt_s)
-        self._filtered_height = _slew(self._filtered_height, target_height_norm, slew_height_norm, dt_s)
+        self._filtered_height = _slew(
+            self._filtered_height, target_height_norm, slew_height_norm, dt_s
+        )
 
         # ── 2. Advance gait phase ───────────────────────────────────
         speed_factor = abs(self._filtered_vx)
@@ -286,8 +297,7 @@ class Hexapod2DOFController:
             # Stance/swing split
             in_swing = leg_phase >= config.duty_factor
             swing_frac = (
-                (leg_phase - config.duty_factor) / (1.0 - config.duty_factor)
-                if in_swing else 0.0
+                (leg_phase - config.duty_factor) / (1.0 - config.duty_factor) if in_swing else 0.0
             )
 
             # ── Coxa (yaw): sinusoidal oscillation ──────────────────
@@ -383,10 +393,7 @@ class Hexapod3DOFController:
 
         # Use explicit hip mounts from config if provided
         if config.hip_mounts and len(config.hip_mounts) == n_legs:
-            self._mounts = [
-                HipMount(x=m[0], y=m[1], angle=m[2])
-                for m in config.hip_mounts
-            ]
+            self._mounts = [HipMount(x=m[0], y=m[1], angle=m[2]) for m in config.hip_mounts]
         elif n_legs == 6:
             half_len = config.body_length / 2.0
             half_wid = config.body_width / 2.0
@@ -397,12 +404,12 @@ class Hexapod3DOFController:
             rear_angle = math.pi - front_angle
             # Standard 6-leg layout: LF, LM, LR, RF, RM, RR
             self._mounts = [
-                HipMount(x=half_len, y=half_wid, angle=front_angle),        # LF
-                HipMount(x=0.0, y=half_wid, angle=math.pi / 2),             # LM
-                HipMount(x=-half_len, y=half_wid, angle=rear_angle),         # LR
-                HipMount(x=half_len, y=-half_wid, angle=-front_angle),       # RF
-                HipMount(x=0.0, y=-half_wid, angle=-math.pi / 2),            # RM
-                HipMount(x=-half_len, y=-half_wid, angle=-rear_angle),        # RR
+                HipMount(x=half_len, y=half_wid, angle=front_angle),  # LF
+                HipMount(x=0.0, y=half_wid, angle=math.pi / 2),  # LM
+                HipMount(x=-half_len, y=half_wid, angle=rear_angle),  # LR
+                HipMount(x=half_len, y=-half_wid, angle=-front_angle),  # RF
+                HipMount(x=0.0, y=-half_wid, angle=-math.pi / 2),  # RM
+                HipMount(x=-half_len, y=-half_wid, angle=-rear_angle),  # RR
             ]
         else:
             # Fallback: distribute legs evenly around the body
@@ -411,11 +418,13 @@ class Hexapod3DOFController:
             self._mounts = []
             for i in range(n_legs):
                 angle = 2.0 * math.pi * i / n_legs
-                self._mounts.append(HipMount(
-                    x=half_len * math.cos(angle),
-                    y=half_wid * math.sin(angle),
-                    angle=angle,
-                ))
+                self._mounts.append(
+                    HipMount(
+                        x=half_len * math.cos(angle),
+                        y=half_wid * math.sin(angle),
+                        angle=angle,
+                    )
+                )
 
         self._default_feet = [
             default_foot_position(m, geom, config.stance_height) for m in self._mounts
@@ -431,7 +440,10 @@ class Hexapod3DOFController:
             self._standing_bias.append((angles.coxa, angles.femur, angles.tibia))
             logger.debug(
                 "Leg %d standing bias: coxa=%.3f femur=%.3f tibia=%.3f",
-                leg_idx, angles.coxa, angles.femur, angles.tibia,
+                leg_idx,
+                angles.coxa,
+                angles.femur,
+                angles.tibia,
             )
 
         # (World-frame foot tracking removed — body-frame approach is
@@ -488,7 +500,9 @@ class Hexapod3DOFController:
 
         self._filtered_vx = _slew(self._filtered_vx, target_vx_norm, slew_vx_norm, dt_s)
         self._filtered_yaw = _slew(self._filtered_yaw, target_yaw_norm, slew_yaw_norm, dt_s)
-        self._filtered_height = _slew(self._filtered_height, target_height_norm, slew_height_norm, dt_s)
+        self._filtered_height = _slew(
+            self._filtered_height, target_height_norm, slew_height_norm, dt_s
+        )
 
         # ── 2. Advance gait phase ───────────────────────────────────
         speed_factor = abs(self._filtered_vx)
@@ -532,7 +546,13 @@ class Hexapod3DOFController:
 
             # Yaw offset: rotate foot placement around body center
             body_half_width = config.body_width / 2.0
-            yaw_offset_x = -self._filtered_yaw * half_stride * (mount.y / max(abs(mount.y), 1e-6)) * abs(mount.y) / max(body_half_width, 1e-6)
+            yaw_offset_x = (
+                -self._filtered_yaw
+                * half_stride
+                * (mount.y / max(abs(mount.y), 1e-6))
+                * abs(mount.y)
+                / max(body_half_width, 1e-6)
+            )
             # Simplified: left legs get -yaw, right legs get +yaw
             # (same sign convention as 1-DOF controller)
 
@@ -597,6 +617,7 @@ class PolicyController:
 
         try:
             import torch  # type: ignore[import-not-found]
+
             self._policy = torch.jit.load(str(policy_file), map_location="cpu")
             self._policy.eval()
             logger.info("Loaded JIT policy from %s", policy_path)
@@ -627,6 +648,7 @@ class PolicyController:
         if norm_file.is_file():
             try:
                 import torch  # type: ignore[import-not-found]
+
                 norm = json.loads(norm_file.read_text(encoding="utf-8"))
                 self._obs_mean = torch.tensor(norm["obs_mean"], dtype=torch.float32)
                 self._obs_std = torch.tensor(norm["obs_std"], dtype=torch.float32)
@@ -693,7 +715,10 @@ class PolicyController:
         """Compute blended targets: base + alpha * residual."""
         # Always compute base targets (handles phase, slew filtering)
         base_targets, new_phase = self._base.compute_targets(
-            state, dt_s, config, phase,
+            state,
+            dt_s,
+            config,
+            phase,
         )
 
         # If no policy loaded, return base targets only
@@ -745,6 +770,7 @@ def clamp_targets(
 #
 # To add a new controller: define the class above, then register it:
 #   _CONTROLLER_REGISTRY["my_type"] = lambda cfg: MyController(...)
+
 
 class DirectPolicyController:
     """Direct RL policy controller (no base controller).
@@ -810,6 +836,7 @@ class DirectPolicyController:
 
         try:
             import torch  # type: ignore[import-not-found]
+
             self._policy = torch.jit.load(str(policy_file), map_location="cpu")
             self._policy.eval()
             logger.info("Loaded direct policy from %s", policy_path)
@@ -867,6 +894,7 @@ class DirectPolicyController:
             if norm_file.is_file():
                 try:
                     import torch  # type: ignore[import-not-found]
+
                     norm = json.loads(norm_file.read_text(encoding="utf-8"))
                     self._obs_mean = torch.tensor(norm["obs_mean"], dtype=torch.float32)
                     self._obs_std = torch.tensor(norm["obs_std"], dtype=torch.float32)
@@ -1090,8 +1118,10 @@ class QuadSpinController:
     ) -> tuple[dict[str, float], float]:
         # Slew vx toward commanded value
         self._filtered_vx = _slew(
-            self._filtered_vx, state.vx_mps,
-            config.slew_vx_mps2, dt_s,
+            self._filtered_vx,
+            state.vx_mps,
+            config.slew_vx_mps2,
+            dt_s,
         )
         # Map vx (0–1 range of vx_max) to RPM
         throttle = abs(self._filtered_vx) / config.vx_max_mps if config.vx_max_mps > 0 else 0.0
@@ -1132,7 +1162,6 @@ def create_controller(config: TeleopConfig) -> Controller:
     if factory is None:
         available = sorted(_CONTROLLER_REGISTRY.keys())
         raise ValueError(
-            f"Unknown controller_type {config.controller_type!r}. "
-            f"Available: {available}"
+            f"Unknown controller_type {config.controller_type!r}. Available: {available}"
         )
     return factory(config)

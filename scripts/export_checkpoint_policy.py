@@ -7,6 +7,7 @@ Usage::
         --checkpoint training_runs/hex18_debug/model_600.pt \
         --output training_runs/hex18_debug/policy_600.pt
 """
+
 from __future__ import annotations
 
 import argparse
@@ -32,6 +33,7 @@ def main() -> int:
     args = parser.parse_args()
 
     from isaaclab.app import AppLauncher
+
     launcher = AppLauncher(headless=True)
     simulation_app = launcher.app
 
@@ -59,6 +61,7 @@ def main() -> int:
 
     # Create env to get obs shape
     from isaaclab_rl.rsl_rl import RslRlVecEnvWrapper
+
     env = ManagerBasedRLEnv(cfg=env_cfg)
     env_wrapped = RslRlVecEnvWrapper(env)
 

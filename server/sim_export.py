@@ -10,6 +10,7 @@ The key design is separation of concerns:
 - Future format writers (``write_usd``, ``write_mjcf``) share the same
   ``build_sim_model()`` logic.
 """
+
 from __future__ import annotations
 
 import logging
@@ -48,7 +49,7 @@ class CollisionShape:
     ``radius_m``+``length_m``) is required depending on ``kind``.
     """
 
-    kind: str   # "box" | "cylinder"
+    kind: str  # "box" | "cylinder"
     size_m: tuple[float, float, float] | None = None
     radius_m: float | None = None
     length_m: float | None = None
@@ -57,14 +58,19 @@ class CollisionShape:
 @dataclass(frozen=True, slots=True)
 class SimLink:
     """A rigid body (link) in the sim description."""
+
     name: str
     mesh_path: str | None = None
     position: tuple[float, float, float] = (0.0, 0.0, 0.0)
     rotation_quat: tuple[float, float, float, float] = (1.0, 0.0, 0.0, 0.0)  # w,x,y,z
     mass_kg: float | None = None
-    inertia: tuple[float, float, float, float, float, float] | None = None  # ixx,ixy,ixz,iyy,iyz,izz
+    inertia: tuple[float, float, float, float, float, float] | None = (
+        None  # ixx,ixy,ixz,iyy,iyz,izz
+    )
     is_root: bool = False
-    visual_origin_xyz: tuple[float, float, float] | None = None  # mesh offset from link frame (meters)
+    visual_origin_xyz: tuple[float, float, float] | None = (
+        None  # mesh offset from link frame (meters)
+    )
     collision_shape: CollisionShape | None = None
     """Optional primitive collision geometry.  When set, ``write_sdf`` emits
     a ``<box>`` or ``<cylinder>`` collision instead of reusing the visual
@@ -78,7 +84,9 @@ class SimLink:
             raise ValueError(f"SimLink '{self.name}': mass_kg must be >= 0, got {self.mass_kg}")
         if self.inertia is not None:
             if len(self.inertia) != 6:
-                raise ValueError(f"SimLink '{self.name}': inertia must be a 6-tuple (ixx,ixy,ixz,iyy,iyz,izz)")
+                raise ValueError(
+                    f"SimLink '{self.name}': inertia must be a 6-tuple (ixx,ixy,ixz,iyy,iyz,izz)"
+                )
             ixx, _ixy, _ixz, iyy, _iyz, izz = self.inertia
             if ixx < 0 or iyy < 0 or izz < 0:
                 raise ValueError(
@@ -99,6 +107,7 @@ class SimJoint:
     - ``limits`` is required for revolute and prismatic joints.
     - ``axis`` must be a unit vector.
     """
+
     name: str
     joint_type: str  # "revolute", "prismatic", "fixed", "planar", "continuous"
     parent: str
@@ -108,10 +117,10 @@ class SimJoint:
     origin_rpy: tuple[float, float, float] = (0.0, 0.0, 0.0)
     limits: tuple[float, float] | None = None  # (lower, upper) in radians or meters
     mimic: tuple[str, float] | None = None  # (master_joint_name, multiplier)
-    effort: float = 100.0   # max effort (Nm or N)
+    effort: float = 100.0  # max effort (Nm or N)
     velocity: float = 10.0  # max velocity (rad/s or m/s)
-    damping: float = 0.1    # joint damping coefficient
-    friction: float = 0.0   # joint friction
+    damping: float = 0.1  # joint damping coefficient
+    friction: float = 0.0  # joint friction
 
     def __post_init__(self) -> None:
         if not self.name:
@@ -141,6 +150,7 @@ class SimJoint:
 @dataclass(frozen=True, slots=True)
 class SimModel:
     """Format-agnostic sim description: links + joints."""
+
     name: str
     links: tuple[SimLink, ...] = ()
     joints: tuple[SimJoint, ...] = ()
@@ -168,6 +178,7 @@ if hasattr(JointType, "CONTINUOUS"):
 # ---------------------------------------------------------------------------
 # Quaternion helpers
 # ---------------------------------------------------------------------------
+
 
 def _quat_to_rpy(w: float, x: float, y: float, z: float) -> tuple[float, float, float]:
     """Convert quaternion (w,x,y,z) to roll-pitch-yaw (radians)."""
@@ -197,8 +208,14 @@ def _quat_inverse(w: float, x: float, y: float, z: float) -> tuple[float, float,
 
 
 def _quat_multiply(
-    w1: float, x1: float, y1: float, z1: float,
-    w2: float, x2: float, y2: float, z2: float,
+    w1: float,
+    x1: float,
+    y1: float,
+    z1: float,
+    w2: float,
+    x2: float,
+    y2: float,
+    z2: float,
 ) -> tuple[float, float, float, float]:
     """Multiply two quaternions (w,x,y,z): q1 * q2."""
     return (
@@ -210,8 +227,13 @@ def _quat_multiply(
 
 
 def _quat_rotate_point(
-    w: float, x: float, y: float, z: float,
-    px: float, py: float, pz: float,
+    w: float,
+    x: float,
+    y: float,
+    z: float,
+    px: float,
+    py: float,
+    pz: float,
 ) -> tuple[float, float, float]:
     """Rotate a 3D point by a unit quaternion using the optimized formula.
 
@@ -243,9 +265,12 @@ def _quat_from_yaw(yaw_rad: float) -> tuple[float, float, float, float]:
 # Inertia helpers
 # ---------------------------------------------------------------------------
 
+
 def _box_inertia(
     mass_kg: float,
-    dx_m: float, dy_m: float, dz_m: float,
+    dx_m: float,
+    dy_m: float,
+    dz_m: float,
 ) -> tuple[float, float, float, float, float, float]:
     """Compute box inertia tensor as a 6-tuple, in URDF/SDF order.
 
@@ -256,6 +281,7 @@ def _box_inertia(
     New code should prefer :class:`server.inertia.Inertia6` directly.
     """
     from server.inertia import box_inertia as _box_inertia_fn
+
     return _box_inertia_fn(mass_kg, dx_m, dy_m, dz_m).as_tuple()
 
 
@@ -303,13 +329,15 @@ def _transform_stl_to_link_local(
         world_quat: Link world orientation quaternion (w, x, y, z).
     """
     # Early return if identity transform
-    if (abs(world_pos_mm[0]) < 1e-6
-            and abs(world_pos_mm[1]) < 1e-6
-            and abs(world_pos_mm[2]) < 1e-6
-            and abs(world_quat[0] - 1.0) < 1e-9
-            and abs(world_quat[1]) < 1e-9
-            and abs(world_quat[2]) < 1e-9
-            and abs(world_quat[3]) < 1e-9):
+    if (
+        abs(world_pos_mm[0]) < 1e-6
+        and abs(world_pos_mm[1]) < 1e-6
+        and abs(world_pos_mm[2]) < 1e-6
+        and abs(world_quat[0] - 1.0) < 1e-9
+        and abs(world_quat[1]) < 1e-9
+        and abs(world_quat[2]) < 1e-9
+        and abs(world_quat[3]) < 1e-9
+    ):
         return  # Already at origin with identity rotation — nothing to do
 
     inv_w, inv_x, inv_y, inv_z = _quat_inverse(*world_quat)
@@ -322,7 +350,10 @@ def _transform_stl_to_link_local(
 
     logger.debug(
         "Transformed %s to link-local: translate=(%.1f, %.1f, %.1f) quat=(%s)",
-        stl_path, -px, -py, -pz,
+        stl_path,
+        -px,
+        -py,
+        -pz,
         ", ".join(f"{v:.4f}" for v in world_quat),
     )
 
@@ -331,7 +362,9 @@ def _transform_stl_to_link_local(
 _MIN_MESH_EXTENT_MM = 0.1
 
 
-def _get_stl_extent(stl_path: str) -> tuple[int, tuple[float, float, float], tuple[float, float, float]] | None:
+def _get_stl_extent(
+    stl_path: str,
+) -> tuple[int, tuple[float, float, float], tuple[float, float, float]] | None:
     """Read an STL and return (triangle_count, min_vertex, max_vertex).
 
     Returns ``None`` if the file cannot be read or has no triangles.
@@ -346,7 +379,9 @@ def _get_stl_extent(stl_path: str) -> tuple[int, tuple[float, float, float], tup
         return None
 
 
-def _get_binary_stl_extent(stl_path: str) -> tuple[int, tuple[float, float, float], tuple[float, float, float]] | None:
+def _get_binary_stl_extent(
+    stl_path: str,
+) -> tuple[int, tuple[float, float, float], tuple[float, float, float]] | None:
     with open(stl_path, "rb") as f:
         f.seek(80)
         count_bytes = f.read(4)
@@ -371,7 +406,9 @@ def _get_binary_stl_extent(stl_path: str) -> tuple[int, tuple[float, float, floa
     return tri_count, (xmin, ymin, zmin), (xmax, ymax, zmax)
 
 
-def _get_ascii_stl_extent(stl_path: str) -> tuple[int, tuple[float, float, float], tuple[float, float, float]] | None:
+def _get_ascii_stl_extent(
+    stl_path: str,
+) -> tuple[int, tuple[float, float, float], tuple[float, float, float]] | None:
     _VERTEX_RE_SIMPLE = re.compile(
         r"^\s*vertex\s+"
         r"([-+]?\d*\.?\d+(?:[eE][-+]?\d+)?)\s+"
@@ -408,12 +445,14 @@ def validate_stl_extent(stl_path: str, link_name: str = "") -> list[Finding]:
 
     extent_info = _get_stl_extent(stl_path)
     if extent_info is None:
-        findings.append(Finding(
-            rule_id="stl.no_triangles",
-            severity=Severity.WARN,
-            message=f"Mesh {label}({os.path.basename(stl_path)}) has no readable triangles.",
-            field=f"mesh.{link_name}" if link_name else "mesh",
-        ))
+        findings.append(
+            Finding(
+                rule_id="stl.no_triangles",
+                severity=Severity.WARN,
+                message=f"Mesh {label}({os.path.basename(stl_path)}) has no readable triangles.",
+                field=f"mesh.{link_name}" if link_name else "mesh",
+            )
+        )
         return findings
 
     tri_count, (xmin, ymin, zmin), (xmax, ymax, zmax) = extent_info
@@ -422,12 +461,14 @@ def validate_stl_extent(stl_path: str, link_name: str = "") -> list[Finding]:
     dz = zmax - zmin
 
     if tri_count == 0:
-        findings.append(Finding(
-            rule_id="stl.no_triangles",
-            severity=Severity.WARN,
-            message=f"Mesh {label}({os.path.basename(stl_path)}) has 0 triangles.",
-            field=f"mesh.{link_name}" if link_name else "mesh",
-        ))
+        findings.append(
+            Finding(
+                rule_id="stl.no_triangles",
+                severity=Severity.WARN,
+                message=f"Mesh {label}({os.path.basename(stl_path)}) has 0 triangles.",
+                field=f"mesh.{link_name}" if link_name else "mesh",
+            )
+        )
         return findings
 
     flat_axes: list[str] = []
@@ -439,29 +480,40 @@ def validate_stl_extent(stl_path: str, link_name: str = "") -> list[Finding]:
         flat_axes.append(f"Z={dz:.4f}")
 
     if flat_axes:
-        findings.append(Finding(
-            rule_id="stl.flat_mesh",
-            severity=Severity.WARN,
-            message=(
-                f"Mesh {label}({os.path.basename(stl_path)}) is flat/degenerate: "
-                f"extent below {_MIN_MESH_EXTENT_MM}mm on {', '.join(flat_axes)}. "
-                f"Full extent: ({dx:.2f}, {dy:.2f}, {dz:.2f}) mm, "
-                f"{tri_count} triangles."
-            ),
-            field=f"mesh.{link_name}" if link_name else "mesh",
-        ))
+        findings.append(
+            Finding(
+                rule_id="stl.flat_mesh",
+                severity=Severity.WARN,
+                message=(
+                    f"Mesh {label}({os.path.basename(stl_path)}) is flat/degenerate: "
+                    f"extent below {_MIN_MESH_EXTENT_MM}mm on {', '.join(flat_axes)}. "
+                    f"Full extent: ({dx:.2f}, {dy:.2f}, {dz:.2f}) mm, "
+                    f"{tri_count} triangles."
+                ),
+                field=f"mesh.{link_name}" if link_name else "mesh",
+            )
+        )
 
     logger.debug(
         "STL extent %s: triangles=%d, extent=(%.2f, %.2f, %.2f) mm",
-        os.path.basename(stl_path), tri_count, dx, dy, dz,
+        os.path.basename(stl_path),
+        tri_count,
+        dx,
+        dy,
+        dz,
     )
     return findings
 
 
 def _transform_ascii_stl(
     stl_path: str,
-    px: float, py: float, pz: float,
-    inv_w: float, inv_x: float, inv_y: float, inv_z: float,
+    px: float,
+    py: float,
+    pz: float,
+    inv_w: float,
+    inv_x: float,
+    inv_y: float,
+    inv_z: float,
 ) -> None:
     """Transform an ASCII STL file's vertices and normals in-place."""
     _VERTEX_RE = re.compile(
@@ -509,8 +561,13 @@ def _transform_ascii_stl(
 
 def _transform_binary_stl(
     stl_path: str,
-    px: float, py: float, pz: float,
-    inv_w: float, inv_x: float, inv_y: float, inv_z: float,
+    px: float,
+    py: float,
+    pz: float,
+    inv_w: float,
+    inv_x: float,
+    inv_y: float,
+    inv_z: float,
 ) -> None:
     """Transform a binary STL file's vertices and normals in-place."""
     with open(stl_path, "rb") as f:
@@ -585,13 +642,15 @@ def build_sim_model(
         # Strip common FreeCAD prefixes: "Body_", "Body ", "Body"
         for prefix in ("body_", "body ", "body"):
             if key.startswith(prefix) and len(key) > len(prefix):
-                manifest_by_name[key[len(prefix):]] = entry
+                manifest_by_name[key[len(prefix) :]] = entry
 
     # Build links from mechanism parts
     links: list[SimLink] = []
     part_to_link: dict[str, str] = {}  # part_id -> link_name
     # Track placements for joint RPY computation (Bug 2)
-    link_placement: dict[str, tuple[tuple[float, float, float], tuple[float, float, float, float]]] = {}
+    link_placement: dict[
+        str, tuple[tuple[float, float, float], tuple[float, float, float, float]]
+    ] = {}
 
     for part in mechanism.parts:
         link_name = part.id
@@ -599,10 +658,9 @@ def build_sim_model(
         # Find mesh from manifest — try body_name, part id, and stripped
         # variants (case-insensitive).  FreeCAD names like "Body_Chassis"
         # should match mechanism part ids like "chassis".
-        manifest_entry = (
-            manifest_by_name.get((part.body_name or "").lower())
-            or manifest_by_name.get(part.id.lower())
-        )
+        manifest_entry = manifest_by_name.get(
+            (part.body_name or "").lower()
+        ) or manifest_by_name.get(part.id.lower())
 
         mesh_path: str | None = None
         position = (0.0, 0.0, 0.0)
@@ -641,15 +699,17 @@ def build_sim_model(
                 dz_m = bbox_mm[2] / 1000.0
                 inertia = _box_inertia(mass_kg, dx_m, dy_m, dz_m)
 
-        links.append(SimLink(
-            name=link_name,
-            mesh_path=mesh_path,
-            position=position,
-            rotation_quat=rotation_quat,
-            mass_kg=mass_kg,
-            inertia=inertia,
-            is_root=part.is_ground,
-        ))
+        links.append(
+            SimLink(
+                name=link_name,
+                mesh_path=mesh_path,
+                position=position,
+                rotation_quat=rotation_quat,
+                mass_kg=mass_kg,
+                inertia=inertia,
+                is_root=part.is_ground,
+            )
+        )
         part_to_link[part.id] = link_name
 
     # ── Fallback: assign unmapped manifest meshes to ground link ─────
@@ -725,7 +785,9 @@ def build_sim_model(
     # re-positions the child frame in world space.
     manifest_pos_by_part: dict[str, tuple[float, float, float]] = {}
     for part in mechanism.parts:
-        m_entry = manifest_by_name.get((part.body_name or "").lower()) or manifest_by_name.get(part.id.lower())
+        m_entry = manifest_by_name.get((part.body_name or "").lower()) or manifest_by_name.get(
+            part.id.lower()
+        )
         if m_entry is not None:
             plc = m_entry.get("placement", {})
             pos = plc.get("position", [0.0, 0.0, 0.0])
@@ -796,7 +858,8 @@ def build_sim_model(
                                 "Joint '%s': origin is (0,0,0), using manifest "
                                 "fallback for child '%s'. Set explicit origins "
                                 "for production use.",
-                                jedge.id, jedge.child_part,
+                                jedge.id,
+                                jedge.child_part,
                             )
                         origin = fallback
 
@@ -821,10 +884,7 @@ def build_sim_model(
                 # placed" rule misclassified hexapod legs whose manifest
                 # was authored at the joint origin.
                 added_quat = _IDENTITY_QUAT
-                if (
-                    jedge.parent_part in ground_parts
-                    and jedge.child_part not in rotor_part_ids
-                ):
+                if jedge.parent_part in ground_parts and jedge.child_part not in rotor_part_ids:
                     ppos = part_world_pos[jedge.parent_part]
                     dx = origin[0] - ppos[0]
                     dy = origin[1] - ppos[1]
@@ -834,7 +894,8 @@ def build_sim_model(
 
                 joint_added_quat[jedge.id] = added_quat
                 part_world_quat[jedge.child_part] = _quat_multiply(
-                    *parent_quat, *added_quat,
+                    *parent_quat,
+                    *added_quat,
                 )
             else:
                 still_remaining.append(jedge)
@@ -852,7 +913,9 @@ def build_sim_model(
     # -----------------------------------------------------------------------
     manifest_quat_by_part: dict[str, tuple[float, float, float, float]] = {}
     for part in mechanism.parts:
-        m_entry = manifest_by_name.get((part.body_name or "").lower()) or manifest_by_name.get(part.id.lower())
+        m_entry = manifest_by_name.get((part.body_name or "").lower()) or manifest_by_name.get(
+            part.id.lower()
+        )
         if m_entry is not None:
             plc = m_entry.get("placement", {})
             quat = plc.get("rotation_quat", [1.0, 0.0, 0.0, 0.0])
@@ -868,11 +931,13 @@ def build_sim_model(
         # and must NOT be double-applied.
         if mq != _IDENTITY_QUAT and (abs(mq[1]) > 1e-6 or abs(mq[2]) > 1e-6):
             part_world_quat[pid] = _quat_multiply(
-                *part_world_quat[pid], *mq,
+                *part_world_quat[pid],
+                *mq,
             )
             logger.debug(
                 "Composed manifest quat %s onto BFS quat for part '%s'",
-                mq, pid,
+                mq,
+                pid,
             )
 
     # -----------------------------------------------------------------------
@@ -937,9 +1002,12 @@ def build_sim_model(
                     "Topology optimization: rechaining joint '%s' (%s) "
                     "from parent '%s' to '%s' (co-located with fixed "
                     "joint '%s', dist=%.2f mm)",
-                    nf_joint.id, nf_joint.joint_type.value,
-                    parent_id, new_parent,
-                    best_fixed.id, best_dist,
+                    nf_joint.id,
+                    nf_joint.joint_type.value,
+                    parent_id,
+                    new_parent,
+                    best_fixed.id,
+                    best_dist,
                 )
                 _reparented[nf_joint.id] = new_parent
 
@@ -976,7 +1044,10 @@ def build_sim_model(
 
         # Rotate world offset into parent's local frame using full quaternion
         local_dx, local_dy, local_dz = _quat_rotate_point(
-            *parent_inv, world_dx, world_dy, world_dz,
+            *parent_inv,
+            world_dx,
+            world_dy,
+            world_dz,
         )
 
         origin_xyz = (local_dx / 1000.0, local_dy / 1000.0, local_dz / 1000.0)
@@ -990,9 +1061,7 @@ def build_sim_model(
         child_quat = part_world_quat.get(jedge.child_part, _IDENTITY_QUAT)
         relative_quat = _quat_multiply(*parent_inv, *child_quat)
         origin_rpy_raw = _quat_to_rpy(*relative_quat)
-        origin_rpy = tuple(
-            0.0 if abs(v) < 1e-9 else v for v in origin_rpy_raw
-        )
+        origin_rpy = tuple(0.0 if abs(v) < 1e-9 else v for v in origin_rpy_raw)
 
         # Limits — required for revolute and prismatic URDF joint types.
         # Use mechanism data when available, otherwise provide sensible defaults
@@ -1002,8 +1071,10 @@ def build_sim_model(
         if _continuous is not None and jedge.joint_type == _continuous:
             pass  # Continuous joints have no limits in URDF
         elif jedge.joint_type in (
-            JointType.REVOLUTE, JointType.GEAR_MESH,
-            JointType.BELT_CHAIN, JointType.CAM,
+            JointType.REVOLUTE,
+            JointType.GEAR_MESH,
+            JointType.BELT_CHAIN,
+            JointType.CAM,
         ):
             if jedge.min_angle_deg is not None and jedge.max_angle_deg is not None:
                 limits = (
@@ -1044,7 +1115,8 @@ def build_sim_model(
                 # Find the parent's joint to reference as mimic master
                 # For gear meshes, the parent part's joint is the master
                 parent_joints = [
-                    j for j in mechanism.joints
+                    j
+                    for j in mechanism.joints
                     if (j.child_part == jedge.parent_part or j.parent_part == jedge.parent_part)
                     and j.id != jedge.id
                 ]
@@ -1056,21 +1128,23 @@ def build_sim_model(
         # under Z-rotation, and pitch joints (0,1,0) are already local.
         local_axis = jedge.axis
 
-        joints.append(SimJoint(
-            name=joint_name,
-            joint_type=joint_type,
-            parent=parent_link,
-            child=child_link,
-            axis=local_axis,
-            origin_xyz=origin_xyz,
-            origin_rpy=origin_rpy,
-            limits=limits,
-            mimic=mimic,
-            effort=effort,
-            velocity=velocity,
-            damping=damping,
-            friction=friction,
-        ))
+        joints.append(
+            SimJoint(
+                name=joint_name,
+                joint_type=joint_type,
+                parent=parent_link,
+                child=child_link,
+                axis=local_axis,
+                origin_xyz=origin_xyz,
+                origin_rpy=origin_rpy,
+                limits=limits,
+                mimic=mimic,
+                effort=effort,
+                velocity=velocity,
+                damping=damping,
+                friction=friction,
+            )
+        )
         joint_edge_to_name[jedge.id] = joint_name
 
     # -----------------------------------------------------------------------
@@ -1094,7 +1168,8 @@ def build_sim_model(
                 raise
             logger.warning(
                 "Failed to transform mesh %s to link-local: %s",
-                link.mesh_path, exc,
+                link.mesh_path,
+                exc,
             )
 
         # Post-transform STL sanity: check 3D extent
@@ -1125,20 +1200,25 @@ def build_sim_model(
                     mass_kg=lk.mass_kg,
                     inertia=lk.inertia,
                     is_root=False,
-                ) if lk.is_root else lk
+                )
+                if lk.is_root
+                else lk
                 for lk in links
             ]
             links.insert(0, base_link)
 
             # Add fixed joint from base_link to original root
             base_joint_name = f"base_to_{root_link.name}"
-            joints.insert(0, SimJoint(
-                name=base_joint_name,
-                joint_type="fixed",
-                parent="base_link",
-                child=root_link.name,
-                origin_xyz=(0.0, 0.0, ground_clearance_m),
-            ))
+            joints.insert(
+                0,
+                SimJoint(
+                    name=base_joint_name,
+                    joint_type="fixed",
+                    parent="base_link",
+                    child=root_link.name,
+                    origin_xyz=(0.0, 0.0, ground_clearance_m),
+                ),
+            )
 
             # No Z correction needed: child joint origins are already
             # computed as (child_world - parent_world) / 1000 — pure
@@ -1155,6 +1235,7 @@ def build_sim_model(
 # ---------------------------------------------------------------------------
 # URDF writer
 # ---------------------------------------------------------------------------
+
 
 def _fmt(val: float) -> str:
     """Format a float, stripping trailing zeros."""
@@ -1274,6 +1355,7 @@ def write_urdf(
 # SDF writer
 # ---------------------------------------------------------------------------
 
+
 def _pose_str(
     x: float,
     y: float,
@@ -1336,7 +1418,8 @@ def _emit_multicopter_motor_plugin(
     ``link_name`` link via the ``joint_name`` revolute/continuous joint.
     """
     plugin = ET.SubElement(
-        model_el, "plugin",
+        model_el,
+        "plugin",
         filename="gz-sim-multicopter-motor-model-system",
         name="gz::sim::systems::MulticopterMotorModel",
     )
@@ -1399,17 +1482,14 @@ def _emit_primitive_collision(
     geom = ET.SubElement(coll, "geometry")
     if shape.kind == "box":
         if shape.size_m is None:
-            raise ValueError(
-                f"CollisionShape kind='box' requires size_m on link {link_name!r}"
-            )
+            raise ValueError(f"CollisionShape kind='box' requires size_m on link {link_name!r}")
         box = ET.SubElement(geom, "box")
         dx, dy, dz = shape.size_m
         ET.SubElement(box, "size").text = f"{dx} {dy} {dz}"
     elif shape.kind == "cylinder":
         if shape.radius_m is None or shape.length_m is None:
             raise ValueError(
-                f"CollisionShape kind='cylinder' requires radius_m + length_m "
-                f"on link {link_name!r}"
+                f"CollisionShape kind='cylinder' requires radius_m + length_m on link {link_name!r}"
             )
         cyl = ET.SubElement(geom, "cylinder")
         ET.SubElement(cyl, "radius").text = _fmt(shape.radius_m)
@@ -1483,7 +1563,10 @@ def _emit_gps_sensor(link_el: ET.Element) -> None:
 
 def _emit_barometer_sensor(link_el: ET.Element) -> None:
     sensor = ET.SubElement(
-        link_el, "sensor", name="air_pressure_sensor", type="air_pressure",
+        link_el,
+        "sensor",
+        name="air_pressure_sensor",
+        type="air_pressure",
     )
     ET.SubElement(sensor, "always_on").text = "1"
     ET.SubElement(sensor, "update_rate").text = "50"
@@ -1497,7 +1580,10 @@ def _emit_barometer_sensor(link_el: ET.Element) -> None:
 
 def _emit_magnetometer_sensor(link_el: ET.Element) -> None:
     sensor = ET.SubElement(
-        link_el, "sensor", name="magnetometer_sensor", type="magnetometer",
+        link_el,
+        "sensor",
+        name="magnetometer_sensor",
+        type="magnetometer",
     )
     ET.SubElement(sensor, "always_on").text = "1"
     ET.SubElement(sensor, "update_rate").text = "50"
@@ -1628,9 +1714,7 @@ def write_sdf(
                 if not isinstance(rotor, dict):
                     continue
                 joint_name = str(rotor.get("joint", f"rotor_{idx}_joint"))
-                link_name = str(
-                    rotor.get("link") or joint_to_child.get(joint_name, "")
-                )
+                link_name = str(rotor.get("link") or joint_to_child.get(joint_name, ""))
                 if not link_name:
                     # No way to bind the plugin to a link — skip rather than
                     # emit an invalid plugin block that PX4 will reject.
@@ -1665,9 +1749,7 @@ def write_sdf(
         if sensors_cfg:
             if not isinstance(sensors_cfg, dict):
                 sensors_cfg = {}
-            sensor_link_name = (
-                sensors_cfg.get("link") or _find_root_link_name(model)
-            )
+            sensor_link_name = sensors_cfg.get("link") or _find_root_link_name(model)
             for link_el in model_el.findall("link"):
                 if link_el.get("name") != sensor_link_name:
                     continue
@@ -1694,81 +1776,99 @@ def validate_sdf(path: str, *, drone_mode: bool = False) -> list[Finding]:
     try:
         tree = ET.parse(path)
     except ET.ParseError as exc:
-        return [Finding(
-            rule_id="sdf.parse_error",
-            severity=Severity.BLOCK,
-            message=f"SDF parse error: {exc}",
-        )]
+        return [
+            Finding(
+                rule_id="sdf.parse_error",
+                severity=Severity.BLOCK,
+                message=f"SDF parse error: {exc}",
+            )
+        ]
 
     root = tree.getroot()
     if root.tag != "sdf":
-        findings.append(Finding(
-            rule_id="sdf.root_tag",
-            severity=Severity.BLOCK,
-            message=f"Root element is <{root.tag}>, expected <sdf>",
-        ))
+        findings.append(
+            Finding(
+                rule_id="sdf.root_tag",
+                severity=Severity.BLOCK,
+                message=f"Root element is <{root.tag}>, expected <sdf>",
+            )
+        )
         return findings
 
     model_el = root.find("model")
     if model_el is None:
-        findings.append(Finding(
-            rule_id="sdf.model_missing",
-            severity=Severity.BLOCK,
-            message="SDF is missing <model> element.",
-        ))
+        findings.append(
+            Finding(
+                rule_id="sdf.model_missing",
+                severity=Severity.BLOCK,
+                message="SDF is missing <model> element.",
+            )
+        )
         return findings
 
     links = model_el.findall("link")
     joints = model_el.findall("joint")
     if not links:
-        findings.append(Finding(
-            rule_id="sdf.links_missing",
-            severity=Severity.BLOCK,
-            message="SDF model has no <link> elements.",
-        ))
+        findings.append(
+            Finding(
+                rule_id="sdf.links_missing",
+                severity=Severity.BLOCK,
+                message="SDF model has no <link> elements.",
+            )
+        )
         return findings
 
     link_names = {lk.attrib.get("name", "") for lk in links}
     if len(links) > 1 and not joints:
-        findings.append(Finding(
-            rule_id="sdf.joints_missing",
-            severity=Severity.WARN,
-            message="Model has multiple links but no joints.",
-        ))
+        findings.append(
+            Finding(
+                rule_id="sdf.joints_missing",
+                severity=Severity.WARN,
+                message="Model has multiple links but no joints.",
+            )
+        )
 
     for jel in joints:
         jname = jel.attrib.get("name", "?")
         parent = (jel.findtext("parent") or "").strip()
         child = (jel.findtext("child") or "").strip()
         if not parent or parent not in link_names:
-            findings.append(Finding(
-                rule_id="sdf.dangling_parent",
-                severity=Severity.BLOCK,
-                message=f"Joint '{jname}' references unknown parent '{parent}'.",
-                field=f"joint/{jname}/parent",
-            ))
+            findings.append(
+                Finding(
+                    rule_id="sdf.dangling_parent",
+                    severity=Severity.BLOCK,
+                    message=f"Joint '{jname}' references unknown parent '{parent}'.",
+                    field=f"joint/{jname}/parent",
+                )
+            )
         if not child or child not in link_names:
-            findings.append(Finding(
-                rule_id="sdf.dangling_child",
-                severity=Severity.BLOCK,
-                message=f"Joint '{jname}' references unknown child '{child}'.",
-                field=f"joint/{jname}/child",
-            ))
+            findings.append(
+                Finding(
+                    rule_id="sdf.dangling_child",
+                    severity=Severity.BLOCK,
+                    message=f"Joint '{jname}' references unknown child '{child}'.",
+                    field=f"joint/{jname}/child",
+                )
+            )
 
     if drone_mode:
         plugins = model_el.findall("plugin")
         if not plugins:
-            findings.append(Finding(
-                rule_id="sdf.drone.plugin_missing",
-                severity=Severity.WARN,
-                message="Drone-mode SDF has no <plugin> control block.",
-            ))
+            findings.append(
+                Finding(
+                    rule_id="sdf.drone.plugin_missing",
+                    severity=Severity.WARN,
+                    message="Drone-mode SDF has no <plugin> control block.",
+                )
+            )
         if len(links) < 2:
-            findings.append(Finding(
-                rule_id="sdf.drone.too_few_links",
-                severity=Severity.WARN,
-                message="Drone-mode SDF should include at least 2 links.",
-            ))
+            findings.append(
+                Finding(
+                    rule_id="sdf.drone.too_few_links",
+                    severity=Severity.WARN,
+                    message="Drone-mode SDF should include at least 2 links.",
+                )
+            )
 
     return findings
 
@@ -1807,11 +1907,13 @@ def validate_urdf(path: str) -> list[Finding]:
     root = tree.getroot()
 
     if root.tag != "robot":
-        findings.append(Finding(
-            rule_id="urdf.root_tag",
-            severity=Severity.BLOCK,
-            message=f"Root element is <{root.tag}>, expected <robot>",
-        ))
+        findings.append(
+            Finding(
+                rule_id="urdf.root_tag",
+                severity=Severity.BLOCK,
+                message=f"Root element is <{root.tag}>, expected <robot>",
+            )
+        )
         return findings
 
     links = root.findall("link")
@@ -1831,44 +1933,51 @@ def validate_urdf(path: str) -> list[Finding]:
                 xyz = [float(v) for v in xyz_str.split()]
                 mag = math.sqrt(sum(v * v for v in xyz))
                 if mag > _MAX_ORIGIN_MAGNITUDE_M:
-                    findings.append(Finding(
-                        rule_id="urdf.origin_magnitude",
-                        severity=Severity.WARN,
-                        message=(
-                            f"Joint '{jname}' origin magnitude {mag:.3f}m exceeds "
-                            f"{_MAX_ORIGIN_MAGNITUDE_M}m — possible absolute "
-                            f"(world-frame) coordinates instead of parent-relative"
-                        ),
-                        field=f"joint/{jname}/origin",
-                    ))
+                    findings.append(
+                        Finding(
+                            rule_id="urdf.origin_magnitude",
+                            severity=Severity.WARN,
+                            message=(
+                                f"Joint '{jname}' origin magnitude {mag:.3f}m exceeds "
+                                f"{_MAX_ORIGIN_MAGNITUDE_M}m — possible absolute "
+                                f"(world-frame) coordinates instead of parent-relative"
+                            ),
+                            field=f"joint/{jname}/origin",
+                        )
+                    )
             except (ValueError, IndexError):
-                findings.append(Finding(
-                    rule_id="urdf.origin_parse",
-                    severity=Severity.BLOCK,
-                    message=f"Joint '{jname}' origin xyz is malformed: '{xyz_str}'",
-                    field=f"joint/{jname}/origin",
-                ))
+                findings.append(
+                    Finding(
+                        rule_id="urdf.origin_parse",
+                        severity=Severity.BLOCK,
+                        message=f"Joint '{jname}' origin xyz is malformed: '{xyz_str}'",
+                        field=f"joint/{jname}/origin",
+                    )
+                )
 
         # Limit required for revolute/prismatic
         if jtype in _URDF_LIMIT_REQUIRED:
             limit_el = jel.find("limit")
             if limit_el is None:
-                findings.append(Finding(
-                    rule_id="urdf.missing_limit",
-                    severity=Severity.BLOCK,
-                    message=f"Joint '{jname}' ({jtype}) is missing <limit> element",
-                    field=f"joint/{jname}/limit",
-                ))
+                findings.append(
+                    Finding(
+                        rule_id="urdf.missing_limit",
+                        severity=Severity.BLOCK,
+                        message=f"Joint '{jname}' ({jtype}) is missing <limit> element",
+                        field=f"joint/{jname}/limit",
+                    )
+                )
             elif "lower" not in limit_el.attrib or "upper" not in limit_el.attrib:
-                findings.append(Finding(
-                    rule_id="urdf.missing_limit_bounds",
-                    severity=Severity.WARN,
-                    message=(
-                        f"Joint '{jname}' ({jtype}) has <limit> but missing "
-                        f"lower/upper bounds"
-                    ),
-                    field=f"joint/{jname}/limit",
-                ))
+                findings.append(
+                    Finding(
+                        rule_id="urdf.missing_limit_bounds",
+                        severity=Severity.WARN,
+                        message=(
+                            f"Joint '{jname}' ({jtype}) has <limit> but missing lower/upper bounds"
+                        ),
+                        field=f"joint/{jname}/limit",
+                    )
+                )
 
         # Axis unit length
         axis_el = jel.find("axis")
@@ -1878,15 +1987,16 @@ def validate_urdf(path: str) -> list[Finding]:
                 axis_vals = [float(v) for v in axis_str.split()]
                 axis_mag = math.sqrt(sum(v * v for v in axis_vals))
                 if not math.isclose(axis_mag, 1.0, rel_tol=1e-3):
-                    findings.append(Finding(
-                        rule_id="urdf.axis_not_unit",
-                        severity=Severity.WARN,
-                        message=(
-                            f"Joint '{jname}' axis magnitude is {axis_mag:.6f}, "
-                            f"expected 1.0"
-                        ),
-                        field=f"joint/{jname}/axis",
-                    ))
+                    findings.append(
+                        Finding(
+                            rule_id="urdf.axis_not_unit",
+                            severity=Severity.WARN,
+                            message=(
+                                f"Joint '{jname}' axis magnitude is {axis_mag:.6f}, expected 1.0"
+                            ),
+                            field=f"joint/{jname}/axis",
+                        )
+                    )
             except (ValueError, IndexError):
                 pass
 
@@ -1896,21 +2006,25 @@ def validate_urdf(path: str) -> list[Finding]:
         if parent_el is not None:
             plink = parent_el.attrib.get("link", "")
             if plink not in link_names:
-                findings.append(Finding(
-                    rule_id="urdf.dangling_parent",
-                    severity=Severity.BLOCK,
-                    message=f"Joint '{jname}' references unknown parent link '{plink}'",
-                    field=f"joint/{jname}/parent",
-                ))
+                findings.append(
+                    Finding(
+                        rule_id="urdf.dangling_parent",
+                        severity=Severity.BLOCK,
+                        message=f"Joint '{jname}' references unknown parent link '{plink}'",
+                        field=f"joint/{jname}/parent",
+                    )
+                )
         if child_el is not None:
             clink = child_el.attrib.get("link", "")
             if clink not in link_names:
-                findings.append(Finding(
-                    rule_id="urdf.dangling_child",
-                    severity=Severity.BLOCK,
-                    message=f"Joint '{jname}' references unknown child link '{clink}'",
-                    field=f"joint/{jname}/child",
-                ))
+                findings.append(
+                    Finding(
+                        rule_id="urdf.dangling_child",
+                        severity=Severity.BLOCK,
+                        message=f"Joint '{jname}' references unknown child link '{clink}'",
+                        field=f"joint/{jname}/child",
+                    )
+                )
 
     # --- Check 3: Link completeness (visual, collision, inertial) ---
     # Identify child links (links that appear as a joint child).
@@ -1933,26 +2047,32 @@ def validate_urdf(path: str) -> list[Finding]:
 
         if is_content_bearing:
             if not has_visual:
-                findings.append(Finding(
-                    rule_id="urdf.missing_visual",
-                    severity=Severity.WARN,
-                    message=f"Link '{lname}' has no <visual> element",
-                    field=f"link/{lname}/visual",
-                ))
+                findings.append(
+                    Finding(
+                        rule_id="urdf.missing_visual",
+                        severity=Severity.WARN,
+                        message=f"Link '{lname}' has no <visual> element",
+                        field=f"link/{lname}/visual",
+                    )
+                )
             if not has_collision:
-                findings.append(Finding(
-                    rule_id="urdf.missing_collision",
-                    severity=Severity.WARN,
-                    message=f"Link '{lname}' has no <collision> element",
-                    field=f"link/{lname}/collision",
-                ))
+                findings.append(
+                    Finding(
+                        rule_id="urdf.missing_collision",
+                        severity=Severity.WARN,
+                        message=f"Link '{lname}' has no <collision> element",
+                        field=f"link/{lname}/collision",
+                    )
+                )
             if not has_inertial:
-                findings.append(Finding(
-                    rule_id="urdf.missing_inertial",
-                    severity=Severity.WARN,
-                    message=f"Link '{lname}' has no <inertial> element",
-                    field=f"link/{lname}/inertial",
-                ))
+                findings.append(
+                    Finding(
+                        rule_id="urdf.missing_inertial",
+                        severity=Severity.WARN,
+                        message=f"Link '{lname}' has no <inertial> element",
+                        field=f"link/{lname}/inertial",
+                    )
+                )
 
     # --- Check 4: Inertia diagonal non-negative ---
     for lel in links:
@@ -1965,14 +2085,14 @@ def validate_urdf(path: str) -> list[Finding]:
                     try:
                         val = float(val_str)
                         if val < 0:
-                            findings.append(Finding(
-                                rule_id="urdf.negative_inertia",
-                                severity=Severity.BLOCK,
-                                message=(
-                                    f"Link '{lname}' has negative {diag}={val}"
-                                ),
-                                field=f"link/{lname}/inertial/inertia/{diag}",
-                            ))
+                            findings.append(
+                                Finding(
+                                    rule_id="urdf.negative_inertia",
+                                    severity=Severity.BLOCK,
+                                    message=(f"Link '{lname}' has negative {diag}={val}"),
+                                    field=f"link/{lname}/inertial/inertia/{diag}",
+                                )
+                            )
                     except ValueError:
                         pass
 
@@ -1984,15 +2104,17 @@ def validate_urdf(path: str) -> list[Finding]:
             try:
                 mass_val = float(mass_el.attrib.get("value", "1"))
                 if mass_val == 0.0:
-                    findings.append(Finding(
-                        rule_id="urdf.zero_mass",
-                        severity=Severity.WARN,
-                        message=(
-                            f"Link '{lname}' has zero mass but is a child link "
-                            f"— may cause simulation instability"
-                        ),
-                        field=f"link/{lname}/inertial/mass",
-                    ))
+                    findings.append(
+                        Finding(
+                            rule_id="urdf.zero_mass",
+                            severity=Severity.WARN,
+                            message=(
+                                f"Link '{lname}' has zero mass but is a child link "
+                                f"— may cause simulation instability"
+                            ),
+                            field=f"link/{lname}/inertial/mass",
+                        )
+                    )
             except ValueError:
                 pass
 
@@ -2010,15 +2132,17 @@ def validate_urdf(path: str) -> list[Finding]:
                     except ValueError:
                         pass
             if diag_vals and all(v < 1e-12 for v in diag_vals):
-                findings.append(Finding(
-                    rule_id="urdf.tiny_inertia",
-                    severity=Severity.WARN,
-                    message=(
-                        f"Link '{lname}' has near-zero inertia (all diag < 1e-12), "
-                        f"may cause simulation instability"
-                    ),
-                    field=f"link/{lname}/inertial/inertia",
-                ))
+                findings.append(
+                    Finding(
+                        rule_id="urdf.tiny_inertia",
+                        severity=Severity.WARN,
+                        message=(
+                            f"Link '{lname}' has near-zero inertia (all diag < 1e-12), "
+                            f"may cause simulation instability"
+                        ),
+                        field=f"link/{lname}/inertial/inertia",
+                    )
+                )
 
     # --- Check 6: Connected tree ---
     # Build adjacency from joints and check all links are reachable from root.
@@ -2047,12 +2171,14 @@ def validate_urdf(path: str) -> list[Finding]:
 
         orphans = link_names - visited
         for orphan in sorted(orphans):
-            findings.append(Finding(
-                rule_id="urdf.disconnected_link",
-                severity=Severity.BLOCK,
-                message=f"Link '{orphan}' is not connected to the kinematic tree",
-                field=f"link/{orphan}",
-            ))
+            findings.append(
+                Finding(
+                    rule_id="urdf.disconnected_link",
+                    severity=Severity.BLOCK,
+                    message=f"Link '{orphan}' is not connected to the kinematic tree",
+                    field=f"link/{orphan}",
+                )
+            )
 
     # --- Check 7: Consistent mesh scale ---
     seen_scales: set[str] = set()
@@ -2064,11 +2190,13 @@ def validate_urdf(path: str) -> list[Finding]:
                 if scale is not None:
                     seen_scales.add(scale)
     if len(seen_scales) > 1:
-        findings.append(Finding(
-            rule_id="urdf.inconsistent_scale",
-            severity=Severity.WARN,
-            message=f"Inconsistent mesh scales found: {sorted(seen_scales)}",
-        ))
+        findings.append(
+            Finding(
+                rule_id="urdf.inconsistent_scale",
+                severity=Severity.WARN,
+                message=f"Inconsistent mesh scales found: {sorted(seen_scales)}",
+            )
+        )
 
     # --- Check 8: Duplicate mesh paths ---
     mesh_paths: dict[str, list[str]] = {}  # path -> list of link names
@@ -2084,14 +2212,15 @@ def validate_urdf(path: str) -> list[Finding]:
         # Deduplicate: same link appears twice (visual + collision) — that's fine
         unique_links = sorted(set(lnames))
         if len(unique_links) > 1:
-            findings.append(Finding(
-                rule_id="urdf.duplicate_mesh",
-                severity=Severity.WARN,
-                message=(
-                    f"Mesh '{fpath}' is used by multiple links: "
-                    f"{', '.join(unique_links)}"
-                ),
-            ))
+            findings.append(
+                Finding(
+                    rule_id="urdf.duplicate_mesh",
+                    severity=Severity.WARN,
+                    message=(
+                        f"Mesh '{fpath}' is used by multiple links: {', '.join(unique_links)}"
+                    ),
+                )
+            )
 
     return findings
 
@@ -2100,9 +2229,11 @@ def validate_urdf(path: str) -> list[Finding]:
 # Forward-kinematics URDF validator
 # ---------------------------------------------------------------------------
 
+
 @dataclass(frozen=True, slots=True)
 class MeshBBox:
     """Axis-aligned bounding box in body-local mm coordinates."""
+
     min_pt: tuple[float, float, float]
     max_pt: tuple[float, float, float]
 
@@ -2118,7 +2249,7 @@ def _rpy_to_matrix(r: float, p: float, y: float) -> list[list[float]]:
     return [
         [cy * cp, cy * sp * sr - sy * cr, cy * sp * cr + sy * sr],
         [sy * cp, sy * sp * sr + cy * cr, sy * sp * cr - cy * sr],
-        [-sp,     cp * sr,                cp * cr],
+        [-sp, cp * sr, cp * cr],
     ]
 
 
@@ -2132,12 +2263,13 @@ def _make_transform_4x4(
         [rot[0][0], rot[0][1], rot[0][2], xyz[0]],
         [rot[1][0], rot[1][1], rot[1][2], xyz[1]],
         [rot[2][0], rot[2][1], rot[2][2], xyz[2]],
-        [0.0,       0.0,       0.0,       1.0],
+        [0.0, 0.0, 0.0, 1.0],
     ]
 
 
 def _multiply_4x4(
-    a: list[list[float]], b: list[list[float]],
+    a: list[list[float]],
+    b: list[list[float]],
 ) -> list[list[float]]:
     """Multiply two 4x4 matrices."""
     result = [[0.0] * 4 for _ in range(4)]
@@ -2151,7 +2283,8 @@ def _multiply_4x4(
 
 
 def _transform_point(
-    t: list[list[float]], pt: tuple[float, float, float],
+    t: list[list[float]],
+    pt: tuple[float, float, float],
 ) -> tuple[float, float, float]:
     """Apply a 4x4 transform to a 3D point."""
     x = t[0][0] * pt[0] + t[0][1] * pt[1] + t[0][2] * pt[2] + t[0][3]
@@ -2202,7 +2335,8 @@ def _dot3(a: tuple[float, float, float], b: tuple[float, float, float]) -> float
 
 
 def _aabb_volume(
-    lo: tuple[float, float, float], hi: tuple[float, float, float],
+    lo: tuple[float, float, float],
+    hi: tuple[float, float, float],
 ) -> float:
     dx = max(0.0, hi[0] - lo[0])
     dy = max(0.0, hi[1] - lo[1])
@@ -2211,8 +2345,10 @@ def _aabb_volume(
 
 
 def _aabb_overlap_volume(
-    lo1: tuple[float, float, float], hi1: tuple[float, float, float],
-    lo2: tuple[float, float, float], hi2: tuple[float, float, float],
+    lo1: tuple[float, float, float],
+    hi1: tuple[float, float, float],
+    lo2: tuple[float, float, float],
+    hi2: tuple[float, float, float],
 ) -> float:
     """Compute overlap volume of two AABBs. Returns 0 if no overlap."""
     ox = max(0.0, min(hi1[0], hi2[0]) - max(lo1[0], lo2[0]))
@@ -2258,7 +2394,9 @@ def validate_urdf_fk(
     link_names = {lk.attrib.get("name", "") for lk in links_el}
 
     # Build parent->child adjacency and joint data
-    joint_data: dict[str, dict[str, Any]] = {}  # joint_name -> {parent, child, xyz, rpy, axis, type}
+    joint_data: dict[
+        str, dict[str, Any]
+    ] = {}  # joint_name -> {parent, child, xyz, rpy, axis, type}
     parent_to_joints: dict[str, list[str]] = {}  # parent_link -> [joint_names]
     child_to_joint: dict[str, str] = {}  # child_link -> joint_name
 
@@ -2354,15 +2492,17 @@ def validate_urdf_fk(
             chassis_z = chassis_tf[2][3]  # Z translation in world
             diff = abs(chassis_z - ground_clearance_m)
             if diff > 0.010:  # 10mm tolerance
-                findings.append(Finding(
-                    rule_id="urdf.fk.chassis_height",
-                    severity=Severity.WARN,
-                    message=(
-                        f"Chassis '{chassis_link}' at Z={chassis_z:.4f}m, "
-                        f"expected {ground_clearance_m:.4f}m (diff {diff:.4f}m)"
-                    ),
-                    field=f"link/{chassis_link}",
-                ))
+                findings.append(
+                    Finding(
+                        rule_id="urdf.fk.chassis_height",
+                        severity=Severity.WARN,
+                        message=(
+                            f"Chassis '{chassis_link}' at Z={chassis_z:.4f}m, "
+                            f"expected {ground_clearance_m:.4f}m (diff {diff:.4f}m)"
+                        ),
+                        field=f"link/{chassis_link}",
+                    )
+                )
 
     # --- Check 2: urdf.fk.link_chain_gap ---
     # Parent mesh tip (max local +X, transformed to world) should be within
@@ -2407,19 +2547,19 @@ def validate_urdf_fk(
                     link_world_tf[child][1][3],
                     link_world_tf[child][2][3],
                 )
-                gap = math.sqrt(sum(
-                    (tip_world[i] - child_origin[i]) ** 2 for i in range(3)
-                ))
+                gap = math.sqrt(sum((tip_world[i] - child_origin[i]) ** 2 for i in range(3)))
                 if gap > _GAP_TOLERANCE_M:
-                    findings.append(Finding(
-                        rule_id="urdf.fk.link_chain_gap",
-                        severity=Severity.BLOCK,
-                        message=(
-                            f"Gap {gap * 1000:.1f}mm between '{parent}' mesh tip "
-                            f"and '{child}' joint origin (max 5mm)"
-                        ),
-                        field=f"joint/{jname}",
-                    ))
+                    findings.append(
+                        Finding(
+                            rule_id="urdf.fk.link_chain_gap",
+                            severity=Severity.BLOCK,
+                            message=(
+                                f"Gap {gap * 1000:.1f}mm between '{parent}' mesh tip "
+                                f"and '{child}' joint origin (max 5mm)"
+                            ),
+                            field=f"joint/{jname}",
+                        )
+                    )
 
     # --- Check 2b: urdf.fk.child_detached_from_parent ---
     # For multi-child parents (chassis, hubs), verify child joint origins
@@ -2438,8 +2578,7 @@ def validate_urdf_fk(
             if child not in link_world_tf:
                 continue
 
-            p_lo, p_hi = _transform_bbox(
-                link_world_tf[parent], mesh_bboxes[parent], _SCALE_2B)
+            p_lo, p_hi = _transform_bbox(link_world_tf[parent], mesh_bboxes[parent], _SCALE_2B)
             p_cx = (p_lo[0] + p_hi[0]) / 2
             p_cy = (p_lo[1] + p_hi[1]) / 2
             half_x = (p_hi[0] - p_lo[0]) / 2
@@ -2454,33 +2593,35 @@ def validate_urdf_fk(
             dy = abs(c_origin[1] - p_cy)
 
             if dx > half_x + _MARGIN_2B or dy > half_y + _MARGIN_2B:
-                findings.append(Finding(
-                    rule_id="urdf.fk.child_detached_from_parent",
-                    severity=Severity.BLOCK,
-                    message=(
-                        f"Child '{child}' joint origin outside parent "
-                        f"'{parent}' AABB + 10mm margin "
-                        f"(dx={dx * 1000:.1f}mm vs {(half_x + _MARGIN_2B) * 1000:.1f}mm, "
-                        f"dy={dy * 1000:.1f}mm vs {(half_y + _MARGIN_2B) * 1000:.1f}mm)"
-                    ),
-                    field=f"joint/{jname}",
-                ))
-            else:
-                inscribed_r = min(half_x, half_y)
-                dist = math.sqrt(
-                    (c_origin[0] - p_cx) ** 2 + (c_origin[1] - p_cy) ** 2
-                )
-                if dist > inscribed_r + _MARGIN_2B:
-                    findings.append(Finding(
+                findings.append(
+                    Finding(
                         rule_id="urdf.fk.child_detached_from_parent",
-                        severity=Severity.WARN,
+                        severity=Severity.BLOCK,
                         message=(
-                            f"Child '{child}' at XY dist {dist * 1000:.1f}mm "
-                            f"from parent '{parent}' center exceeds inscribed "
-                            f"radius {inscribed_r * 1000:.1f}mm + 10mm margin"
+                            f"Child '{child}' joint origin outside parent "
+                            f"'{parent}' AABB + 10mm margin "
+                            f"(dx={dx * 1000:.1f}mm vs {(half_x + _MARGIN_2B) * 1000:.1f}mm, "
+                            f"dy={dy * 1000:.1f}mm vs {(half_y + _MARGIN_2B) * 1000:.1f}mm)"
                         ),
                         field=f"joint/{jname}",
-                    ))
+                    )
+                )
+            else:
+                inscribed_r = min(half_x, half_y)
+                dist = math.sqrt((c_origin[0] - p_cx) ** 2 + (c_origin[1] - p_cy) ** 2)
+                if dist > inscribed_r + _MARGIN_2B:
+                    findings.append(
+                        Finding(
+                            rule_id="urdf.fk.child_detached_from_parent",
+                            severity=Severity.WARN,
+                            message=(
+                                f"Child '{child}' at XY dist {dist * 1000:.1f}mm "
+                                f"from parent '{parent}' center exceeds inscribed "
+                                f"radius {inscribed_r * 1000:.1f}mm + 10mm margin"
+                            ),
+                            field=f"joint/{jname}",
+                        )
+                    )
 
     # --- Check 3: urdf.fk.leaf_link_height (née tibia_tip_height) ---
     # Leaf-link tips should be between ground (z=0) and chassis height at
@@ -2518,15 +2659,17 @@ def validate_urdf_fk(
 
             chassis_max_z = ground_clearance_m if ground_clearance_m else 0.5
             if tip_z < -0.010 or tip_z > chassis_max_z + 0.050:
-                findings.append(Finding(
-                    rule_id="urdf.fk.leaf_link_height",
-                    severity=Severity.WARN,
-                    message=(
-                        f"Leaf link '{lname}' tip at Z={tip_z:.4f}m "
-                        f"(expected between 0 and {chassis_max_z:.3f}m)"
-                    ),
-                    field=f"link/{lname}",
-                ))
+                findings.append(
+                    Finding(
+                        rule_id="urdf.fk.leaf_link_height",
+                        severity=Severity.WARN,
+                        message=(
+                            f"Leaf link '{lname}' tip at Z={tip_z:.4f}m "
+                            f"(expected between 0 and {chassis_max_z:.3f}m)"
+                        ),
+                        field=f"link/{lname}",
+                    )
+                )
 
     # --- Check 4: urdf.fk.root_joint_yaw_matches_radial (née coxa_yaw) ---
     # Root-attached revolute joints should have RPY yaw ≈ atan2(origin_y, origin_x).
@@ -2572,16 +2715,18 @@ def validate_urdf_fk(
             if yaw_diff > math.pi:
                 yaw_diff = 2 * math.pi - yaw_diff
             if yaw_diff > 0.02:  # ~1.1 degrees
-                findings.append(Finding(
-                    rule_id="urdf.fk.root_joint_yaw_matches_radial",
-                    severity=Severity.WARN,
-                    message=(
-                        f"Root-attached joint '{jname}' yaw={actual_yaw:.4f} rad, "
-                        f"expected atan2(y,x)={expected_yaw:.4f} rad "
-                        f"(diff {yaw_diff:.4f} rad)"
-                    ),
-                    field=f"joint/{jname}",
-                ))
+                findings.append(
+                    Finding(
+                        rule_id="urdf.fk.root_joint_yaw_matches_radial",
+                        severity=Severity.WARN,
+                        message=(
+                            f"Root-attached joint '{jname}' yaw={actual_yaw:.4f} rad, "
+                            f"expected atan2(y,x)={expected_yaw:.4f} rad "
+                            f"(diff {yaw_diff:.4f} rad)"
+                        ),
+                        field=f"joint/{jname}",
+                    )
+                )
 
     # --- Check 5: urdf.fk.chain_joint_axis (née pitch_axis_local) ---
     # Non-root revolute joint axes in serial chains should be ≈ (0, ±1, 0)
@@ -2609,16 +2754,18 @@ def validate_urdf_fk(
         # Check if axis is approximately (0, ±1, 0)
         dot_y = abs(axis[1])
         if dot_y < 0.99:
-            findings.append(Finding(
-                rule_id="urdf.fk.chain_joint_axis",
-                severity=Severity.WARN,
-                message=(
-                    f"Joint '{jname}' axis ({axis[0]:.3f}, {axis[1]:.3f}, "
-                    f"{axis[2]:.3f}) not aligned with local Y (dot={dot_y:.4f}, "
-                    f"expected >0.99)"
-                ),
-                field=f"joint/{jname}/axis",
-            ))
+            findings.append(
+                Finding(
+                    rule_id="urdf.fk.chain_joint_axis",
+                    severity=Severity.WARN,
+                    message=(
+                        f"Joint '{jname}' axis ({axis[0]:.3f}, {axis[1]:.3f}, "
+                        f"{axis[2]:.3f}) not aligned with local Y (dot={dot_y:.4f}, "
+                        f"expected >0.99)"
+                    ),
+                    field=f"joint/{jname}/axis",
+                )
+            )
 
     # --- Check 6: urdf.fk.bilateral_symmetry ---
     # Collect leg joint world positions; left legs (y>0) should mirror right (y<0).
@@ -2645,21 +2792,25 @@ def validate_urdf_fk(
                 dz = abs(lp[2] - rp[2])
                 max_diff_mm = max(dx, dy, dz) * 1000
                 if max_diff_mm > 1.0:
-                    findings.append(Finding(
-                        rule_id="urdf.fk.bilateral_symmetry",
-                        severity=Severity.WARN,
-                        message=(
-                            f"Bilateral asymmetry: left ({lp[0]:.4f}, {lp[1]:.4f}, "
-                            f"{lp[2]:.4f}) vs mirrored right ({rp[0]:.4f}, "
-                            f"{-rp[1]:.4f}, {rp[2]:.4f}), max diff {max_diff_mm:.1f}mm"
-                        ),
-                    ))
+                    findings.append(
+                        Finding(
+                            rule_id="urdf.fk.bilateral_symmetry",
+                            severity=Severity.WARN,
+                            message=(
+                                f"Bilateral asymmetry: left ({lp[0]:.4f}, {lp[1]:.4f}, "
+                                f"{lp[2]:.4f}) vs mirrored right ({rp[0]:.4f}, "
+                                f"{-rp[1]:.4f}, {rp[2]:.4f}), max diff {max_diff_mm:.1f}mm"
+                            ),
+                        )
+                    )
 
     # --- Check 7: urdf.fk.no_mesh_overlap ---
     # Non-parent-child link world AABBs shouldn't overlap > 10% of smaller volume.
     if mesh_bboxes:
         _SCALE = 0.001
-        link_world_aabb: dict[str, tuple[tuple[float, float, float], tuple[float, float, float]]] = {}
+        link_world_aabb: dict[
+            str, tuple[tuple[float, float, float], tuple[float, float, float]]
+        ] = {}
         for lname in link_names:
             if lname in mesh_bboxes and lname in link_world_tf:
                 lo, hi = _transform_bbox(link_world_tf[lname], mesh_bboxes[lname], _SCALE)
@@ -2685,14 +2836,16 @@ def validate_urdf_fk(
                 v2 = _aabb_volume(lo2, hi2)
                 smaller = min(v1, v2)
                 if smaller > 0 and overlap / smaller > 0.10:
-                    findings.append(Finding(
-                        rule_id="urdf.fk.no_mesh_overlap",
-                        severity=Severity.WARN,
-                        message=(
-                            f"Links '{n1}' and '{n2}' AABBs overlap "
-                            f"{overlap / smaller * 100:.0f}% of smaller volume"
-                        ),
-                    ))
+                    findings.append(
+                        Finding(
+                            rule_id="urdf.fk.no_mesh_overlap",
+                            severity=Severity.WARN,
+                            message=(
+                                f"Links '{n1}' and '{n2}' AABBs overlap "
+                                f"{overlap / smaller * 100:.0f}% of smaller volume"
+                            ),
+                        )
+                    )
 
     return findings
 
@@ -2700,6 +2853,7 @@ def validate_urdf_fk(
 # ---------------------------------------------------------------------------
 # Leg geometry extraction from SimModel
 # ---------------------------------------------------------------------------
+
 
 def extract_leg_geometry(
     sim_model: SimModel,
@@ -2720,8 +2874,11 @@ def extract_leg_geometry(
     Only revolute/continuous joints are followed as leg segments.
     """
     _EMPTY: dict[str, Any] = {
-        "legs": [], "n_legs": 0, "dofs_per_leg": 0,
-        "hip_mounts": [], "body_dims_m": (0.0, 0.0),
+        "legs": [],
+        "n_legs": 0,
+        "dofs_per_leg": 0,
+        "hip_mounts": [],
+        "body_dims_m": (0.0, 0.0),
     }
 
     # Build adjacency: parent_link → [(joint, child_link)]
@@ -2775,6 +2932,7 @@ def extract_leg_geometry(
 
     # All leg chains should have the same length; use the mode
     from collections import Counter
+
     chain_lengths = [len(c) for c in raw_chains]
     length_counts = Counter(chain_lengths)
     target_len = length_counts.most_common(1)[0][0]
@@ -2790,22 +2948,20 @@ def extract_leg_geometry(
         for i in range(len(chain) - 1):
             o1 = joint_origin[chain[i].name]
             o2 = joint_origin[chain[i + 1].name]
-            dist = math.sqrt(
-                (o2[0] - o1[0]) ** 2
-                + (o2[1] - o1[1]) ** 2
-                + (o2[2] - o1[2]) ** 2
-            )
+            dist = math.sqrt((o2[0] - o1[0]) ** 2 + (o2[1] - o1[1]) ** 2 + (o2[2] - o1[2]) ** 2)
             seg_lengths.append(dist)
 
         hip_pos = joint_origin[chain[0].name]
         hip_angle = math.atan2(hip_pos[1], hip_pos[0])
 
-        legs.append({
-            "joint_names": joint_names,
-            "segment_lengths_m": tuple(seg_lengths),
-            "hip_position_m": hip_pos,
-            "hip_angle_rad": hip_angle,
-        })
+        legs.append(
+            {
+                "joint_names": joint_names,
+                "segment_lengths_m": tuple(seg_lengths),
+                "hip_position_m": hip_pos,
+                "hip_angle_rad": hip_angle,
+            }
+        )
         hip_mounts.append((hip_pos[0], hip_pos[1], hip_angle))
 
     # Estimate body dimensions from hip positions

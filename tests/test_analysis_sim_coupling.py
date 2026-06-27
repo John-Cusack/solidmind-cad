@@ -1,4 +1,5 @@
 """Tests for cross-category coupling: simulation → FEA boundary conditions."""
+
 from __future__ import annotations
 
 import unittest

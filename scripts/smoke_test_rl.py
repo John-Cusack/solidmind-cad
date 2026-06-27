@@ -9,6 +9,7 @@ Verifies that:
 4. Checkpoint save/load works
 5. Policy export produces valid JIT-traced model
 """
+
 from __future__ import annotations
 
 import json
@@ -36,7 +37,9 @@ def make_mock_env(num_envs: int = 64, num_joints: int = 18):
             if env_ids is None:
                 self._obs = torch.randn(self.num_envs, self.obs_dim, device=self.device) * 0.1
             else:
-                self._obs[env_ids] = torch.randn(len(env_ids), self.obs_dim, device=self.device) * 0.1
+                self._obs[env_ids] = (
+                    torch.randn(len(env_ids), self.obs_dim, device=self.device) * 0.1
+                )
             self._step_count = 0
             return self._obs
 
@@ -48,14 +51,14 @@ def make_mock_env(num_envs: int = 64, num_joints: int = 18):
             commands = self._obs[:, 9:12]
             body_vel = self._obs[:, 0:3]
             tracking_error = torch.sum((body_vel - commands) ** 2, dim=-1)
-            action_penalty = 0.01 * torch.sum(actions ** 2, dim=-1)
+            action_penalty = 0.01 * torch.sum(actions**2, dim=-1)
             rewards = torch.exp(-tracking_error) - action_penalty
 
             # Simple dynamics: next obs is slightly affected by actions
             noise = torch.randn_like(self._obs) * 0.05
             self._obs = self._obs + noise
             # Feed actions back as joint positions (after gait clock at 12:14)
-            self._obs[:, 14:14 + self._num_joints] = actions * 0.25
+            self._obs[:, 14 : 14 + self._num_joints] = actions * 0.25
 
             # Terminate 1% of envs randomly
             dones = torch.rand(self.num_envs, device=self.device) < 0.01
@@ -63,7 +66,9 @@ def make_mock_env(num_envs: int = 64, num_joints: int = 18):
             # Auto-reset
             reset_ids = torch.where(dones)[0]
             if len(reset_ids) > 0:
-                self._obs[reset_ids] = torch.randn(len(reset_ids), self.obs_dim, device=self.device) * 0.1
+                self._obs[reset_ids] = (
+                    torch.randn(len(reset_ids), self.obs_dim, device=self.device) * 0.1
+                )
 
             return self._obs, rewards, dones, {"episode_lengths": torch.zeros(self.num_envs)}
 
@@ -139,11 +144,12 @@ def test_ppo_training(num_iterations: int = 50):
             )
 
     elapsed = time.time() - t0
-    print(f"  Training time: {elapsed:.1f}s ({elapsed/num_iterations:.2f}s/iter)")
+    print(f"  Training time: {elapsed:.1f}s ({elapsed / num_iterations:.2f}s/iter)")
 
     # Check that training didn't produce NaN
     assert all(
-        not (r != r) for r in rewards_history  # NaN check
+        not (r != r)
+        for r in rewards_history  # NaN check
     ), "NaN rewards during training"
 
     # Check reward trend (last 10 avg vs first 10 avg)
@@ -167,6 +173,7 @@ def test_checkpoint(trainer, env):
 
         # Load and verify
         from rl_training.ppo import PPOTrainer
+
         trainer2 = PPOTrainer(env, device="cuda:0")
         trainer2.load_checkpoint(ckpt_path)
         print(f"  Checkpoint loaded, iteration={trainer2.current_iteration}")

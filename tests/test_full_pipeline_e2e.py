@@ -13,6 +13,7 @@ Conditionally-run tiers (skip gracefully):
   - Chrono real (C++ daemon)
   - FEA coupling (Elmer + Gmsh)
 """
+
 from __future__ import annotations
 
 import json
@@ -43,13 +44,12 @@ requires_chrono = unittest.skipUnless(
     "Chrono daemon binary not built (chrono_daemon/build/chrono_daemon)",
 )
 
-_ELMER_AVAILABLE = bool(
-    shutil.which("ElmerSolver") and shutil.which("ElmerGrid")
-)
+_ELMER_AVAILABLE = bool(shutil.which("ElmerSolver") and shutil.which("ElmerGrid"))
 
 _GMSH_AVAILABLE = False
 try:
     import gmsh as _gmsh  # noqa: F401
+
     _GMSH_AVAILABLE = True
 except ImportError:
     pass
@@ -63,6 +63,7 @@ requires_elmer = unittest.skipUnless(
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _send_command(host: str, port: int, cmd: str, args: dict | None = None) -> dict:
     """Send a single command to a bridge and return the parsed response."""
@@ -102,7 +103,9 @@ class _ChronoDaemon:
             raise FileNotFoundError("Chrono daemon binary not found")
 
         self._proc = subprocess.Popen(
-            cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
         )
         deadline = time.monotonic() + timeout_s
         while time.monotonic() < deadline:
@@ -166,10 +169,15 @@ class _IsaacBridge:
     def start(self, timeout_s: float = 10.0) -> None:
         self._proc = subprocess.Popen(
             [
-                "python3", "-m", "isaac_bridge.bridge_server",
-                "--port", str(self.port), "--headless",
+                "python3",
+                "-m",
+                "isaac_bridge.bridge_server",
+                "--port",
+                str(self.port),
+                "--headless",
             ],
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
         )
         deadline = time.monotonic() + timeout_s
         while time.monotonic() < deadline:
@@ -250,14 +258,12 @@ class TestFullPipelineE2E(unittest.TestCase):
         cls._propagation = prop
 
         # Extract speeds for cross-validation
-        cls._tier1_speeds = {
-            part_id: state["rpm"]
-            for part_id, state in prop["states"].items()
-        }
+        cls._tier1_speeds = {part_id: state["rpm"] for part_id, state in prop["states"].items()}
 
     @classmethod
     def tearDownClass(cls) -> None:
         from server import motion_store
+
         motion_store.clear()
 
     # -----------------------------------------------------------------------
@@ -314,12 +320,17 @@ class TestFullPipelineE2E(unittest.TestCase):
         port = unused_tcp_port()
         mech = mechanism_factory("gear_pair")
         with GazeboStubBridge(port) as bridge:
-            resp = _send_command(bridge.host, bridge.port, "simulate", {
-                "mechanism": mech,
-                "duration_s": 0.5,
-                "dt_s": 0.01,
-                "output_interval": 0.1,
-            })
+            resp = _send_command(
+                bridge.host,
+                bridge.port,
+                "simulate",
+                {
+                    "mechanism": mech,
+                    "duration_s": 0.5,
+                    "dt_s": 0.01,
+                    "output_interval": 0.1,
+                },
+            )
         self.assertTrue(resp["ok"], resp)
         result = resp["result"]
         self.assertIn("time_series", result)
@@ -432,11 +443,14 @@ class TestFullPipelineE2E(unittest.TestCase):
                 ],
                 "drives": [],
             }
-            resp = bridge.send("simulate", {
-                "mechanism": mech,
-                "duration_s": 0.5,
-                "dt_s": 0.01,
-            })
+            resp = bridge.send(
+                "simulate",
+                {
+                    "mechanism": mech,
+                    "duration_s": 0.5,
+                    "dt_s": 0.01,
+                },
+            )
             self.assertTrue(resp["ok"], resp)
             result = resp["result"]
             self.assertIn("time_series", result)
@@ -468,12 +482,15 @@ class TestFullPipelineE2E(unittest.TestCase):
 
         port = unused_tcp_port()
         with _ChronoDaemon(port) as daemon:
-            resp = daemon.send("simulate", {
-                "simulation_spec": spec,
-                "duration_s": 0.5,
-                "dt_s": 0.001,
-                "output_interval": 0.05,
-            })
+            resp = daemon.send(
+                "simulate",
+                {
+                    "simulation_spec": spec,
+                    "duration_s": 0.5,
+                    "dt_s": 0.001,
+                    "output_interval": 0.05,
+                },
+            )
 
         self.assertTrue(resp["ok"], resp)
         result = resp["result"]
@@ -502,16 +519,22 @@ class TestFullPipelineE2E(unittest.TestCase):
 
         # gear_a (driven) should match in both
         self.assertAlmostEqual(
-            self._tier1_speeds["gear_a"], chrono_speeds["gear_a"], delta=1.0,
+            self._tier1_speeds["gear_a"],
+            chrono_speeds["gear_a"],
+            delta=1.0,
             msg="gear_a should agree between Tier 1 and Chrono",
         )
 
         # Chrono gives the physically correct signed speed
         self.assertAlmostEqual(
-            chrono_speeds["gear_a"], 1000.0, delta=1.0,
+            chrono_speeds["gear_a"],
+            1000.0,
+            delta=1.0,
         )
         self.assertAlmostEqual(
-            chrono_speeds["gear_b"], -500.0, delta=1.0,
+            chrono_speeds["gear_b"],
+            -500.0,
+            delta=1.0,
         )
 
         # Magnitude agreement — the "never again" regression guard
@@ -553,12 +576,17 @@ class TestFullPipelineE2E(unittest.TestCase):
         port = unused_tcp_port()
         mech = mechanism_factory("gear_pair")
         with GazeboStubBridge(port) as bridge:
-            sim_resp = _send_command(bridge.host, bridge.port, "simulate", {
-                "mechanism": mech,
-                "duration_s": 0.5,
-                "dt_s": 0.01,
-                "output_interval": 0.1,
-            })
+            sim_resp = _send_command(
+                bridge.host,
+                bridge.port,
+                "simulate",
+                {
+                    "mechanism": mech,
+                    "duration_s": 0.5,
+                    "dt_s": 0.01,
+                    "output_interval": 0.1,
+                },
+            )
         self.assertTrue(sim_resp["ok"], sim_resp)
         peak_forces = sim_resp["result"]["summary"].get("peak_joint_forces", {})
         peak_force = max(
@@ -630,10 +658,7 @@ class TestFullPipelineE2E(unittest.TestCase):
             result = solver.parse_results(work_dir, spec)
 
         # Step 5: Verify physics
-        temp_fields = [
-            f for f in result.scalar_fields
-            if f.field_name == "temperature"
-        ]
+        temp_fields = [f for f in result.scalar_fields if f.field_name == "temperature"]
         self.assertEqual(len(temp_fields), 1, "Expected 1 temperature field")
         tf = temp_fields[0]
 

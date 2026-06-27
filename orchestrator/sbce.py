@@ -4,6 +4,7 @@ SBCE narrows the design space by intersecting feasible sets across subsystem
 boundaries, then ranks assembly-level combinations rather than per-subsystem
 variants.
 """
+
 from __future__ import annotations
 
 import itertools
@@ -66,16 +67,12 @@ def filter_feasible(
             if obj.threshold is not None and score is not None:
                 if obj.direction == "minimize" and score > obj.threshold:
                     v.feasible = False
-                    v.elimination_reason = (
-                        f"{obj.name}={score:.4f} > threshold {obj.threshold}"
-                    )
+                    v.elimination_reason = f"{obj.name}={score:.4f} > threshold {obj.threshold}"
                     ok = False
                     break
                 elif obj.direction == "maximize" and score < obj.threshold:
                     v.feasible = False
-                    v.elimination_reason = (
-                        f"{obj.name}={score:.4f} < threshold {obj.threshold}"
-                    )
+                    v.elimination_reason = f"{obj.name}={score:.4f} < threshold {obj.threshold}"
                     ok = False
                     break
         if ok:
@@ -117,8 +114,7 @@ def intersect_feasible_sets(
                 # A variant is feasible only if at least one partner variant exists
                 before = len(narrowed[sub_name])
                 narrowed[sub_name] = [
-                    v for v in narrowed[sub_name]
-                    if v.feasible and len(narrowed[partner]) > 0
+                    v for v in narrowed[sub_name] if v.feasible and len(narrowed[partner]) > 0
                 ]
                 if len(narrowed[sub_name]) < before:
                     changed = True

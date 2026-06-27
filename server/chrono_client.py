@@ -4,6 +4,7 @@ Same architecture as freecad_client.py — TCP socket client with retry/reconnec
 The Chrono daemon is a standalone C++ executable that listens on localhost:9877
 and runs multibody dynamics simulations via Project Chrono.
 """
+
 from __future__ import annotations
 
 import logging
@@ -54,16 +55,18 @@ class ChronoClient:
         if self._sock is not None:
             return
 
-        logger.debug("Connecting to Chrono daemon at %s:%d (timeout=%.1fs)",
-                      self._host, self._port, timeout)
+        logger.debug(
+            "Connecting to Chrono daemon at %s:%d (timeout=%.1fs)", self._host, self._port, timeout
+        )
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.settimeout(timeout)
         try:
             sock.connect((self._host, self._port))
         except (ConnectionRefusedError, OSError) as e:
             sock.close()
-            logger.warning("Connection to Chrono daemon at %s:%d failed: %s",
-                           self._host, self._port, e)
+            logger.warning(
+                "Connection to Chrono daemon at %s:%d failed: %s", self._host, self._port, e
+            )
             raise ChronoConnectionError(
                 f"Cannot connect to Chrono daemon at {self._host}:{self._port}: {e}. "
                 "Please start the chrono_daemon binary."
@@ -87,10 +90,12 @@ class ChronoClient:
             except ChronoConnectionError as e:
                 last_error = e
                 if attempt < max_retries - 1:
-                    delay = retry_delay * (2 ** attempt)
+                    delay = retry_delay * (2**attempt)
                     logger.warning(
                         "Chrono connection attempt %d/%d failed, retrying in %.1fs",
-                        attempt + 1, max_retries, delay,
+                        attempt + 1,
+                        max_retries,
+                        delay,
                     )
                     time.sleep(delay)
 
@@ -142,8 +147,9 @@ class ChronoClient:
             raise ChronoConnectionError(f"Connection lost while sending: {e}") from e
 
         response = self._read_response(timeout)
-        logger.debug("Response for '%s': ok=%s keys=%s",
-                      cmd, response.get("ok"), list(response.keys()))
+        logger.debug(
+            "Response for '%s': ok=%s keys=%s", cmd, response.get("ok"), list(response.keys())
+        )
 
         if not response.get("ok", False):
             error_msg = response.get("error", "Unknown error")
@@ -182,7 +188,10 @@ class ChronoClient:
             obj_types = [o.get("type") for o in simulation_spec.get("objects", [])]
             logger.info(
                 "simulate: spec with %d objects (%s), duration=%.3fs dt=%.4fs",
-                n_objects, ", ".join(obj_types), duration_s, dt_s,
+                n_objects,
+                ", ".join(obj_types),
+                duration_s,
+                dt_s,
             )
             kwargs["simulation_spec"] = simulation_spec
         elif mechanism is not None:
@@ -220,9 +229,7 @@ class ChronoClient:
                 ) from e
             except (ConnectionResetError, OSError) as e:
                 self._sock = None
-                raise ChronoConnectionError(
-                    f"Connection lost while reading: {e}"
-                ) from e
+                raise ChronoConnectionError(f"Connection lost while reading: {e}") from e
 
             if not data:
                 logger.error("Chrono daemon closed the connection (recv returned empty)")

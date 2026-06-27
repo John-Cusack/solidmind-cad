@@ -7,6 +7,7 @@ reachable. The build_geometry path and per-part-class builders are
 tested separately in ``tests/test_orchestrator_real_worker_e2e.py``,
 which is gated by ``freecad_ready()``.
 """
+
 from __future__ import annotations
 
 import json
@@ -66,6 +67,7 @@ class TestHostPortEnvOverrides(unittest.TestCase):
     def test_default_host(self) -> None:
         with patch.dict("os.environ", {}, clear=False):
             import os
+
             os.environ.pop("FREECAD_HOST", None)
             self.assertEqual(common.fc_host(), "127.0.0.1")
 
@@ -76,6 +78,7 @@ class TestHostPortEnvOverrides(unittest.TestCase):
     def test_default_port(self) -> None:
         with patch.dict("os.environ", {}, clear=False):
             import os
+
             os.environ.pop("FREECAD_PORT", None)
             self.assertEqual(common.fc_port(), 9876)
 
@@ -92,16 +95,12 @@ class TestFreecadReadyNegative(unittest.TestCase):
         self.assertFalse(common.freecad_ready(host="127.0.0.1", port=1))
 
     def test_ready_with_import_step_returns_false_on_closed_port(self) -> None:
-        self.assertFalse(
-            common.freecad_ready_with_import_step(host="127.0.0.1", port=1)
-        )
+        self.assertFalse(common.freecad_ready_with_import_step(host="127.0.0.1", port=1))
 
     def test_ready_returns_false_on_bad_host(self) -> None:
         # 192.0.2.0/24 is TEST-NET-1, reserved for documentation and
         # guaranteed unroutable.
-        self.assertFalse(
-            common.freecad_ready(host="192.0.2.1", port=9876, timeout=0.5)
-        )
+        self.assertFalse(common.freecad_ready(host="192.0.2.1", port=9876, timeout=0.5))
 
 
 class TestBuildGeometryRequiresFreecad(unittest.TestCase):
@@ -210,7 +209,8 @@ class TestMetadataHelpers(unittest.TestCase):
             out = Path(tmp)
             (out / "metadata.json").write_text(json.dumps(original))
             updated = common.rewrite_interface_actuals(
-                out, {"ifc1": {"bore_dia": 8.0}},
+                out,
+                {"ifc1": {"bore_dia": 8.0}},
             )
             self.assertEqual(updated["claimed_mass_kg"], 0.042)
 
@@ -223,7 +223,8 @@ class TestMetadataHelpers(unittest.TestCase):
             out = Path(tmp)
             (out / "metadata.json").write_text(json.dumps(original))
             updated = common.rewrite_interface_actuals(
-                out, {"ifc1": {"bore_dia": 8.0}},
+                out,
+                {"ifc1": {"bore_dia": 8.0}},
             )
             self.assertEqual(updated["claimed_mass_kg"], 0.05)
 

@@ -1,4 +1,5 @@
 """Tests for CHOLMOD direct solver adapter."""
+
 from __future__ import annotations
 
 import unittest
@@ -30,9 +31,7 @@ def _spec() -> AnalysisSpec:
             density_kg_m3=7800,
             yield_strength_mpa=250,
         ),
-        boundary_conditions=(
-            BoundaryCondition(bc_type="fixed", faces=("Face1",), value={}),
-        ),
+        boundary_conditions=(BoundaryCondition(bc_type="fixed", faces=("Face1",), value={}),),
         mesh_size=0.0,
         solver="cholmod",
     )
@@ -89,7 +88,10 @@ class TestCHOLMODSolver(unittest.TestCase):
         with (
             patch("server.analysis_solver_cholmod.assemble_system", return_value=fake_system),
             patch.object(solver, "_factorize", return_value=fake_factor) as mock_fact,
-            patch("server.analysis_solver_cholmod.build_field_result_from_solution", return_value=fake_result),
+            patch(
+                "server.analysis_solver_cholmod.build_field_result_from_solution",
+                return_value=fake_result,
+            ),
         ):
             solver.solve_direct(spec, mesh, Path("/tmp"))
             solver.solve_direct(spec, mesh, Path("/tmp"))

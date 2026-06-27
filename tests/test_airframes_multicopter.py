@@ -4,6 +4,7 @@ Each test corresponds to a bug we shipped during the camera-drone debug
 session — keep them green and the next drone build won't repeat the
 afternoon.
 """
+
 from __future__ import annotations
 
 import tempfile
@@ -43,8 +44,7 @@ class TestHoverThrottle(unittest.TestCase):
             name="too_heavy",
             chassis=chassis,
             rotors=tuple(
-                Rotor(name=f"r{i}", position_m=(0.13, 0.13, 0), direction="ccw")
-                for i in range(4)
+                Rotor(name=f"r{i}", position_m=(0.13, 0.13, 0), direction="ccw") for i in range(4)
             ),
         )
         with self.assertRaises(ValueError) as ctx:
@@ -57,9 +57,12 @@ class TestHoverThrottle(unittest.TestCase):
             name="too_light",
             chassis=chassis,
             rotors=tuple(
-                Rotor(name=f"r{i}", position_m=(0.05, 0.05, 0),
-                      direction="ccw" if i % 2 == 0 else "cw",
-                      mass_kg=0.001)
+                Rotor(
+                    name=f"r{i}",
+                    position_m=(0.05, 0.05, 0),
+                    direction="ccw" if i % 2 == 0 else "cw",
+                    mass_kg=0.001,
+                )
                 for i in range(4)
             ),
         )
@@ -85,10 +88,8 @@ class TestChassisInertiaAggregation(unittest.TestCase):
             name="loaded",
             chassis=chassis,
             structural_bodies=(
-                StructuralBody("battery", 1.5, Box((0.10, 0.08, 0.04)),
-                               com_offset_m=(0, 0, 0.05)),
-                StructuralBody("payload", 2.5, Box((0.10, 0.08, 0.06)),
-                               com_offset_m=(0, 0, -0.04)),
+                StructuralBody("battery", 1.5, Box((0.10, 0.08, 0.04)), com_offset_m=(0, 0, 0.05)),
+                StructuralBody("payload", 2.5, Box((0.10, 0.08, 0.06)), com_offset_m=(0, 0, -0.04)),
             ),
             rotors=_quad_rotors(),
         )
@@ -150,17 +151,17 @@ class TestSDFEmission(unittest.TestCase):
 
     def _write_sdf(self, af: MulticopterAirframe) -> str:
         from server.sim_export import write_sdf
+
         sm = af.to_sim_model()
         with tempfile.NamedTemporaryFile(suffix=".sdf", delete=False) as f:
             path = f.name
         # drone_config tells write_sdf to emit motor plugins
         cfg = {
             "rotors": [
-                {"index": i, "joint": f"{r.name}_joint",
-                 "direction": r.direction, "link": r.name}
+                {"index": i, "joint": f"{r.name}_joint", "direction": r.direction, "link": r.name}
                 for i, r in enumerate(af.rotors)
             ],
-            "sensors": False,   # keep test fast; sensors tested elsewhere
+            "sensors": False,  # keep test fast; sensors tested elsewhere
         }
         write_sdf(sm, path, drone_config=cfg)
         return path
@@ -181,17 +182,19 @@ class TestSDFEmission(unittest.TestCase):
         path = self._write_sdf(x500_like())
         tree = ET.parse(path)
         plugins = [
-            p for p in tree.iter("plugin")
+            p
+            for p in tree.iter("plugin")
             if "MulticopterMotorModel" in (p.attrib.get("name") or "")
         ]
         self.assertEqual(len(plugins), 4)
         for p in plugins:
-            self.assertIsNotNone(p.find("motorNumber"),
-                                 "must use <motorNumber>, not <actuator_number>")
-            self.assertIsNone(p.find("actuator_number"),
-                              "<actuator_number> is the wrong tag for gz-sim")
-            self.assertIsNone(p.find("robotNamespace"),
-                              "<robotNamespace> breaks PX4 topic match")
+            self.assertIsNotNone(
+                p.find("motorNumber"), "must use <motorNumber>, not <actuator_number>"
+            )
+            self.assertIsNone(
+                p.find("actuator_number"), "<actuator_number> is the wrong tag for gz-sim"
+            )
+            self.assertIsNone(p.find("robotNamespace"), "<robotNamespace> breaks PX4 topic match")
             mt = p.find("motorType")
             self.assertIsNotNone(mt, "missing <motorType>velocity</motorType>")
             self.assertEqual(mt.text, "velocity")

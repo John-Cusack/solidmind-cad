@@ -147,4 +147,3 @@ def run(spec_draft: dict) -> list[Finding]:
             )
 
     return findings
-

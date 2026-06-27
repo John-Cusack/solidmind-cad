@@ -10,6 +10,7 @@ is already running (responds to health check), ``start_engine`` returns early.
 
 Thread-safe: all engine state is guarded by ``_lock``.
 """
+
 from __future__ import annotations
 
 import json
@@ -326,15 +327,22 @@ def _start_gazebo(port: int, runtime: str, timeout_s: float) -> dict[str, Any]:
 
     if runtime == "stub":
         cmd = [
-            "python3", "-m", "gazebo_bridge.bridge_server",
-            "--port", str(port),
-            "--runtime", "stub",
+            "python3",
+            "-m",
+            "gazebo_bridge.bridge_server",
+            "--port",
+            str(port),
+            "--runtime",
+            "stub",
         ]
     elif script.is_file():
         cmd = [
-            "bash", str(script),
-            "--port", str(port),
-            "--runtime", runtime,
+            "bash",
+            str(script),
+            "--port",
+            str(port),
+            "--runtime",
+            runtime,
         ]
     else:
         return _error(
@@ -352,6 +360,7 @@ def _start_isaac(port: int, headless: bool, timeout_s: float) -> dict[str, Any]:
     """Start the Isaac bridge subprocess."""
     try:
         from server.isaac_adapter import launch_bridge
+
         return launch_bridge(headless=headless, port=port, timeout_s=timeout_s)
     except ImportError:
         pass
@@ -559,11 +568,15 @@ def engine_status() -> dict[str, Any]:
                 if backend == "chrono":
                     binary = _PROJECT_ROOT / "chrono_daemon" / "build" / "chrono_daemon"
                     if binary.is_file():
-                        install_hint = "Binary found but not running. Start with: sim.start_engine('chrono')"
+                        install_hint = (
+                            "Binary found but not running. Start with: sim.start_engine('chrono')"
+                        )
                     else:
                         install_hint = "Not built. cd chrono_daemon && mkdir build && cd build && cmake .. && make"
                 elif backend == "gazebo":
-                    install_hint = "Start stub: sim.start_engine('gazebo'). Real: install Gazebo Harmonic"
+                    install_hint = (
+                        "Start stub: sim.start_engine('gazebo'). Real: install Gazebo Harmonic"
+                    )
                 elif backend == "isaac":
                     install_hint = "Set ISAAC_PYTHON env var, then: sim.start_engine('isaac')"
 
@@ -574,7 +587,9 @@ def engine_status() -> dict[str, Any]:
                 "managed": state.process is not None and state.process.poll() is None,
                 "healthy": healthy,
                 "error": state.error or None,
-                "uptime_s": round(time.monotonic() - state.started_at, 1) if state.started_at and state.status in (EngineStatus.READY, EngineStatus.RUNNING) else None,
+                "uptime_s": round(time.monotonic() - state.started_at, 1)
+                if state.started_at and state.status in (EngineStatus.READY, EngineStatus.RUNNING)
+                else None,
                 "install_hint": install_hint or None,
             }
 

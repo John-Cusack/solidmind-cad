@@ -19,6 +19,7 @@ Any test that constructs a :class:`MulticopterAirframe` literal can
 assert the exact ``SimModel`` and ``AirframeParams`` it produces — no
 intermediate FreeCAD documents required.
 """
+
 from __future__ import annotations
 
 import math
@@ -49,10 +50,10 @@ _GRAVITY_MS2 = 9.81
 # Defaults that match Gazebo's MulticopterMotorModel canonical example
 # and the x500 reference SDF.  Override per-rotor if your motor has
 # different specs.
-_DEFAULT_MOTOR_CONSTANT = 8.54858e-06     # N·s² (T = K·ω²)
-_DEFAULT_MOMENT_CONSTANT = 0.016          # τ_yaw / T  (matches x500 SDF)
-_DEFAULT_MAX_ROT_VELOCITY = 1000.0        # rad/s
-_DEFAULT_MIN_ROT_VELOCITY = 150.0         # SIM_GZ_EC_MIN; idle/spin-up
+_DEFAULT_MOTOR_CONSTANT = 8.54858e-06  # N·s² (T = K·ω²)
+_DEFAULT_MOMENT_CONSTANT = 0.016  # τ_yaw / T  (matches x500 SDF)
+_DEFAULT_MAX_ROT_VELOCITY = 1000.0  # rad/s
+_DEFAULT_MIN_ROT_VELOCITY = 150.0  # SIM_GZ_EC_MIN; idle/spin-up
 
 
 @dataclass(frozen=True, slots=True)
@@ -86,19 +87,12 @@ class Rotor:
     def __post_init__(self) -> None:  # type: ignore[misc]
         if self.direction not in ("ccw", "cw"):
             raise ValueError(
-                f"Rotor '{self.name}': direction must be 'ccw' or 'cw', "
-                f"got {self.direction!r}"
+                f"Rotor '{self.name}': direction must be 'ccw' or 'cw', got {self.direction!r}"
             )
         if self.radius_m <= 0:
-            raise ValueError(
-                f"Rotor '{self.name}': radius_m must be > 0, "
-                f"got {self.radius_m}"
-            )
+            raise ValueError(f"Rotor '{self.name}': radius_m must be > 0, got {self.radius_m}")
         if self.mass_kg <= 0:
-            raise ValueError(
-                f"Rotor '{self.name}': mass_kg must be > 0, "
-                f"got {self.mass_kg}"
-            )
+            raise ValueError(f"Rotor '{self.name}': mass_kg must be > 0, got {self.mass_kg}")
 
     @property
     def direction_sign(self) -> int:
@@ -148,8 +142,7 @@ class MulticopterAirframe:
             raise ValueError(f"MulticopterAirframe '{self.name}': rotors must be non-empty")
         if len(self.rotors) % 2 != 0 and len(self.rotors) < 3:
             raise ValueError(
-                f"MulticopterAirframe '{self.name}': need ≥ 3 rotors, "
-                f"got {len(self.rotors)}"
+                f"MulticopterAirframe '{self.name}': need ≥ 3 rotors, got {len(self.rotors)}"
             )
         # Yaw-balance check: signed moments must sum to zero for a
         # symmetric multirotor.  Asymmetric configs (e.g. tricopters
@@ -159,6 +152,7 @@ class MulticopterAirframe:
             # Only warn; some valid configurations (3-rotor) are asymmetric.
             # Loud enough to surface during inspection but not fatal.
             import warnings
+
             warnings.warn(
                 f"MulticopterAirframe '{self.name}': rotor turning directions "
                 f"don't balance yaw (Σ KM = {signed_moments:.3f}). Verify "
@@ -193,11 +187,13 @@ class MulticopterAirframe:
             ),
         ]
         for body in self.structural_bodies:
-            contribs.append(InertiaContribution(
-                mass_kg=body.mass_kg,
-                com_offset_m=body.com_offset_m,
-                body_local=_inertia_for_shape(body),
-            ))
+            contribs.append(
+                InertiaContribution(
+                    mass_kg=body.mass_kg,
+                    com_offset_m=body.com_offset_m,
+                    body_local=_inertia_for_shape(body),
+                )
+            )
         return aggregate(contribs)
 
     # ------------------------------------------------------------------
@@ -256,10 +252,7 @@ class MulticopterAirframe:
         """Mean radial distance from chassis origin to each rotor centre."""
         if not self.rotors:
             return 0.0
-        radii = [
-            math.hypot(r.position_m[0], r.position_m[1])
-            for r in self.rotors
-        ]
+        radii = [math.hypot(r.position_m[0], r.position_m[1]) for r in self.rotors]
         return sum(radii) / len(radii)
 
     # ------------------------------------------------------------------
@@ -286,8 +279,9 @@ class MulticopterAirframe:
             chassis_collision = CollisionShape(
                 kind="cylinder",
                 radius_m=self.chassis.shape.radius_m,
-                length_m=getattr(self.chassis.shape, "length_m",
-                                 getattr(self.chassis.shape, "thickness_m", 0.01)),
+                length_m=getattr(
+                    self.chassis.shape, "length_m", getattr(self.chassis.shape, "thickness_m", 0.01)
+                ),
             )
 
         # SimLink positions are in mm (FreeCAD convention).  The chassis
@@ -337,14 +331,16 @@ class MulticopterAirframe:
                 ),
             )
             rotor_links.append(rotor_link)
-            rotor_joints.append(SimJoint(
-                name=f"{rotor.name}_joint",
-                joint_type="continuous",
-                parent=chassis_link.name,
-                child=rotor.name,
-                axis=(0.0, 0.0, 1.0),
-                origin_xyz=rotor.position_m,
-            ))
+            rotor_joints.append(
+                SimJoint(
+                    name=f"{rotor.name}_joint",
+                    joint_type="continuous",
+                    parent=chassis_link.name,
+                    child=rotor.name,
+                    axis=(0.0, 0.0, 1.0),
+                    origin_xyz=rotor.position_m,
+                )
+            )
 
         return SimModel(
             name=self.name,
@@ -426,16 +422,22 @@ class MulticopterAirframe:
 def _inertia_for_shape(body: StructuralBody) -> Inertia6:
     """Pick the right inertia formula for a structural body's shape."""
     shape = body.shape
-    if hasattr(shape, "size_m"):              # Box
+    if hasattr(shape, "size_m"):  # Box
         dx, dy, dz = shape.size_m
         return box_inertia(body.mass_kg, dx, dy, dz)
     if isinstance(shape, Disk):
         return thin_disk_inertia(
-            body.mass_kg, shape.radius_m, shape.thickness_m, axis=shape.axis,
+            body.mass_kg,
+            shape.radius_m,
+            shape.thickness_m,
+            axis=shape.axis,
         )
     if isinstance(shape, Cylinder):
         return cylinder_inertia(
-            body.mass_kg, shape.radius_m, shape.length_m, axis=shape.axis,
+            body.mass_kg,
+            shape.radius_m,
+            shape.length_m,
+            axis=shape.axis,
         )
     # CustomMesh — no closed-form inertia; the user must provide it
     # via a separate hook (TODO: add a ``mass_inertia`` field on

@@ -1,4 +1,5 @@
 """Council validation — decomposition, sizing, and feasibility checks."""
+
 from __future__ import annotations
 
 from orchestrator.spec import (

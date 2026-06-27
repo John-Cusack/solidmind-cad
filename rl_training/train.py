@@ -11,6 +11,7 @@ Designed to be spawned as a subprocess in Isaac Lab's Python:
 Hyperparameters are research-validated defaults from the SolidMind
 RL pipeline design document.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -114,43 +115,59 @@ def main(argv: list[str] | None = None) -> int:
     """CLI entry point for training subprocess."""
     parser = argparse.ArgumentParser(description="RL training for SolidMind CAD")
     parser.add_argument(
-        "--env-config", required=True,
+        "--env-config",
+        required=True,
         help="Path to generated env config .py file",
     )
     parser.add_argument(
-        "--output-dir", required=True,
+        "--output-dir",
+        required=True,
         help="Output directory for checkpoints and logs",
     )
     parser.add_argument(
-        "--max-iterations", type=int, default=None,
+        "--max-iterations",
+        type=int,
+        default=None,
         help="Override max training iterations",
     )
     parser.add_argument(
-        "--num-envs", type=int, default=None,
+        "--num-envs",
+        type=int,
+        default=None,
         help="Override number of parallel environments",
     )
     parser.add_argument(
-        "--early-stop-fall-pct", type=float, default=95.0,
+        "--early-stop-fall-pct",
+        type=float,
+        default=95.0,
         help="Stop if fall%% exceeds this after min iterations (default: 95)",
     )
     parser.add_argument(
-        "--early-stop-patience", type=int, default=200,
+        "--early-stop-patience",
+        type=int,
+        default=200,
         help="Stop if no reward improvement for this many iterations (default: 200)",
     )
     parser.add_argument(
-        "--no-early-stop", action="store_true",
+        "--no-early-stop",
+        action="store_true",
         help="Disable early stopping",
     )
     parser.add_argument(
-        "--no-headless", action="store_true",
+        "--no-headless",
+        action="store_true",
         help="Run with Isaac Sim GUI (visible rendering)",
     )
     parser.add_argument(
-        "--patience", type=int, default=500,
+        "--patience",
+        type=int,
+        default=500,
         help="Stop if reward doesn't improve by >1.0 over this many iterations (Isaac Lab pipeline)",
     )
     parser.add_argument(
-        "--resume", type=str, default=None,
+        "--resume",
+        type=str,
+        default=None,
         help="Path to checkpoint .pt to resume from (Isaac Lab pipeline)",
     )
     args = parser.parse_args(argv)
@@ -164,6 +181,7 @@ def main(argv: list[str] | None = None) -> int:
     # to the legacy custom pipeline for backward compatibility.
     try:
         import importlib.util as _ilu
+
         _spec = _ilu.spec_from_file_location("_env_cfg_check", args.env_config)
         if _spec is not None and _spec.loader is not None:
             _mod = _ilu.module_from_spec(_spec)
@@ -171,6 +189,7 @@ def main(argv: list[str] | None = None) -> int:
             _pipeline = getattr(_mod, "PIPELINE", "custom")
             if _pipeline == "isaaclab":
                 from rl_training.isaaclab_train import run_isaaclab_training
+
                 log.info("Dispatching to Isaac Lab pipeline")
                 return run_isaaclab_training(args, _mod)
     except Exception as exc:
@@ -198,10 +217,13 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         from rl_training.residual_env import build_env_config_from_file
+
         env_cfg = build_env_config_from_file(args.env_config)
         log.info(
             "Env config loaded: %d joints, obs_dim=%d, action_dim=%d",
-            env_cfg.num_joints, env_cfg.obs_dim, env_cfg.action_dim,
+            env_cfg.num_joints,
+            env_cfg.obs_dim,
+            env_cfg.action_dim,
         )
     except Exception as exc:
         log.error("Failed to load env config: %s", exc)
@@ -219,6 +241,7 @@ def main(argv: list[str] | None = None) -> int:
     # Attempt to import PyTorch
     try:
         import torch  # type: ignore[import-not-found]
+
         log.info("PyTorch available: %s (CUDA: %s)", torch.__version__, torch.cuda.is_available())
     except ImportError:
         log.warning("PyTorch not available — writing config only (no training)")
@@ -239,6 +262,7 @@ def main(argv: list[str] | None = None) -> int:
     simulation_app = None
     try:
         from isaacsim import SimulationApp  # type: ignore[import-not-found]
+
         headless = not args.no_headless
         simulation_app = SimulationApp({"headless": headless})
         log.info("Isaac Sim SimulationApp initialized (headless=%s)", headless)
@@ -259,9 +283,11 @@ def main(argv: list[str] | None = None) -> int:
     except Exception as exc:
         log.error("Failed to initialize SimulationApp: %s", exc)
         write_progress(
-            output_dir, iteration=0,
+            output_dir,
+            iteration=0,
             max_iterations=ppo_config.max_iterations,
-            mean_reward=0.0, status="error",
+            mean_reward=0.0,
+            status="error",
             error=f"SimulationApp init failed: {exc}",
         )
         return 1
@@ -287,6 +313,7 @@ def main(argv: list[str] | None = None) -> int:
     # Build environment config from generated module
     try:
         import importlib.util as ilu
+
         spec = ilu.spec_from_file_location("_env_cfg_mod", args.env_config)
         if spec is None or spec.loader is None:
             raise ImportError(f"Cannot load {args.env_config}")
@@ -299,9 +326,11 @@ def main(argv: list[str] | None = None) -> int:
     except Exception as exc:
         log.error("Failed to build HexapodEnvConfig: %s", exc)
         write_progress(
-            output_dir, iteration=0,
+            output_dir,
+            iteration=0,
             max_iterations=ppo_config.max_iterations,
-            mean_reward=0.0, status="error",
+            mean_reward=0.0,
+            status="error",
             error=f"Env config build failed: {exc}",
         )
         if simulation_app:
@@ -316,9 +345,11 @@ def main(argv: list[str] | None = None) -> int:
     except Exception as exc:
         log.error("Failed to initialize environment: %s", exc)
         write_progress(
-            output_dir, iteration=0,
+            output_dir,
+            iteration=0,
             max_iterations=ppo_config.max_iterations,
-            mean_reward=0.0, status="error",
+            mean_reward=0.0,
+            status="error",
             error=f"Env init failed: {exc}",
         )
         if simulation_app:
@@ -347,13 +378,19 @@ def main(argv: list[str] | None = None) -> int:
 
     log.info(
         "Training started: %d envs, %d joints, obs_dim=%d, action_dim=%d, device=%s",
-        hex_cfg.num_envs, hex_cfg.num_joints, hex_cfg.obs_dim, hex_cfg.action_dim, device,
+        hex_cfg.num_envs,
+        hex_cfg.num_joints,
+        hex_cfg.obs_dim,
+        hex_cfg.action_dim,
+        device,
     )
 
     write_progress(
-        output_dir, iteration=0,
+        output_dir,
+        iteration=0,
         max_iterations=ppo_config.max_iterations,
-        mean_reward=0.0, status="training",
+        mean_reward=0.0,
+        status="training",
     )
 
     # ── Early stopping config ────────────────────────────────────
@@ -393,7 +430,8 @@ def main(argv: list[str] | None = None) -> int:
                     "Iter %d/%d | reward=%.3f | fall=%.0f%% | ep_len=%.0f | "
                     "policy_loss=%.4f | value_loss=%.4f | "
                     "entropy=%.4f | kl=%.5f | lr=%.2e | %.1fs",
-                    iteration, ppo_config.max_iterations,
+                    iteration,
+                    ppo_config.max_iterations,
                     mean_reward,
                     fall_pct,
                     mean_ep_len,
@@ -436,17 +474,23 @@ def main(argv: list[str] | None = None) -> int:
             # Early stopping checks (only after min iterations)
             if early_stop_enabled and iteration >= early_stop_min_iterations:
                 # Stop if fall rate is too high
-                if fall_pct >= early_stop_fall_pct and (ep_stats["fall_count"] + ep_stats["timeout_count"]) > 0:
+                if (
+                    fall_pct >= early_stop_fall_pct
+                    and (ep_stats["fall_count"] + ep_stats["timeout_count"]) > 0
+                ):
                     log.warning(
                         "Early stop: fall rate %.0f%% >= %.0f%% at iteration %d",
-                        fall_pct, early_stop_fall_pct, iteration,
+                        fall_pct,
+                        early_stop_fall_pct,
+                        iteration,
                     )
                     break
                 # Stop if no reward improvement for patience iterations
                 if iteration - best_reward_iter >= early_stop_patience:
                     log.warning(
                         "Early stop: no reward improvement for %d iterations (best at iter %d)",
-                        early_stop_patience, best_reward_iter,
+                        early_stop_patience,
+                        best_reward_iter,
                     )
                     break
 
@@ -483,7 +527,8 @@ def main(argv: list[str] | None = None) -> int:
             "stride_frequency": hex_cfg.stride_frequency,
         }
         (deployed_dir / "deployment_config.json").write_text(
-            json.dumps(deploy_config, indent=2), encoding="utf-8",
+            json.dumps(deploy_config, indent=2),
+            encoding="utf-8",
         )
         log.info("Final policy exported to %s", policy_path)
     except Exception as exc:

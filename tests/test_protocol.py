@@ -1,4 +1,5 @@
 """Tests for the FreeCAD addon protocol module."""
+
 from __future__ import annotations
 
 import unittest
@@ -111,9 +112,7 @@ class TestFilterKwargs(unittest.TestCase):
         import inspect
 
         sig = inspect.signature(handler)
-        if any(
-            p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
-        ):
+        if any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()):
             return args
         accepted = {
             name

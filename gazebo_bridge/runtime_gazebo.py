@@ -4,6 +4,7 @@ Supports two runtime modes:
 - ``real`` (default): uses Gazebo CLI/service calls when available.
 - ``stub``: deterministic in-memory fallback for tests and local dev.
 """
+
 from __future__ import annotations
 
 import logging
@@ -35,8 +36,7 @@ class GazeboRuntimeError(Exception):
 
 
 class _SupportsRun(Protocol):
-    def __call__(self, cmd: list[str]) -> tuple[int, str, str]:
-        ...
+    def __call__(self, cmd: list[str]) -> tuple[int, str, str]: ...
 
 
 def _default_runner(cmd: list[str]) -> tuple[int, str, str]:
@@ -77,7 +77,9 @@ class StubGazeboRuntime:
     def __init__(self, *, world_name: str = "default", enable_px4: bool = False) -> None:
         self._world_name = world_name
         self._sessions: dict[str, GazeboSession] = {}
-        self._session_controllers: dict[str, MultirotorDirectController | Px4OffboardController] = {}
+        self._session_controllers: dict[
+            str, MultirotorDirectController | Px4OffboardController
+        ] = {}
         # Real px4_offboard sessions allocate one MavlinkController each.
         # Stored separately from controllers so teardown can disconnect
         # cleanly without touching the controller's lifecycle.
@@ -125,7 +127,9 @@ class StubGazeboRuntime:
         output_interval = float(args.get("output_interval", 0.05))
         mechanism = args.get("mechanism", {}) if isinstance(args.get("mechanism"), dict) else {}
         world_name = _normalize_world_name(args, self._world_name)
-        part_ids = [p.get("id") for p in mechanism.get("parts", []) if isinstance(p, dict) and p.get("id")]
+        part_ids = [
+            p.get("id") for p in mechanism.get("parts", []) if isinstance(p, dict) and p.get("id")
+        ]
 
         # Extract joint info for force/torque estimation
         joints = mechanism.get("joints", []) if isinstance(mechanism.get("joints"), list) else []
@@ -357,7 +361,9 @@ class StubGazeboRuntime:
             return self._px4.start(
                 binary=(str(args.get("binary")) if args.get("binary") else None),
                 args=(list(args.get("args")) if isinstance(args.get("args"), list) else None),
-                system_address=(str(args.get("system_address")) if args.get("system_address") else None),
+                system_address=(
+                    str(args.get("system_address")) if args.get("system_address") else None
+                ),
             )
         except Px4Error as exc:
             raise GazeboRuntimeError(str(exc), code=exc.code) from exc
@@ -487,20 +493,22 @@ class RealGazeboRuntime(StubGazeboRuntime):
         (e.g. mesh loading errors, resource resolution failures).
         """
         req = f'sdf_filename: "{source_path}", name: "{model_name}"'
-        code, stdout, stderr = self._runner([
-            "gz",
-            "service",
-            "-s",
-            f"/world/{world_name}/create",
-            "--reqtype",
-            "gz.msgs.EntityFactory",
-            "--reptype",
-            "gz.msgs.Boolean",
-            "--timeout",
-            "4000",
-            "--req",
-            req,
-        ])
+        code, stdout, stderr = self._runner(
+            [
+                "gz",
+                "service",
+                "-s",
+                f"/world/{world_name}/create",
+                "--reqtype",
+                "gz.msgs.EntityFactory",
+                "--reptype",
+                "gz.msgs.Boolean",
+                "--timeout",
+                "4000",
+                "--req",
+                req,
+            ]
+        )
         out = f"{stdout}\n{stderr}".lower()
         if code != 0 or "data: true" not in out:
             raise GazeboRuntimeError(
@@ -518,35 +526,40 @@ class RealGazeboRuntime(StubGazeboRuntime):
             if not line_lower:
                 continue
             # Detect mesh loading failures and resource resolution issues
-            if any(kw in line_lower for kw in (
-                "unable to find",
-                "mesh not found",
-                "failed to load",
-                "resource not found",
-                "invalid mesh",
-                "missing mesh",
-                "could not load",
-            )):
+            if any(
+                kw in line_lower
+                for kw in (
+                    "unable to find",
+                    "mesh not found",
+                    "failed to load",
+                    "resource not found",
+                    "invalid mesh",
+                    "missing mesh",
+                    "could not load",
+                )
+            ):
                 spawn_warnings.append(line.strip())
                 logger.warning("Gazebo spawn warning: %s", line.strip())
         return spawn_warnings
 
     def _step_world(self, *, world_name: str, steps: int) -> None:
         req = f"multi_step: {int(max(1, steps))}, pause: false"
-        code, stdout, stderr = self._runner([
-            "gz",
-            "service",
-            "-s",
-            f"/world/{world_name}/control",
-            "--reqtype",
-            "gz.msgs.WorldControl",
-            "--reptype",
-            "gz.msgs.Boolean",
-            "--timeout",
-            "4000",
-            "--req",
-            req,
-        ])
+        code, stdout, stderr = self._runner(
+            [
+                "gz",
+                "service",
+                "-s",
+                f"/world/{world_name}/control",
+                "--reqtype",
+                "gz.msgs.WorldControl",
+                "--reptype",
+                "gz.msgs.Boolean",
+                "--timeout",
+                "4000",
+                "--req",
+                req,
+            ]
+        )
         out = f"{stdout}\n{stderr}".lower()
         if code != 0 or "data: true" not in out:
             raise GazeboRuntimeError(
@@ -576,4 +589,3 @@ def create_runtime(
         f"Unsupported Gazebo runtime mode '{mode}'. Use 'real' or 'stub'.",
         code="INVALID_INPUT",
     )
-

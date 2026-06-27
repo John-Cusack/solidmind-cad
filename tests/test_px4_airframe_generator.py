@@ -4,6 +4,7 @@ Pure-math + file-format tests.  E2E tests that actually fly a SolidMind
 airframe under PX4 live in ``tests.test_px4_solidmind_drone_e2e``
 (Phase 4 verification, gated on PX4 build).
 """
+
 from __future__ import annotations
 
 import re
@@ -65,14 +66,30 @@ def _x500_like_drone_config() -> dict:
     """
     return {
         "rotors": [
-            {"index": 0, "joint": "rotor_0_joint", "direction": "ccw",
-             "position_m": (0.13, -0.22, 0.0)},
-            {"index": 1, "joint": "rotor_1_joint", "direction": "ccw",
-             "position_m": (-0.13, 0.20, 0.0)},
-            {"index": 2, "joint": "rotor_2_joint", "direction": "cw",
-             "position_m": (0.13, 0.22, 0.0)},
-            {"index": 3, "joint": "rotor_3_joint", "direction": "cw",
-             "position_m": (-0.13, -0.20, 0.0)},
+            {
+                "index": 0,
+                "joint": "rotor_0_joint",
+                "direction": "ccw",
+                "position_m": (0.13, -0.22, 0.0),
+            },
+            {
+                "index": 1,
+                "joint": "rotor_1_joint",
+                "direction": "ccw",
+                "position_m": (-0.13, 0.20, 0.0),
+            },
+            {
+                "index": 2,
+                "joint": "rotor_2_joint",
+                "direction": "cw",
+                "position_m": (0.13, 0.22, 0.0),
+            },
+            {
+                "index": 3,
+                "joint": "rotor_3_joint",
+                "direction": "cw",
+                "position_m": (-0.13, -0.20, 0.0),
+            },
         ],
     }
 
@@ -126,8 +143,7 @@ class TestExtractRotors(unittest.TestCase):
         """FLU input is converted to FRD: Y and Z negated, X unchanged."""
         cfg = {
             "rotors": [
-                {"joint": "j", "direction": "ccw",
-                 "position_m": (0.10, 0.20, 0.05)},
+                {"joint": "j", "direction": "ccw", "position_m": (0.10, 0.20, 0.05)},
             ],
         }
         rotors = extract_rotors(cfg)
@@ -139,9 +155,9 @@ class TestExtractRotors(unittest.TestCase):
         cfg = {
             "rotors": [
                 {"joint": "j0", "direction": "ccw", "position_m": (0.1, 0.1)},
-                {"joint": "j1", "direction": "cw",  "position_m": (-0.1, 0.1)},
-                {"joint": "j2", "direction": 1,     "position_m": (0.1, -0.1)},
-                {"joint": "j3", "direction": -1,    "position_m": (-0.1, -0.1)},
+                {"joint": "j1", "direction": "cw", "position_m": (-0.1, 0.1)},
+                {"joint": "j2", "direction": 1, "position_m": (0.1, -0.1)},
+                {"joint": "j3", "direction": -1, "position_m": (-0.1, -0.1)},
             ],
         }
         rotors = extract_rotors(cfg)
@@ -178,11 +194,16 @@ class TestExtractRotors(unittest.TestCase):
 
     def test_per_rotor_motor_overrides_propagate(self) -> None:
         cfg = {
-            "rotors": [{
-                "joint": "j", "direction": "ccw", "position_m": (0.1, 0.1),
-                "motor_constant": 1.5e-5, "max_rot_velocity": 1500.0,
-                "moment_constant": 0.07,
-            }],
+            "rotors": [
+                {
+                    "joint": "j",
+                    "direction": "ccw",
+                    "position_m": (0.1, 0.1),
+                    "motor_constant": 1.5e-5,
+                    "max_rot_velocity": 1500.0,
+                    "moment_constant": 0.07,
+                }
+            ],
         }
         rotors = extract_rotors(cfg)
         self.assertAlmostEqual(rotors[0].motor_constant, 1.5e-5)
@@ -202,11 +223,13 @@ class TestGeometryDerived(unittest.TestCase):
         self.assertAlmostEqual(arm, _X500_ARM_LENGTH_M, places=2)
 
     def test_total_mass_sums_links(self) -> None:
-        sim = _FakeSimModel(links=[
-            _FakeLink("a", (0, 0, 0), mass_kg=0.5),
-            _FakeLink("b", (0, 0, 0), mass_kg=1.5),
-            _FakeLink("c", (0, 0, 0)),  # no mass
-        ])
+        sim = _FakeSimModel(
+            links=[
+                _FakeLink("a", (0, 0, 0), mass_kg=0.5),
+                _FakeLink("b", (0, 0, 0), mass_kg=1.5),
+                _FakeLink("c", (0, 0, 0)),  # no mass
+            ]
+        )
         self.assertAlmostEqual(compute_total_mass(sim), 2.0)
 
     def test_total_mass_zero_raises(self) -> None:
@@ -253,12 +276,16 @@ class TestGeometryDerived(unittest.TestCase):
         big = seed_pid_gains(mass_kg=4.0, arm_length_m=0.52, rotor_count=4)
         # Big drone has 4× the arm length; rate gains should be √4 = 2× lower.
         self.assertAlmostEqual(
-            small["mc_rollrate_p"] / big["mc_rollrate_p"], 2.0, places=3,
+            small["mc_rollrate_p"] / big["mc_rollrate_p"],
+            2.0,
+            places=3,
         )
 
     def test_pid_seeds_x500_match_reference(self) -> None:
         seeds = seed_pid_gains(
-            mass_kg=2.0, arm_length_m=_X500_ARM_LENGTH_M, rotor_count=4,
+            mass_kg=2.0,
+            arm_length_m=_X500_ARM_LENGTH_M,
+            rotor_count=4,
         )
         self.assertAlmostEqual(seeds["mc_rollrate_p"], _X500_MC_ROLLRATE_P)
 
@@ -387,10 +414,13 @@ class TestFormatAirframeInitScript(unittest.TestCase):
         # quadratic-correct hover formula stays feasible.
         # FLU input pz=0.05 → FRD output pz=-0.05 (negated by extract_rotors).
         cfg = {
-            "rotors": [{
-                "joint": "j", "direction": "ccw",
-                "position_m": (0.1, 0.1, 0.05),  # non-zero PZ in FLU
-            }],
+            "rotors": [
+                {
+                    "joint": "j",
+                    "direction": "ccw",
+                    "position_m": (0.1, 0.1, 0.05),  # non-zero PZ in FLU
+                }
+            ],
         }
         params = generate_airframe_params(
             model_name="lifted",
@@ -405,7 +435,7 @@ class TestFormatAirframeInitScript(unittest.TestCase):
         # X500 layout: rotors 0,3 ccw (+km), rotors 1,2 cw (-km).
         # Wait — actually our config has 0,1 ccw and 2,3 cw. Verify.
         self.assertRegex(script, r"CA_ROTOR0_KM\s+0\.05")  # ccw, positive
-        self.assertRegex(script, r"CA_ROTOR2_KM\s+-0\.05") # cw, negative
+        self.assertRegex(script, r"CA_ROTOR2_KM\s+-0\.05")  # cw, negative
 
     def test_yaw_p_uses_sqrt_scaling(self) -> None:
         # Sanity: for X500-sized arm, yaw P ≈ 0.20.
@@ -431,8 +461,7 @@ class TestRegisterAirframe(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         # Mimic the PX4 install layout that register_airframe expects.
         self.airframes_dir = (
-            Path(self.tmp.name) / "ROMFS" / "px4fmu_common"
-            / "init.d-posix" / "airframes"
+            Path(self.tmp.name) / "ROMFS" / "px4fmu_common" / "init.d-posix" / "airframes"
         )
         self.airframes_dir.mkdir(parents=True, exist_ok=True)
 
@@ -468,7 +497,9 @@ class TestRegisterAirframe(unittest.TestCase):
         register_airframe(self.params, install_path=self.tmp.name)
         with self.assertRaises(AirframeGeneratorError) as cm:
             register_airframe(
-                self.params, install_path=self.tmp.name, overwrite=False,
+                self.params,
+                install_path=self.tmp.name,
+                overwrite=False,
             )
         self.assertEqual(cm.exception.code, "AIRFRAME_EXISTS")
 

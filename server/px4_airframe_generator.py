@@ -27,6 +27,7 @@ After this generator drops a new file, PX4 must be rebuilt
 to ``PX4_SIM_MODEL``.  Phase 5 will automate the rebuild step; for
 now it's the operator's responsibility.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -55,9 +56,9 @@ _X500_HOVER_THROTTLE = 0.60
 # Default motor parameters that align with the canonical Gazebo
 # multicopter motor model plugin defaults.  Phase 4's airframe generator
 # uses these unless BEMT data provides per-drone overrides.
-_DEFAULT_MOTOR_CONSTANT = 8.54858e-06    # N*s²
-_DEFAULT_MOMENT_CONSTANT = 0.05          # ratio (yaw torque / thrust)
-_DEFAULT_MAX_ROT_VELOCITY = 1000.0       # rad/s
+_DEFAULT_MOTOR_CONSTANT = 8.54858e-06  # N*s²
+_DEFAULT_MOMENT_CONSTANT = 0.05  # ratio (yaw torque / thrust)
+_DEFAULT_MAX_ROT_VELOCITY = 1000.0  # rad/s
 
 _GRAVITY_MS2 = 9.81
 
@@ -143,7 +144,8 @@ def compute_sys_autostart(model_name: str) -> int:
     """
     if not model_name:
         raise AirframeGeneratorError(
-            "model_name must be non-empty", code="INVALID_MODEL_NAME",
+            "model_name must be non-empty",
+            code="INVALID_MODEL_NAME",
         )
     digest = hashlib.sha1(model_name.encode("utf-8")).digest()
     bucket = int.from_bytes(digest[:4], "big") % _AUTOSTART_RANGE
@@ -245,21 +247,23 @@ def extract_rotors(
         py = -float(pos_m[1])
         pz = -float(pos_m[2]) if len(pos_m) > 2 else 0.0
 
-        out.append(RotorParams(
-            px_m=px,
-            py_m=py,
-            pz_m=pz,
-            direction=_normalize_direction(entry.get("direction", "ccw")),
-            moment_constant=float(
-                entry.get("moment_constant", _DEFAULT_MOMENT_CONSTANT),
-            ),
-            motor_constant=float(
-                entry.get("motor_constant", _DEFAULT_MOTOR_CONSTANT),
-            ),
-            max_rot_velocity=float(
-                entry.get("max_rot_velocity", _DEFAULT_MAX_ROT_VELOCITY),
-            ),
-        ))
+        out.append(
+            RotorParams(
+                px_m=px,
+                py_m=py,
+                pz_m=pz,
+                direction=_normalize_direction(entry.get("direction", "ccw")),
+                moment_constant=float(
+                    entry.get("moment_constant", _DEFAULT_MOMENT_CONSTANT),
+                ),
+                motor_constant=float(
+                    entry.get("motor_constant", _DEFAULT_MOTOR_CONSTANT),
+                ),
+                max_rot_velocity=float(
+                    entry.get("max_rot_velocity", _DEFAULT_MAX_ROT_VELOCITY),
+                ),
+            )
+        )
 
     return tuple(out)
 
@@ -273,12 +277,10 @@ def compute_arm_length(rotors: tuple[RotorParams, ...]) -> float:
     """Mean radial distance from origin to the rotor tips, in metres."""
     if not rotors:
         raise AirframeGeneratorError(
-            "Cannot compute arm length with zero rotors", code="NO_ROTORS",
+            "Cannot compute arm length with zero rotors",
+            code="NO_ROTORS",
         )
-    radii = [
-        math.hypot(r.px_m, r.py_m)
-        for r in rotors
-    ]
+    radii = [math.hypot(r.px_m, r.py_m) for r in rotors]
     return sum(radii) / len(radii)
 
 
@@ -368,7 +370,10 @@ def compute_hover_throttle(
 
 
 def seed_pid_gains(
-    *, mass_kg: float, arm_length_m: float, rotor_count: int,
+    *,
+    mass_kg: float,
+    arm_length_m: float,
+    rotor_count: int,
 ) -> dict[str, float]:
     """Return rate-controller P-gain seeds scaled from the X500 baseline.
 
@@ -397,7 +402,8 @@ def seed_pid_gains(
     """
     if arm_length_m <= 0.0:
         raise AirframeGeneratorError(
-            "arm_length must be > 0", code="INVALID_ARM_LENGTH",
+            "arm_length must be > 0",
+            code="INVALID_ARM_LENGTH",
         )
     # Square-root inverse: gentler than pure 1/L, which over-corrects
     # in both directions when the dynamic range is large.
@@ -443,7 +449,9 @@ def generate_airframe_params(
 
     hover = compute_hover_throttle(mass_kg, rotors)
     pid = seed_pid_gains(
-        mass_kg=mass_kg, arm_length_m=arm_length, rotor_count=len(rotors),
+        mass_kg=mass_kg,
+        arm_length_m=arm_length,
+        rotor_count=len(rotors),
     )
     sys_autostart = compute_sys_autostart(model_name)
 
@@ -485,36 +493,22 @@ def format_airframe_init_script(params: AirframeParams) -> str:
     sanitized = _sanitize_name(params.name)
     rotor_block = []
     for idx, rotor in enumerate(params.rotors):
-        rotor_block.append(
-            f"param set-default CA_ROTOR{idx}_PX {rotor.px_m:.6g}"
-        )
-        rotor_block.append(
-            f"param set-default CA_ROTOR{idx}_PY {rotor.py_m:.6g}"
-        )
+        rotor_block.append(f"param set-default CA_ROTOR{idx}_PX {rotor.px_m:.6g}")
+        rotor_block.append(f"param set-default CA_ROTOR{idx}_PY {rotor.py_m:.6g}")
         if rotor.pz_m != 0.0:
-            rotor_block.append(
-                f"param set-default CA_ROTOR{idx}_PZ {rotor.pz_m:.6g}"
-            )
-        rotor_block.append(
-            f"param set-default CA_ROTOR{idx}_KM {rotor.km_signed:.6g}"
-        )
+            rotor_block.append(f"param set-default CA_ROTOR{idx}_PZ {rotor.pz_m:.6g}")
+        rotor_block.append(f"param set-default CA_ROTOR{idx}_KM {rotor.km_signed:.6g}")
         rotor_block.append("")
 
     sim_gz_block = []
     for idx in range(params.rotor_count):
-        sim_gz_block.append(
-            f"param set-default SIM_GZ_EC_FUNC{idx + 1} {101 + idx}"
-        )
+        sim_gz_block.append(f"param set-default SIM_GZ_EC_FUNC{idx + 1} {101 + idx}")
     sim_gz_block.append("")
     for idx in range(params.rotor_count):
-        sim_gz_block.append(
-            f"param set-default SIM_GZ_EC_MIN{idx + 1} {params.motor_min}"
-        )
+        sim_gz_block.append(f"param set-default SIM_GZ_EC_MIN{idx + 1} {params.motor_min}")
     sim_gz_block.append("")
     for idx in range(params.rotor_count):
-        sim_gz_block.append(
-            f"param set-default SIM_GZ_EC_MAX{idx + 1} {params.motor_max}"
-        )
+        sim_gz_block.append(f"param set-default SIM_GZ_EC_MAX{idx + 1} {params.motor_max}")
 
     rotor_lines = "\n".join(rotor_block)
     sim_gz_lines = "\n".join(sim_gz_block)
@@ -613,9 +607,7 @@ def register_airframe(
     until Phase 5 wires that.
     """
     base = _resolve_install_path(install_path)
-    airframes_dir = (
-        base / "ROMFS" / "px4fmu_common" / "init.d-posix" / "airframes"
-    )
+    airframes_dir = base / "ROMFS" / "px4fmu_common" / "init.d-posix" / "airframes"
     if not airframes_dir.is_dir():
         raise AirframeGeneratorError(
             f"PX4 airframes directory not found at {airframes_dir}. "

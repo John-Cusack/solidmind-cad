@@ -24,6 +24,7 @@ Default behaviour is intentionally idempotent: starting when SITL is
 already running is a no-op; flying without an active SITL prints a
 helpful message and exits.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -35,9 +36,9 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-PX4_INSTALL = Path(os.environ.get(
-    "SOLIDMIND_PX4_INSTALL",
-    str(Path.home() / "repos" / "PX4-Autopilot")))
+PX4_INSTALL = Path(
+    os.environ.get("SOLIDMIND_PX4_INSTALL", str(Path.home() / "repos" / "PX4-Autopilot"))
+)
 AIRFRAME = os.environ.get("FLIGHT_LAB_AIRFRAME", "gz_solidmind_quad")
 MODEL_NAME = os.environ.get("FLIGHT_LAB_MODEL", "solidmind_quad_0")
 SITL_LOG = Path("/tmp/flight_lab_sitl.log")
@@ -48,8 +49,7 @@ GUI_LOG = Path("/tmp/flight_lab_gui.log")
 # black frames.  These env vars resolved that on this machine.
 NVIDIA_ENV = {
     "__GLX_VENDOR_LIBRARY_NAME": "nvidia",
-    "__EGL_VENDOR_LIBRARY_FILENAMES":
-        "/usr/share/glvnd/egl_vendor.d/10_nvidia.json",
+    "__EGL_VENDOR_LIBRARY_FILENAMES": "/usr/share/glvnd/egl_vendor.d/10_nvidia.json",
     "QT_QPA_PLATFORM": "xcb",
 }
 
@@ -60,8 +60,7 @@ NVIDIA_ENV = {
 
 
 def _pgrep(pattern: str) -> list[int]:
-    out = subprocess.run(["pgrep", "-f", pattern], capture_output=True,
-                         text=True)
+    out = subprocess.run(["pgrep", "-f", pattern], capture_output=True, text=True)
     return [int(p) for p in out.stdout.split() if p.isdigit()]
 
 
@@ -79,9 +78,9 @@ def _server_running() -> bool:
 
 def cmd_status(_args: argparse.Namespace) -> None:
     rows = [
-        ("PX4 SITL",   _sitl_running(),    " ".join(map(str, _pgrep("px4_sitl_default/bin/px4")))),
-        ("Gazebo srv", _server_running(),  " ".join(map(str, _pgrep("gz-sim-main.*-r -s")))),
-        ("Gazebo GUI", _gui_running(),     " ".join(map(str, _pgrep("gz-sim-gui-client")))),
+        ("PX4 SITL", _sitl_running(), " ".join(map(str, _pgrep("px4_sitl_default/bin/px4")))),
+        ("Gazebo srv", _server_running(), " ".join(map(str, _pgrep("gz-sim-main.*-r -s")))),
+        ("Gazebo GUI", _gui_running(), " ".join(map(str, _pgrep("gz-sim-gui-client")))),
     ]
     width = max(len(r[0]) for r in rows)
     for name, alive, pids in rows:
@@ -159,8 +158,7 @@ def cmd_start(args: argparse.Namespace) -> None:
     time.sleep(5)
 
     # Move camera to a sensible default viewing angle
-    cmd_camera(argparse.Namespace(distance=20.0, height=12.0,
-                                  follow=True))
+    cmd_camera(argparse.Namespace(distance=20.0, height=12.0, follow=True))
     print("ready — `flight_lab.py fly square` to launch a flight")
 
 
@@ -202,27 +200,52 @@ def cmd_camera(args: argparse.Namespace) -> None:
     if args.follow:
         # Center on drone first
         subprocess.run(
-            ["gz", "service", "-s", "/gui/move_to",
-             "--reqtype", "gz.msgs.StringMsg",
-             "--reptype", "gz.msgs.Boolean",
-             "--timeout", "3000",
-             "--req", f'data: "{MODEL_NAME}"'],
-            capture_output=True, timeout=5)
+            [
+                "gz",
+                "service",
+                "-s",
+                "/gui/move_to",
+                "--reqtype",
+                "gz.msgs.StringMsg",
+                "--reptype",
+                "gz.msgs.Boolean",
+                "--timeout",
+                "3000",
+                "--req",
+                f'data: "{MODEL_NAME}"',
+            ],
+            capture_output=True,
+            timeout=5,
+        )
 
     d = args.distance
     h = args.height
     # Camera at (+d, +d, h) looking back at origin.  Quaternion derived
     # from euler (yaw=225°, pitch=down) with Gazebo's positive-pitch-is-
     # downward convention.  The previous orientation looked at the sky.
-    pose_req = (f'pose {{ position {{ x: {d} y: {d} z: {h} }} '
-                f'orientation {{ w: -0.3713 x: -0.2235 y: -0.0926 z: 0.8964 }} }}')
+    pose_req = (
+        f"pose {{ position {{ x: {d} y: {d} z: {h} }} "
+        f"orientation {{ w: -0.3713 x: -0.2235 y: -0.0926 z: 0.8964 }} }}"
+    )
     out = subprocess.run(
-        ["gz", "service", "-s", "/gui/move_to/pose",
-         "--reqtype", "gz.msgs.GUICamera",
-         "--reptype", "gz.msgs.Boolean",
-         "--timeout", "3000",
-         "--req", pose_req],
-        capture_output=True, text=True, timeout=5)
+        [
+            "gz",
+            "service",
+            "-s",
+            "/gui/move_to/pose",
+            "--reqtype",
+            "gz.msgs.GUICamera",
+            "--reptype",
+            "gz.msgs.Boolean",
+            "--timeout",
+            "3000",
+            "--req",
+            pose_req,
+        ],
+        capture_output=True,
+        text=True,
+        timeout=5,
+    )
     if "data: true" in out.stdout:
         print(f"camera at ({-d:.0f}, {-d:.0f}, {h:.0f}) looking at origin")
     else:
@@ -244,6 +267,7 @@ class Waypoint:
 
 def _connect_mavlink():
     from pymavlink import mavutil  # local import — pymavlink is heavy
+
     m = mavutil.mavlink_connection("udp:127.0.0.1:14540")
     m.wait_heartbeat(timeout=10)
     return m
@@ -258,46 +282,55 @@ def _set_permissive_params(m) -> None:
     ``system power unavailable`` even though we're in SITL.
     """
     from pymavlink import mavutil
+
     P_INT = mavutil.mavlink.MAV_PARAM_TYPE_INT32
     P_REAL = mavutil.mavlink.MAV_PARAM_TYPE_REAL32
-    for n, v in [("COM_RC_IN_MODE", 4), ("NAV_RCL_ACT", 0),
-                 ("NAV_DLL_ACT", 0), ("CBRK_SUPPLY_CHK", 894281),
-                 ("COM_ARM_WO_GPS", 1), ("COM_PREARM_MODE", 0)]:
+    for n, v in [
+        ("COM_RC_IN_MODE", 4),
+        ("NAV_RCL_ACT", 0),
+        ("NAV_DLL_ACT", 0),
+        ("CBRK_SUPPLY_CHK", 894281),
+        ("COM_ARM_WO_GPS", 1),
+        ("COM_PREARM_MODE", 0),
+    ]:
         m.mav.param_set_send(1, 1, n.encode(), float(v), P_INT)
         time.sleep(0.05)
-    for n, v in [("MPC_THR_MIN", 0.30), ("MPC_TKO_SPEED", 2.0),
-                 ("MPC_LAND_SPEED", 1.0), ("LNDMC_FFALL_THR", 2.0),
-                 ("MPC_THR_MAX", 1.0)]:
+    for n, v in [
+        ("MPC_THR_MIN", 0.30),
+        ("MPC_TKO_SPEED", 2.0),
+        ("MPC_LAND_SPEED", 1.0),
+        ("LNDMC_FFALL_THR", 2.0),
+        ("MPC_THR_MAX", 1.0),
+    ]:
         m.mav.param_set_send(1, 1, n.encode(), float(v), P_REAL)
         time.sleep(0.05)
 
 
 def _force_arm(m) -> None:
     from pymavlink import mavutil
+
     _set_permissive_params(m)
-    m.mav.command_long_send(1, 1,
-        mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM, 0,
-        1, 21196, 0, 0, 0, 0, 0)
+    m.mav.command_long_send(
+        1, 1, mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM, 0, 1, 21196, 0, 0, 0, 0, 0
+    )
     m.recv_match(type="COMMAND_ACK", blocking=True, timeout=3)
 
 
 def _set_mission_mode(m) -> None:
     from pymavlink import mavutil
-    m.mav.set_mode_send(1,
-        mavutil.mavlink.MAV_MODE_FLAG_CUSTOM_MODE_ENABLED,
-        4 << 16 | 4 << 24)
+
+    m.mav.set_mode_send(1, mavutil.mavlink.MAV_MODE_FLAG_CUSTOM_MODE_ENABLED, 4 << 16 | 4 << 24)
 
 
 def _set_takeoff_mode(m) -> None:
     from pymavlink import mavutil
-    m.mav.set_mode_send(1,
-        mavutil.mavlink.MAV_MODE_FLAG_CUSTOM_MODE_ENABLED,
-        4 << 16 | 2 << 24)
+
+    m.mav.set_mode_send(1, mavutil.mavlink.MAV_MODE_FLAG_CUSTOM_MODE_ENABLED, 4 << 16 | 2 << 24)
 
 
-def _upload_mission(m, home_lat: int, home_lon: int,
-                    waypoints: list[Waypoint]) -> bool:
+def _upload_mission(m, home_lat: int, home_lon: int, waypoints: list[Waypoint]) -> bool:
     from pymavlink import mavutil
+
     R = 6378137.0
 
     def offset_to_ll(north_m: float, east_m: float) -> tuple[int, int]:
@@ -306,12 +339,12 @@ def _upload_mission(m, home_lat: int, home_lon: int,
         dlon = math.degrees(east_m / (R * math.cos(math.radians(lat_ref))))
         return int(home_lat + dlat * 1e7), int(home_lon + dlon * 1e7)
 
-    m.mav.mission_count_send(1, 1, len(waypoints),
-                             mavutil.mavlink.MAV_MISSION_TYPE_MISSION)
+    m.mav.mission_count_send(1, 1, len(waypoints), mavutil.mavlink.MAV_MISSION_TYPE_MISSION)
 
     for seq, wp in enumerate(waypoints):
-        req = m.recv_match(type=["MISSION_REQUEST", "MISSION_REQUEST_INT"],
-                           blocking=True, timeout=5)
+        req = m.recv_match(
+            type=["MISSION_REQUEST", "MISSION_REQUEST_INT"], blocking=True, timeout=5
+        )
         if req is None:
             print(f"  upload stalled at seq {seq}")
             return False
@@ -321,13 +354,22 @@ def _upload_mission(m, home_lat: int, home_lon: int,
         # completed mission keeps the pointer at the last item (LAND),
         # so the new mission lands immediately.
         m.mav.mission_item_int_send(
-            1, 1, seq,
+            1,
+            1,
+            seq,
             mavutil.mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT_INT,
             wp.cmd,
-            1 if seq == 0 else 0, 1,
-            0, 0, 0, float("nan"),
-            lat, lon, wp.alt_m,
-            mavutil.mavlink.MAV_MISSION_TYPE_MISSION)
+            1 if seq == 0 else 0,
+            1,
+            0,
+            0,
+            0,
+            float("nan"),
+            lat,
+            lon,
+            wp.alt_m,
+            mavutil.mavlink.MAV_MISSION_TYPE_MISSION,
+        )
 
     ack = m.recv_match(type="MISSION_ACK", blocking=True, timeout=5)
     if ack is None or ack.type != 0:
@@ -347,8 +389,7 @@ def _wait_home(m) -> tuple[int, int]:
     raise RuntimeError("no GPS lock after 30s")
 
 
-def _watch_until_landed(m, max_secs: float = 120,
-                        landed_after: float = 30) -> None:
+def _watch_until_landed(m, max_secs: float = 120, landed_after: float = 30) -> None:
     """Stream alt + waypoint progress until touchdown."""
     t0 = time.time()
     last_seq = -1
@@ -361,9 +402,9 @@ def _watch_until_landed(m, max_secs: float = 120,
         if tt == "GLOBAL_POSITION_INT":
             alt = msg.relative_alt / 1000.0
             if time.time() - last_print > 1.0:
-                print(f"    t={time.time()-t0:5.1f}s alt={alt:6.2f} m")
+                print(f"    t={time.time() - t0:5.1f}s alt={alt:6.2f} m")
                 last_print = time.time()
-            if (alt < 0.3 and time.time() - t0 > landed_after):
+            if alt < 0.3 and time.time() - t0 > landed_after:
                 print(f"  touchdown at {alt:.2f} m")
                 return
         elif tt == "MISSION_CURRENT" and msg.seq != last_seq:
@@ -374,6 +415,7 @@ def _watch_until_landed(m, max_secs: float = 120,
 
 def _square_waypoints(alt: float, side: float) -> list[Waypoint]:
     from pymavlink import mavutil
+
     return [
         Waypoint(mavutil.mavlink.MAV_CMD_NAV_TAKEOFF, 0, 0, alt),
         Waypoint(mavutil.mavlink.MAV_CMD_NAV_WAYPOINT, side, 0, alt),
@@ -386,17 +428,16 @@ def _square_waypoints(alt: float, side: float) -> list[Waypoint]:
 
 def _figure8_waypoints(alt: float, radius: float) -> list[Waypoint]:
     from pymavlink import mavutil
+
     # 16-point figure-8 (lemniscate) — two loops centered at home, on
     # opposite sides
     pts = []
     for i in range(8):
         theta = i * math.pi / 4
-        pts.append((radius * math.cos(theta) + radius,
-                    radius * math.sin(theta)))
+        pts.append((radius * math.cos(theta) + radius, radius * math.sin(theta)))
     for i in range(8):
         theta = math.pi + i * math.pi / 4
-        pts.append((radius * math.cos(theta) - radius,
-                    radius * math.sin(theta)))
+        pts.append((radius * math.cos(theta) - radius, radius * math.sin(theta)))
 
     wps: list[Waypoint] = [
         Waypoint(mavutil.mavlink.MAV_CMD_NAV_TAKEOFF, 0, 0, alt),
@@ -419,13 +460,14 @@ def cmd_fly(args: argparse.Namespace) -> None:
 
     # Re-center camera on the drone before flying
     if _gui_running() and not args.no_camera:
-        cmd_camera(argparse.Namespace(distance=args.cam_dist,
-                                      height=args.cam_height, follow=True))
+        cmd_camera(argparse.Namespace(distance=args.cam_dist, height=args.cam_height, follow=True))
 
     if args.pattern == "takeoff":
         from pymavlink import mavutil
-        m.mav.param_set_send(1, 1, b"MIS_TAKEOFF_ALT", float(args.alt),
-                             mavutil.mavlink.MAV_PARAM_TYPE_REAL32)
+
+        m.mav.param_set_send(
+            1, 1, b"MIS_TAKEOFF_ALT", float(args.alt), mavutil.mavlink.MAV_PARAM_TYPE_REAL32
+        )
         time.sleep(0.5)
         _force_arm(m)
         _set_takeoff_mode(m)
@@ -433,16 +475,14 @@ def cmd_fly(args: argparse.Namespace) -> None:
         # Wait for climb
         t0 = time.time()
         while time.time() - t0 < 25:
-            gp = m.recv_match(type="GLOBAL_POSITION_INT",
-                              blocking=True, timeout=0.5)
+            gp = m.recv_match(type="GLOBAL_POSITION_INT", blocking=True, timeout=0.5)
             if gp and gp.relative_alt / 1000 > args.alt - 0.5:
-                print(f"  reached {gp.relative_alt/1000:.2f} m")
+                print(f"  reached {gp.relative_alt / 1000:.2f} m")
                 break
         print(f"  hover {args.hover_secs}s")
         time.sleep(args.hover_secs)
         print("  LAND")
-        m.mav.command_long_send(1, 1, mavutil.mavlink.MAV_CMD_NAV_LAND, 0,
-                                0, 0, 0, 0, 0, 0, 0)
+        m.mav.command_long_send(1, 1, mavutil.mavlink.MAV_CMD_NAV_LAND, 0, 0, 0, 0, 0, 0, 0, 0)
         _watch_until_landed(m, max_secs=40)
         return
 
@@ -461,7 +501,7 @@ def cmd_fly(args: argparse.Namespace) -> None:
         return
 
     home_lat, home_lon = _wait_home(m)
-    print(f"  home: {home_lat/1e7:.6f}, {home_lon/1e7:.6f}")
+    print(f"  home: {home_lat / 1e7:.6f}, {home_lon / 1e7:.6f}")
     print(f"  uploading {len(wps)} waypoints")
     if not _upload_mission(m, home_lat, home_lon, wps):
         print("  mission upload failed")
@@ -471,8 +511,7 @@ def cmd_fly(args: argparse.Namespace) -> None:
     time.sleep(1)
     _set_mission_mode(m)
     print("  AUTO_MISSION")
-    _watch_until_landed(m, max_secs=180,
-                        landed_after=15 if args.pattern == "square" else 40)
+    _watch_until_landed(m, max_secs=180, landed_after=15 if args.pattern == "square" else 40)
 
 
 # ---------------------------------------------------------------------------
@@ -481,37 +520,31 @@ def cmd_fly(args: argparse.Namespace) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(prog="flight_lab",
-                                description=__doc__.split("\n\n")[0])
+    p = argparse.ArgumentParser(prog="flight_lab", description=__doc__.split("\n\n")[0])
     sub = p.add_subparsers(dest="command", required=True)
 
     sub.add_parser("status", help="show SITL + Gazebo state")
 
     p_start = sub.add_parser("start", help="boot SITL + Gazebo GUI")
-    p_start.add_argument("--headless", action="store_true",
-                         help="no Gazebo GUI")
+    p_start.add_argument("--headless", action="store_true", help="no Gazebo GUI")
 
     sub.add_parser("stop", help="kill SITL + Gazebo")
 
     p_cam = sub.add_parser("camera", help="reposition viewing camera")
-    p_cam.add_argument("--distance", type=float, default=20.0,
-                       help="diagonal distance from origin (m)")
-    p_cam.add_argument("--height", type=float, default=12.0,
-                       help="camera height (m)")
-    p_cam.add_argument("--follow", action="store_true",
-                       help="center on drone first")
+    p_cam.add_argument(
+        "--distance", type=float, default=20.0, help="diagonal distance from origin (m)"
+    )
+    p_cam.add_argument("--height", type=float, default=12.0, help="camera height (m)")
+    p_cam.add_argument("--follow", action="store_true", help="center on drone first")
 
     p_fly = sub.add_parser("fly", help="fly a pattern")
-    p_fly.add_argument("pattern",
-                       choices=["takeoff", "hover", "square", "figure8"])
-    p_fly.add_argument("--alt", type=float, default=8.0,
-                       help="cruise altitude (m)")
-    p_fly.add_argument("--side", type=float, default=15.0,
-                       help="square side / figure-8 size (m)")
-    p_fly.add_argument("--hover-secs", type=float, default=10.0,
-                       help="hover duration (takeoff/hover only)")
-    p_fly.add_argument("--no-camera", action="store_true",
-                       help="don't reposition the camera")
+    p_fly.add_argument("pattern", choices=["takeoff", "hover", "square", "figure8"])
+    p_fly.add_argument("--alt", type=float, default=8.0, help="cruise altitude (m)")
+    p_fly.add_argument("--side", type=float, default=15.0, help="square side / figure-8 size (m)")
+    p_fly.add_argument(
+        "--hover-secs", type=float, default=10.0, help="hover duration (takeoff/hover only)"
+    )
+    p_fly.add_argument("--no-camera", action="store_true", help="don't reposition the camera")
     p_fly.add_argument("--cam-dist", type=float, default=20.0)
     p_fly.add_argument("--cam-height", type=float, default=12.0)
 
@@ -523,10 +556,10 @@ def main(argv: list[str] | None = None) -> None:
     args = parser.parse_args(argv)
     handler = {
         "status": cmd_status,
-        "start":  cmd_start,
-        "stop":   cmd_stop,
+        "start": cmd_start,
+        "stop": cmd_stop,
         "camera": cmd_camera,
-        "fly":    cmd_fly,
+        "fly": cmd_fly,
     }[args.command]
     handler(args)
 

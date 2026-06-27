@@ -150,4 +150,3 @@ def remove_value(doc: Any, pointer: str) -> None:
         return
 
     raise JsonPointerError("Cannot remove value on non-container parent")
-

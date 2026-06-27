@@ -6,6 +6,7 @@ Verifies that:
 - HexapodTripodController behavior is identical before/after extraction.
 - Adding a custom controller works via the registry API.
 """
+
 from __future__ import annotations
 
 import math
@@ -33,26 +34,32 @@ class TestRegistryLookup(unittest.TestCase):
         self.assertIsInstance(ctrl, Controller)
 
     def test_hexapod_3dof(self) -> None:
-        config = TeleopConfig.from_profile({
-            "controller_type": "hexapod_3dof_tripod",
-        })
+        config = TeleopConfig.from_profile(
+            {
+                "controller_type": "hexapod_3dof_tripod",
+            }
+        )
         ctrl = create_controller(config)
         self.assertIsInstance(ctrl, Hexapod3DOFController)
         self.assertIsInstance(ctrl, Controller)
 
     def test_rl_residual(self) -> None:
-        config = TeleopConfig.from_profile({
-            "controller_type": "rl_residual",
-            "policy_path": "/nonexistent/policy.pt",
-        })
+        config = TeleopConfig.from_profile(
+            {
+                "controller_type": "rl_residual",
+                "policy_path": "/nonexistent/policy.pt",
+            }
+        )
         ctrl = create_controller(config)
         self.assertIsInstance(ctrl, PolicyController)
         self.assertIsInstance(ctrl, Controller)
 
     def test_unknown_type_raises(self) -> None:
-        config = TeleopConfig.from_profile({
-            "controller_type": "rl_residual",  # need valid parse first
-        })
+        config = TeleopConfig.from_profile(
+            {
+                "controller_type": "rl_residual",  # need valid parse first
+            }
+        )
         # Manually override to an unknown type for the test
         object.__setattr__(config, "controller_type", "nonexistent_type")
         with self.assertRaises(ValueError) as ctx:
@@ -105,15 +112,20 @@ class TestRegistryExtensibility(unittest.TestCase):
 
         _CONTROLLER_REGISTRY["stub_test"] = lambda cfg: StubController()
 
-        config = TeleopConfig.from_profile({
-            "controller_type": "rl_residual",  # parse valid, then override
-        })
+        config = TeleopConfig.from_profile(
+            {
+                "controller_type": "rl_residual",  # parse valid, then override
+            }
+        )
         object.__setattr__(config, "controller_type", "stub_test")
         ctrl = create_controller(config)
         self.assertIsInstance(ctrl, Controller)
 
         targets, phase = ctrl.compute_targets(
-            TeleopState(), 0.01, TeleopConfig(), 0.0,
+            TeleopState(),
+            0.01,
+            TeleopConfig(),
+            0.0,
         )
         self.assertEqual(phase, 0.0)
         self.assertTrue(all(v == 0.0 for v in targets.values()))
@@ -128,13 +140,21 @@ class TestHexapodRegressionAfterExtraction(unittest.TestCase):
     """
 
     def _compute_via_registry(
-        self, state: TeleopState, dt_s: float, config: TeleopConfig, phase: float,
+        self,
+        state: TeleopState,
+        dt_s: float,
+        config: TeleopConfig,
+        phase: float,
     ) -> tuple[dict[str, float], float]:
         ctrl = create_controller(config)
         return ctrl.compute_targets(state, dt_s, config, phase)
 
     def _compute_directly(
-        self, state: TeleopState, dt_s: float, config: TeleopConfig, phase: float,
+        self,
+        state: TeleopState,
+        dt_s: float,
+        config: TeleopConfig,
+        phase: float,
     ) -> tuple[dict[str, float], float]:
         ctrl = HexapodTripodController()
         return ctrl.compute_targets(state, dt_s, config, phase)
@@ -146,8 +166,7 @@ class TestHexapodRegressionAfterExtraction(unittest.TestCase):
         t_dir, p_dir = self._compute_directly(state, 0.01, config, 0.0)
         self.assertAlmostEqual(p_reg, p_dir, places=10)
         for name in config.joint_names:
-            self.assertAlmostEqual(t_reg[name], t_dir[name], places=10,
-                                   msg=f"Mismatch for {name}")
+            self.assertAlmostEqual(t_reg[name], t_dir[name], places=10, msg=f"Mismatch for {name}")
 
     def test_forward_command_identical(self) -> None:
         state = TeleopState(vx_mps=0.3, yaw_rate_rps=0.0, body_height_m=0.0)
@@ -178,11 +197,13 @@ class TestHexapodRegressionAfterExtraction(unittest.TestCase):
 
     def test_custom_config_identical(self) -> None:
         state = TeleopState(vx_mps=0.2, yaw_rate_rps=0.3, body_height_m=0.01)
-        config = TeleopConfig.from_profile({
-            "amplitude_deg": 25.0,
-            "stride_hz": 2.0,
-            "yaw_mix_deg": 12.0,
-        })
+        config = TeleopConfig.from_profile(
+            {
+                "amplitude_deg": 25.0,
+                "stride_hz": 2.0,
+                "yaw_mix_deg": 12.0,
+            }
+        )
         t_reg, p_reg = self._compute_via_registry(state, 0.01, config, 0.5)
         t_dir, p_dir = self._compute_directly(state, 0.01, config, 0.5)
         self.assertAlmostEqual(p_reg, p_dir, places=10)
@@ -195,18 +216,22 @@ class TestRuntimeRegistryIntegration(unittest.TestCase):
 
     def test_teleop_start_uses_registry(self) -> None:
         from isaac_bridge.runtime_isaac import IsaacRuntime
+
         runtime = IsaacRuntime(headless=True)
-        result = runtime.teleop_start(mechanism={
-            "name": "test",
-            "parts": [{"id": "body", "is_ground": False}],
-            "joints": [],
-            "drives": [],
-        })
+        result = runtime.teleop_start(
+            mechanism={
+                "name": "test",
+                "parts": [{"id": "body", "is_ground": False}],
+                "joints": [],
+                "drives": [],
+            }
+        )
         self.assertIn("session_id", result)
         self.assertEqual(result["controller_type"], "hexapod_1dof_tripod")
 
     def test_unknown_controller_type_returns_error(self) -> None:
         from isaac_bridge.runtime_isaac import IsaacRuntime, IsaacRuntimeError
+
         runtime = IsaacRuntime(headless=True)
         with self.assertRaises(IsaacRuntimeError) as ctx:
             runtime.teleop_start(
@@ -225,19 +250,24 @@ class TestRuntimeRegistryIntegration(unittest.TestCase):
         import json
 
         from isaac_bridge.bridge_server import BridgeServer
+
         server = BridgeServer(host="127.0.0.1", port=0, headless=True)
-        result = server._handle_line(json.dumps({
-            "cmd": "teleop_start",
-            "args": {
-                "mechanism": {
-                    "name": "test",
-                    "parts": [{"id": "body", "is_ground": False}],
-                    "joints": [],
-                    "drives": [],
-                },
-                "profile": {"controller_type": "nonexistent"},
-            },
-        }).encode("utf-8"))
+        result = server._handle_line(
+            json.dumps(
+                {
+                    "cmd": "teleop_start",
+                    "args": {
+                        "mechanism": {
+                            "name": "test",
+                            "parts": [{"id": "body", "is_ground": False}],
+                            "joints": [],
+                            "drives": [],
+                        },
+                        "profile": {"controller_type": "nonexistent"},
+                    },
+                }
+            ).encode("utf-8")
+        )
         self.assertFalse(result["ok"])
         self.assertEqual(result["error"]["code"], "INVALID_INPUT")
 

@@ -2,6 +2,7 @@
 
 Produces BOM, ICD set, inspection notes, provenance bundle, and decision report.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -108,14 +109,16 @@ def generate_purchased_parts_list(spec: MasterSpec) -> list[dict[str, Any]]:
     for sub in spec.subsystems:
         if sub.kind not in (SubsystemKind.CATALOG, SubsystemKind.STANDARD):
             continue
-        parts.append({
-            "name": sub.name,
-            "kind": sub.kind.value,
-            "supplier_part": sub.supplier_part,
-            "standard": sub.standard,
-            "quantity": sub.quantity,
-            "description": sub.description,
-        })
+        parts.append(
+            {
+                "name": sub.name,
+                "kind": sub.kind.value,
+                "supplier_part": sub.supplier_part,
+                "standard": sub.standard,
+                "quantity": sub.quantity,
+                "description": sub.description,
+            }
+        )
     return parts
 
 
@@ -185,7 +188,9 @@ def generate_provenance_manifest(
     try:
         result = _sp.run(
             ["git", "rev-parse", "HEAD"],
-            capture_output=True, text=True, timeout=5,
+            capture_output=True,
+            text=True,
+            timeout=5,
         )
         if result.returncode == 0:
             git_hash = result.stdout.strip()
@@ -240,8 +245,7 @@ def generate_decision_report(
     lines.extend(["", "## Subsystems", ""])
     for sub in spec.subsystems:
         lines.append(
-            f"- **{sub.name}** ({sub.kind.value}): "
-            f"{sub.material or 'n/a'}, qty={sub.quantity}"
+            f"- **{sub.name}** ({sub.kind.value}): {sub.material or 'n/a'}, qty={sub.quantity}"
         )
 
     lines.extend(["", "## Interfaces", ""])
@@ -256,12 +260,9 @@ def generate_decision_report(
         for i, c in enumerate(scoring_report.candidates[:5]):
             marker = " ← WINNER" if i == scoring_report.winner_index else ""
             variant_names = ", ".join(
-                f"{name}_v{v.variant_index}"
-                for name, v in c.variants.items()
+                f"{name}_v{v.variant_index}" for name, v in c.variants.items()
             )
-            lines.append(
-                f"{i+1}. Score={c.assembly_score:.4f}: {variant_names}{marker}"
-            )
+            lines.append(f"{i + 1}. Score={c.assembly_score:.4f}: {variant_names}{marker}")
 
     if scoring_report and scoring_report.frontier:
         lines.extend(["", "## Pareto Frontier", ""])
@@ -327,9 +328,7 @@ def build_release_package(
     (pkg_dir / "provenance.json").write_text(json.dumps(provenance, indent=2))
     (pkg_dir / "decision_report.md").write_text(decision)
     if purchased_parts:
-        (pkg_dir / "purchased_parts.json").write_text(
-            json.dumps(purchased_parts, indent=2)
-        )
+        (pkg_dir / "purchased_parts.json").write_text(json.dumps(purchased_parts, indent=2))
 
     # Copy spec
     spec.save(pkg_dir / "spec.yaml")
@@ -432,8 +431,7 @@ def check_gate_g7(
     # Check purchased_parts.json present if spec has CATALOG/STANDARD subsystems
     if spec is not None:
         has_purchased = any(
-            s.kind in (SubsystemKind.CATALOG, SubsystemKind.STANDARD)
-            for s in spec.subsystems
+            s.kind in (SubsystemKind.CATALOG, SubsystemKind.STANDARD) for s in spec.subsystems
         )
         if has_purchased and not package.purchased_parts:
             issues.append("Purchased parts list missing but spec has CATALOG/STANDARD subsystems")

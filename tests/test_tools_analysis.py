@@ -1,4 +1,5 @@
 """End-to-end tests for analysis.* MCP tools using MockFieldSolver."""
+
 from __future__ import annotations
 
 import unittest
@@ -35,13 +36,15 @@ class TestAnalysisStressCheck(unittest.TestCase):
     def test_inline_material_dict(self) -> None:
         from server.tools_analysis import _resolve_material
 
-        mat = _resolve_material({
-            "name": "custom",
-            "youngs_modulus_mpa": 100_000,
-            "poissons_ratio": 0.3,
-            "density_kg_m3": 5000,
-            "yield_strength_mpa": 300,
-        })
+        mat = _resolve_material(
+            {
+                "name": "custom",
+                "youngs_modulus_mpa": 100_000,
+                "poissons_ratio": 0.3,
+                "density_kg_m3": 5000,
+                "yield_strength_mpa": 300,
+            }
+        )
         self.assertIsNotNone(mat)
         self.assertEqual(mat.name, "custom")
 

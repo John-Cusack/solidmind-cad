@@ -3,6 +3,7 @@
 Mirrors the Chrono client pattern so motion tools can route dynamic simulation
 requests to an Isaac sidecar when available.
 """
+
 from __future__ import annotations
 
 import logging
@@ -138,7 +139,7 @@ class IsaacClient:
             except IsaacConnectionError as exc:
                 last_error = exc
                 if attempt < max_retries - 1:
-                    delay = retry_delay * (2 ** attempt)
+                    delay = retry_delay * (2**attempt)
                     logger.warning(
                         "Isaac bridge connection attempt %d/%d failed, retrying in %.1fs",
                         attempt + 1,
@@ -380,9 +381,7 @@ class IsaacClient:
                 ) from exc
             except (ConnectionResetError, OSError) as exc:
                 self._sock = None
-                raise IsaacConnectionError(
-                    f"Connection lost while reading: {exc}"
-                ) from exc
+                raise IsaacConnectionError(f"Connection lost while reading: {exc}") from exc
 
             if not data:
                 logger.error("Isaac bridge closed the connection (recv returned empty)")

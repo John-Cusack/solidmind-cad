@@ -7,6 +7,7 @@ Built-in solvers:
 Additional solvers can be installed as pip packages that register the
 ``solidmind.solver_packs`` entry point.
 """
+
 from __future__ import annotations
 
 import importlib.metadata
@@ -177,7 +178,7 @@ class CalculiXSolver(FieldSolver):
                 if node_ids:
                     lines.append(f"*NSET, NSET={nset_name}")
                     for j in range(0, len(node_ids), 8):
-                        chunk = node_ids[j:j + 8]
+                        chunk = node_ids[j : j + 8]
                         lines.append(", ".join(str(n) for n in chunk))
                     lines.append("")
                 nset_node_counts[nset_name] = len(node_ids)
@@ -258,6 +259,7 @@ class CalculiXSolver(FieldSolver):
         mesh_inp = work_dir / "mesh.inp"
         try:
             import meshio
+
             mesh = meshio.read(mesh_info.path)
             # Write meshio Abaqus for set name parsing
             meshio.write(str(full_inp), mesh, file_format="abaqus")
@@ -421,9 +423,7 @@ class CalculiXSolver(FieldSolver):
 
         if result.returncode != 0:
             log.error("ccx failed (rc=%d): %s", result.returncode, result.stderr)
-            raise RuntimeError(
-                f"CalculiX failed (rc={result.returncode}): {result.stderr[:500]}"
-            )
+            raise RuntimeError(f"CalculiX failed (rc={result.returncode}): {result.stderr[:500]}")
 
         return elapsed
 
@@ -568,23 +568,23 @@ class MockFieldSolver(FieldSolver):
                 name="thermal_gradient",
                 status=CheckStatus.PASS,
                 message=(
-                    f"Thermal gradient {t_max - t_min:.1f} K "
-                    f"(from {t_min:.1f} K to {t_max:.1f} K)"
+                    f"Thermal gradient {t_max - t_min:.1f} K (from {t_min:.1f} K to {t_max:.1f} K)"
                 ),
                 measured=t_max - t_min,
             ),
         ]
         if max_temp_limit > 0:
             status = CheckStatus.PASS if t_max <= max_temp_limit else CheckStatus.FAIL
-            checks.insert(0, AnalysisCheck(
-                name="overtemperature",
-                status=status,
-                message=(
-                    f"Max temperature {t_max:.1f} K vs limit {max_temp_limit:.1f} K"
+            checks.insert(
+                0,
+                AnalysisCheck(
+                    name="overtemperature",
+                    status=status,
+                    message=(f"Max temperature {t_max:.1f} K vs limit {max_temp_limit:.1f} K"),
+                    measured=t_max,
+                    limit=max_temp_limit,
                 ),
-                measured=t_max,
-                limit=max_temp_limit,
-            ))
+            )
 
         fields = [
             ScalarFieldSummary(
@@ -678,13 +678,15 @@ def list_solvers() -> list[dict[str, Any]]:
     result: list[dict[str, Any]] = []
     for solver in FIELD_SOLVERS.values():
         ok, msg = solver.available()
-        result.append({
-            "name": solver.name(),
-            "analysis_types": [t.value for t in solver.analysis_types()],
-            "available": ok,
-            "diagnostic": msg,
-            "supports_direct_solve": solver.supports_direct_solve(),
-        })
+        result.append(
+            {
+                "name": solver.name(),
+                "analysis_types": [t.value for t in solver.analysis_types()],
+                "available": ok,
+                "diagnostic": msg,
+                "supports_direct_solve": solver.supports_direct_solve(),
+            }
+        )
     return result
 
 
@@ -713,7 +715,9 @@ def _discover_solver_packs() -> None:
             for solver in solvers:
                 register_solver(solver)
             log.info(
-                "Loaded solver pack %r: %d solvers", ep.name, len(solvers),
+                "Loaded solver pack %r: %d solvers",
+                ep.name,
+                len(solvers),
             )
         except Exception:
             log.exception("Failed to load solver pack %r", ep.name)
@@ -729,12 +733,14 @@ register_solver(MockFieldSolver())
 # Optional in-process direct structural solvers
 try:
     from server.analysis_solver_cholmod import CHOLMODSolver  # noqa: E402
+
     register_solver(CHOLMODSolver())
 except Exception:
     log.warning("CHOLMOD solver registration skipped", exc_info=True)
 
 try:
     from server.analysis_solver_cudss import CuDSSSolver  # noqa: E402
+
     register_solver(CuDSSSolver())
 except Exception:
     log.warning("cuDSS solver registration skipped", exc_info=True)
@@ -742,6 +748,7 @@ except Exception:
 # Elmer thermal solver
 try:
     from server.analysis_solver_elmer import ElmerSolver  # noqa: E402
+
     register_solver(ElmerSolver())
 except Exception:
     log.debug("Elmer solver not available", exc_info=True)

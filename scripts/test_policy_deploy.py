@@ -13,6 +13,7 @@ Usage:
     # Then run this test:
     python3 scripts/test_policy_deploy.py
 """
+
 from __future__ import annotations
 
 import json
@@ -116,19 +117,22 @@ def main() -> int:
         "joints": [],
     }
 
-    resp = send("teleop_start", {
-        "mechanism": mechanism,
-        "profile": profile,
-        "urdf_path": str(URDF_PATH),
-        "import_config": {
-            "robot_type": "mobile",
-            "fix_base": False,
-            "merge_fixed_joints": True,
-            "default_drive_stiffness": 400.0,
-            "default_drive_damping": 30.0,
-            "spawn_height": 0.18,
+    resp = send(
+        "teleop_start",
+        {
+            "mechanism": mechanism,
+            "profile": profile,
+            "urdf_path": str(URDF_PATH),
+            "import_config": {
+                "robot_type": "mobile",
+                "fix_base": False,
+                "merge_fixed_joints": True,
+                "default_drive_stiffness": 400.0,
+                "default_drive_damping": 30.0,
+                "spawn_height": 0.18,
+            },
         },
-    })
+    )
 
     if not resp.get("ok"):
         print(f"ERROR: teleop_start failed: {json.dumps(resp, indent=2)}")
@@ -159,12 +163,15 @@ def main() -> int:
 
     # 4. Send forward velocity command
     print("\n[4/5] Sending vx=0.2 m/s for 5 seconds...")
-    resp = send("teleop_command", {
-        "session_id": session_id,
-        "vx_mps": 0.2,
-        "yaw_rate_rps": 0.0,
-        "body_height_m": 0.0,
-    })
+    resp = send(
+        "teleop_command",
+        {
+            "session_id": session_id,
+            "vx_mps": 0.2,
+            "yaw_rate_rps": 0.0,
+            "body_height_m": 0.0,
+        },
+    )
     if not resp.get("ok"):
         print(f"  WARNING: teleop_command failed: {resp}")
 
@@ -182,7 +189,7 @@ def main() -> int:
             if vals:
                 spread = max(vals) - min(vals)
                 print(
-                    f"  t={t+1}s | ticks={tick} | clamps={clamps} | "
+                    f"  t={t + 1}s | ticks={tick} | clamps={clamps} | "
                     f"joint_spread={spread:.3f} rad | "
                     f"targets[:3]=[{', '.join(f'{v:.3f}' for v in vals[:3])}]"
                 )

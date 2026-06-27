@@ -42,7 +42,9 @@ class TranscriptError(RuntimeError):
 def _subset_ok(expected: Any, actual: Any, path: str) -> None:
     if isinstance(expected, dict):
         if not isinstance(actual, dict):
-            raise TranscriptError(f"Type mismatch at {path}: expected dict, got {type(actual).__name__}")
+            raise TranscriptError(
+                f"Type mismatch at {path}: expected dict, got {type(actual).__name__}"
+            )
         for k, v in expected.items():
             if k not in actual:
                 raise TranscriptError(f"Missing key at {path}: {k}")
@@ -51,9 +53,13 @@ def _subset_ok(expected: Any, actual: Any, path: str) -> None:
 
     if isinstance(expected, list):
         if not isinstance(actual, list):
-            raise TranscriptError(f"Type mismatch at {path}: expected list, got {type(actual).__name__}")
+            raise TranscriptError(
+                f"Type mismatch at {path}: expected list, got {type(actual).__name__}"
+            )
         if len(expected) > len(actual):
-            raise TranscriptError(f"List too short at {path}: expected >= {len(expected)}, got {len(actual)}")
+            raise TranscriptError(
+                f"List too short at {path}: expected >= {len(expected)}, got {len(actual)}"
+            )
         for i, v in enumerate(expected):
             _subset_ok(v, actual[i], f"{path}[{i}]")
         return
@@ -111,7 +117,9 @@ def replay(transcript_path: str) -> None:
 
 
 def main(argv: list[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(description="Replay a golden transcript against the tool layer.")
+    parser = argparse.ArgumentParser(
+        description="Replay a golden transcript against the tool layer."
+    )
     parser.add_argument("transcript", help="Path to transcript YAML (tests/transcripts/*.yml)")
     args = parser.parse_args(argv)
 

@@ -2,6 +2,7 @@
 
 Enabled only when SOLIDMIND_RUN_ISAAC_E2E=1.
 """
+
 from __future__ import annotations
 
 import os
@@ -127,6 +128,7 @@ class TestURDFImportRuntime(unittest.TestCase):
     def test_import_urdf_file_not_found(self) -> None:
         runtime = IsaacRuntime(headless=True)
         from isaac_bridge.runtime_isaac import IsaacRuntimeError
+
         with self.assertRaises(IsaacRuntimeError) as ctx:
             runtime.import_urdf(urdf_path="/nonexistent/robot.urdf")
         self.assertEqual(ctx.exception.code, "URDF_NOT_FOUND")
@@ -134,6 +136,7 @@ class TestURDFImportRuntime(unittest.TestCase):
     def test_simulate_with_urdf_file_not_found(self) -> None:
         runtime = IsaacRuntime(headless=True)
         from isaac_bridge.runtime_isaac import IsaacRuntimeError
+
         with self.assertRaises(IsaacRuntimeError):
             runtime.simulate(
                 mechanism=_MECHANISM,
@@ -168,6 +171,7 @@ class TestURDFImportRuntime(unittest.TestCase):
     def test_teleop_start_with_urdf_not_found(self) -> None:
         runtime = IsaacRuntime(headless=True)
         from isaac_bridge.runtime_isaac import IsaacRuntimeError
+
         with self.assertRaises(IsaacRuntimeError) as ctx:
             runtime.teleop_start(
                 mechanism=_MECHANISM,

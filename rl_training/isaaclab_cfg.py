@@ -10,6 +10,7 @@ Usage::
     cfg = make_hexapod_flat_env_cfg(urdf_path, joint_names, ...)
     env = ManagerBasedRLEnv(cfg)
 """
+
 from __future__ import annotations
 
 import math
@@ -42,6 +43,7 @@ from isaaclab.utils.noise import AdditiveUniformNoiseCfg as Unoise  # type: igno
 # ---------------------------------------------------------------------------
 # Scene
 # ---------------------------------------------------------------------------
+
 
 @configclass
 class HexapodSceneCfg(InteractiveSceneCfg):
@@ -76,6 +78,7 @@ class HexapodSceneCfg(InteractiveSceneCfg):
 # Observation group
 # ---------------------------------------------------------------------------
 
+
 @configclass
 class ObservationsCfg:
     """Observation specifications — wraps the policy group."""
@@ -89,11 +92,21 @@ class ObservationsCfg:
         Total for 18-joint hexapod: 12 + 3*18 = 66.
         """
 
-        base_lin_vel = ObservationTermCfg(func=mdp.base_lin_vel, noise=Unoise(n_min=-0.1, n_max=0.1))
-        base_ang_vel = ObservationTermCfg(func=mdp.base_ang_vel, noise=Unoise(n_min=-0.2, n_max=0.2))
-        projected_gravity = ObservationTermCfg(func=mdp.projected_gravity, noise=Unoise(n_min=-0.05, n_max=0.05))
-        velocity_commands = ObservationTermCfg(func=mdp.generated_commands, params={"command_name": "base_velocity"})
-        joint_pos_rel = ObservationTermCfg(func=mdp.joint_pos_rel, noise=Unoise(n_min=-0.01, n_max=0.01))
+        base_lin_vel = ObservationTermCfg(
+            func=mdp.base_lin_vel, noise=Unoise(n_min=-0.1, n_max=0.1)
+        )
+        base_ang_vel = ObservationTermCfg(
+            func=mdp.base_ang_vel, noise=Unoise(n_min=-0.2, n_max=0.2)
+        )
+        projected_gravity = ObservationTermCfg(
+            func=mdp.projected_gravity, noise=Unoise(n_min=-0.05, n_max=0.05)
+        )
+        velocity_commands = ObservationTermCfg(
+            func=mdp.generated_commands, params={"command_name": "base_velocity"}
+        )
+        joint_pos_rel = ObservationTermCfg(
+            func=mdp.joint_pos_rel, noise=Unoise(n_min=-0.01, n_max=0.01)
+        )
         joint_vel = ObservationTermCfg(func=mdp.joint_vel_rel, noise=Unoise(n_min=-1.5, n_max=1.5))
         last_action = ObservationTermCfg(func=mdp.last_action)
 
@@ -108,6 +121,7 @@ class ObservationsCfg:
 # Rewards
 # ---------------------------------------------------------------------------
 
+
 @configclass
 class RewardsCfg:
     """Additive reward composition — standard for RSL-RL."""
@@ -117,11 +131,13 @@ class RewardsCfg:
 
     # Tracking — primary task signal, should dominate reward
     track_lin_vel_xy_exp = RewardTermCfg(
-        func=mdp.track_lin_vel_xy_exp, weight=3.0,
+        func=mdp.track_lin_vel_xy_exp,
+        weight=3.0,
         params={"command_name": "base_velocity", "std": math.sqrt(0.25)},
     )
     track_ang_vel_z_exp = RewardTermCfg(
-        func=mdp.track_ang_vel_z_exp, weight=0.75,
+        func=mdp.track_ang_vel_z_exp,
+        weight=0.75,
         params={"command_name": "base_velocity", "std": math.sqrt(0.25)},
     )
 
@@ -130,19 +146,22 @@ class RewardsCfg:
     ang_vel_xy_l2 = RewardTermCfg(func=mdp.ang_vel_xy_l2, weight=-0.05)
     flat_orientation_l2 = RewardTermCfg(func=mdp.flat_orientation_l2, weight=-2.0)
     base_height_l2 = RewardTermCfg(
-        func=mdp.base_height_l2, weight=-5.0,  # squared error at 0.153m target is 4x larger than at 0.076m
+        func=mdp.base_height_l2,
+        weight=-5.0,  # squared error at 0.153m target is 4x larger than at 0.076m
         params={"target_height": 0.14},  # overridden per-robot
     )
 
     # Joint deviation penalty — reduced to allow exploration needed for gait discovery
     joint_deviation_l1 = RewardTermCfg(
-        func=mdp.joint_deviation_l1, weight=-0.1,
+        func=mdp.joint_deviation_l1,
+        weight=-0.1,
         params={"asset_cfg": SceneEntityCfg("robot")},
     )
 
     # Joint limit penalty — penalize approaching DOF limits
     joint_pos_limits = RewardTermCfg(
-        func=mdp.joint_pos_limits, weight=-1.0,  # reduced so it doesn't compete with height
+        func=mdp.joint_pos_limits,
+        weight=-1.0,  # reduced so it doesn't compete with height
         params={"asset_cfg": SceneEntityCfg("robot")},
     )
 
@@ -150,11 +169,13 @@ class RewardsCfg:
     # per-robot by make_hexapod_flat_env_cfg() below.  Defaults use
     # the broad sensor as a safe fallback.
     desired_contacts = RewardTermCfg(
-        func=mdp.desired_contacts, weight=0.25,
+        func=mdp.desired_contacts,
+        weight=0.25,
         params={"sensor_cfg": SceneEntityCfg("contact_forces"), "threshold": 0.5},
     )
     undesired_contacts = RewardTermCfg(
-        func=mdp.undesired_contacts, weight=-1.0,
+        func=mdp.undesired_contacts,
+        weight=-1.0,
         params={"sensor_cfg": SceneEntityCfg("contact_forces"), "threshold": 1.0},
     )
 
@@ -167,6 +188,7 @@ class RewardsCfg:
 # ---------------------------------------------------------------------------
 # Terminations
 # ---------------------------------------------------------------------------
+
 
 @configclass
 class TerminationsCfg:
@@ -194,6 +216,7 @@ class TerminationsCfg:
 # Events (domain randomization)
 # ---------------------------------------------------------------------------
 
+
 @configclass
 class EventsCfg:
     """Domain randomization events."""
@@ -204,8 +227,12 @@ class EventsCfg:
         params={
             "pose_range": {"x": (-0.5, 0.5), "y": (-0.5, 0.5), "yaw": (-3.14, 3.14)},
             "velocity_range": {
-                "x": (-0.1, 0.1), "y": (-0.1, 0.1), "z": (-0.1, 0.1),
-                "roll": (-0.1, 0.1), "pitch": (-0.1, 0.1), "yaw": (-0.2, 0.2),
+                "x": (-0.1, 0.1),
+                "y": (-0.1, 0.1),
+                "z": (-0.1, 0.1),
+                "roll": (-0.1, 0.1),
+                "pitch": (-0.1, 0.1),
+                "yaw": (-0.2, 0.2),
             },
         },
     )
@@ -223,15 +250,21 @@ class EventsCfg:
     add_mass = EventTermCfg(
         func=mdp.randomize_rigid_body_mass,
         mode="startup",
-        params={"asset_cfg": SceneEntityCfg("robot"), "mass_distribution_params": (0.8, 1.2),
-                "operation": "scale"},
+        params={
+            "asset_cfg": SceneEntityCfg("robot"),
+            "mass_distribution_params": (0.8, 1.2),
+            "operation": "scale",
+        },
     )
     randomize_friction = EventTermCfg(
         func=mdp.randomize_rigid_body_material,
         mode="startup",
         params={
             "asset_cfg": SceneEntityCfg("robot"),
-            "static_friction_range": (0.7, 1.3),  # friction DR — policy needs robustness for walking
+            "static_friction_range": (
+                0.7,
+                1.3,
+            ),  # friction DR — policy needs robustness for walking
             "dynamic_friction_range": (0.7, 1.3),
             "restitution_range": (0.0, 0.0),
             "num_buckets": 64,
@@ -242,6 +275,7 @@ class EventsCfg:
 # ---------------------------------------------------------------------------
 # Commands
 # ---------------------------------------------------------------------------
+
 
 @configclass
 class CommandsCfg:
@@ -264,6 +298,7 @@ class CommandsCfg:
 # ---------------------------------------------------------------------------
 # Top-level env config
 # ---------------------------------------------------------------------------
+
 
 @configclass
 class ActionsCfg:
@@ -313,6 +348,7 @@ class HexapodFlatEnvCfg(ManagerBasedRLEnvCfg):
 # ---------------------------------------------------------------------------
 # Factory
 # ---------------------------------------------------------------------------
+
 
 def make_hexapod_flat_env_cfg(
     urdf_path: str,
@@ -413,7 +449,8 @@ def make_hexapod_flat_env_cfg(
     # (penalize/terminate on chassis ground contact, NOT foot contact).
     if foot_links:
         cfg.rewards.desired_contacts.params["sensor_cfg"] = SceneEntityCfg(
-            "contact_forces", body_names=foot_links,
+            "contact_forces",
+            body_names=foot_links,
         )
     else:
         # No foot links identified — disable desired_contacts reward
@@ -421,10 +458,12 @@ def make_hexapod_flat_env_cfg(
         cfg.rewards.desired_contacts.weight = 0.0
 
     cfg.rewards.undesired_contacts.params["sensor_cfg"] = SceneEntityCfg(
-        "contact_forces", body_names=[base_link],
+        "contact_forces",
+        body_names=[base_link],
     )
     cfg.terminations.base_contact.params["sensor_cfg"] = SceneEntityCfg(
-        "contact_forces", body_names=[base_link],
+        "contact_forces",
+        body_names=[base_link],
     )
 
     # Store metadata for training script

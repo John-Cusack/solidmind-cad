@@ -135,6 +135,7 @@ This test is blocked on four things, all captured in the roadmap's
 Once those four are in place, unskip this test and wire it up against
 a real under-dimensioned bracket geometry.
 """
+
 from __future__ import annotations
 
 import unittest

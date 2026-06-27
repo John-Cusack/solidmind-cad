@@ -36,6 +36,7 @@ that cannot assume FreeCAD availability (e.g. the legacy trust-mode
 ``tests/test_orchestrator_e2e.py``) should set
 ``verify_measurements=False`` in ``runner.validate_results``.
 """
+
 from __future__ import annotations
 
 import logging
@@ -80,9 +81,7 @@ class MeasurementVerification:
     step_load_ok: bool
     bbox_measured_mm: list[float] = field(default_factory=list)
     volume_measured_mm3: float = 0.0
-    interface_actuals_measured: dict[str, dict[str, float | None]] = field(
-        default_factory=dict
-    )
+    interface_actuals_measured: dict[str, dict[str, float | None]] = field(default_factory=dict)
     drift: dict[str, dict[str, float | None]] = field(default_factory=dict)
     drift_exceeds_tolerance: list[str] = field(default_factory=list)
     error: str | None = None
@@ -179,7 +178,9 @@ def _measure_bore_diameter(
         best = min(unique, key=lambda d: abs(d - expected_mm))
         log.debug(
             "bore_diameter: expected=%.3f, candidates=%s, picked=%.3f",
-            expected_mm, unique, best,
+            expected_mm,
+            unique,
+            best,
         )
         return best
 
@@ -361,10 +362,7 @@ def _measure_pin_circle_diameter(
             continue
         cx = sum(p[0] for p in centers) / len(centers)
         cy = sum(p[1] for p in centers) / len(centers)
-        radii = [
-            ((p[0] - cx) ** 2 + (p[1] - cy) ** 2) ** 0.5
-            for p in centers
-        ]
+        radii = [((p[0] - cx) ** 2 + (p[1] - cy) ** 2) ** 0.5 for p in centers]
         mean_r = sum(radii) / len(radii)
         # Filter degenerate clusters (all centers at one point).
         if mean_r < 0.5:
@@ -378,7 +376,9 @@ def _measure_pin_circle_diameter(
         best = min(candidates, key=lambda c: abs(c[1] - expected_mm))
         log.debug(
             "pin_circle_diameter: expected=%.3f, candidates=%s, picked=%.3f",
-            expected_mm, candidates, best[1],
+            expected_mm,
+            candidates,
+            best[1],
         )
         return best[1]
 
@@ -525,7 +525,8 @@ def measure_worker_step(
                     log.info(
                         "measure_worker_step: no strategy for feature '%s' "
                         "on interface %s — recording None",
-                        cp.feature, ifc.id,
+                        cp.feature,
+                        ifc.id,
                     )
                     ifc_measurements[cp.feature] = None
                     continue
@@ -537,7 +538,9 @@ def measure_worker_step(
                 # ``step_path`` lets strategies that need a clean bbox
                 # re-import the STEP fresh — see ``_bbox_from_step``.
                 ifc_measurements[cp.feature] = strategy(
-                    cad, obj_name, doc_name,
+                    cad,
+                    obj_name,
+                    doc_name,
                     expected_mm=cp.expected_mm,
                     tolerance_mm=cp.tolerance_mm,
                     step_path=step_path,
@@ -697,12 +700,7 @@ def format_verification_report(
         for feature, measured in features.items():
             ratio = drift_row.get(feature)
             ratio_str = f"{ratio * 100:+.2f}%" if ratio is not None else "n/a"
-            lines.append(
-                f"  {ifc_id}.{feature}: measured={measured} drift={ratio_str}"
-            )
+            lines.append(f"  {ifc_id}.{feature}: measured={measured} drift={ratio_str}")
     if verification.drift_exceeds_tolerance:
-        lines.append(
-            f"  DRIFT EXCEEDED TOLERANCE ON: "
-            f"{verification.drift_exceeds_tolerance}"
-        )
+        lines.append(f"  DRIFT EXCEEDED TOLERANCE ON: {verification.drift_exceeds_tolerance}")
     return "\n".join(lines)

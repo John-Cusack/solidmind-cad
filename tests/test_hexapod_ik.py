@@ -1,4 +1,5 @@
 """Tests for the 3-DOF hexapod leg IK solver."""
+
 from __future__ import annotations
 
 import math
@@ -98,7 +99,8 @@ class TestElbowDown(unittest.TestCase):
         for px, py, pz in positions:
             angles = inverse_kinematics(px, py, pz, _DEFAULT_GEOM)
             self.assertLessEqual(
-                angles.tibia, 1e-10,
+                angles.tibia,
+                1e-10,
                 f"Tibia should be <= 0 for ({px},{py},{pz}), got {angles.tibia}",
             )
 

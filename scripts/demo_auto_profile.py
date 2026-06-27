@@ -16,6 +16,7 @@ Usage::
     # Compare against existing manual config
     python3 scripts/demo_auto_profile.py --compare hexapod_18dof_v2_pkg/teleop_config.json
 """
+
 from __future__ import annotations
 
 import argparse
@@ -25,8 +26,8 @@ import sys
 from typing import Any
 
 # ── Geometry constants (from demo_build_hexapod_18dof.py) ─────────
-COXA_LEN = 52.0    # mm
-FEMUR_LEN = 66.0   # mm
+COXA_LEN = 52.0  # mm
+FEMUR_LEN = 66.0  # mm
 TIBIA_LEN = 133.0  # mm
 
 LEGS: dict[str, tuple[float, float]] = {
@@ -55,51 +56,59 @@ def _make_mechanism_dict() -> dict[str, Any]:
         femur_id = f"femur_{leg_id}"
         tibia_id = f"tibia_{leg_id}"
 
-        parts.extend([
-            {"id": coxa_id},
-            {"id": femur_id},
-            {"id": tibia_id},
-        ])
+        parts.extend(
+            [
+                {"id": coxa_id},
+                {"id": femur_id},
+                {"id": tibia_id},
+            ]
+        )
 
         # Coxa joint at chassis attachment point
-        joints.append({
-            "id": f"hip_yaw_{leg_id}",
-            "joint_type": "revolute",
-            "parent_part": "chassis",
-            "child_part": coxa_id,
-            "axis": [0.0, 0.0, 1.0],
-            "origin": [ax, ay, 0.0],
-            "min_angle_deg": -45.0,
-            "max_angle_deg": 45.0,
-        })
+        joints.append(
+            {
+                "id": f"hip_yaw_{leg_id}",
+                "joint_type": "revolute",
+                "parent_part": "chassis",
+                "child_part": coxa_id,
+                "axis": [0.0, 0.0, 1.0],
+                "origin": [ax, ay, 0.0],
+                "min_angle_deg": -45.0,
+                "max_angle_deg": 45.0,
+            }
+        )
 
         # Femur joint at end of coxa
         femur_x = ax + COXA_LEN * cos_a
         femur_y = ay + COXA_LEN * sin_a
-        joints.append({
-            "id": f"hip_pitch_{leg_id}",
-            "joint_type": "revolute",
-            "parent_part": coxa_id,
-            "child_part": femur_id,
-            "axis": [0.0, 1.0, 0.0],
-            "origin": [femur_x, femur_y, 0.0],
-            "min_angle_deg": -90.0,
-            "max_angle_deg": 90.0,
-        })
+        joints.append(
+            {
+                "id": f"hip_pitch_{leg_id}",
+                "joint_type": "revolute",
+                "parent_part": coxa_id,
+                "child_part": femur_id,
+                "axis": [0.0, 1.0, 0.0],
+                "origin": [femur_x, femur_y, 0.0],
+                "min_angle_deg": -90.0,
+                "max_angle_deg": 90.0,
+            }
+        )
 
         # Tibia joint at end of femur
         tibia_x = femur_x + FEMUR_LEN * cos_a
         tibia_y = femur_y + FEMUR_LEN * sin_a
-        joints.append({
-            "id": f"knee_{leg_id}",
-            "joint_type": "revolute",
-            "parent_part": femur_id,
-            "child_part": tibia_id,
-            "axis": [0.0, 1.0, 0.0],
-            "origin": [tibia_x, tibia_y, 0.0],
-            "min_angle_deg": -120.0,
-            "max_angle_deg": 0.0,
-        })
+        joints.append(
+            {
+                "id": f"knee_{leg_id}",
+                "joint_type": "revolute",
+                "parent_part": femur_id,
+                "child_part": tibia_id,
+                "axis": [0.0, 1.0, 0.0],
+                "origin": [tibia_x, tibia_y, 0.0],
+                "min_angle_deg": -120.0,
+                "max_angle_deg": 0.0,
+            }
+        )
 
     return {
         "name": "Hexapod_18DOF_auto",
@@ -110,11 +119,19 @@ def _make_mechanism_dict() -> dict[str, Any]:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     parser.add_argument("--live", action="store_true", help="Send teleop_start to Isaac bridge")
-    parser.add_argument("--compare", type=str, help="Path to manual teleop_config.json for comparison")
-    parser.add_argument("--urdf", type=str, default="hexapod_18dof_v2_pkg/Hexapod_18DOF.urdf",
-                        help="URDF path for live mode")
+    parser.add_argument(
+        "--compare", type=str, help="Path to manual teleop_config.json for comparison"
+    )
+    parser.add_argument(
+        "--urdf",
+        type=str,
+        default="hexapod_18dof_v2_pkg/Hexapod_18DOF.urdf",
+        help="URDF path for live mode",
+    )
     args = parser.parse_args(argv)
 
     # ── Step 1: Define mechanism ──────────────────────────────────
@@ -154,11 +171,16 @@ def main(argv: list[str] | None = None) -> int:
             print(f"\n--- Manual config ({args.compare}) ---")
             # Compare key fields
             _COMPARE_KEYS = [
-                "controller_type", "l_coxa", "l_femur", "l_tibia",
-                "body_length", "body_width", "leg_joint_names",
+                "controller_type",
+                "l_coxa",
+                "l_femur",
+                "l_tibia",
+                "body_length",
+                "body_width",
+                "leg_joint_names",
             ]
             print(f"  {'Field':<20} {'Auto':>12} {'Manual':>12} {'Match':>6}")
-            print(f"  {'-'*20} {'-'*12} {'-'*12} {'-'*6}")
+            print(f"  {'-' * 20} {'-' * 12} {'-' * 12} {'-' * 6}")
             for key in _COMPARE_KEYS:
                 auto_val = auto_profile.get(key)
                 manual_val = manual.get(key)
@@ -167,7 +189,9 @@ def main(argv: list[str] | None = None) -> int:
                     print(f"  {key:<20} {auto_val:>12.4f} {manual_val:>12.4f} {match:>6}")
                 elif isinstance(auto_val, list) and isinstance(manual_val, list):
                     match = "✓" if set(auto_val) == set(manual_val) else "X"
-                    print(f"  {key:<20} {'['+str(len(auto_val))+']':>12} {'['+str(len(manual_val))+']':>12} {match:>6}")
+                    print(
+                        f"  {key:<20} {'[' + str(len(auto_val)) + ']':>12} {'[' + str(len(manual_val)) + ']':>12} {match:>6}"
+                    )
                 else:
                     match = "✓" if auto_val == manual_val else "X"
                     print(f"  {key:<20} {str(auto_val):>12} {str(manual_val):>12} {match:>6}")
@@ -177,6 +201,7 @@ def main(argv: list[str] | None = None) -> int:
     # ── Step 4: Live teleop (optional) ────────────────────────────
     if args.live:
         import os
+
         if not os.path.isfile(args.urdf):
             print(f"\nError: URDF not found: {args.urdf}", file=sys.stderr)
             return 1

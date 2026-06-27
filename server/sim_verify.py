@@ -8,6 +8,7 @@ Compares data at three stages:
 All functions are pure — they take data dicts and return findings.
 No network calls or FreeCAD dependencies.
 """
+
 from __future__ import annotations
 
 import math
@@ -19,6 +20,7 @@ from server.models import Finding, Severity
 from server.motion_models import JointType, Mechanism
 
 # ── Stage 1: Mechanism vs FreeCAD model tree ──────────────────────
+
 
 def verify_mechanism_vs_tree(
     mechanism: Mechanism,
@@ -48,21 +50,24 @@ def verify_mechanism_vs_tree(
         if name.lower() in body_labels_lower:
             continue
 
-        findings.append(Finding(
-            rule_id="mech_part_missing_body",
-            severity=Severity.BLOCK,
-            message=(
-                f"Mechanism part '{part.id}' (body_name='{name}') "
-                f"not found in FreeCAD model tree. "
-                f"Available bodies: {sorted(body_labels)}"
-            ),
-            field=f"parts.{part.id}",
-        ))
+        findings.append(
+            Finding(
+                rule_id="mech_part_missing_body",
+                severity=Severity.BLOCK,
+                message=(
+                    f"Mechanism part '{part.id}' (body_name='{name}') "
+                    f"not found in FreeCAD model tree. "
+                    f"Available bodies: {sorted(body_labels)}"
+                ),
+                field=f"parts.{part.id}",
+            )
+        )
 
     return findings
 
 
 # ── Stage 2: Mechanism vs URDF file ──────────────────────────────
+
 
 def verify_mechanism_vs_urdf(
     mechanism: Mechanism,
@@ -81,23 +86,27 @@ def verify_mechanism_vs_urdf(
     findings: list[Finding] = []
 
     if not os.path.isfile(urdf_path):
-        findings.append(Finding(
-            rule_id="urdf_file_missing",
-            severity=Severity.BLOCK,
-            message=f"URDF file not found: {urdf_path}",
-            field="urdf_path",
-        ))
+        findings.append(
+            Finding(
+                rule_id="urdf_file_missing",
+                severity=Severity.BLOCK,
+                message=f"URDF file not found: {urdf_path}",
+                field="urdf_path",
+            )
+        )
         return findings
 
     try:
         tree = ET.parse(urdf_path)
     except ET.ParseError as exc:
-        findings.append(Finding(
-            rule_id="urdf_parse_error",
-            severity=Severity.BLOCK,
-            message=f"URDF parse error: {exc}",
-            field="urdf_path",
-        ))
+        findings.append(
+            Finding(
+                rule_id="urdf_parse_error",
+                severity=Severity.BLOCK,
+                message=f"URDF parse error: {exc}",
+                field="urdf_path",
+            )
+        )
         return findings
 
     root = tree.getroot()
@@ -125,19 +134,26 @@ def verify_mechanism_vs_urdf(
 
     missing_links = expected_link_names - content_links
     for name in sorted(missing_links):
-        findings.append(Finding(
-            rule_id="urdf_missing_link",
-            severity=Severity.WARN,
-            message=f"Mechanism part '{name}' has no corresponding URDF link.",
-            field=f"link.{name}",
-        ))
+        findings.append(
+            Finding(
+                rule_id="urdf_missing_link",
+                severity=Severity.WARN,
+                message=f"Mechanism part '{name}' has no corresponding URDF link.",
+                field=f"link.{name}",
+            )
+        )
 
     # --- Joint count check ---
     # Mechanism joints that map to URDF (exclude gear_mesh, belt_chain which become mimic)
     sim_joint_types = {
-        JointType.REVOLUTE, JointType.PRISMATIC, JointType.FIXED,
-        JointType.CONTINUOUS, JointType.PLANAR, JointType.GEAR_MESH,
-        JointType.BELT_CHAIN, JointType.CAM,
+        JointType.REVOLUTE,
+        JointType.PRISMATIC,
+        JointType.FIXED,
+        JointType.CONTINUOUS,
+        JointType.PLANAR,
+        JointType.GEAR_MESH,
+        JointType.BELT_CHAIN,
+        JointType.CAM,
     }
     mech_sim_joints = [j for j in mechanism.joints if j.joint_type in sim_joint_types]
     # URDF may also have a base_link_to_root fixed joint
@@ -148,15 +164,17 @@ def verify_mechanism_vs_urdf(
     actual = len(urdf_joint_names)
     # Allow +1 for base_link joint, +N for any extra fixed joints
     if actual < expected_min:
-        findings.append(Finding(
-            rule_id="urdf_joint_count_low",
-            severity=Severity.WARN,
-            message=(
-                f"URDF has {actual} joints but mechanism defines "
-                f"{expected_min} joints. Some may not have been exported."
-            ),
-            field="joints",
-        ))
+        findings.append(
+            Finding(
+                rule_id="urdf_joint_count_low",
+                severity=Severity.WARN,
+                message=(
+                    f"URDF has {actual} joints but mechanism defines "
+                    f"{expected_min} joints. Some may not have been exported."
+                ),
+                field="joints",
+            )
+        )
 
     # --- Joint type check ---
     _TYPE_MAP = {
@@ -177,16 +195,18 @@ def verify_mechanism_vs_urdf(
         urdf_type = urdf_j.get("type", "")
         expected_types = _TYPE_MAP.get(mj.joint_type.value, set())
         if urdf_type and expected_types and urdf_type not in expected_types:
-            findings.append(Finding(
-                rule_id="urdf_joint_type_mismatch",
-                severity=Severity.WARN,
-                message=(
-                    f"Joint '{mj.id}': mechanism type '{mj.joint_type.value}' "
-                    f"expected URDF type in {sorted(expected_types)}, "
-                    f"got '{urdf_type}'."
-                ),
-                field=f"joint.{mj.id}",
-            ))
+            findings.append(
+                Finding(
+                    rule_id="urdf_joint_type_mismatch",
+                    severity=Severity.WARN,
+                    message=(
+                        f"Joint '{mj.id}': mechanism type '{mj.joint_type.value}' "
+                        f"expected URDF type in {sorted(expected_types)}, "
+                        f"got '{urdf_type}'."
+                    ),
+                    field=f"joint.{mj.id}",
+                )
+            )
 
     # --- Mesh file checks ---
     urdf_dir = os.path.dirname(os.path.abspath(urdf_path))
@@ -195,12 +215,14 @@ def verify_mechanism_vs_urdf(
             continue
         visual = link_el.find("visual")
         if visual is None:
-            findings.append(Finding(
-                rule_id="urdf_link_no_visual",
-                severity=Severity.NOTE,
-                message=f"Link '{link_name}' has no <visual> element.",
-                field=f"link.{link_name}",
-            ))
+            findings.append(
+                Finding(
+                    rule_id="urdf_link_no_visual",
+                    severity=Severity.NOTE,
+                    message=f"Link '{link_name}' has no <visual> element.",
+                    field=f"link.{link_name}",
+                )
+            )
             continue
         mesh_el = visual.find(".//mesh")
         if mesh_el is None:
@@ -214,23 +236,28 @@ def verify_mechanism_vs_urdf(
         else:
             mesh_path = filename
         if not os.path.isfile(mesh_path):
-            findings.append(Finding(
-                rule_id="urdf_mesh_missing",
-                severity=Severity.BLOCK,
-                message=f"Link '{link_name}': mesh file not found: {filename}",
-                field=f"link.{link_name}.visual.mesh",
-            ))
+            findings.append(
+                Finding(
+                    rule_id="urdf_mesh_missing",
+                    severity=Severity.BLOCK,
+                    message=f"Link '{link_name}': mesh file not found: {filename}",
+                    field=f"link.{link_name}.visual.mesh",
+                )
+            )
         elif os.path.getsize(mesh_path) == 0:
-            findings.append(Finding(
-                rule_id="urdf_mesh_empty",
-                severity=Severity.BLOCK,
-                message=f"Link '{link_name}': mesh file is empty: {filename}",
-                field=f"link.{link_name}.visual.mesh",
-            ))
+            findings.append(
+                Finding(
+                    rule_id="urdf_mesh_empty",
+                    severity=Severity.BLOCK,
+                    message=f"Link '{link_name}': mesh file is empty: {filename}",
+                    field=f"link.{link_name}.visual.mesh",
+                )
+            )
         else:
             # Check mesh has 3D extent (not flat/degenerate)
             try:
                 from server.sim_export import validate_stl_extent
+
                 mesh_extent_findings = validate_stl_extent(mesh_path, link_name)
                 findings.extend(mesh_extent_findings)
             except ImportError:
@@ -242,24 +269,28 @@ def verify_mechanism_vs_urdf(
             continue
         inertial = link_el.find("inertial")
         if inertial is None:
-            findings.append(Finding(
-                rule_id="urdf_link_no_inertial",
-                severity=Severity.NOTE,
-                message=f"Link '{link_name}' has no <inertial> element.",
-                field=f"link.{link_name}",
-            ))
+            findings.append(
+                Finding(
+                    rule_id="urdf_link_no_inertial",
+                    severity=Severity.NOTE,
+                    message=f"Link '{link_name}' has no <inertial> element.",
+                    field=f"link.{link_name}",
+                )
+            )
             continue
 
         mass_el = inertial.find("mass")
         if mass_el is not None:
             mass_val = float(mass_el.get("value", "0"))
             if mass_val <= 0:
-                findings.append(Finding(
-                    rule_id="urdf_link_zero_mass",
-                    severity=Severity.WARN,
-                    message=f"Link '{link_name}' has zero or negative mass ({mass_val}).",
-                    field=f"link.{link_name}.mass",
-                ))
+                findings.append(
+                    Finding(
+                        rule_id="urdf_link_zero_mass",
+                        severity=Severity.WARN,
+                        message=f"Link '{link_name}' has zero or negative mass ({mass_val}).",
+                        field=f"link.{link_name}.mass",
+                    )
+                )
 
         inertia_el = inertial.find("inertia")
         if inertia_el is not None:
@@ -267,15 +298,17 @@ def verify_mechanism_vs_urdf(
             iyy = float(inertia_el.get("iyy", "0"))
             izz = float(inertia_el.get("izz", "0"))
             if ixx <= 0 or iyy <= 0 or izz <= 0:
-                findings.append(Finding(
-                    rule_id="urdf_link_bad_inertia",
-                    severity=Severity.WARN,
-                    message=(
-                        f"Link '{link_name}' has non-positive diagonal inertia: "
-                        f"ixx={ixx}, iyy={iyy}, izz={izz}."
-                    ),
-                    field=f"link.{link_name}.inertia",
-                ))
+                findings.append(
+                    Finding(
+                        rule_id="urdf_link_bad_inertia",
+                        severity=Severity.WARN,
+                        message=(
+                            f"Link '{link_name}' has non-positive diagonal inertia: "
+                            f"ixx={ixx}, iyy={iyy}, izz={izz}."
+                        ),
+                        field=f"link.{link_name}.inertia",
+                    )
+                )
 
     # --- Joint limit checks ---
     _DEFAULT_LIMIT_RAD = math.radians(60)
@@ -285,35 +318,41 @@ def verify_mechanism_vs_urdf(
             continue
         limit_el = joint_el.find("limit")
         if limit_el is None:
-            findings.append(Finding(
-                rule_id="urdf_joint_no_limits",
-                severity=Severity.WARN,
-                message=f"Joint '{joint_name}' ({jtype}) has no <limit> element.",
-                field=f"joint.{joint_name}",
-            ))
+            findings.append(
+                Finding(
+                    rule_id="urdf_joint_no_limits",
+                    severity=Severity.WARN,
+                    message=f"Joint '{joint_name}' ({jtype}) has no <limit> element.",
+                    field=f"joint.{joint_name}",
+                )
+            )
             continue
         lower = float(limit_el.get("lower", "0"))
         upper = float(limit_el.get("upper", "0"))
         # Check for silent ±60° default
-        if (math.isclose(abs(lower), _DEFAULT_LIMIT_RAD, rel_tol=0.01)
-                and math.isclose(abs(upper), _DEFAULT_LIMIT_RAD, rel_tol=0.01)):
+        if math.isclose(abs(lower), _DEFAULT_LIMIT_RAD, rel_tol=0.01) and math.isclose(
+            abs(upper), _DEFAULT_LIMIT_RAD, rel_tol=0.01
+        ):
             # Check if the mechanism explicitly set these limits
             mj = mechanism.get_joint(joint_name)
             if mj and mj.min_angle_deg is None and mj.max_angle_deg is None:
-                findings.append(Finding(
-                    rule_id="urdf_joint_default_limits",
-                    severity=Severity.NOTE,
-                    message=(
-                        f"Joint '{joint_name}' uses default ±60° limits. "
-                        f"Mechanism did not specify limits — these are auto-generated."
-                    ),
-                    field=f"joint.{joint_name}.limits",
-                ))
+                findings.append(
+                    Finding(
+                        rule_id="urdf_joint_default_limits",
+                        severity=Severity.NOTE,
+                        message=(
+                            f"Joint '{joint_name}' uses default ±60° limits. "
+                            f"Mechanism did not specify limits — these are auto-generated."
+                        ),
+                        field=f"joint.{joint_name}.limits",
+                    )
+                )
 
     return findings
 
 
 # ── Stage 3: URDF vs Isaac USD scene ────────────────────────────
+
 
 def verify_urdf_vs_isaac(
     urdf_path: str,
@@ -326,12 +365,14 @@ def verify_urdf_vs_isaac(
     findings: list[Finding] = []
 
     if isaac_diagnose.get("error"):
-        findings.append(Finding(
-            rule_id="isaac_diagnose_error",
-            severity=Severity.BLOCK,
-            message=f"Isaac diagnose failed: {isaac_diagnose['error']}",
-            field="isaac",
-        ))
+        findings.append(
+            Finding(
+                rule_id="isaac_diagnose_error",
+                severity=Severity.BLOCK,
+                message=f"Isaac diagnose failed: {isaac_diagnose['error']}",
+                field="isaac",
+            )
+        )
         return findings
 
     # Parse URDF for expected counts
@@ -358,51 +399,61 @@ def verify_urdf_vs_isaac(
     isaac_prismatic = type_counts.get("PhysicsPrismaticJoint", 0)
     type_counts.get("PhysicsFixedJoint", 0)
     isaac_total_joints = sum(
-        type_counts.get(t, 0) for t in (
-            "PhysicsRevoluteJoint", "PhysicsPrismaticJoint",
-            "PhysicsFixedJoint", "PhysicsSphericalJoint",
-            "PhysicsDistanceJoint", "PhysicsJoint",
+        type_counts.get(t, 0)
+        for t in (
+            "PhysicsRevoluteJoint",
+            "PhysicsPrismaticJoint",
+            "PhysicsFixedJoint",
+            "PhysicsSphericalJoint",
+            "PhysicsDistanceJoint",
+            "PhysicsJoint",
         )
     )
 
     # --- Joint count comparison ---
     if isaac_total_joints < urdf_total_joints:
-        findings.append(Finding(
-            rule_id="isaac_joint_count_low",
-            severity=Severity.WARN,
-            message=(
-                f"Isaac has {isaac_total_joints} joints but URDF defines "
-                f"{urdf_total_joints}. Isaac may have silently dropped joints."
-            ),
-            field="isaac.joints",
-        ))
+        findings.append(
+            Finding(
+                rule_id="isaac_joint_count_low",
+                severity=Severity.WARN,
+                message=(
+                    f"Isaac has {isaac_total_joints} joints but URDF defines "
+                    f"{urdf_total_joints}. Isaac may have silently dropped joints."
+                ),
+                field="isaac.joints",
+            )
+        )
 
     # --- Joint type breakdown ---
     # Revolute: URDF revolute + continuous → Isaac revolute
     urdf_revolute_like = urdf_revolute + urdf_continuous
     if isaac_revolute < urdf_revolute_like:
-        findings.append(Finding(
-            rule_id="isaac_revolute_count_low",
-            severity=Severity.WARN,
-            message=(
-                f"Isaac has {isaac_revolute} revolute joints but URDF defines "
-                f"{urdf_revolute_like} (revolute={urdf_revolute}, "
-                f"continuous={urdf_continuous}). "
-                f"Some revolute joints may not have imported correctly."
-            ),
-            field="isaac.joints.revolute",
-        ))
+        findings.append(
+            Finding(
+                rule_id="isaac_revolute_count_low",
+                severity=Severity.WARN,
+                message=(
+                    f"Isaac has {isaac_revolute} revolute joints but URDF defines "
+                    f"{urdf_revolute_like} (revolute={urdf_revolute}, "
+                    f"continuous={urdf_continuous}). "
+                    f"Some revolute joints may not have imported correctly."
+                ),
+                field="isaac.joints.revolute",
+            )
+        )
 
     if isaac_prismatic < urdf_prismatic:
-        findings.append(Finding(
-            rule_id="isaac_prismatic_count_low",
-            severity=Severity.WARN,
-            message=(
-                f"Isaac has {isaac_prismatic} prismatic joints but URDF defines "
-                f"{urdf_prismatic}."
-            ),
-            field="isaac.joints.prismatic",
-        ))
+        findings.append(
+            Finding(
+                rule_id="isaac_prismatic_count_low",
+                severity=Severity.WARN,
+                message=(
+                    f"Isaac has {isaac_prismatic} prismatic joints but URDF defines "
+                    f"{urdf_prismatic}."
+                ),
+                field="isaac.joints.prismatic",
+            )
+        )
 
     # --- Articulation DOF check ---
     art_info = isaac_diagnose.get("articulation_info")
@@ -412,23 +463,27 @@ def verify_urdf_vs_isaac(
         # Actuated joints = revolute + prismatic + continuous (not fixed)
         urdf_actuated = urdf_revolute + urdf_prismatic + urdf_continuous
         if dof_count < urdf_actuated:
-            findings.append(Finding(
-                rule_id="isaac_dof_count_low",
-                severity=Severity.WARN,
-                message=(
-                    f"Isaac articulation has {dof_count} DOFs but URDF defines "
-                    f"{urdf_actuated} actuated joints. "
-                    f"DOF names: {dof_names}"
-                ),
-                field="isaac.articulation.dof",
-            ))
+            findings.append(
+                Finding(
+                    rule_id="isaac_dof_count_low",
+                    severity=Severity.WARN,
+                    message=(
+                        f"Isaac articulation has {dof_count} DOFs but URDF defines "
+                        f"{urdf_actuated} actuated joints. "
+                        f"DOF names: {dof_names}"
+                    ),
+                    field="isaac.articulation.dof",
+                )
+            )
     else:
-        findings.append(Finding(
-            rule_id="isaac_no_articulation",
-            severity=Severity.NOTE,
-            message="No articulation root found in Isaac scene.",
-            field="isaac.articulation",
-        ))
+        findings.append(
+            Finding(
+                rule_id="isaac_no_articulation",
+                severity=Severity.NOTE,
+                message="No articulation root found in Isaac scene.",
+                field="isaac.articulation",
+            )
+        )
 
     # --- Per-joint detail checks ---
     joint_details = isaac_diagnose.get("joint_details", [])
@@ -440,15 +495,17 @@ def verify_urdf_vs_isaac(
         for body_key in ("physics_body0", "physics_body1"):
             targets = jd.get(body_key, [])
             if not targets:
-                findings.append(Finding(
-                    rule_id="isaac_joint_missing_body_target",
-                    severity=Severity.WARN,
-                    message=(
-                        f"Joint '{jpath}' has no {body_key.replace('_', ':')} "
-                        f"target — joint may be disconnected."
-                    ),
-                    field=f"isaac.joint.{jpath}",
-                ))
+                findings.append(
+                    Finding(
+                        rule_id="isaac_joint_missing_body_target",
+                        severity=Severity.WARN,
+                        message=(
+                            f"Joint '{jpath}' has no {body_key.replace('_', ':')} "
+                            f"target — joint may be disconnected."
+                        ),
+                        field=f"isaac.joint.{jpath}",
+                    )
+                )
 
         # Check that drives are configured (stiffness > 0 for position drive)
         if jtype in ("PhysicsRevoluteJoint", "PhysicsPrismaticJoint"):
@@ -457,20 +514,23 @@ def verify_urdf_vs_isaac(
             damping = jd.get(f"drive_{drive_ns}_damping")
             if stiffness is not None and damping is not None:
                 if stiffness == 0 and damping == 0:
-                    findings.append(Finding(
-                        rule_id="isaac_joint_no_drive",
-                        severity=Severity.WARN,
-                        message=(
-                            f"Joint '{jpath}' has stiffness=0 and damping=0 — "
-                            f"joint has no actuation force."
-                        ),
-                        field=f"isaac.joint.{jpath}.drive",
-                    ))
+                    findings.append(
+                        Finding(
+                            rule_id="isaac_joint_no_drive",
+                            severity=Severity.WARN,
+                            message=(
+                                f"Joint '{jpath}' has stiffness=0 and damping=0 — "
+                                f"joint has no actuation force."
+                            ),
+                            field=f"isaac.joint.{jpath}.drive",
+                        )
+                    )
 
     return findings
 
 
 # ── Combined verification ────────────────────────────────────────
+
 
 def verify_sim_package(
     mechanism: Mechanism,

@@ -1,4 +1,5 @@
 """Tests for aerodynamic solvers (SU2 + DUST) and the aero_check tool."""
+
 from __future__ import annotations
 
 import tempfile
@@ -72,6 +73,7 @@ class TestRotorSpec(unittest.TestCase):
 class TestAeroResult(unittest.TestCase):
     def test_round_trip(self) -> None:
         from server.analysis_models import AnalysisCheck
+
         ar = AeroResult(
             analysis_id="aero_001",
             status=CheckStatus.PASS,
@@ -126,17 +128,26 @@ class TestSU2Solver(unittest.TestCase):
     def test_write_input_incompressible(self) -> None:
         solver = FIELD_SOLVERS["su2"]
         mat = Material(
-            name="air", youngs_modulus_mpa=0, poissons_ratio=0,
-            density_kg_m3=1.225, yield_strength_mpa=0,
+            name="air",
+            youngs_modulus_mpa=0,
+            poissons_ratio=0,
+            density_kg_m3=1.225,
+            yield_strength_mpa=0,
         )
         bcs = (
             BoundaryCondition(
-                bc_type="freestream", faces=(),
-                value={"velocity_m_s": 15.0, "density_kg_m3": 1.225,
-                       "viscosity_pa_s": 1.789e-5, "angle_of_attack_deg": 5.0},
+                bc_type="freestream",
+                faces=(),
+                value={
+                    "velocity_m_s": 15.0,
+                    "density_kg_m3": 1.225,
+                    "viscosity_pa_s": 1.789e-5,
+                    "angle_of_attack_deg": 5.0,
+                },
             ),
             BoundaryCondition(
-                bc_type="reference", faces=(),
+                bc_type="reference",
+                faces=(),
                 value={"area_m2": 0.1, "chord_m": 0.2},
             ),
             BoundaryCondition(bc_type="wall", faces=("wall",)),
@@ -149,8 +160,10 @@ class TestSU2Solver(unittest.TestCase):
             boundary_conditions=bcs,
         )
         mesh_info = MeshInfo(
-            path="/tmp/test.msh", num_nodes=100,
-            num_elements=50, element_type="tri3",
+            path="/tmp/test.msh",
+            num_nodes=100,
+            num_elements=50,
+            element_type="tri3",
         )
 
         with tempfile.TemporaryDirectory() as td:
@@ -181,16 +194,21 @@ class TestDUSTSolver(unittest.TestCase):
     def test_write_input_with_rotors(self) -> None:
         solver = FIELD_SOLVERS["dust"]
         mat = Material(
-            name="air", youngs_modulus_mpa=0, poissons_ratio=0,
-            density_kg_m3=1.225, yield_strength_mpa=0,
+            name="air",
+            youngs_modulus_mpa=0,
+            poissons_ratio=0,
+            density_kg_m3=1.225,
+            yield_strength_mpa=0,
         )
         bcs = (
             BoundaryCondition(
-                bc_type="freestream", faces=(),
+                bc_type="freestream",
+                faces=(),
                 value={"velocity_m_s": 0.0},  # hover
             ),
             BoundaryCondition(
-                bc_type="rotor", faces=(),
+                bc_type="rotor",
+                faces=(),
                 value={
                     "rotor_id": "front_left",
                     "center_xyz": [0.15, 0.15, 0.05],
@@ -201,7 +219,8 @@ class TestDUSTSolver(unittest.TestCase):
                 },
             ),
             BoundaryCondition(
-                bc_type="rotor", faces=(),
+                bc_type="rotor",
+                faces=(),
                 value={
                     "rotor_id": "front_right",
                     "center_xyz": [0.15, -0.15, 0.05],
@@ -219,8 +238,10 @@ class TestDUSTSolver(unittest.TestCase):
             boundary_conditions=bcs,
         )
         mesh_info = MeshInfo(
-            path="/tmp/test.msh", num_nodes=100,
-            num_elements=50, element_type="tri3",
+            path="/tmp/test.msh",
+            num_nodes=100,
+            num_elements=50,
+            element_type="tri3",
         )
 
         with tempfile.TemporaryDirectory() as td:
@@ -238,12 +259,16 @@ class TestMockDUSTSolver(unittest.TestCase):
     def test_full_pipeline(self) -> None:
         solver = FIELD_SOLVERS["mock_dust"]
         mat = Material(
-            name="air", youngs_modulus_mpa=0, poissons_ratio=0,
-            density_kg_m3=1.225, yield_strength_mpa=0,
+            name="air",
+            youngs_modulus_mpa=0,
+            poissons_ratio=0,
+            density_kg_m3=1.225,
+            yield_strength_mpa=0,
         )
         bcs = (
             BoundaryCondition(
-                bc_type="rotor", faces=(),
+                bc_type="rotor",
+                faces=(),
                 value={
                     "rotor_id": "rotor_1",
                     "center_xyz": [0, 0, 0],
@@ -261,8 +286,10 @@ class TestMockDUSTSolver(unittest.TestCase):
             boundary_conditions=bcs,
         )
         mesh_info = MeshInfo(
-            path="/tmp/test.msh", num_nodes=100,
-            num_elements=50, element_type="tri3",
+            path="/tmp/test.msh",
+            num_nodes=100,
+            num_elements=50,
+            element_type="tri3",
         )
 
         with tempfile.TemporaryDirectory() as td:
@@ -290,6 +317,7 @@ class TestAeroSolverSelection(unittest.TestCase):
 
     def test_list_includes_aero(self) -> None:
         from server.analysis_solvers import list_solvers
+
         solvers = list_solvers()
         names = {s["name"] for s in solvers}
         self.assertIn("su2", names)
@@ -327,8 +355,10 @@ class TestAeroCheckTool(unittest.TestCase):
         ):
             mock_export.return_value = {"ok": True, "path": "/tmp/test.step"}
             mock_mesh.return_value = MeshInfo(
-                path="/tmp/test.msh", num_nodes=100,
-                num_elements=50, element_type="tri3",
+                path="/tmp/test.msh",
+                num_nodes=100,
+                num_elements=50,
+                element_type="tri3",
             )
 
             result = mod.analysis_aero_check(
@@ -350,8 +380,10 @@ class TestAeroCheckTool(unittest.TestCase):
         ):
             mock_export.return_value = {"ok": True, "path": "/tmp/test.step"}
             mock_mesh.return_value = MeshInfo(
-                path="/tmp/test.msh", num_nodes=100,
-                num_elements=50, element_type="tri3",
+                path="/tmp/test.msh",
+                num_nodes=100,
+                num_elements=50,
+                element_type="tri3",
             )
 
             result = mod.analysis_aero_check(

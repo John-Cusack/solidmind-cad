@@ -12,9 +12,7 @@ from server.geometry_ir import (
 
 class FreeCADCompiler:
     def __init__(self, capabilities: BackendCapabilities | None = None) -> None:
-        self._capabilities = capabilities or load_geometry_capabilities().backends.get(
-            "freecad"
-        )
+        self._capabilities = capabilities or load_geometry_capabilities().backends.get("freecad")
 
     def compile_eir(self, eir: EIR) -> CompilerResult:
         if not self._capabilities:

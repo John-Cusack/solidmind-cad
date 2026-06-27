@@ -3,6 +3,7 @@
 Runs inside a worker container. Wraps Claude Code execution: receives
 a sub-spec, launches Claude Code, streams progress, returns artifacts.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -147,10 +148,13 @@ async def _handle_message_send(
         _background_tasks.add(bg)
         bg.add_done_callback(_background_tasks.discard)
 
-    return _rpc_success(rpc_id, {
-        "taskId": task.task_id,
-        "status": task.status,
-    })
+    return _rpc_success(
+        rpc_id,
+        {
+            "taskId": task.task_id,
+            "status": task.status,
+        },
+    )
 
 
 async def _run_build(task: WorkerTask, build_fn: Any) -> None:
@@ -176,13 +180,16 @@ def _handle_task_get(rpc_id: Any, params: dict[str, Any]) -> dict[str, Any]:
     task = _tasks.get(task_id)
     if not task:
         return _rpc_error(rpc_id, -32602, f"Task not found: {task_id}")
-    return _rpc_success(rpc_id, {
-        "taskId": task.task_id,
-        "status": task.status,
-        "artifacts": task.artifacts,
-        "error": task.error,
-        "progress": task.progress,
-    })
+    return _rpc_success(
+        rpc_id,
+        {
+            "taskId": task.task_id,
+            "status": task.status,
+            "artifacts": task.artifacts,
+            "error": task.error,
+            "progress": task.progress,
+        },
+    )
 
 
 def _handle_task_cancel(rpc_id: Any, params: dict[str, Any]) -> dict[str, Any]:

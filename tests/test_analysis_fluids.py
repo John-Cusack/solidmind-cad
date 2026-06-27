@@ -1,4 +1,5 @@
 """Tests for the built-in fluid library."""
+
 from __future__ import annotations
 
 import unittest
@@ -80,8 +81,10 @@ class TestHydrodynamicTool(unittest.TestCase):
         ):
             mock_export.return_value = {"ok": True, "path": "/tmp/hull.step"}
             mock_mesh.return_value = MeshInfo(
-                path="/tmp/hull.msh", num_nodes=200,
-                num_elements=100, element_type="tri3",
+                path="/tmp/hull.msh",
+                num_nodes=200,
+                num_elements=100,
+                element_type="tri3",
             )
 
             result = mod.analysis_aero_check(

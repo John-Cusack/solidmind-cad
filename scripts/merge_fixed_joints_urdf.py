@@ -11,6 +11,7 @@ fixed-joint visual meshes get broken paths (node_STL_BINARY_).
 Usage:
     python scripts/merge_fixed_joints_urdf.py input.urdf output.urdf
 """
+
 from __future__ import annotations
 
 import math
@@ -38,11 +39,13 @@ def _rpy_to_matrix(rpy: np.ndarray) -> np.ndarray:
     cr, sr = math.cos(r), math.sin(r)
     cp, sp = math.cos(p), math.sin(p)
     cy, sy = math.cos(y), math.sin(y)
-    return np.array([
-        [cy*cp, cy*sp*sr - sy*cr, cy*sp*cr + sy*sr],
-        [sy*cp, sy*sp*sr + cy*cr, sy*sp*cr - cy*sr],
-        [-sp,   cp*sr,            cp*cr],
-    ])
+    return np.array(
+        [
+            [cy * cp, cy * sp * sr - sy * cr, cy * sp * cr + sy * sr],
+            [sy * cp, sy * sp * sr + cy * cr, sy * sp * cr - cy * sr],
+            [-sp, cp * sr, cp * cr],
+        ]
+    )
 
 
 def _matrix_to_rpy(R: np.ndarray) -> np.ndarray:
@@ -68,8 +71,10 @@ def _build_transform(origin_elem: ET.Element | None) -> tuple[np.ndarray, np.nda
 
 
 def _compose_transforms(
-    xyz1: np.ndarray, R1: np.ndarray,
-    xyz2: np.ndarray, R2: np.ndarray,
+    xyz1: np.ndarray,
+    R1: np.ndarray,
+    xyz2: np.ndarray,
+    R2: np.ndarray,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Compose two transforms: T1 * T2."""
     return R1 @ xyz2 + xyz1, R1 @ R2
