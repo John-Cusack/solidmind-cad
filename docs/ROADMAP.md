@@ -14,6 +14,42 @@ This document is the honest map of where each piece of the loop stands,
 what would move each gap forward, and how we'd know the loop has actually
 closed on a given class of part.
 
+## Status refresh — 2026-06-26
+
+Since the previous draft, tickets B/C/D/E landed and materially changed the
+inner-loop picture. The headline: **the inner loop now closes end-to-end on its
+first part class.** The foam-dart launcher's `latch_sear` walks all nine steps —
+build a deliberately under-dimensioned latch → screen → typed `FailureMode`
+diagnosis → pick a fix → apply → re-screen → assert improvement — with **no human
+between diagnosis and re-check** (`tests/test_iteration_loop_foam_dart_e2e.py`,
+plus the worked example under `examples/foam_dart_spring_launcher/`).
+
+What landed, mapped to the priority stack and the step list:
+
+- **Move 1 (partial):** `analysis.screen_stress` is built (`server/screen_stress.py`,
+  `analysis.screen_stress` tool) — beam bending, SCF lookup, Euler buckling,
+  returning a typed `AnalysisCheck`. **Not yet:** `screen_thermal` / `screen_aero`,
+  and FEA is **not auto-gated** behind the screen (the two tools exist; escalation
+  is still manual/documented, not wired inside `analysis.stress_check`).
+- **Move 2 (done):** `FailureMode` enum + `ReflectExpectations` dataclass in
+  `server/analysis_models.py`; `FieldResult` gained a `candidates` field.
+- **Interpret (Step 6):** `decide.interpret` (`interpret_compare_to_expectations`,
+  returns a typed `Comparison`) bridges Reflect expectations to results.
+- **Decide micro (Step 7):** `decide.from_failure` turns a typed `AnalysisCheck`
+  into a `FixProposal` (op / target / param / delta / rationale).
+- **Learn (Step 9):** the persistence test landed
+  (`tests/test_knowledge_persistence_e2e.py` — ingest → fresh process → recall);
+  the foam-dart example auto-ingests its V2 finding.
+
+Still open (tracked in the step sections and priority stack below): the
+`screen_thermal` / `screen_aero` tiers and auto-gating FEA behind the screen; the
+`part_class` Specify field; a **shared** failure-mode taxonomy under
+`me_knowledge/failure_modes/` (today only the foam-dart example ships its own
+`failure_modes.yaml`); structured `FixCandidate` objects (current `candidates`
+are string labels); and the regression-recovery + cross-session-memory tests
+(bar items 2 and 3). Inner-loop status moves **✗ → ◐: closed on one part class,
+generalization to more classes pending.**
+
 ## Where the loop model comes from
 
 The iteration loop below is a **nine-step model**. Six of the nine steps map
@@ -131,14 +167,16 @@ system needs both:
 | Concurrency | Parallel workers | Sequential iterations |
 | Decide surface | "Which of these N candidate designs wins?" (SBCE) | "Which repair do I try first for this failing part?" (empty) |
 | State | G0 → G7 gate walk | 9-step cycle |
-| Status | ✓ closed on 5 part classes | ✗ mostly missing (what this roadmap describes) |
-| Tests | ~170 tests across 11 files | 1 skipped placeholder |
+| Status | ✓ closed on 5 part classes | ◐ closed on 1 part class (foam-dart latch); generalization pending |
+| Tests | ~170 tests across 11 files | loop-closure test green on 1 class + supporting e2e tests |
 
 The rest of this roadmap focuses on the **inner loop** because that's
-the less-built half. But the priority stack (bottom of the document)
-calls out the one change needed on the outer side — wiring a real
-worker build into `test_orchestrator_e2e.py` — because it's
-comparable in leverage to the inner-loop changes.
+still the less-built half — though as of the 2026-06-26 refresh it is no
+longer "mostly missing": the nine steps run end-to-end on the foam-dart
+latch class, and the remaining work is generalizing past that first class
+(more taxonomies, the missing screen tiers, structured fix candidates).
+The outer-side move the older drafts flagged — wiring a real worker build
+into the gate flow — has since landed (Move 3, below).
 
 ## The loop, step by step
 
@@ -175,8 +213,12 @@ fix: add an optional `part_class: str` to `design.save_brief` and
 look up in the failure-mode taxonomy. Without this, the Reflect → Learn
 feedback loop can't retrieve part-class-specific findings cleanly.
 
-**What would move this forward:** just the `part_class` field. Specify
-is otherwise well-served today.
+**What would move this forward:** just the `part_class` field — **still open as
+of 2026-06-26.** `part_class` now exists as a concept in the Reflect layer
+(`ReflectExpectations.part_class`), but `design.save_brief` / `design.add_part`
+don't yet carry it, so the brief can't dispatch taxonomy lookups by class. This
+is now the gating item for generalizing Reflect past the one wired part class.
+Specify is otherwise well-served today.
 
 ### 2. Synthesize ✓
 
@@ -203,9 +245,23 @@ is otherwise well-served today.
 **What would move this forward:** nothing urgent. Synthesize is the
 expensive substrate and it's done.
 
-### 3. Reflect ✗ (folklore step, the first hard gap)
+### 3. Reflect ◐ (folklore step — the wedge landed, taxonomy still per-example)
 
-**Status: exists only as prompt rules. No tools. No structured data.
+**Status (refreshed 2026-06-26): the structured substrate now exists.**
+`ReflectExpectations` (item 2 below) is implemented in
+`server/analysis_models.py` and the analysis tools accept it; the analytical
+screen (item 3) exists as `analysis.screen_stress`. The foam-dart example files
+expectations per part class before screening and the loop-closure test asserts
+on them. What's still ✗: a **shared** part-class failure-mode taxonomy (item 1
+below) — today only the foam-dart example ships its own `failure_modes.yaml`,
+there's no `me_knowledge/failure_modes/<part_class>.yaml` catalog — and the
+`part_class` dispatch field on the brief (see the Specify gap). Until those land,
+Reflect is ◐, not ✓: it happens reliably for the one wired part class but isn't
+yet generalizable by lookup.
+
+The original ✗ writeup is kept below for context.
+
+**Original status: exists only as prompt rules. No tools. No structured data.
 No tests.**
 
 This is the "stop and think before you run the solver" step. What a
@@ -247,31 +303,27 @@ but FMEA is a heavyweight deliverable, not a pre-check habit.
   failure-mode-driven ("for this part class, are you worried about
   stress concentration at fillets?")
 
-**What would move this from ✗ to ◐:**
+**What would move this from ✗ to ◐ — progress as of 2026-06-26:**
 
-1. **Part-class failure-mode taxonomies.** A small structured catalog
-   per common part class: hexapod leg → `[fillet_stress_concentration,
-   femur_buckling, tibia_tip_deflection, knee_fatigue]`. Starts with
-   hand-curated entries for the part classes that already have project
-   tests (hexapod leg, planetary gearbox, quadrotor, rc car). Lives
-   under something like `server/failure_modes.py` or
-   `me_knowledge/failure_modes/<part_class>.yaml`.
-2. **An expectations schema.** A `ReflectExpectations` dataclass the
-   LLM fills in before calling `analysis.*`: what failure modes are
-   being checked, what numeric ranges are expected, what would make
-   the result suspicious. The analysis tools require it as an argument
-   (or warn loudly if absent).
-3. **An analytical-screen-first guard.** Before `analysis.stress_check`
-   runs FEA, call a cheap pre-screen: "for this geometry, what does a
-   hand calc give? what does the SCF table say?" If the screen
-   resolves the question with clear margin, skip the FEA entirely and
-   return the screen result. This is `study.*` in miniature — a
-   one-shot analytical check, not a sweep.
-4. **Tests.** Given a geometry in a known part class, assert that the
-   pre-sim Reflect step produces the expected failure-mode list and
-   expectation ranges. Given a manifestly unnecessary FEA request
-   (trivial bracket, nominal stress << yield), assert that the guard
-   skips the solver and returns the analytical result.
+1. **Part-class failure-mode taxonomies.** ✗ **still open (the main remaining
+   gap).** A small structured catalog per common part class: hexapod leg →
+   `[fillet_stress_concentration, femur_buckling, tibia_tip_deflection,
+   knee_fatigue]`. The foam-dart example proves the *format* with its own
+   `failure_modes.yaml`, but there is no shared
+   `me_knowledge/failure_modes/<part_class>.yaml` catalog yet. Should start with
+   hand-curated entries for the part classes that already have project tests
+   (hexapod leg, planetary gearbox, quadrotor, rc car).
+2. **An expectations schema.** ✓ **done.** `ReflectExpectations` is implemented
+   in `server/analysis_models.py`; the analysis/decide tools consume it and the
+   loop-closure test requires it.
+3. **An analytical-screen-first guard.** ◐ **half done.** `analysis.screen_stress`
+   exists and resolves the question hand-calc-style. The *automatic* guard inside
+   `analysis.stress_check` (screen first, skip FEA on clear margin) is not yet
+   wired — escalation is currently manual, as the foam-dart example demonstrates.
+4. **Tests.** ◐ The foam-dart loop-closure test asserts the Reflect step's
+   expectations against the screened result for one part class. A general
+   "trivial bracket → guard skips the solver" assertion still wants the
+   auto-gate from item 3.
 
 ### 4. Screen ◐ — the motion/analysis asymmetry
 
@@ -305,20 +357,23 @@ Plus the rule file (`.claude/rules/motion-validation.md`) that
 specifies when to escalate each tier. This is a *proven in-repo
 pattern* for how Screen → Simulate should look.
 
-**`analysis.*` has no tier ladder at all.**
+**`analysis.*` now has the first rung of a tier ladder (refreshed 2026-06-26).**
 
-- `analysis.stress_check` goes straight to CalculiX FEA.
-- `analysis.thermal_check` goes straight to the thermal solver.
-- `analysis.aero_check` goes straight to SU2 or DUST.
-- There is no `analysis.screen_stress` that says "for this beam with
-  this load, σ = Mc/I = 42 MPa, handbook SCF at the fillet is ~2.3,
-  expected peak around 97 MPa, comfortably under yield, no FEA
-  needed."
+- `analysis.screen_stress` ✓ **landed** — `server/screen_stress.py`. It does
+  exactly the "σ = Mc/I, handbook SCF at the fillet, expected peak, comfortably
+  under yield, no FEA needed" reasoning the old draft asked for, and returns a
+  typed `AnalysisCheck` so Interpret can cross-check it against FEA.
+- `analysis.thermal_check` ✗ still goes straight to the thermal solver — no
+  `screen_thermal`.
+- `analysis.aero_check` ✗ still goes straight to SU2 / DUST — no `screen_aero`.
+- The **auto-gate** (`analysis.stress_check` calls the screen first and skips FEA
+  on clear margin) is ✗ not yet wired — `screen_stress` and `stress_check` are
+  separate tools and escalation is manual.
 
-So Screen is ◐ because **one half of it is ✓ strong and the other
-half is ✗ missing.** The fix isn't "invent a Screen tool group" — it's
-**"copy motion.*'s tier pattern into analysis.*."** The template is
-in-repo and proven to work.
+So Screen stays ◐, but for a narrower reason than before: the structural screen
+tier exists, and what remains is (a) the thermal/aero screen tiers and (b) wiring
+the Tier-3-behind-Tier-1 auto-escalation. The fix is still **"copy motion.*'s
+tier pattern into analysis.*"** — now one-third complete.
 
 **Textbook anchor:** Shigley treats analytical methods as a subset of
 "Analysis & Optimization" (Shigley, chapter sections on load analysis,
@@ -336,38 +391,29 @@ explicit.
 **Test coverage:** `tests/test_tools_motion.py`,
 `tests/test_motion_validators.py` on the motion side;
 `tests/test_tools_me.py` (~20 tests of static constraint validation)
-on the generic side. **No test coverage for analytical screens of
-stress, thermal, or aero** because the tools don't exist.
+on the generic side. **Analytical stress screening is now covered**
+(`tests/test_screen_stress.py`, added with `analysis.screen_stress`); thermal and
+aero screens remain untested because those screen tiers don't exist yet.
 
-**What would move this from ◐ to ✓:**
+**What would move this from ◐ to ✓ — progress as of 2026-06-26:**
 
-1. **Bring `analysis.*` up to `motion.*`'s tier structure.** Add:
-   - `analysis.screen_stress` — beam bending (rectangular / circular
-     cross-section), stress concentration lookup for common features
-     (fillet, hole, notch), deflection bound via beam theory, Euler
-     critical buckling load for columns, fastener preload and pullout
-     estimates. Uses `geometry.section_properties` (already in-repo)
-     for I, J, c.
-   - `analysis.screen_thermal` — first-principles thermal bound (lumped
-     capacitance, Biot number, basic conduction/convection resistance
-     networks).
-   - `analysis.screen_aero` — first-principles aero coefficient
-     estimates (BEMT for rotors, basic lift curve slope for wings).
-2. **Gate Tier 3 behind Tier 1.** `analysis.stress_check` calls
-   `analysis.screen_stress` first; if the screen resolves the question
-   with clear margin (Reflect-step expected bounds satisfied by a
-   wide factor), return the screen result and skip FEA. Mirror the
-   escalation rule already documented in `.claude/rules/analysis-policy.md`.
-3. **Return the same `AnalysisCheck` shape from both Screen and
-   Simulate** so the Interpret step can compare Screen predictions
-   against FEA results consistently — if they disagree by more than
-   expected tolerance, the solver setup is probably wrong (mesh, BCs,
-   load case).
-4. **Tests.** Known-good hand-calc reference cases (cantilever bending,
-   Hertzian contact, thermal expansion of a rod, lumped-capacitance
-   cooling) with assertions against textbook values. These are the
-   same reference cases used in intro ME courses, so they're
-   well-documented.
+1. **Bring `analysis.*` up to `motion.*`'s tier structure.** ◐ one of three:
+   - `analysis.screen_stress` ✓ **done** — beam bending (rectangular / circular),
+     stress concentration lookup (fillet, hole, notch), deflection bound, Euler
+     buckling, fastener preload/pullout, via `geometry.section_properties`.
+   - `analysis.screen_thermal` ✗ — lumped capacitance, Biot number, resistance
+     networks. Not started.
+   - `analysis.screen_aero` ✗ — BEMT for rotors, lift curve slope for wings. Not
+     started.
+2. **Gate Tier 3 behind Tier 1.** ✗ **still open.** `analysis.stress_check` does
+   not yet call `analysis.screen_stress` first and short-circuit on clear margin;
+   the two are separate tools. Mirror `.claude/rules/analysis-policy.md`.
+3. **Return the same `AnalysisCheck` shape from both Screen and Simulate.** ✓
+   **done** — `screen_stress` returns an `AnalysisCheck` and `stress_check`
+   stamps a typed `failure_mode` on its `FieldResult`, so Interpret can compare
+   the two. (The foam-dart example does exactly this screen-vs-FEA comparison.)
+4. **Tests.** ◐ `tests/test_screen_stress.py` covers the analytical cases;
+   thermal/aero screen reference cases follow when those tiers land.
 
 This single change — analysis tiering — is arguably the highest-
 leverage move in the whole roadmap because it **(a) makes Screen a
@@ -433,9 +479,18 @@ against failure-mode expectations. Also see the Screen section — the
 asymmetry between `motion.*` (has a tier ladder) and `analysis.*`
 (doesn't) is the structural gap that matters most here.
 
-### 6. Interpret ◐ (the second hard gap)
+### 6. Interpret ◐ → nearly ✓ (the second hard gap, mostly closed)
 
-**Status: structured data exists, but it isn't typed against failure
+**Status (refreshed 2026-06-26): the two missing pieces landed.** `AnalysisCheck`
+and `FieldResult` now carry a typed `failure_mode: FailureMode`, and
+`decide.interpret` (`interpret_compare_to_expectations`) takes a `FieldResult` +
+`ReflectExpectations` and returns a typed `Comparison` — exactly the
+result-vs-expectation bridge this section asked for. What keeps it ◐ rather than
+✓: `candidates` on `FieldResult` is still a tuple of **string labels**, not the
+structured `FixCandidate {tool, args, estimated_improvement, cost_note}` objects
+item 2 below describes. The original ◐ writeup is kept for context.
+
+**Original status: structured data exists, but it isn't typed against failure
 modes and isn't compared against Reflect-step expectations.**
 
 The good news: `server/analysis_models.py:191` defines `AnalysisCheck`:
@@ -495,30 +550,23 @@ codebase conflates them.
 harness) consumes a result + expectations and produces a typed
 diagnosis.
 
-**What would move this from ◐ to ✓:**
+**What would move this from ◐ to ✓ — progress as of 2026-06-26:**
 
-1. **Add `FailureMode` enum to `AnalysisCheck`.** A small, enumerated
-   vocabulary — maybe a dozen values covering the common structural,
-   motion, thermal, and fluid failure modes. This is the single most
-   important change in the whole roadmap because everything downstream
-   (Decide, Act, Learn, the three-test bar) has to dispatch on *some*
-   typed value and right now there isn't one.
-2. **Add `candidates: list[FixCandidate]` alongside `suggestion`.** Each
-   candidate is a structured `{tool, args, estimated_improvement,
-   cost_note}` so the Decide step picks from options instead of
-   translating a sentence.
-3. **Add an `interpret.compare_to_expectations` tool.** Takes a
-   `FieldResult` and a `ReflectExpectations` and returns a typed
-   comparison: did the hot-spot land where expected, is the magnitude
-   in the expected range, what's the gap, is the gap within mesh
-   tolerance or is something fundamentally wrong? This is the bridge
-   between Reflect and Interpret.
-4. **Test the parse→act path.** Give the test harness a known-bad
-   geometry, call `analysis.stress_check` with filed expectations,
-   assert that the returned `FailureMode` and `candidates` list are
-   what a subsequent `cad.*` call would consume verbatim.
+1. **Add `FailureMode` enum to `AnalysisCheck`.** ✓ **done** — implemented on
+   both `AnalysisCheck` and `FieldResult`, populated on FAIL across the analysis
+   and screen tools.
+2. **Add `candidates: list[FixCandidate]` alongside `suggestion`.** ◐ **partial**
+   — `FieldResult.candidates` exists but holds string labels, not the structured
+   `{tool, args, estimated_improvement, cost_note}` objects. This is the remaining
+   work to flip Interpret to ✓ (and it pairs with the micro-Decide gap in Step 7).
+3. **Add an `interpret.compare_to_expectations` tool.** ✓ **done** —
+   `decide.interpret` / `interpret_compare_to_expectations` returns a typed
+   `Comparison` (hot-spot match, magnitude-in-range, gap, within-tolerance).
+4. **Test the parse→act path.** ✓ **done for one part class** —
+   `tests/test_decide.py` plus `tests/test_iteration_loop_foam_dart_e2e.py` assert
+   the `FailureMode` + comparison drive the next fix with no human in between.
 
-### 7. Decide — macro scale ◐, micro scale ✗
+### 7. Decide — macro scale ◐, micro scale ◐ (was ✗; `decide.from_failure` landed)
 
 **Status: split between two scales, and the project is much further
 along on one than the other.**
@@ -543,8 +591,16 @@ Tests: `tests/test_sbce.py` (19), `tests/test_runner.py` (41),
 capability that's been underweighted in previous drafts of this
 roadmap.
 
-**Micro scale — ✗ bare-bones.** Nothing in the toolset turns a single
-failing `AnalysisCheck` into a ranked list of repair candidates. What
+**Micro scale — ◐ (refreshed 2026-06-26; was ✗).** `decide.from_failure`
+(`server/decide.py`) now turns a single typed `AnalysisCheck` into a structured
+`FixProposal` (op / target / param / delta / rationale) — item 1 below, for the
+common structural failure modes. The foam-dart loop uses it to pick the latch fix
+autonomously. What keeps it ◐ rather than ✓: the auto-study fallback (item 2) and
+FoS-budget awareness (item 3) aren't wired, and the proposal is a single best fix,
+not yet a *ranked list* of candidates. The original ✗ writeup follows for context.
+
+**Original micro-scale status: ✗ bare-bones.** Nothing in the toolset turns a
+single failing `AnalysisCheck` into a ranked list of repair candidates. What
 exists:
 
 - `me.validate_constraints` / `me.apply_risk_gates` /
@@ -580,27 +636,27 @@ try" — and it's the distinction our current tooling elides.
 validation), `tests/test_tools_study.py` and `tests/test_study_*.py`
 (mock solvers).
 
-**What would move this from ✗ to ◐:**
+**What would move this from ✗ to ◐ — progress as of 2026-06-26 (now ◐):**
 
-1. **A `decide.from_failure` tool** that takes an `AnalysisCheck` with
-   a `FailureMode` and returns a ranked list of candidate actions —
-   each action being a concrete tool call the LLM can execute. Starting
-   surface: the five most common mechanical failure modes (stress
-   concentration, yield/bulk overload, buckling, deflection, fatigue),
-   each with one or two canned fix strategies tied to the specific
-   part-class taxonomies from Reflect.
-2. **Auto-study fallback.** When the decider doesn't have a canned
-   strategy, fall through to "run a bounded `study.*` on the nearest
-   geometric variable." This turns Decide into "pick from the playbook,
-   and if no play fits, run a sweep."
-3. **Safety-factor budget awareness.** The decider should know the
-   target FoS from the Specify-step brief, so it stops iterating once
-   the margin is comfortably above threshold instead of chasing
-   asymptotes.
+1. **A `decide.from_failure` tool.** ✓ **done** — takes a typed `AnalysisCheck`
+   and returns a `FixProposal` for the common structural failure modes. Remaining
+   polish: return a *ranked list* of candidates rather than a single proposal.
+2. **Auto-study fallback.** ✗ **still open.** When no canned strategy fits, fall
+   through to a bounded `study.*` sweep on the nearest geometric variable.
+3. **Safety-factor budget awareness.** ✗ **still open.** The decider should read
+   the target FoS from the brief and stop once margin is comfortably above
+   threshold. (Blocked partly on the `part_class`/brief plumbing in Specify.)
 
 ### 8. Act ◐
 
-**Status: the tools exist, but they're the same tools as Synthesize.**
+**Status (refreshed 2026-06-26): unchanged at ◐, but the loop now demonstrates
+the fix-apply-recheck cycle.** The foam-dart example applies the Decide
+proposal, re-runs the *same* screen that found the failure, and reports the
+before/after delta — i.e. items 1–2 below happen *within the example*, but only
+ad hoc. There is still no general structured fix-log on the brief and no reusable
+loop-aware dispatch wrapper; those remain the work to reach ✓.
+
+**Original status: the tools exist, but they're the same tools as Synthesize.**
 
 There's no dedicated "apply this fix" layer. The LLM takes a Decide
 output and calls `cad.fillet(radius=0.5, face="Face7")` directly.
@@ -630,9 +686,19 @@ textbooks say.
    before/after delta as one atomic result. This collapses
    "build → re-analyze → compare" into a single call.
 
-### 9. Learn ◐ (folklore step, infrastructure only)
+### 9. Learn ◐ (folklore step — recall is now tested; auto-ingestion is demoed)
 
-**Status: the store exists, it's empty, and nothing tests recall.**
+**Status (refreshed 2026-06-26): the recall gap is closed; corpus + automatic
+feedback remain.** `tests/test_knowledge_persistence_e2e.py` ingests a finding,
+tears the store down, reopens a fresh store at the same path, and asserts the
+finding is still searchable — the "nothing tests recall" hole is filled (item 2
+below). The foam-dart example also auto-ingests its V2 finding (item 3, in one
+example). What keeps Learn at ◐: there's still no committed seed corpus under
+`me_knowledge/notes/`, auto-ingestion isn't generalized beyond the one example,
+and the Learn → Reflect feedback (item 4) isn't wired because the shared
+taxonomy/`part_class` plumbing doesn't exist yet.
+
+**Original status: the store exists, it's empty, and nothing tests recall.**
 
 - `knowledge.ingest`, `knowledge.search`, `knowledge.extract`,
   `knowledge.status` — all implemented. LanceDB backend with
@@ -665,10 +731,9 @@ same part classes, learning has to be *in* the loop, not out-of-band.
    hexapod / gearbox / watch movement sessions that already happened).
    Gives `knowledge.search` something to return on day one and lets
    contributors see the expected format.
-2. **Persistence test.** Add a test that ingests a note, closes the
-   knowledge volume, reopens it in a fresh process, and asserts that
-   `knowledge.search` returns the ingested content. Without this test
-   the whole Learn step could silently break and nobody would notice.
+2. **Persistence test.** ✓ **done** — `tests/test_knowledge_persistence_e2e.py`
+   ingests a note, tears down the store, reopens a fresh store at the same path,
+   and asserts `knowledge.search` still returns the content.
 3. **Automatic finding ingestion.** When an Iterate cycle closes with
    a successful fix, auto-write the triple `(failure_mode, part_class,
    winning_fix)` to `me_knowledge/notes/<part_class>_<date>.md` and
@@ -715,42 +780,52 @@ before we claim the loop is autonomous on that class:
    reaches the fix faster or cites the prior finding in its reasoning
    trail.
 
-These three tests don't exist yet. The first one is scaffolded as a
-skipped placeholder at `tests/test_iteration_loop_e2e.py` so the
-structural TODO is visible in CI output. The others should follow as
-each dependency (Reflect taxonomy, FailureMode enum, Decide tool,
-Learn persistence) lands.
+**Refreshed 2026-06-26: test 1 now passes for the foam-dart latch class.**
+`tests/test_iteration_loop_foam_dart_e2e.py` walks all nine steps on the
+`latch_sear` part class with no human between diagnosis and re-check — the first
+real instance of the loop closing. The original placeholder
+`tests/test_iteration_loop_e2e.py` stays `@unittest.skip`-ped but now carries a
+pointer to the foam-dart test as the concrete closure. **Tests 2
+(regression-recovery) and 3 (cross-session memory) still don't exist** — test 3
+in particular is blocked on the Learn → Reflect feedback wiring (shared taxonomy
++ `part_class`), and both want generalization past the single wired class.
 
 ## Honest verdict
 
-**Tools: the textbook steps are solid, the folklore steps are missing.**
+*(Refreshed 2026-06-26 — every step except the two textbook-strong ones moved.)*
+
+**Tools: the folklore steps now have substrate; the gap is generalization.**
 
 - Steps 1, 2, 5 (Specify, Synthesize, Simulate) — the capital-T Textbook
   steps with strong canonical anchors — are dense/strong and well-tested.
-- Step 6 (Interpret) — also textbook, but the current tooling conflates
-  it with Simulate. The data shape is there (`AnalysisCheck` is
-  well-designed); what's missing is a typed `FailureMode` vocabulary
-  and the comparison-to-expectations step.
-- Steps 3, 9 (Reflect, Learn) — the folklore steps — are ✗ and ◐
-  respectively. Nothing in the textbooks forces their existence, which
-  is precisely why they're missing. The LLM will skip them unless the
-  tooling makes them unskippable.
-- Steps 4, 7, 8 (Screen, Decide, Act) — all ◐. Each has partial
-  coverage from existing tools but none is a first-class loop step.
+  (Specify's one latent gap, the `part_class` field, is still open.)
+- Step 6 (Interpret) — **nearly ✓.** The typed `FailureMode` vocabulary and the
+  `decide.interpret` comparison-to-expectations step both landed; only the
+  structured `FixCandidate` shape remains.
+- Steps 3, 9 (Reflect, Learn) — the folklore steps — are now **both ◐** (Reflect
+  was ✗). Reflect has `ReflectExpectations` and an analytical screen but no
+  shared taxonomy; Learn now has a passing recall test and a demoed auto-ingest
+  but no seed corpus or generalized feedback. The tooling makes them happen for
+  one part class; making them *unskippable everywhere* is the remaining work.
+- Steps 4, 7, 8 (Screen, Decide, Act) — still ◐, but less hollow: Screen has its
+  structural tier (1 of 3 + auto-gate pending), micro-Decide has
+  `decide.from_failure` (was ✗), and Act demonstrates the recheck cycle.
 
-**Tests: ~50% of the way there.** Plenty of unit and stub-integration
-coverage. Zero loop-closure tests. Zero cross-session learning tests.
-The project tests (`tests/test_project_hexapod_leg.py` and siblings)
-walk the pipeline but never iterate.
+**Tests: the first loop-closure test is green.** Plenty of unit and
+stub-integration coverage, plus — new since the last draft — a passing nine-step
+loop-closure test on the foam-dart latch class and a knowledge-recall persistence
+test. Still missing: regression-recovery and cross-session-memory tests, and
+loop closure on any second part class.
 
-**Progress toward the vision: real but uneven.** The expensive
-substrate — FreeCAD automation, three sim backends, FEA coupling, RL
-training — is built and working. The missing pieces are smaller in code
-volume but harder in design: forcing the Reflect step to happen,
-typing the Interpret step against failure modes, and actually *using*
-the Learn step to inform the next Reflect. Those changes would flip
-the thesis from *"we have the pieces"* to *"the loop empirically
-closes on these part classes."*
+**Progress toward the vision: the thesis is now demonstrated once, not just
+scaffolded.** The expensive substrate — FreeCAD automation, three sim backends,
+FEA coupling, RL training — was already built; what changed is that the
+*cognitive* steps (Reflect, typed Interpret, micro-Decide, tested Learn) now
+exist as code and the loop empirically closes on **one** part class. The
+remaining work flips the claim from *"the loop closes on the foam-dart latch"* to
+*"the loop closes on an arbitrary part class"*: the shared failure-mode taxonomy,
+the `part_class` brief field, the thermal/aero screen tiers + FEA auto-gate,
+structured fix candidates, and the regression/cross-session tests.
 
 ## Priority stack
 
@@ -762,7 +837,14 @@ land in parallel; they each unblock a different piece of the loop;
 and together they convert the bulk of `.claude/rules/*.md` from
 prompt rules into enforceable structured substrate.
 
-### Move 1 — Bring `analysis.*` up to `motion.*`'s tier structure
+### Move 1 — Bring `analysis.*` up to `motion.*`'s tier structure ◐ partly done
+
+**Landed (2026-06-26):** `analysis.screen_stress` — the structural Tier-1 screen
+(beam bending, SCF lookup, Euler buckling, fastener checks), returning a typed
+`AnalysisCheck`. **Remaining:** `analysis.screen_thermal`, `analysis.screen_aero`,
+and gating Tier-3 FEA behind the screen inside `analysis.stress_check` (today
+`screen_stress` and `stress_check` are separate tools; escalation is manual). The
+original rationale and full target set are kept below.
 
 **Why first.** `motion.*` already has Tier 1 (analytical) / Tier 2
 (kinematic) / Tier 3 (dynamic) as a proven in-repo pattern. `analysis.*`
@@ -800,7 +882,14 @@ analytical screen tier:
 - **Tests** against textbook reference cases (cantilever bending,
   Hertzian contact, lumped-capacitance cooling).
 
-### Move 2 — Paired wedge: `FailureMode` enum + `ReflectExpectations` dataclass
+### Move 2 — Paired wedge: `FailureMode` enum + `ReflectExpectations` dataclass ✓ done
+
+**What landed (2026-06-26).** Both halves are merged: `FailureMode` is on
+`AnalysisCheck` and `FieldResult` and is populated on FAIL across the analysis
+and screen tools; `ReflectExpectations` is implemented and consumed by
+`decide.interpret` / the loop-closure test. Together they unblocked the typed
+Interpret step (`decide.interpret`), micro-Decide (`decide.from_failure`), and the
+foam-dart loop-closure test. The original rationale is kept below for context.
 
 **Why.** This is the wedge that makes the Interpret step typed and
 the Reflect step unskippable. Neither alone is sufficient.
@@ -888,22 +977,25 @@ merge conflicts. They each independently move the project from
 
 ### After the priority stack
 
-Once the three top-priority moves land:
+*(Refreshed 2026-06-26 — items 1 and 2 landed; the live frontier is items 3–4
+plus the `part_class` field and the thermal/aero screen tiers.)*
 
-1. **Unskip `tests/test_iteration_loop_e2e.py`** against a known
-   part class. This is the forcing function for the whole inner
-   loop — wiring it up will expose whatever integration bugs are
-   hiding in the handoff between Reflect, Screen, Simulate, and
-   Interpret.
-2. **Knowledge persistence test** — ingest a finding, close the
-   knowledge volume, reopen in a fresh process, assert recall.
-   Without this test the whole Learn step could silently break.
+1. **Unskip the loop-closure test** against a known part class. ✓ **done for the
+   foam-dart latch** — `tests/test_iteration_loop_foam_dart_e2e.py` walks all nine
+   steps and passes; the original `tests/test_iteration_loop_e2e.py` placeholder
+   stays skipped with a pointer to it. Next: close the loop on a *second* class
+   (a hexapod or gearbox part) to prove generalization.
+2. **Knowledge persistence test.** ✓ **done** —
+   `tests/test_knowledge_persistence_e2e.py`.
 3. **Part-class failure-mode taxonomies** as hand-curated YAML under
-   `me_knowledge/failure_modes/` — seeded with entries for the four
-   part classes that already have project tests (hexapod leg,
-   planetary gearbox, quadrotor, rc car).
-4. **Auto-ingestion** from `study.results` into the knowledge corpus
-   so Learn starts filling itself without manual curation.
+   `me_knowledge/failure_modes/` — ✗ **still the highest-leverage next step.** The
+   foam-dart example proves the format with its own `failure_modes.yaml`; promote
+   it to a shared catalog seeded with the four part classes that already have
+   project tests (hexapod leg, planetary gearbox, quadrotor, rc car), and add the
+   `part_class` field to the brief so Reflect can look them up.
+4. **Auto-ingestion** from `study.results` (and closed iterate cycles) into the
+   knowledge corpus so Learn fills itself without manual curation. ◐ demoed once
+   in the foam-dart example; not yet generalized.
 
 ### Why this is mostly a refactor, not new tools
 
@@ -911,23 +1003,25 @@ Reading `.claude/rules/*.md` straight through, it's striking how much
 of the 9-step design is *already specified* — just as prompt rules
 instead of as code:
 
-| Rule file | Step | Rule → Tool refactor |
-|---|---|---|
-| `design-pipeline.md` | Specify | Mostly already tools; add `part_class` field |
-| `me-preflight.md` | Reflect | → `reflect.preflight()` + failure-mode taxonomy |
-| `analysis-policy.md` | Reflect + Simulate gating | → analysis tier ladder (Move 1) |
-| `motion-validation.md` | Screen → Simulate tier escalation | → **already implemented** as `motion.*` tiers |
-| `self-assessment.md` | Interpret | → `interpret.compare_to_expectations()` + `FailureMode` enum |
-| `study-policy.md` | Decide + Learn | Mostly already tools; add auto-ingestion |
-| `sim-engine-policy.md` | Simulate engine lifecycle | Already implemented as `sim.*` tools |
-| `orchestrator-protocol.md` | Outer loop | Already implemented as `orchestrator/*` |
+*(Status column refreshed 2026-06-26.)*
 
-**The `motion-validation.md` rule file is the only one whose
-tool-layer equivalent already exists.** That's the proof the approach
-works. Every other rule file is waiting for the same refactor from
-prompt instructions into enforceable structured substrate. The
-priority stack above turns the three most important of those rules
-into code.
+| Rule file | Step | Rule → Tool refactor | Status |
+|---|---|---|---|
+| `design-pipeline.md` | Specify | Mostly already tools; add `part_class` field | ◐ field still missing |
+| `me-preflight.md` | Reflect | → `reflect`/expectations + failure-mode taxonomy | ◐ `ReflectExpectations` done; shared taxonomy missing |
+| `analysis-policy.md` | Reflect + Simulate gating | → analysis tier ladder (Move 1) | ◐ `screen_stress` done; thermal/aero + auto-gate pending |
+| `motion-validation.md` | Screen → Simulate tier escalation | → `motion.*` tiers | ✓ implemented |
+| `self-assessment.md` | Interpret | → `decide.interpret` + `FailureMode` enum | ✓ both landed |
+| `study-policy.md` | Decide + Learn | Mostly tools; add auto-ingestion | ◐ `decide.from_failure` done; auto-ingestion demoed |
+| `sim-engine-policy.md` | Simulate engine lifecycle | `sim.*` tools | ✓ implemented |
+| `orchestrator-protocol.md` | Outer loop | `orchestrator/*` | ✓ implemented |
+
+**When the last draft was written, `motion-validation.md` was the *only* rule
+file whose tool-layer equivalent existed.** As of this refresh, `self-assessment.md`
+(Interpret) is also fully tooled, and three more (`analysis-policy`, `me-preflight`,
+`study-policy`) are partway there. The remaining prompt-only rules — chiefly the
+shared failure-mode taxonomy and the `part_class` field — are the substrate still
+waiting to be converted from prompt instructions into code.
 
 ## Sources
 
