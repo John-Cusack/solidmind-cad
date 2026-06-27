@@ -38,6 +38,7 @@ If any of the above isn't satisfied, the tests ``skipTest`` with a
 message naming the missing piece. They never fail spuriously on a
 clean CI runner that doesn't have FreeCAD installed.
 """
+
 from __future__ import annotations
 
 import tempfile
@@ -509,7 +510,7 @@ class TestRealWorkerE2E(unittest.TestCase):
                         check_points=[
                             ValidationCheckPoint(
                                 feature="motor_mount_pcd",
-                                expected_mm=16.0 * (2 ** 0.5),  # square diag
+                                expected_mm=16.0 * (2**0.5),  # square diag
                                 tolerance_mm=0.5,
                             ),
                         ],
@@ -531,7 +532,7 @@ class TestRealWorkerE2E(unittest.TestCase):
                     "height_mm": 8.0,
                     "root_mount_diameter_mm": 5.0,
                     "motor_mount_pattern": "square",
-                    "motor_mount_pcd_mm": 16.0 * (2 ** 0.5),
+                    "motor_mount_pcd_mm": 16.0 * (2**0.5),
                     "motor_mount_hole_count": 4,
                     "motor_mount_hole_diameter_mm": 3.2,
                 },
@@ -553,8 +554,11 @@ class TestRealWorkerE2E(unittest.TestCase):
             self.assertEqual(report.measurement_source, "orchestrator")
 
             root_check = next(
-                (dc for dc in report.dimension_checks
-                 if dc.interface_id == "ifc_root" and dc.feature == "bore_dia"),
+                (
+                    dc
+                    for dc in report.dimension_checks
+                    if dc.interface_id == "ifc_root" and dc.feature == "bore_dia"
+                ),
                 None,
             )
             self.assertIsNotNone(root_check, "ifc_root.bore_dia missing")
@@ -562,8 +566,7 @@ class TestRealWorkerE2E(unittest.TestCase):
             self.assertEqual(root_check.source, "orchestrator")
 
             pcd_check = next(
-                (dc for dc in report.dimension_checks
-                 if dc.feature == "motor_mount_pcd"),
+                (dc for dc in report.dimension_checks if dc.feature == "motor_mount_pcd"),
                 None,
             )
             self.assertIsNotNone(pcd_check, "motor_mount_pcd missing")
@@ -722,8 +725,11 @@ class TestRealWorkerE2E(unittest.TestCase):
             # Both axle bores measured independently.
             for ifc_id in ("ifc_axle_front", "ifc_axle_rear"):
                 check = next(
-                    (dc for dc in report.dimension_checks
-                     if dc.interface_id == ifc_id and dc.feature == "bore_dia"),
+                    (
+                        dc
+                        for dc in report.dimension_checks
+                        if dc.interface_id == ifc_id and dc.feature == "bore_dia"
+                    ),
                     None,
                 )
                 self.assertIsNotNone(check, f"{ifc_id}.bore_dia missing")
@@ -735,8 +741,7 @@ class TestRealWorkerE2E(unittest.TestCase):
 
             # Mounting PCD measured from the 4-hole group.
             pcd_check = next(
-                (dc for dc in report.dimension_checks
-                 if dc.feature == "motor_mount_pcd"),
+                (dc for dc in report.dimension_checks if dc.feature == "motor_mount_pcd"),
                 None,
             )
             self.assertIsNotNone(pcd_check, "motor_mount_pcd missing")
@@ -789,7 +794,9 @@ class TestRealWorkerE2E(unittest.TestCase):
                     mass_budget_kg=0.1,
                     material="aluminum",
                     interfaces=[
-                        "ifc_hip_yaw", "ifc_hip_pitch", "ifc_knee",
+                        "ifc_hip_yaw",
+                        "ifc_hip_pitch",
+                        "ifc_knee",
                     ],
                     worker_count=1,
                     assembly_constraints={"datum": "A"},
@@ -912,15 +919,17 @@ class TestRealWorkerE2E(unittest.TestCase):
                 ("ifc_knee", 6.0),
             ):
                 check = next(
-                    (dc for dc in report.dimension_checks
-                     if dc.interface_id == ifc_id and dc.feature == "bore_dia"),
+                    (
+                        dc
+                        for dc in report.dimension_checks
+                        if dc.interface_id == ifc_id and dc.feature == "bore_dia"
+                    ),
                     None,
                 )
                 self.assertIsNotNone(check, f"{ifc_id}.bore_dia missing")
                 self.assertTrue(
                     check.passed,
-                    f"{ifc_id}.bore_dia failed: measured={check.measured_mm}, "
-                    f"expected={expected}",
+                    f"{ifc_id}.bore_dia failed: measured={check.measured_mm}, expected={expected}",
                 )
                 self.assertEqual(check.source, "orchestrator")
 

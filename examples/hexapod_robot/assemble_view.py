@@ -19,6 +19,7 @@ Run from repo root with FreeCAD addon listening on :9876:
 
 Open FreeCAD before running so you can watch the parts appear live.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -70,15 +71,17 @@ def main() -> int:
     missing = [name for name, p in steps.items() if not p.exists()]
     if missing:
         print(f"ERROR: missing STEP files: {missing}", file=sys.stderr)
-        print(f"Run examples/hexapod_robot/run.py --out {args.run_dir} first.",
-              file=sys.stderr)
+        print(f"Run examples/hexapod_robot/run.py --out {args.run_dir} first.", file=sys.stderr)
         return 1
 
     from orchestrator.worker_builds import common
     from server import tools_cad as cad
+
     if not common.freecad_ready():
-        print(f"ERROR: FreeCAD addon not reachable at "
-              f"{common.fc_host()}:{common.fc_port()}.", file=sys.stderr)
+        print(
+            f"ERROR: FreeCAD addon not reachable at {common.fc_host()}:{common.fc_port()}.",
+            file=sys.stderr,
+        )
         return 1
 
     print(f"Composing 7-part hexapod from {args.run_dir}\n")
@@ -106,8 +109,7 @@ def main() -> int:
         leg_name = f"leg_{i}"
         leg_step = steps[leg_name]
         cx, cy = _leg_mount_xy(angle_deg)
-        print(f"  importing {leg_name}: angle={angle_deg}°, "
-              f"mount=({cx:+.1f},{cy:+.1f})")
+        print(f"  importing {leg_name}: angle={angle_deg}°, mount=({cx:+.1f},{cy:+.1f})")
         r = cad.cad_import_step(
             path=str(leg_step),
             object_name=f"Leg_{i}",
@@ -123,8 +125,7 @@ def main() -> int:
             rotation_angle_deg=float(angle_deg),
             doc=doc_name,
         )
-        print(f"    placed at z={CHASSIS_THICKNESS_MM} mm, "
-              f"rotated {angle_deg}° about Z")
+        print(f"    placed at z={CHASSIS_THICKNESS_MM} mm, rotated {angle_deg}° about Z")
 
     # 4. Capture iso + top-down screenshots for the demo.
     for label, target in (("iso", "iso"), ("top", [0.0, 0.0, 0.0])):
@@ -147,10 +148,11 @@ def main() -> int:
             print(f"  ({label} screenshot skipped: {exc})")
 
     print("\nHexapod assembled. Switch to FreeCAD to inspect.")
-    print("  - 1 chassis at origin (square 150×150×5 plate, "
-          "central bore + 6 mount holes)")
-    print(f"  - 6 legs at z={CHASSIS_THICKNESS_MM} mm, evenly spaced at "
-          f"{LEG_ANGLES_DEG} degrees on PCD={LEG_MOUNT_PCD_MM} mm")
+    print("  - 1 chassis at origin (square 150×150×5 plate, central bore + 6 mount holes)")
+    print(
+        f"  - 6 legs at z={CHASSIS_THICKNESS_MM} mm, evenly spaced at "
+        f"{LEG_ANGLES_DEG} degrees on PCD={LEG_MOUNT_PCD_MM} mm"
+    )
     print("  - each leg: 251 mm long, 3 distinct pivot bores per leg")
     print(f"  - total: {1 + 6} bodies, 18 revolute pivot points")
     return 0

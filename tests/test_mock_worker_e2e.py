@@ -7,6 +7,7 @@ The mock worker builds a known simple part (20×20×10 cube with Ø10×5 boss)
 using direct MCP tool calls, exports STEP/STL, writes metadata, then the
 orchestrator pipeline validates the results through gates G0→G4.
 """
+
 from __future__ import annotations
 
 import json
@@ -46,6 +47,7 @@ def _freecad_available() -> bool:
     """Check if FreeCAD addon is reachable on port 9876."""
     try:
         from server.freecad_client import FreeCADClient
+
         client = FreeCADClient()
         client.connect(timeout=2.0)
         client.send_command("ping")
@@ -58,6 +60,7 @@ def _freecad_available() -> bool:
 def _send(cmd: str, **args: Any) -> dict[str, Any]:
     """Send a command to FreeCAD and return the result."""
     from server.freecad_client import FreeCADClient
+
     client = FreeCADClient()
     client.connect(timeout=5.0)
     try:
@@ -88,9 +91,14 @@ def _build_cube_with_boss(output_dir: Path) -> dict[str, Any]:
 
     # 3. Sketch the base rectangle on XY plane
     sk = _send("new_sketch", body=body_name, plane="XY", doc=doc_name)
-    _send("sketch_populate", sketch=sk["sketch"], doc=doc_name, elements=[
-        {"type": "rect", "x": -10, "y": -10, "w": 20, "h": 20},
-    ])
+    _send(
+        "sketch_populate",
+        sketch=sk["sketch"],
+        doc=doc_name,
+        elements=[
+            {"type": "rect", "x": -10, "y": -10, "w": 20, "h": 20},
+        ],
+    )
     _send("close_sketch", sketch=sk["sketch"], doc=doc_name)
 
     # 4. Pad the base 10mm
@@ -98,9 +106,14 @@ def _build_cube_with_boss(output_dir: Path) -> dict[str, Any]:
 
     # 5. Sketch the boss circle
     sk2 = _send("new_sketch", body=body_name, plane="XY", doc=doc_name)
-    _send("sketch_populate", sketch=sk2["sketch"], doc=doc_name, elements=[
-        {"type": "circle", "cx": 0, "cy": 0, "r": 5},
-    ])
+    _send(
+        "sketch_populate",
+        sketch=sk2["sketch"],
+        doc=doc_name,
+        elements=[
+            {"type": "circle", "cx": 0, "cy": 0, "r": 5},
+        ],
+    )
     _send("close_sketch", sketch=sk2["sketch"], doc=doc_name)
 
     # 6. Pad the boss 5mm
@@ -161,9 +174,14 @@ def _build_cube_with_hole(output_dir: Path, doc_name: str | None = None) -> dict
 
     # 2. Sketch base rectangle
     sk = _send("new_sketch", body=body_name, plane="XY", **kwargs)
-    _send("sketch_populate", sketch=sk["sketch"], elements=[
-        {"type": "rect", "x": -10, "y": -10, "w": 20, "h": 20},
-    ], **kwargs)
+    _send(
+        "sketch_populate",
+        sketch=sk["sketch"],
+        elements=[
+            {"type": "rect", "x": -10, "y": -10, "w": 20, "h": 20},
+        ],
+        **kwargs,
+    )
     _send("close_sketch", sketch=sk["sketch"], **kwargs)
 
     # 3. Pad base 10mm
@@ -171,9 +189,14 @@ def _build_cube_with_hole(output_dir: Path, doc_name: str | None = None) -> dict
 
     # 4. Sketch hole circle
     sk2 = _send("new_sketch", body=body_name, plane="XY", **kwargs)
-    _send("sketch_populate", sketch=sk2["sketch"], elements=[
-        {"type": "circle", "cx": 0, "cy": 0, "r": 5},
-    ], **kwargs)
+    _send(
+        "sketch_populate",
+        sketch=sk2["sketch"],
+        elements=[
+            {"type": "circle", "cx": 0, "cy": 0, "r": 5},
+        ],
+        **kwargs,
+    )
     _send("close_sketch", sketch=sk2["sketch"], **kwargs)
 
     # 5. Pocket 5mm deep
@@ -238,7 +261,8 @@ def _make_e2e_spec() -> MasterSpec:
     spec.interfaces.append(ifc)
 
     cube_a = Subsystem(
-        id="sa", name="cube_a",
+        id="sa",
+        name="cube_a",
         description="Cube with boss",
         kind=SubsystemKind.GENERATED,
         envelope_mm=[20, 20, 15],
@@ -249,7 +273,8 @@ def _make_e2e_spec() -> MasterSpec:
         manufacturing=ManufacturingSpec(process="CNC_milling"),
     )
     cube_b = Subsystem(
-        id="sb", name="cube_b",
+        id="sb",
+        name="cube_b",
         description="Cube with hole",
         kind=SubsystemKind.GENERATED,
         envelope_mm=[20, 20, 10],

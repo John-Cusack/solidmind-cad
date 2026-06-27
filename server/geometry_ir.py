@@ -304,9 +304,7 @@ def _normalize_tolerance(tol: Tolerance, precision: int = 10) -> dict[str, Any]:
     return result
 
 
-def _normalize_vector3d(
-    v: Vector3D | None, precision: int = 10
-) -> dict[str, float] | None:
+def _normalize_vector3d(v: Vector3D | None, precision: int = 10) -> dict[str, float] | None:
     if v is None:
         return None
     return {
@@ -326,9 +324,7 @@ def _normalize_point3d(p: Point3D | None, precision: int = 10) -> dict[str, Any]
     }
 
 
-def _normalize_feature_intent(
-    feature: FeatureIntent, precision: int = 10
-) -> dict[str, Any]:
+def _normalize_feature_intent(feature: FeatureIntent, precision: int = 10) -> dict[str, Any]:
     base_data: dict[str, Any] = {
         "id": feature.id,
         "type": feature.type,
@@ -342,9 +338,7 @@ def _normalize_feature_intent(
         base_data["x_freecad"] = feature.x_freecad
 
     if isinstance(feature, PrimitiveIntent):
-        dims = {
-            k: _normalize_quantity(v, precision) for k, v in feature.dimensions.items()
-        }
+        dims = {k: _normalize_quantity(v, precision) for k, v in feature.dimensions.items()}
         base_data["primitive_type"] = feature.primitive_type
         base_data["dimensions"] = dict(sorted(dims.items()))
     elif isinstance(feature, SketchProfileIntent):
@@ -388,9 +382,7 @@ def _normalize_feature_intent(
             _normalize_quantity(feature.spacing, precision) if feature.spacing else None
         )
         base_data["total_angle"] = (
-            _normalize_quantity(feature.total_angle, precision)
-            if feature.total_angle
-            else None
+            _normalize_quantity(feature.total_angle, precision) if feature.total_angle else None
         )
     elif isinstance(feature, BlendIntent):
         base_data["blend_type"] = feature.blend_type
@@ -399,9 +391,7 @@ def _normalize_feature_intent(
             _normalize_quantity(feature.radius, precision) if feature.radius else None
         )
         base_data["distance"] = (
-            _normalize_quantity(feature.distance, precision)
-            if feature.distance
-            else None
+            _normalize_quantity(feature.distance, precision) if feature.distance else None
         )
 
     return base_data
@@ -429,9 +419,7 @@ def _normalize_compiled_op(op: CompiledOp, precision: int = 10) -> dict[str, Any
 def compute_gir_hash(gir: GIR, precision: int = 10) -> str:
     from server.jcs import canonicalize as jcs_c
 
-    normalized_features = [
-        _normalize_feature_intent(f, precision) for f in gir.features
-    ]
+    normalized_features = [_normalize_feature_intent(f, precision) for f in gir.features]
     features_sorted_by_content = sorted(normalized_features, key=lambda x: str(x))
 
     canonical = {
@@ -476,9 +464,7 @@ class GIRBuilder:
         self._frames.append(frame)
         return frame_id
 
-    def add_local_frame(
-        self, parent_id: str, transform: Transform | None = None
-    ) -> str:
+    def add_local_frame(self, parent_id: str, transform: Transform | None = None) -> str:
         frame_id = f"D{self._frame_counter}"
         self._frame_counter += 1
         frame = Frame(id=frame_id, type="local", parent=parent_id, transform=transform)

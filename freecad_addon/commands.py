@@ -7,6 +7,7 @@ function raises, the socket server catches it and returns an error response.
 FreeCAD modules (``FreeCAD``, ``FreeCADGui``, ``Part``, ``Sketcher``) are
 imported at module level — this file is only loaded inside FreeCAD.
 """
+
 from __future__ import annotations
 
 import base64
@@ -25,6 +26,7 @@ logger = logging.getLogger("solidmind.commands")
 def _set_sketch_support(sketch: Any, support: Any, map_mode: str = "FlatFace") -> None:
     """Set sketch attachment support — delegates to compat layer."""
     from freecad_addon.compat import set_sketch_support
+
     set_sketch_support(sketch, support, map_mode)
 
 
@@ -38,6 +40,7 @@ except ImportError:
 # ---------------------------------------------------------------------------
 # Document & Structure
 # ---------------------------------------------------------------------------
+
 
 def new_document(name: str = "Unnamed") -> dict[str, Any]:
     """Create a new FreeCAD document."""
@@ -99,9 +102,15 @@ def get_model_tree(doc: str | None = None, detail: str = "bodies") -> dict[str, 
                 try:
                     bb = obj.Shape.BoundBox
                     node["bounding_box"] = {
-                        "x_min": bb.XMin, "y_min": bb.YMin, "z_min": bb.ZMin,
-                        "x_max": bb.XMax, "y_max": bb.YMax, "z_max": bb.ZMax,
-                        "x_len": bb.XLength, "y_len": bb.YLength, "z_len": bb.ZLength,
+                        "x_min": bb.XMin,
+                        "y_min": bb.YMin,
+                        "z_min": bb.ZMin,
+                        "x_max": bb.XMax,
+                        "y_max": bb.YMax,
+                        "z_max": bb.ZMax,
+                        "x_len": bb.XLength,
+                        "y_len": bb.YLength,
+                        "z_len": bb.ZLength,
                     }
                 except Exception:
                     pass
@@ -199,6 +208,7 @@ def redo(doc: str | None = None) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 # Sketcher
 # ---------------------------------------------------------------------------
+
 
 def new_sketch(
     body: str,
@@ -315,9 +325,7 @@ def sketch_line(
     d = _get_doc(doc)
     sk = _get_sketch(d, sketch)
 
-    idx = sk.addGeometry(
-        Part.LineSegment(FreeCAD.Vector(x1, y1, 0), FreeCAD.Vector(x2, y2, 0))
-    )
+    idx = sk.addGeometry(Part.LineSegment(FreeCAD.Vector(x1, y1, 0), FreeCAD.Vector(x2, y2, 0)))
     d.recompute()
     return {"sketch": sk.Name, "geometry_index": idx}
 
@@ -453,7 +461,12 @@ def sketch_bspline(
 
     bspline = Part.BSplineCurve()
     bspline.buildFromPolesMultsKnots(
-        poles, mults, unique_knots, periodic, degree, w,
+        poles,
+        mults,
+        unique_knots,
+        periodic,
+        degree,
+        w,
     )
 
     idx = sk.addGeometry(bspline)
@@ -493,7 +506,7 @@ def sketch_populate(
     geometry_indices: list[dict[str, Any]] = []
 
     # --- Add all geometry elements without recompute ---
-    for elem in (elements or []):
+    for elem in elements or []:
         elem_type = elem.get("type", "")
         is_construction = elem.get("construction", False)
 
@@ -532,9 +545,7 @@ def sketch_populate(
                 cx = elem.get("cx", 0)
                 cy = elem.get("cy", 0)
             r = elem["r"]
-            idx = sk.addGeometry(
-                Part.Circle(FreeCAD.Vector(cx, cy, 0), FreeCAD.Vector(0, 0, 1), r)
-            )
+            idx = sk.addGeometry(Part.Circle(FreeCAD.Vector(cx, cy, 0), FreeCAD.Vector(0, 0, 1), r))
             if is_construction:
                 sk.toggleConstruction(idx)
             geometry_indices.append({"type": "circle", "index": idx})
@@ -589,9 +600,7 @@ def sketch_populate(
             n_poles = len(poles)
             w = weights if weights is not None else [1.0] * n_poles
             if len(w) != n_poles:
-                raise ValueError(
-                    f"weights length ({len(w)}) must match points length ({n_poles})"
-                )
+                raise ValueError(f"weights length ({len(w)}) must match points length ({n_poles})")
 
             n_knots = n_poles + degree + 1
             if periodic:
@@ -631,19 +640,39 @@ def sketch_populate(
             vertex = elem.get("vertex")
             radius = elem.get("radius")
             if vertex is None or radius is None:
-                raise ValueError("sketch_fillet requires 'vertex' (geometry index) and 'radius' fields")
+                raise ValueError(
+                    "sketch_fillet requires 'vertex' (geometry index) and 'radius' fields"
+                )
             result_indices = sk.fillet(int(vertex), float(radius))
-            idx = result_indices if isinstance(result_indices, int) else result_indices[0] if result_indices else -1
-            geometry_indices.append({"type": "sketch_fillet", "index": idx, "vertex": vertex, "radius": radius})
+            idx = (
+                result_indices
+                if isinstance(result_indices, int)
+                else result_indices[0]
+                if result_indices
+                else -1
+            )
+            geometry_indices.append(
+                {"type": "sketch_fillet", "index": idx, "vertex": vertex, "radius": radius}
+            )
 
         elif elem_type == "sketch_chamfer":
             vertex = elem.get("vertex")
             size = elem.get("size")
             if vertex is None or size is None:
-                raise ValueError("sketch_chamfer requires 'vertex' (geometry index) and 'size' fields")
+                raise ValueError(
+                    "sketch_chamfer requires 'vertex' (geometry index) and 'size' fields"
+                )
             result_indices = sk.chamfer(int(vertex), float(size))
-            idx = result_indices if isinstance(result_indices, int) else result_indices[0] if result_indices else -1
-            geometry_indices.append({"type": "sketch_chamfer", "index": idx, "vertex": vertex, "size": size})
+            idx = (
+                result_indices
+                if isinstance(result_indices, int)
+                else result_indices[0]
+                if result_indices
+                else -1
+            )
+            geometry_indices.append(
+                {"type": "sketch_chamfer", "index": idx, "vertex": vertex, "size": size}
+            )
 
         else:
             raise ValueError(f"Unknown element type: {elem_type}")
@@ -681,11 +710,13 @@ def sketch_populate(
             sk.addConstraint(Sketcher.Constraint(*cargs))
             constraint_count += 1
         except Exception as exc:
-            constraint_errors.append({
-                "index": ci,
-                "type": con_type,
-                "error": str(exc),
-            })
+            constraint_errors.append(
+                {
+                    "index": ci,
+                    "type": con_type,
+                    "error": str(exc),
+                }
+            )
             logger.warning("Constraint %d (%s) failed: %s", ci, con_type, exc)
 
     # --- Single recompute for everything ---
@@ -722,6 +753,7 @@ def close_sketch(sketch: str, doc: str | None = None) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 # PartDesign Features
 # ---------------------------------------------------------------------------
+
 
 def _validate_profile_closure(sk: Any, operation: str) -> None:
     """Check that the sketch profile has closed wires before pad/pocket.
@@ -774,7 +806,9 @@ def pad(
     doc: str | None = None,
 ) -> dict[str, Any]:
     """Extrude (pad) a sketch."""
-    logger.info("pad: sketch=%s length=%s symmetric=%s reversed=%s", sketch, length, symmetric, reversed)
+    logger.info(
+        "pad: sketch=%s length=%s symmetric=%s reversed=%s", sketch, length, symmetric, reversed
+    )
     d = _get_doc(doc)
     sk = _get_sketch(d, sketch)
     _validate_profile_closure(sk, "Pad")
@@ -791,7 +825,9 @@ def pad(
     result = _recompute_and_check(d, pad_obj, body=body, op_context=op_context)
     logger.info("pad: created %s", pad_obj.Name)
     if verify:
-        result["verification_images"] = _capture_verification_views(d, op_context=op_context, body=body)
+        result["verification_images"] = _capture_verification_views(
+            d, op_context=op_context, body=body
+        )
     return result
 
 
@@ -890,7 +926,9 @@ def pocket(
     ``reversed``: ``True``/``False`` for explicit direction, or ``"auto"``
     to resolve deterministically from the sketch plane and body geometry.
     """
-    logger.info("pocket: sketch=%s length=%s type=%s reversed=%s", sketch, length, pocket_type, reversed)
+    logger.info(
+        "pocket: sketch=%s length=%s type=%s reversed=%s", sketch, length, pocket_type, reversed
+    )
     d = _get_doc(doc)
     sk = _get_sketch(d, sketch)
     _validate_profile_closure(sk, "Pocket")
@@ -904,7 +942,8 @@ def pocket(
         reversed = auto_resolved["reversed"]
         logger.info(
             "pocket: auto-resolved reversed=%s (%s)",
-            reversed, auto_resolved["reason"],
+            reversed,
+            auto_resolved["reason"],
         )
 
     pocket_obj = d.addObject("PartDesign::Pocket", "Pocket")
@@ -921,7 +960,9 @@ def pocket(
     if auto_resolved is not None:
         result["auto_reversed"] = auto_resolved
     if verify:
-        result["verification_images"] = _capture_verification_views(d, op_context=op_context, body=body)
+        result["verification_images"] = _capture_verification_views(
+            d, op_context=op_context, body=body
+        )
     return result
 
 
@@ -969,7 +1010,9 @@ def hole(
     result = _recompute_and_check(d, hole_obj, body=body_obj, op_context=op_context)
     logger.info("hole: created %s", hole_obj.Name)
     if verify:
-        result["verification_images"] = _capture_verification_views(d, op_context=op_context, body=body_obj)
+        result["verification_images"] = _capture_verification_views(
+            d, op_context=op_context, body=body_obj
+        )
     return result
 
 
@@ -1013,7 +1056,9 @@ def fillet(
     result = _recompute_and_check(d, fillet_obj, body=body_obj, op_context=op_context)
     logger.info("fillet: created %s", fillet_obj.Name)
     if verify:
-        result["verification_images"] = _capture_verification_views(d, op_context=op_context, body=body_obj)
+        result["verification_images"] = _capture_verification_views(
+            d, op_context=op_context, body=body_obj
+        )
     return result
 
 
@@ -1034,7 +1079,15 @@ def revolution(
 
     If ``subtractive`` is True, creates a PartDesign::Groove (cut) instead.
     """
-    logger.info("revolution: sketch=%s axis=%s angle=%s symmetric=%s reversed=%s subtractive=%s", sketch, axis, angle, symmetric, reversed, subtractive)
+    logger.info(
+        "revolution: sketch=%s axis=%s angle=%s symmetric=%s reversed=%s subtractive=%s",
+        sketch,
+        axis,
+        angle,
+        symmetric,
+        reversed,
+        subtractive,
+    )
     d = _get_doc(doc)
     sk = _get_sketch(d, sketch)
 
@@ -1065,11 +1118,19 @@ def revolution(
             raise ValueError(f"Document has no '{fc_axis}' object")
         rev_obj.ReferenceAxis = (axis_obj, [""])
 
-    op_context = {"op": "revolution", "sketch": sketch, "axis": axis, "angle": angle, "subtractive": subtractive}
+    op_context = {
+        "op": "revolution",
+        "sketch": sketch,
+        "axis": axis,
+        "angle": angle,
+        "subtractive": subtractive,
+    }
     result = _recompute_and_check(d, rev_obj, body=body, op_context=op_context)
     logger.info("revolution: created %s", rev_obj.Name)
     if verify:
-        result["verification_images"] = _capture_verification_views(d, op_context=op_context, body=body)
+        result["verification_images"] = _capture_verification_views(
+            d, op_context=op_context, body=body
+        )
     return result
 
 
@@ -1090,7 +1151,13 @@ def polar_pattern(
     or ``"V"``, ``"H"`` (sketch axes of the first feature's sketch).
     ``occurrences``: total number of copies including the original.
     """
-    logger.info("polar_pattern: features=%s axis=%s occurrences=%s angle=%s", features, axis, occurrences, angle)
+    logger.info(
+        "polar_pattern: features=%s axis=%s occurrences=%s angle=%s",
+        features,
+        axis,
+        occurrences,
+        angle,
+    )
     d = _get_doc(doc)
     body_obj = _resolve_body(d, body)
 
@@ -1168,7 +1235,9 @@ def polar_pattern(
         logger.warning("polar_pattern: failed to promote Tip: %s", exc)
     logger.info("polar_pattern: created %s", pattern_obj.Name)
     if verify:
-        result["verification_images"] = _capture_verification_views(d, op_context=op_context, body=body_obj)
+        result["verification_images"] = _capture_verification_views(
+            d, op_context=op_context, body=body_obj
+        )
     return result
 
 
@@ -1229,7 +1298,9 @@ def mirror(
     result = _recompute_and_check(d, mirror_obj, body=body_obj, op_context=op_context)
     logger.info("mirror: created %s", mirror_obj.Name)
     if verify:
-        result["verification_images"] = _capture_verification_views(d, op_context=op_context, body=body_obj)
+        result["verification_images"] = _capture_verification_views(
+            d, op_context=op_context, body=body_obj
+        )
     return result
 
 
@@ -1253,7 +1324,13 @@ def linear_pattern(
     ``length``: total span of the pattern in mm.
     ``occurrences``: total number of copies including the original.
     """
-    logger.info("linear_pattern: features=%s axis=%s length=%s occurrences=%s", features, axis, length, occurrences)
+    logger.info(
+        "linear_pattern: features=%s axis=%s length=%s occurrences=%s",
+        features,
+        axis,
+        length,
+        occurrences,
+    )
     d = _get_doc(doc)
     body_obj = _resolve_body(d, body)
 
@@ -1293,11 +1370,18 @@ def linear_pattern(
             raise ValueError(f"Document has no '{fc_axis}' object")
         pattern_obj.Direction = (axis_obj, [""])
 
-    op_context = {"op": "linear_pattern", "axis": axis, "length": length, "occurrences": occurrences}
+    op_context = {
+        "op": "linear_pattern",
+        "axis": axis,
+        "length": length,
+        "occurrences": occurrences,
+    }
     result = _recompute_and_check(d, pattern_obj, body=body_obj, op_context=op_context)
     logger.info("linear_pattern: created %s", pattern_obj.Name)
     if verify:
-        result["verification_images"] = _capture_verification_views(d, op_context=op_context, body=body_obj)
+        result["verification_images"] = _capture_verification_views(
+            d, op_context=op_context, body=body_obj
+        )
     return result
 
 
@@ -1319,7 +1403,13 @@ def thickness(
     ``join_type``: ``"Arc"`` (default), ``"Tangent"``, or ``"Intersection"``.
     ``reversed``: reverse thickness direction (inward vs outward).
     """
-    logger.info("thickness: faces=%s thickness=%s join=%s reversed=%s", faces, thickness_value, join_type, reversed)
+    logger.info(
+        "thickness: faces=%s thickness=%s join=%s reversed=%s",
+        faces,
+        thickness_value,
+        join_type,
+        reversed,
+    )
     d = _get_doc(doc)
     body_obj = _resolve_body(d, body)
 
@@ -1340,7 +1430,9 @@ def thickness(
     result = _recompute_and_check(d, thick_obj, body=body_obj, op_context=op_context)
     logger.info("thickness: created %s", thick_obj.Name)
     if verify:
-        result["verification_images"] = _capture_verification_views(d, op_context=op_context, body=body_obj)
+        result["verification_images"] = _capture_verification_views(
+            d, op_context=op_context, body=body_obj
+        )
     return result
 
 
@@ -1362,7 +1454,13 @@ def draft(
     ``neutral_plane``: the face that defines the stationary plane (e.g. ``"Face1"``).
     ``reversed``: reverse pull direction.
     """
-    logger.info("draft: faces=%s angle=%s neutral_plane=%s reversed=%s", faces, angle, neutral_plane, reversed)
+    logger.info(
+        "draft: faces=%s angle=%s neutral_plane=%s reversed=%s",
+        faces,
+        angle,
+        neutral_plane,
+        reversed,
+    )
     d = _get_doc(doc)
     body_obj = _resolve_body(d, body)
 
@@ -1380,7 +1478,9 @@ def draft(
     result = _recompute_and_check(d, draft_obj, body=body_obj, op_context=op_context)
     logger.info("draft: created %s", draft_obj.Name)
     if verify:
-        result["verification_images"] = _capture_verification_views(d, op_context=op_context, body=body_obj)
+        result["verification_images"] = _capture_verification_views(
+            d, op_context=op_context, body=body_obj
+        )
     return result
 
 
@@ -1396,7 +1496,9 @@ def sweep(
     Creates a ``PartDesign::AdditivePipe`` (or ``SubtractivePipe`` if
     ``subtractive`` is True).
     """
-    logger.info("sweep: profile=%s spine=%s subtractive=%s", profile_sketch, spine_sketch, subtractive)
+    logger.info(
+        "sweep: profile=%s spine=%s subtractive=%s", profile_sketch, spine_sketch, subtractive
+    )
     d = _get_doc(doc)
     sk_profile = _get_sketch(d, profile_sketch)
     sk_spine = _get_sketch(d, spine_sketch)
@@ -1414,7 +1516,9 @@ def sweep(
     result = _recompute_and_check(d, pipe_obj, body=body, op_context=op_context)
     logger.info("sweep: created %s", pipe_obj.Name)
     if verify:
-        result["verification_images"] = _capture_verification_views(d, op_context=op_context, body=body)
+        result["verification_images"] = _capture_verification_views(
+            d, op_context=op_context, body=body
+        )
     return result
 
 
@@ -1442,7 +1546,15 @@ def helix(
     ``angle``: taper angle in degrees (0 = straight helix).
     ``growth``: radial growth per revolution in mm (0 = constant radius).
     """
-    logger.info("helix: sketch=%s mode=%s pitch=%s height=%s turns=%s axis=%s", sketch, mode, pitch, height, turns, axis)
+    logger.info(
+        "helix: sketch=%s mode=%s pitch=%s height=%s turns=%s axis=%s",
+        sketch,
+        mode,
+        pitch,
+        height,
+        turns,
+        axis,
+    )
     d = _get_doc(doc)
     sk = _get_sketch(d, sketch)
 
@@ -1459,7 +1571,9 @@ def helix(
     }
     mode_val = mode_map.get(mode)
     if mode_val is None:
-        raise ValueError(f"Invalid mode '{mode}', must be pitch-height, pitch-turns, or height-turns")
+        raise ValueError(
+            f"Invalid mode '{mode}', must be pitch-height, pitch-turns, or height-turns"
+        )
     helix_obj.Mode = mode_val
 
     if mode == "pitch-height":
@@ -1498,7 +1612,9 @@ def helix(
     result = _recompute_and_check(d, helix_obj, body=body, op_context=op_context)
     logger.info("helix: created %s", helix_obj.Name)
     if verify:
-        result["verification_images"] = _capture_verification_views(d, op_context=op_context, body=body)
+        result["verification_images"] = _capture_verification_views(
+            d, op_context=op_context, body=body
+        )
     return result
 
 
@@ -1518,7 +1634,9 @@ def loft(
     ``sketches``: list of sketch names (at least 2). The first sketch is
     the profile; the rest are cross-sections.
     """
-    logger.info("loft: sketches=%s ruled=%s closed=%s subtractive=%s", sketches, ruled, closed, subtractive)
+    logger.info(
+        "loft: sketches=%s ruled=%s closed=%s subtractive=%s", sketches, ruled, closed, subtractive
+    )
     if len(sketches) < 2:
         raise ValueError("loft requires at least 2 sketches")
 
@@ -1538,7 +1656,9 @@ def loft(
     result = _recompute_and_check(d, loft_obj, body=body, op_context=op_context)
     logger.info("loft: created %s", loft_obj.Name)
     if verify:
-        result["verification_images"] = _capture_verification_views(d, op_context=op_context, body=body)
+        result["verification_images"] = _capture_verification_views(
+            d, op_context=op_context, body=body
+        )
     return result
 
 
@@ -1581,13 +1701,16 @@ def chamfer(
     result = _recompute_and_check(d, chamfer_obj, body=body_obj, op_context=op_context)
     logger.info("chamfer: created %s", chamfer_obj.Name)
     if verify:
-        result["verification_images"] = _capture_verification_views(d, op_context=op_context, body=body_obj)
+        result["verification_images"] = _capture_verification_views(
+            d, op_context=op_context, body=body_obj
+        )
     return result
 
 
 # ---------------------------------------------------------------------------
 # Query & Feedback
 # ---------------------------------------------------------------------------
+
 
 def get_selection() -> dict[str, Any]:
     """Return the current selection in the FreeCAD GUI."""
@@ -1655,9 +1778,15 @@ def get_dimensions(object_name: str, doc: str | None = None) -> dict[str, Any]:
     result: dict[str, Any] = {
         "object": object_name,
         "bounding_box": {
-            "x_min": bb.XMin, "y_min": bb.YMin, "z_min": bb.ZMin,
-            "x_max": bb.XMax, "y_max": bb.YMax, "z_max": bb.ZMax,
-            "x_len": bb.XLength, "y_len": bb.YLength, "z_len": bb.ZLength,
+            "x_min": bb.XMin,
+            "y_min": bb.YMin,
+            "z_min": bb.ZMin,
+            "x_max": bb.XMax,
+            "y_max": bb.YMax,
+            "z_max": bb.ZMax,
+            "x_len": bb.XLength,
+            "y_len": bb.YLength,
+            "z_len": bb.ZLength,
         },
         "num_faces": len(shape.Faces),
         "num_edges": len(shape.Edges),
@@ -1716,7 +1845,9 @@ def get_body_topology(
             face_info["center"] = _vec_to_list(face.CenterOfMass)
         bb = face.BoundBox
         face_info["bounds"] = {
-            "x_len": bb.XLength, "y_len": bb.YLength, "z_len": bb.ZLength,
+            "x_len": bb.XLength,
+            "y_len": bb.YLength,
+            "z_len": bb.ZLength,
         }
         faces.append(face_info)
 
@@ -1808,8 +1939,16 @@ def resolve_selection(
         fe_kwargs["body"] = body
     if doc is not None:
         fe_kwargs["doc"] = doc
-    for key in ("axis", "curve_type", "min_length", "max_length", "on_face",
-                "near_point", "near_distance", "convexity"):
+    for key in (
+        "axis",
+        "curve_type",
+        "min_length",
+        "max_length",
+        "on_face",
+        "near_point",
+        "near_distance",
+        "convexity",
+    ):
         if key in query:
             fe_kwargs[key] = query[key]
 
@@ -1826,11 +1965,15 @@ def resolve_selection(
     if "min_length" in invariants:
         for edge in matched_edges:
             if edge["length"] < invariants["min_length"]:
-                violations.append(f"edge {edge['name']} length {edge['length']} < min_length {invariants['min_length']}")
+                violations.append(
+                    f"edge {edge['name']} length {edge['length']} < min_length {invariants['min_length']}"
+                )
     if "max_length" in invariants:
         for edge in matched_edges:
             if edge["length"] > invariants["max_length"]:
-                violations.append(f"edge {edge['name']} length {edge['length']} > max_length {invariants['max_length']}")
+                violations.append(
+                    f"edge {edge['name']} length {edge['length']} > max_length {invariants['max_length']}"
+                )
 
     return {
         "name": name,
@@ -1845,11 +1988,13 @@ def list_selections() -> dict[str, Any]:
     """List all defined selection sets."""
     sets: list[dict[str, Any]] = []
     for name, entry in _selection_sets.items():
-        sets.append({
-            "name": name,
-            "query": entry["query"],
-            "invariants": entry["invariants"],
-        })
+        sets.append(
+            {
+                "name": name,
+                "query": entry["query"],
+                "invariants": entry["invariants"],
+            }
+        )
     return {"selection_sets": sets, "count": len(sets)}
 
 
@@ -2064,6 +2209,7 @@ def find_edges(
 # Screenshot & Camera
 # ---------------------------------------------------------------------------
 
+
 def _sb_vec3f(x: float, y: float, z: float) -> Any:
     """Create an SbVec3f, coercing all args to Python float.
 
@@ -2074,6 +2220,7 @@ def _sb_vec3f(x: float, y: float, z: float) -> Any:
     3. Default + setValue  (last resort)
     """
     from pivy.coin import SbVec3f  # type: ignore[import-untyped]
+
     fx, fy, fz = float(x), float(y), float(z)
     try:
         return SbVec3f([fx, fy, fz])
@@ -2152,7 +2299,9 @@ def _capture_image(
         center[1] + dy * cam_dist,
         center[2] + dz * cam_dist,
     )
-    logger.debug("capture_image: direction=%s target=%s distance_mult=%s", direction, center, distance_mult)
+    logger.debug(
+        "capture_image: direction=%s target=%s distance_mult=%s", direction, center, distance_mult
+    )
     logger.debug("capture_image: cam_pos=%s", cam_pos)
 
     # Set camera via Coin3D
@@ -2454,6 +2603,7 @@ def get_camera(doc: str | None = None) -> dict[str, Any]:
 # Export
 # ---------------------------------------------------------------------------
 
+
 def export(
     doc: str | None = None,
     format: str = "step",
@@ -2521,10 +2671,7 @@ def export_sim_package(
                 raise ValueError(f"Body '{name}' not found in document '{d.Name}'")
             body_objs.append(obj)
     else:
-        body_objs = [
-            obj for obj in d.Objects
-            if obj.TypeId == "PartDesign::Body"
-        ]
+        body_objs = [obj for obj in d.Objects if obj.TypeId == "PartDesign::Body"]
 
     if not body_objs:
         raise ValueError("No PartDesign::Body objects found in document")
@@ -2549,6 +2696,7 @@ def export_sim_package(
             shape.exportStl(mesh_path)
         elif fmt == "obj":
             import Mesh  # type: ignore[import-untyped]
+
             Mesh.export([body_obj], mesh_path)
         else:
             raise ValueError(f"Unsupported format: {format}")
@@ -2564,18 +2712,20 @@ def export_sim_package(
         bbox_min_mm = [bb.XMin, bb.YMin, bb.ZMin]
         volume_mm3 = shape.Volume
 
-        manifest.append({
-            "name": body_obj.Name,
-            "label": body_obj.Label,
-            "mesh_path": mesh_path,
-            "placement": {
-                "position": [pos.x, pos.y, pos.z],
-                "rotation_quat": [quat[3], quat[0], quat[1], quat[2]],  # w,x,y,z
-            },
-            "bbox_mm": bbox_mm,
-            "bbox_min_mm": bbox_min_mm,
-            "volume_mm3": volume_mm3,
-        })
+        manifest.append(
+            {
+                "name": body_obj.Name,
+                "label": body_obj.Label,
+                "mesh_path": mesh_path,
+                "placement": {
+                    "position": [pos.x, pos.y, pos.z],
+                    "rotation_quat": [quat[3], quat[0], quat[1], quat[2]],  # w,x,y,z
+                },
+                "bbox_mm": bbox_mm,
+                "bbox_min_mm": bbox_min_mm,
+                "volume_mm3": volume_mm3,
+            }
+        )
 
     return {
         "output_dir": output_dir,
@@ -2629,6 +2779,7 @@ def export_body(
             shape.exportStl(path)
         elif fmt == "obj":
             import Mesh  # type: ignore[import-untyped]
+
             Mesh.export([body_obj], path)
         else:
             raise ValueError(f"Unsupported format: {format}")
@@ -2735,6 +2886,7 @@ def assembly_create(
     Uses the Assembly workbench (FreeCAD 1.0+).
     """
     from freecad_addon.compat import require_v1_plus
+
     require_v1_plus("Assembly creation")
 
     d = _get_doc(doc)
@@ -2761,6 +2913,7 @@ def assembly_add_part(
     placement: [x, y, z, roll_deg, pitch_deg, yaw_deg] — position + Euler angles.
     """
     from freecad_addon.compat import require_v1_plus
+
     require_v1_plus("Assembly add_part")
 
     d = _get_doc(doc)
@@ -2782,8 +2935,7 @@ def assembly_add_part(
                 "the bodies."
             )
         raise ValueError(
-            f"Body '{body}' not found in doc '{d.Name}'. "
-            f"Available bodies: {available_bodies}"
+            f"Body '{body}' not found in doc '{d.Name}'. Available bodies: {available_bodies}"
         )
 
     # Link the body into the assembly
@@ -2851,9 +3003,7 @@ def _resolve_joint_element(
 
     def _dist_to_origin(pt: Any) -> float:
         """Euclidean distance from pt to org."""
-        return math.sqrt(
-            (pt.x - org[0]) ** 2 + (pt.y - org[1]) ** 2 + (pt.z - org[2]) ** 2
-        )
+        return math.sqrt((pt.x - org[0]) ** 2 + (pt.y - org[1]) ** 2 + (pt.z - org[2]) ** 2)
 
     # --- Pass 1: cylindrical faces aligned with axis ---
     cyl_candidates: list[tuple[float, str]] = []
@@ -2915,6 +3065,7 @@ def assembly_add_joint(
     params: extra joint parameters (ratio for gear, etc.).
     """
     from freecad_addon.compat import get_assembly_modules, require_v1_plus
+
     require_v1_plus("Assembly joints")
     JointObject, UtilsAssembly = get_assembly_modules()
 
@@ -2927,21 +3078,29 @@ def assembly_add_joint(
     type_index = _JOINT_TYPE_INDEX.get(joint_type)
     if type_index is None:
         raise ValueError(
-            f"Unknown joint type '{joint_type}'. "
-            f"Valid types: {', '.join(_JOINT_TYPE_INDEX)}"
+            f"Unknown joint type '{joint_type}'. Valid types: {', '.join(_JOINT_TYPE_INDEX)}"
         )
 
     joint_name = params.pop("name", f"Joint_{joint_type}")
 
     from freecad_addon.compat import find_object
+
     link_a = find_object(d, part_a)
     link_b = find_object(d, part_b)
     if link_a is None:
-        available_links = [o.Name for o in d.Objects if "Link" in o.TypeId or "link" in o.Name.lower()]
-        raise ValueError(f"Part '{part_a}' not found in assembly. Available links: {available_links}")
+        available_links = [
+            o.Name for o in d.Objects if "Link" in o.TypeId or "link" in o.Name.lower()
+        ]
+        raise ValueError(
+            f"Part '{part_a}' not found in assembly. Available links: {available_links}"
+        )
     if link_b is None:
-        available_links = [o.Name for o in d.Objects if "Link" in o.TypeId or "link" in o.Name.lower()]
-        raise ValueError(f"Part '{part_b}' not found in assembly. Available links: {available_links}")
+        available_links = [
+            o.Name for o in d.Objects if "Link" in o.TypeId or "link" in o.Name.lower()
+        ]
+        raise ValueError(
+            f"Part '{part_b}' not found in assembly. Available links: {available_links}"
+        )
 
     # Auto-resolve element references when set to "auto"
     joint_origin = params.pop("joint_origin", None)
@@ -2994,6 +3153,7 @@ def assembly_solve(
 ) -> dict[str, Any]:
     """Solve the assembly constraints (run the Ondsel constraint solver)."""
     from freecad_addon.compat import require_v1_plus
+
     require_v1_plus("Assembly solve")
 
     d = _get_doc(doc)
@@ -3037,6 +3197,7 @@ def assembly_drive_joint(
     For prismatic joints, value is the total translation in mm.
     """
     from freecad_addon.compat import find_joint_in_assembly, require_v1_plus
+
     require_v1_plus("Assembly drive_joint")
 
     d = _get_doc(doc)
@@ -3085,11 +3246,13 @@ def assembly_drive_joint(
                 p = obj.Placement
                 placements[obj.Name] = [p.Base.x, p.Base.y, p.Base.z]
 
-        step_positions.append({
-            "step": i,
-            "value": current_value,
-            "placements": placements,
-        })
+        step_positions.append(
+            {
+                "step": i,
+                "value": current_value,
+                "placements": placements,
+            }
+        )
 
         # Capture screenshot at each step
         if FreeCADGui is not None:
@@ -3121,6 +3284,7 @@ def assembly_check_interference(
     Uses BRepAlgoAPI_Common (Part.Shape.common) to detect overlapping volumes.
     """
     from freecad_addon.compat import require_v1_plus
+
     require_v1_plus("Assembly check_interference")
 
     d = _get_doc(doc)
@@ -3150,11 +3314,13 @@ def assembly_check_interference(
             try:
                 common = shape_a.common(shape_b)
                 if common is not None and not common.isNull() and common.Volume > 1e-6:
-                    collisions.append({
-                        "part_a": name_a,
-                        "part_b": name_b,
-                        "overlap_mm3": round(common.Volume, 4),
-                    })
+                    collisions.append(
+                        {
+                            "part_a": name_a,
+                            "part_b": name_b,
+                            "overlap_mm3": round(common.Volume, 4),
+                        }
+                    )
             except Exception:
                 # common() can fail for certain shape combinations
                 pass
@@ -3414,6 +3580,7 @@ def assembly_get_placements(
 ) -> dict[str, Any]:
     """Get current placements of all parts in an assembly."""
     from freecad_addon.compat import require_v1_plus
+
     require_v1_plus("Assembly get_placements")
 
     d = _get_doc(doc)
@@ -3442,9 +3609,11 @@ def assembly_get_placements(
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _process_qt_events() -> None:
     """Flush pending Qt events so viewport redraws complete."""
     from freecad_addon.qt_compat import QApplication
+
     QApplication.processEvents()
 
 
@@ -3545,7 +3714,8 @@ def _compute_digest(shape: Any) -> dict[str, Any]:
 
 
 def _compute_delta(
-    prev: dict[str, Any] | None, curr: dict[str, Any],
+    prev: dict[str, Any] | None,
+    curr: dict[str, Any],
 ) -> dict[str, Any] | None:
     """Compute numeric delta between two digests."""
     if prev is None:
@@ -3689,7 +3859,12 @@ def _recompute_and_check(
         diagnostics = _gather_failure_diagnostics(obj)
         logger.error(
             "Feature %s (%s) failed recompute: valid=%s state=%s null_shape=%s. Diagnostics: %s",
-            obj.Name, obj.TypeId, is_valid, state, shape_is_null, diagnostics,
+            obj.Name,
+            obj.TypeId,
+            is_valid,
+            state,
+            shape_is_null,
+            diagnostics,
         )
         obj_name = obj.Name
         doc.removeObject(obj_name)
@@ -3744,11 +3919,13 @@ def _recompute_and_check(
                         drift_entry["actual_count"] = sel_result["num_matched"]
                 drift_results.append(drift_entry)
             except Exception:
-                drift_results.append({
-                    "name": sel_name,
-                    "status": "ERROR",
-                    "count": 0,
-                })
+                drift_results.append(
+                    {
+                        "name": sel_name,
+                        "status": "ERROR",
+                        "count": 0,
+                    }
+                )
         result["selection_drift"] = drift_results
 
     return result
@@ -3760,7 +3937,9 @@ def _feature_result(obj: Any) -> dict[str, Any]:
     if hasattr(obj, "Shape") and obj.Shape is not None and not obj.Shape.isNull():
         bb = obj.Shape.BoundBox
         result["bounding_box"] = {
-            "x_len": bb.XLength, "y_len": bb.YLength, "z_len": bb.ZLength,
+            "x_len": bb.XLength,
+            "y_len": bb.YLength,
+            "z_len": bb.ZLength,
         }
         try:
             result["volume"] = obj.Shape.Volume
@@ -3997,9 +4176,11 @@ def set_visibility(
 # Command registry — maps cmd strings to handler functions
 # ---------------------------------------------------------------------------
 
+
 def freecad_info() -> dict[str, Any]:
     """Return FreeCAD runtime environment information for diagnostics."""
     from freecad_addon.compat import freecad_info as _freecad_info
+
     return _freecad_info()
 
 
@@ -4093,9 +4274,7 @@ def cleanup_orphans(
         "PartDesign::Thickness",
     )
     orphans: list[str] = [
-        obj.Name
-        for obj in d.Objects
-        if obj.Name not in live and obj.TypeId in orphan_kinds
+        obj.Name for obj in d.Objects if obj.Name not in live and obj.TypeId in orphan_kinds
     ]
 
     deleted = 0
@@ -4104,9 +4283,9 @@ def cleanup_orphans(
         # depend on sketches via Profile, so removing the pad first
         # avoids dependency errors on the sketch removal.
         feature_orphans = [
-            n for n in orphans
-            if d.getObject(n) is not None
-            and d.getObject(n).TypeId != "Sketcher::SketchObject"
+            n
+            for n in orphans
+            if d.getObject(n) is not None and d.getObject(n).TypeId != "Sketcher::SketchObject"
         ]
         sketch_orphans = [n for n in orphans if n not in feature_orphans]
         for name in feature_orphans + sketch_orphans:
@@ -4188,9 +4367,7 @@ def _check_placement_against_plan(
     exp_pos = plan_entry.get("position")
     if exp_pos is not None and len(exp_pos) >= 3:
         actual_pos = [p.Base.x, p.Base.y, p.Base.z]
-        drift = math.sqrt(sum(
-            (a - e) ** 2 for a, e in zip(actual_pos, exp_pos, strict=False)
-        ))
+        drift = math.sqrt(sum((a - e) ** 2 for a, e in zip(actual_pos, exp_pos, strict=False)))
         tol = plan_entry.get("tolerance_mm", _placement_plan_default_tolerance_mm)
         plan_check["drift_mm"] = round(drift, 3)
         plan_check["position_status"] = "OK" if drift <= tol else "DRIFT"
@@ -4227,9 +4404,7 @@ def _check_placement_against_plan(
                 max_mismatch = max(mismatches)
                 plan_check["actual_size"] = [round(s, 2) for s in actual_size]
                 plan_check["expected_size"] = [round(s, 2) for s in expected_sorted]
-                plan_check["size_status"] = (
-                    "OK" if max_mismatch <= size_tol else "SIZE_MISMATCH"
-                )
+                plan_check["size_status"] = "OK" if max_mismatch <= size_tol else "SIZE_MISMATCH"
         except Exception:
             pass
 
@@ -4260,9 +4435,7 @@ def set_placement(
     obj = d.getObject(object_name)
     if obj is None:
         available = [o.Name for o in d.Objects]
-        raise ValueError(
-            f"Object '{object_name}' not found. Available: {available[:20]}"
-        )
+        raise ValueError(f"Object '{object_name}' not found. Available: {available[:20]}")
 
     if rotation_axis is None:
         rotation_axis = [0.0, 0.0, 1.0]
@@ -4321,11 +4494,15 @@ def _build_primitive(
     if shape == "box":
         missing = _BOX_KEYS - dimensions.keys()
         if missing:
-            raise ValueError(f"Box requires dimensions: {sorted(_BOX_KEYS)}. Missing: {sorted(missing)}")
+            raise ValueError(
+                f"Box requires dimensions: {sorted(_BOX_KEYS)}. Missing: {sorted(missing)}"
+            )
     else:
         missing = _CYLINDER_KEYS - dimensions.keys()
         if missing:
-            raise ValueError(f"Cylinder requires dimensions: {sorted(_CYLINDER_KEYS)}. Missing: {sorted(missing)}")
+            raise ValueError(
+                f"Cylinder requires dimensions: {sorted(_CYLINDER_KEYS)}. Missing: {sorted(missing)}"
+            )
 
     for key, val in dimensions.items():
         if not isinstance(val, (int, float)) or val <= 0:
@@ -4407,7 +4584,9 @@ def create_primitive(
 
     if verify:
         op_context = {"op": "create_primitive", "shape": shape, "name": name}
-        result["verification_images"] = _capture_verification_views(d, op_context=op_context, body=body)
+        result["verification_images"] = _capture_verification_views(
+            d, op_context=op_context, body=body
+        )
 
     logger.info("create_primitive: created %s", body.Name)
     return result
@@ -4450,15 +4629,17 @@ def create_primitives(
 
             p = body.Placement
             bb = body.Shape.BoundBox
-            created.append({
-                "body": body.Name,
-                "pad": pad_obj.Name,
-                "sketch": sketch.Name,
-                "position": [p.Base.x, p.Base.y, p.Base.z],
-                "rotation_angle_deg": round(math.degrees(p.Rotation.Angle), 6),
-                "rotation_axis": list(p.Rotation.Axis),
-                "bbox_mm": [round(bb.XLength, 3), round(bb.YLength, 3), round(bb.ZLength, 3)],
-            })
+            created.append(
+                {
+                    "body": body.Name,
+                    "pad": pad_obj.Name,
+                    "sketch": sketch.Name,
+                    "position": [p.Base.x, p.Base.y, p.Base.z],
+                    "rotation_angle_deg": round(math.degrees(p.Rotation.Angle), 6),
+                    "rotation_axis": list(p.Rotation.Axis),
+                    "bbox_mm": [round(bb.XLength, 3), round(bb.YLength, 3), round(bb.ZLength, 3)],
+                }
+            )
         except Exception as exc:
             logger.warning("create_primitives: item %d (%s) failed: %s", idx, item_name, exc)
             failed.append({"index": idx, "name": item_name, "error": str(exc)})
@@ -4504,6 +4685,7 @@ def check_joint_connectivity(
         origin = jt["origin"]
 
         import FreeCAD  # type: ignore[import-untyped]
+
         point_vec = FreeCAD.Vector(origin[0], origin[1], origin[2])
         # Part.Point creates a TopoDS_Vertex shape suitable for distToShape
         point_shape = FreeCADPart.Point(point_vec).toShape()
@@ -4618,6 +4800,7 @@ def measure_between(
 # Hole detection
 # ---------------------------------------------------------------------------
 
+
 def find_holes(
     body: str | None = None,
     doc: str | None = None,
@@ -4701,15 +4884,17 @@ def find_holes(
         else:
             mid_point = [center.x, center.y, center.z]
 
-        holes.append({
-            "face": f"Face{i + 1}",
-            "diameter_mm": round(diameter, 4),
-            "radius_mm": round(radius, 4),
-            "depth_mm": round(depth, 4),
-            "axis": [round(axis.x, 6), round(axis.y, 6), round(axis.z, 6)],
-            "center": [round(center.x, 4), round(center.y, 4), round(center.z, 4)],
-            "midpoint": [round(v, 4) for v in mid_point],
-        })
+        holes.append(
+            {
+                "face": f"Face{i + 1}",
+                "diameter_mm": round(diameter, 4),
+                "radius_mm": round(radius, 4),
+                "depth_mm": round(depth, 4),
+                "axis": [round(axis.x, 6), round(axis.y, 6), round(axis.z, 6)],
+                "center": [round(center.x, 4), round(center.y, 4), round(center.z, 4)],
+                "midpoint": [round(v, 4) for v in mid_point],
+            }
+        )
 
     return {
         "body": resolved_name,
@@ -4721,6 +4906,7 @@ def find_holes(
 # ---------------------------------------------------------------------------
 # Batch clearance check
 # ---------------------------------------------------------------------------
+
 
 def check_clearance(
     bodies: list[str] | None = None,
@@ -4743,10 +4929,7 @@ def check_clearance(
                 raise ValueError(f"Body '{name}' not found")
             body_objs.append(obj)
     else:
-        body_objs = [
-            obj for obj in d.Objects
-            if obj.TypeId == "PartDesign::Body"
-        ]
+        body_objs = [obj for obj in d.Objects if obj.TypeId == "PartDesign::Body"]
 
     # Filter to bodies that have a tip with a shape
     valid: list[tuple[str, Any]] = []
@@ -4771,15 +4954,17 @@ def check_clearance(
                 dts_result = shape_a.distToShape(shape_b)
             except Exception:
                 # distToShape can fail on complex/intersecting geometry
-                violations.append({
-                    "body_a": name_a,
-                    "body_b": name_b,
-                    "distance_mm": 0.0,
-                    "intersecting": True,
-                    "point_a": [],
-                    "point_b": [],
-                    "error": "distToShape failed (likely intersecting)",
-                })
+                violations.append(
+                    {
+                        "body_a": name_a,
+                        "body_b": name_b,
+                        "distance_mm": 0.0,
+                        "intersecting": True,
+                        "point_a": [],
+                        "point_b": [],
+                        "error": "distToShape failed (likely intersecting)",
+                    }
+                )
                 continue
             dist = dts_result[0]
             solutions = dts_result[1] if len(dts_result) > 1 else []
@@ -4788,14 +4973,16 @@ def check_clearance(
             if dist < threshold_mm:
                 pt_a = list(solutions[0][0]) if solutions else []
                 pt_b = list(solutions[0][1]) if solutions else []
-                violations.append({
-                    "body_a": name_a,
-                    "body_b": name_b,
-                    "distance_mm": round(dist, 4),
-                    "intersecting": intersecting,
-                    "point_a": [round(v, 4) for v in pt_a],
-                    "point_b": [round(v, 4) for v in pt_b],
-                })
+                violations.append(
+                    {
+                        "body_a": name_a,
+                        "body_b": name_b,
+                        "distance_mm": round(dist, 4),
+                        "intersecting": intersecting,
+                        "point_a": [round(v, 4) for v in pt_a],
+                        "point_b": [round(v, 4) for v in pt_b],
+                    }
+                )
 
     return {
         "pairs_checked": pairs_checked,
@@ -4847,8 +5034,7 @@ def check_swept_clearance(
             other_objs.append(obj)
     else:
         other_objs = [
-            obj for obj in d.Objects
-            if obj.TypeId == "PartDesign::Body" and obj.Name != body
+            obj for obj in d.Objects if obj.TypeId == "PartDesign::Body" and obj.Name != body
         ]
 
     other_shapes: list[tuple[str, Any]] = []
@@ -5010,31 +5196,34 @@ def assembly_audit(
     for _cid, indices in clusters.items():
         names = [body_data[idx]["label"] for idx in indices]
         pos = body_data[indices[0]]["position"]
-        anomalies.append({
-            "type": "CLUSTER",
-            "message": f"{len(names)} bodies at ~{pos}: {', '.join(names)}",
-            "bodies": names,
-            "position": pos,
-        })
+        anomalies.append(
+            {
+                "type": "CLUSTER",
+                "message": f"{len(names)} bodies at ~{pos}: {', '.join(names)}",
+                "bodies": names,
+                "position": pos,
+            }
+        )
 
     # ISOLATED detection: body farther than isolation_radius_mm from all others
     for i in range(n):
         if n <= 1:
             break
         min_d = min(
-            _dist(body_data[i]["position"], body_data[j]["position"])
-            for j in range(n) if j != i
+            _dist(body_data[i]["position"], body_data[j]["position"]) for j in range(n) if j != i
         )
         if min_d > isolation_radius_mm:
-            anomalies.append({
-                "type": "ISOLATED",
-                "message": (
-                    f"{body_data[i]['label']} at {body_data[i]['position']} "
-                    f"is {round(min_d, 1)}mm from nearest neighbor"
-                ),
-                "body": body_data[i]["label"],
-                "nearest_distance_mm": round(min_d, 1),
-            })
+            anomalies.append(
+                {
+                    "type": "ISOLATED",
+                    "message": (
+                        f"{body_data[i]['label']} at {body_data[i]['position']} "
+                        f"is {round(min_d, 1)}mm from nearest neighbor"
+                    ),
+                    "body": body_data[i]["label"],
+                    "nearest_distance_mm": round(min_d, 1),
+                }
+            )
 
     # OVERLAP detection: bounding box overlap > overlap_fraction
     for i in range(n):
@@ -5045,16 +5234,18 @@ def assembly_audit(
                 continue
             frac = _bbox_overlap(body_data[i]["world_bbox"], body_data[j]["world_bbox"])
             if frac > overlap_fraction:
-                anomalies.append({
-                    "type": "OVERLAP",
-                    "message": (
-                        f"{body_data[i]['label']} and {body_data[j]['label']} "
-                        f"overlap {round(frac * 100, 1)}%"
-                    ),
-                    "body_a": body_data[i]["label"],
-                    "body_b": body_data[j]["label"],
-                    "overlap_pct": round(frac * 100, 1),
-                })
+                anomalies.append(
+                    {
+                        "type": "OVERLAP",
+                        "message": (
+                            f"{body_data[i]['label']} and {body_data[j]['label']} "
+                            f"overlap {round(frac * 100, 1)}%"
+                        ),
+                        "body_a": body_data[i]["label"],
+                        "body_b": body_data[j]["label"],
+                        "overlap_pct": round(frac * 100, 1),
+                    }
+                )
 
     # Auto-use registered placement plan for DRIFT detection
     if expected_positions is None and _placement_plan:
@@ -5072,17 +5263,19 @@ def assembly_audit(
                 continue
             drift = _dist(bd["position"], exp)
             if drift > 5.0:
-                anomalies.append({
-                    "type": "DRIFT",
-                    "message": (
-                        f"{bd['label']} at {bd['position']} vs expected "
-                        f"{exp} — drift {round(drift, 1)}mm"
-                    ),
-                    "body": bd["label"],
-                    "actual": bd["position"],
-                    "expected": exp,
-                    "drift_mm": round(drift, 1),
-                })
+                anomalies.append(
+                    {
+                        "type": "DRIFT",
+                        "message": (
+                            f"{bd['label']} at {bd['position']} vs expected "
+                            f"{exp} — drift {round(drift, 1)}mm"
+                        ),
+                        "body": bd["label"],
+                        "actual": bd["position"],
+                        "expected": exp,
+                        "drift_mm": round(drift, 1),
+                    }
+                )
 
     return {
         "body_count": n,

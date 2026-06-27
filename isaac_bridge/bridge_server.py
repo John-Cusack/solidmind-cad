@@ -1,4 +1,5 @@
 """TCP bridge server for Isaac simulation/teleop commands."""
+
 from __future__ import annotations
 
 import argparse
@@ -40,7 +41,9 @@ def _probe_port(host: str, port: int) -> socket.socket:
         srv.close()
         logger.critical(
             "Cannot bind %s:%d — %s.  Is another bridge already running?",
-            host, port, exc,
+            host,
+            port,
+            exc,
         )
         sys.exit(1)
     srv.listen(8)
@@ -175,6 +178,7 @@ class BridgeServer:
             return error_response(exc.code, exc.message)
 
         import time as _time
+
         logger.info("=> %s (thread=%s)", cmd, threading.current_thread().name)
         t0 = _time.monotonic()
         try:
@@ -276,7 +280,9 @@ class BridgeServer:
             # After a hot-reload, IsaacRuntimeError from the reloaded module
             # won't match the old class reference.  Duck-type check.
             if hasattr(exc, "code") and hasattr(exc, "message") and hasattr(exc, "details"):
-                logger.info("<= %s ERROR %s (%.3fs, post-reload)", cmd, exc.code, _time.monotonic() - t0)
+                logger.info(
+                    "<= %s ERROR %s (%.3fs, post-reload)", cmd, exc.code, _time.monotonic() - t0
+                )
                 return error_response(exc.code, exc.message, details=exc.details)
             logger.exception("Unhandled error while processing '%s'", cmd)
             logger.info("<= %s ERROR INTERNAL (%.3fs)", cmd, _time.monotonic() - t0)
@@ -353,6 +359,7 @@ def _pump_main_thread(server: BridgeServer) -> None:
     app = None
     try:
         import omni.kit.app  # type: ignore[import-not-found]
+
         app = omni.kit.app.get_app()
     except Exception:
         logger.info("omni.kit.app not available — dispatcher-only pump mode")
@@ -364,7 +371,7 @@ def _pump_main_thread(server: BridgeServer) -> None:
     server._runtime.load_environment_direct()
 
     _DT_MIN = 0.0001  # 0.1 ms — guard against zero/negative dt
-    _DT_MAX = 0.1     # 100 ms — guard against long stalls
+    _DT_MAX = 0.1  # 100 ms — guard against long stalls
     last_t = _t.monotonic()
 
     while not server._stop_event.is_set():

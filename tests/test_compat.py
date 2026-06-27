@@ -2,6 +2,7 @@
 
 All tests mock FreeCAD modules since the test environment doesn't have FreeCAD.
 """
+
 from __future__ import annotations
 
 import sys
@@ -22,9 +23,11 @@ class TestVersionDetection(unittest.TestCase):
         with patch.dict(sys.modules, {"FreeCAD": mock_fc}):
             # Re-import to trigger version detection
             import importlib
+
             if "freecad_addon.compat" in sys.modules:
                 del sys.modules["freecad_addon.compat"]
             import freecad_addon.compat as compat
+
             importlib.reload(compat)
             self.assertEqual(compat.VERSION_TUPLE, (1, 0))
             self.assertTrue(compat.IS_V1_PLUS)
@@ -34,9 +37,11 @@ class TestVersionDetection(unittest.TestCase):
         mock_fc = _setup_mock_freecad((1, 1))
         with patch.dict(sys.modules, {"FreeCAD": mock_fc}):
             import importlib
+
             if "freecad_addon.compat" in sys.modules:
                 del sys.modules["freecad_addon.compat"]
             import freecad_addon.compat as compat
+
             importlib.reload(compat)
             self.assertEqual(compat.VERSION_TUPLE, (1, 1))
             self.assertTrue(compat.IS_V1_PLUS)
@@ -46,9 +51,11 @@ class TestVersionDetection(unittest.TestCase):
         mock_fc = _setup_mock_freecad((0, 21))
         with patch.dict(sys.modules, {"FreeCAD": mock_fc}):
             import importlib
+
             if "freecad_addon.compat" in sys.modules:
                 del sys.modules["freecad_addon.compat"]
             import freecad_addon.compat as compat
+
             importlib.reload(compat)
             self.assertEqual(compat.VERSION_TUPLE, (0, 21))
             self.assertFalse(compat.IS_V1_PLUS)
@@ -61,9 +68,11 @@ class TestSetSketchSupport(unittest.TestCase):
         self._patcher = patch.dict(sys.modules, {"FreeCAD": mock_fc})
         self._patcher.start()
         import importlib
+
         if "freecad_addon.compat" in sys.modules:
             del sys.modules["freecad_addon.compat"]
         import freecad_addon.compat as compat
+
         importlib.reload(compat)
         self.compat = compat
 
@@ -94,9 +103,11 @@ class TestFindObject(unittest.TestCase):
         self._patcher = patch.dict(sys.modules, {"FreeCAD": mock_fc})
         self._patcher.start()
         import importlib
+
         if "freecad_addon.compat" in sys.modules:
             del sys.modules["freecad_addon.compat"]
         import freecad_addon.compat as compat
+
         importlib.reload(compat)
         self.compat = compat
 
@@ -153,9 +164,11 @@ class TestFindJointInAssembly(unittest.TestCase):
         self._patcher = patch.dict(sys.modules, {"FreeCAD": mock_fc})
         self._patcher.start()
         import importlib
+
         if "freecad_addon.compat" in sys.modules:
             del sys.modules["freecad_addon.compat"]
         import freecad_addon.compat as compat
+
         importlib.reload(compat)
         self.compat = compat
 
@@ -229,9 +242,11 @@ class TestSetPropertySafe(unittest.TestCase):
         self._patcher = patch.dict(sys.modules, {"FreeCAD": mock_fc})
         self._patcher.start()
         import importlib
+
         if "freecad_addon.compat" in sys.modules:
             del sys.modules["freecad_addon.compat"]
         import freecad_addon.compat as compat
+
         importlib.reload(compat)
         self.compat = compat
 
@@ -262,9 +277,11 @@ class TestListObjectsLike(unittest.TestCase):
         self._patcher = patch.dict(sys.modules, {"FreeCAD": mock_fc})
         self._patcher.start()
         import importlib
+
         if "freecad_addon.compat" in sys.modules:
             del sys.modules["freecad_addon.compat"]
         import freecad_addon.compat as compat
+
         importlib.reload(compat)
         self.compat = compat
 
@@ -293,9 +310,11 @@ class TestRequireV1Plus(unittest.TestCase):
         mock_fc = _setup_mock_freecad((0, 21))
         with patch.dict(sys.modules, {"FreeCAD": mock_fc}):
             import importlib
+
             if "freecad_addon.compat" in sys.modules:
                 del sys.modules["freecad_addon.compat"]
             import freecad_addon.compat as compat
+
             importlib.reload(compat)
             with self.assertRaises(RuntimeError) as ctx:
                 compat.require_v1_plus()
@@ -306,9 +325,11 @@ class TestRequireV1Plus(unittest.TestCase):
         mock_fc = _setup_mock_freecad((1, 0))
         with patch.dict(sys.modules, {"FreeCAD": mock_fc}):
             import importlib
+
             if "freecad_addon.compat" in sys.modules:
                 del sys.modules["freecad_addon.compat"]
             import freecad_addon.compat as compat
+
             importlib.reload(compat)
             # Should not raise
             compat.require_v1_plus()
@@ -319,9 +340,11 @@ class TestFreecadInfo(unittest.TestCase):
         mock_fc = _setup_mock_freecad((1, 0))
         with patch.dict(sys.modules, {"FreeCAD": mock_fc}):
             import importlib
+
             if "freecad_addon.compat" in sys.modules:
                 del sys.modules["freecad_addon.compat"]
             import freecad_addon.compat as compat
+
             importlib.reload(compat)
             info = compat.freecad_info()
             self.assertEqual(info["version"], [1, 0])

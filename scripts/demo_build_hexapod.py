@@ -18,6 +18,7 @@ Usage::
     # Export sim package after building
     python3 scripts/demo_build_hexapod.py --export
 """
+
 from __future__ import annotations
 
 import argparse
@@ -32,33 +33,33 @@ PORT = 9876
 
 # ── Geometry constants ───────────────────────────────────────────────
 
-CHASSIS_RADIUS = 75.0      # mm
-CHASSIS_THICKNESS = 5.0    # mm
-SERVO_POCKET_W = 24.0      # mm (along radial)
-SERVO_POCKET_H = 22.0      # mm (along tangential)
-SERVO_POCKET_DEPTH = 3.0   # mm
-FILLET_RADIUS = 1.5        # mm
+CHASSIS_RADIUS = 75.0  # mm
+CHASSIS_THICKNESS = 5.0  # mm
+SERVO_POCKET_W = 24.0  # mm (along radial)
+SERVO_POCKET_H = 22.0  # mm (along tangential)
+SERVO_POCKET_DEPTH = 3.0  # mm
+FILLET_RADIUS = 1.5  # mm
 
 # Servo box dimensions (AX-12A proportions)
-SERVO_W = 24.0   # mm
-SERVO_D = 12.0   # mm
-SERVO_H = 23.0   # mm
+SERVO_W = 24.0  # mm
+SERVO_D = 12.0  # mm
+SERVO_H = 23.0  # mm
 
 # Leg dimensions
-LEG_W = 10.0     # mm
-LEG_D = 10.0     # mm
-LEG_H = 60.0     # mm
+LEG_W = 10.0  # mm
+LEG_D = 10.0  # mm
+LEG_H = 60.0  # mm
 
 # 6 leg positions: LF, LM, LR, RF, RM, RR
 # Placed at R=60mm, 60° intervals so all fit within the 75mm chassis disc.
 # Servos sit on top of the plate, legs hang below
 LEG_POSITIONS = [
-    {"name": "LF", "x":  52.0, "y":  30.0},   # 30°
-    {"name": "LM", "x":   0.0, "y":  60.0},   # 90°
-    {"name": "LR", "x": -52.0, "y":  30.0},   # 150°
-    {"name": "RF", "x":  52.0, "y": -30.0},   # 330°
-    {"name": "RM", "x":   0.0, "y": -60.0},   # 270°
-    {"name": "RR", "x": -52.0, "y": -30.0},   # 210°
+    {"name": "LF", "x": 52.0, "y": 30.0},  # 30°
+    {"name": "LM", "x": 0.0, "y": 60.0},  # 90°
+    {"name": "LR", "x": -52.0, "y": 30.0},  # 150°
+    {"name": "RF", "x": 52.0, "y": -30.0},  # 330°
+    {"name": "RM", "x": 0.0, "y": -60.0},  # 270°
+    {"name": "RR", "x": -52.0, "y": -30.0},  # 210°
 ]
 
 # ── ANSI colors ──────────────────────────────────────────────────────
@@ -126,10 +127,12 @@ def build_chassis_disc(verify: bool = True) -> str:
     sketch_name = result["sketch"]
 
     # Add circle + close
-    _send("sketch_populate",
-          sketch=sketch_name,
-          elements=[{"type": "circle", "cx": 0, "cy": 0, "r": CHASSIS_RADIUS}],
-          constraints=[])
+    _send(
+        "sketch_populate",
+        sketch=sketch_name,
+        elements=[{"type": "circle", "cx": 0, "cy": 0, "r": CHASSIS_RADIUS}],
+        constraints=[],
+    )
     _send("close_sketch", sketch=sketch_name)
 
     # Pad
@@ -152,22 +155,26 @@ def build_servo_pocket(verify: bool = True) -> str:
     result = _send("new_sketch", body="Body_Plate", plane="XY")
     sketch_name = result["sketch"]
 
-    _send("sketch_populate",
-          sketch=sketch_name,
-          elements=[{"type": "rect",
-                     "x": pocket_x, "y": pocket_y,
-                     "w": SERVO_POCKET_W, "h": SERVO_POCKET_H}],
-          constraints=[])
+    _send(
+        "sketch_populate",
+        sketch=sketch_name,
+        elements=[
+            {"type": "rect", "x": pocket_x, "y": pocket_y, "w": SERVO_POCKET_W, "h": SERVO_POCKET_H}
+        ],
+        constraints=[],
+    )
     _send("close_sketch", sketch=sketch_name)
 
     # Pocket (cut into the disc — reversed because sketch is on XY at z=0
     # and the solid is above)
-    result = _send("pocket",
-                   sketch=sketch_name,
-                   length=SERVO_POCKET_DEPTH,
-                   pocket_type="Dimension",
-                   reversed="auto",
-                   verify=verify)
+    result = _send(
+        "pocket",
+        sketch=sketch_name,
+        length=SERVO_POCKET_DEPTH,
+        pocket_type="Dimension",
+        reversed="auto",
+        verify=verify,
+    )
     _done(t0)
     return result.get("pocket", result.get("name", "Pocket"))
 
@@ -175,12 +182,14 @@ def build_servo_pocket(verify: bool = True) -> str:
 def build_polar_pattern(pocket_name: str, verify: bool = True) -> None:
     """Step 4: Polar pattern — 6 copies of the pocket around Z axis."""
     t0 = _step(4, TOTAL_STEPS, "Polar pattern (6× servo pockets)")
-    _send("polar_pattern",
-          features=[pocket_name],
-          axis="Base_Z",
-          occurrences=6,
-          angle=360.0,
-          verify=verify)
+    _send(
+        "polar_pattern",
+        features=[pocket_name],
+        axis="Base_Z",
+        occurrences=6,
+        angle=360.0,
+        verify=verify,
+    )
     _done(t0)
 
 
@@ -189,19 +198,18 @@ def build_fillets(verify: bool = True) -> None:
     t0 = _step(5, TOTAL_STEPS, "Filleting top edges")
 
     # Find convex circular edges on the top — these are the rim edges
-    result = _send("find_edges",
-                   body="Body_Plate",
-                   curve_type="Circle",
-                   convexity="convex")
+    result = _send("find_edges", body="Body_Plate", curve_type="Circle", convexity="convex")
     edges = result.get("edges", [])
     edge_names = [e["edge"] for e in edges]
 
     if edge_names:
-        _send("fillet",
-              edges=edge_names[:2],  # Top and bottom rim
-              radius=FILLET_RADIUS,
-              body="Body_Plate",
-              verify=verify)
+        _send(
+            "fillet",
+            edges=edge_names[:2],  # Top and bottom rim
+            radius=FILLET_RADIUS,
+            body="Body_Plate",
+            verify=verify,
+        )
     _done(t0)
 
 
@@ -210,16 +218,18 @@ def build_servos(verify: bool = True) -> None:
     t0 = _step(6, TOTAL_STEPS, "Creating servo bodies (6×)")
     items = []
     for pos in LEG_POSITIONS:
-        items.append({
-            "name": f"Servo_{pos['name']}",
-            "shape": "box",
-            "dimensions": {
-                "length": SERVO_W,
-                "width": SERVO_D,
-                "height": SERVO_H,
-            },
-            "position": [pos["x"], pos["y"], CHASSIS_THICKNESS / 2 + SERVO_H / 2],
-        })
+        items.append(
+            {
+                "name": f"Servo_{pos['name']}",
+                "shape": "box",
+                "dimensions": {
+                    "length": SERVO_W,
+                    "width": SERVO_D,
+                    "height": SERVO_H,
+                },
+                "position": [pos["x"], pos["y"], CHASSIS_THICKNESS / 2 + SERVO_H / 2],
+            }
+        )
     _send("create_primitives", items=items, verify=verify, timeout=60)
     _done(t0)
 
@@ -229,16 +239,18 @@ def build_legs(verify: bool = True) -> None:
     t0 = _step(7, TOTAL_STEPS, "Creating leg bodies (6×)")
     items = []
     for pos in LEG_POSITIONS:
-        items.append({
-            "name": f"Leg_{pos['name']}",
-            "shape": "box",
-            "dimensions": {
-                "length": LEG_W,
-                "width": LEG_D,
-                "height": LEG_H,
-            },
-            "position": [pos["x"], pos["y"], -LEG_H / 2],
-        })
+        items.append(
+            {
+                "name": f"Leg_{pos['name']}",
+                "shape": "box",
+                "dimensions": {
+                    "length": LEG_W,
+                    "width": LEG_D,
+                    "height": LEG_H,
+                },
+                "position": [pos["x"], pos["y"], -LEG_H / 2],
+            }
+        )
     _send("create_primitives", items=items, verify=verify, timeout=60)
     _done(t0)
 
@@ -266,9 +278,7 @@ def export_sim_package() -> str | None:
     """Step 10: Export URDF sim package."""
     t0 = _step(10, TOTAL_STEPS, "Exporting sim package (URDF + STLs)")
     try:
-        result = _send("export_sim_package",
-                       format="stl",
-                       timeout=120)
+        result = _send("export_sim_package", format="stl", timeout=120)
         path = result.get("output_dir", result.get("urdf_path", "?"))
         _done(t0)
         return path
@@ -290,10 +300,10 @@ def verify_model() -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Build hexapod in FreeCAD")
-    parser.add_argument("--fast", action="store_true",
-                        help="Skip verification screenshots")
-    parser.add_argument("--export", action="store_true",
-                        help="Export URDF sim package after building")
+    parser.add_argument("--fast", action="store_true", help="Skip verification screenshots")
+    parser.add_argument(
+        "--export", action="store_true", help="Export URDF sim package after building"
+    )
     args = parser.parse_args()
 
     verify = not args.fast

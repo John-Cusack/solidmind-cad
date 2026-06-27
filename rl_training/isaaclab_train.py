@@ -14,6 +14,7 @@ Usage::
         --env-config /path/to/env_config.py \\
         --output-dir training_runs/<run_id>/
 """
+
 from __future__ import annotations
 
 import argparse
@@ -70,7 +71,8 @@ def _write_progress(
     }
     data.update(extra)
     (output_dir / "progress.json").write_text(
-        json.dumps(data, indent=2), encoding="utf-8",
+        json.dumps(data, indent=2),
+        encoding="utf-8",
     )
 
 
@@ -134,7 +136,10 @@ def run_isaaclab_training(args: argparse.Namespace, mod: ModuleType) -> int:
 
     log.info(
         "Isaac Lab training: %s, %d joints, %d envs, %d iters",
-        urdf_path, n_joints, num_envs, max_iterations,
+        urdf_path,
+        n_joints,
+        num_envs,
+        max_iterations,
     )
 
     _write_progress(output_dir, 0, max_iterations, 0.0, status="initializing")
@@ -147,8 +152,9 @@ def run_isaaclab_training(args: argparse.Namespace, mod: ModuleType) -> int:
             "Isaac Lab not available. Install with:\n"
             "  $ISAACSIM_PYTHON -m pip install -e source/isaaclab"
         )
-        _write_progress(output_dir, 0, max_iterations, 0.0,
-                        status="error", error="Isaac Lab not installed")
+        _write_progress(
+            output_dir, 0, max_iterations, 0.0, status="error", error="Isaac Lab not installed"
+        )
         return 1
 
     headless = not getattr(args, "no_headless", False)
@@ -192,8 +198,9 @@ def run_isaaclab_training(args: argparse.Namespace, mod: ModuleType) -> int:
         log.info("Environment created: %d envs", num_envs)
     except Exception as exc:
         log.error("Failed to create environment: %s", exc)
-        _write_progress(output_dir, 0, max_iterations, 0.0,
-                        status="error", error=f"Env creation failed: {exc}")
+        _write_progress(
+            output_dir, 0, max_iterations, 0.0, status="error", error=f"Env creation failed: {exc}"
+        )
         simulation_app.close()
         return 1
 
@@ -235,7 +242,8 @@ def run_isaaclab_training(args: argparse.Namespace, mod: ModuleType) -> int:
         "started_at": time.time(),
     }
     (output_dir / "training_config.json").write_text(
-        json.dumps(training_config, indent=2), encoding="utf-8",
+        json.dumps(training_config, indent=2),
+        encoding="utf-8",
     )
 
     _write_progress(output_dir, 0, max_iterations, 0.0, status="training")
@@ -257,6 +265,7 @@ def run_isaaclab_training(args: argparse.Namespace, mod: ModuleType) -> int:
         _original_log(locs, width, pad)
         current_iteration = locs.get("it", current_iteration) + 1
         import statistics as _stats
+
         ep_reward = 0.0
         ep_len = 0.0
         rewbuffer = locs.get("rewbuffer", [])
@@ -295,16 +304,20 @@ def run_isaaclab_training(args: argparse.Namespace, mod: ModuleType) -> int:
             reward_breakdown = {k: _stats.mean(v) for k, v in agg.items() if v}
 
         # ── Plateau detection ──────────────────────────────────────
-        if (len(reward_history) >= patience
-                and current_iteration > patience
-                and current_iteration - best_reward_iter >= patience):
+        if (
+            len(reward_history) >= patience
+            and current_iteration > patience
+            and current_iteration - best_reward_iter >= patience
+        ):
             old_reward = reward_history[0]
             improvement = best_reward - old_reward
             if improvement < 1.0:
                 log.warning(
                     "Reward plateau: best %.2f hasn't improved by >1.0 "
                     "over last %d iters (old=%.2f) — early stopping",
-                    best_reward, patience, old_reward,
+                    best_reward,
+                    patience,
+                    old_reward,
                 )
                 raise EarlyStopException(
                     f"Reward plateau at iter {current_iteration} "
@@ -352,9 +365,14 @@ def run_isaaclab_training(args: argparse.Namespace, mod: ModuleType) -> int:
         early_stopped = True
     except Exception as exc:
         log.error("Training failed: %s", exc, exc_info=True)
-        _write_progress(output_dir, current_iteration, max_iterations,
-                        best_reward if best_reward > float("-inf") else 0.0,
-                        status="error", error=str(exc))
+        _write_progress(
+            output_dir,
+            current_iteration,
+            max_iterations,
+            best_reward if best_reward > float("-inf") else 0.0,
+            status="error",
+            error=str(exc),
+        )
         env.close()
         simulation_app.close()
         return 1
@@ -377,6 +395,7 @@ def run_isaaclab_training(args: argparse.Namespace, mod: ModuleType) -> int:
 
         class _PolicyWrapper(torch.nn.Module):
             """Thin wrapper: plain tensor in → action tensor out."""
+
             def __init__(self, actor_net: torch.nn.Module, normalizer: torch.nn.Module):
                 super().__init__()
                 self.actor = actor_net
@@ -406,7 +425,9 @@ def run_isaaclab_training(args: argparse.Namespace, mod: ModuleType) -> int:
 
     log.info(
         "Training %s at iter %d. Best reward: %.3f",
-        final_status, current_iteration, best_reward,
+        final_status,
+        current_iteration,
+        best_reward,
     )
 
     env.close()
@@ -422,10 +443,18 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--max-iterations", type=int, default=None, help="Override max iterations")
     parser.add_argument("--num-envs", type=int, default=None, help="Override num envs")
     parser.add_argument("--no-headless", action="store_true", help="Run with GUI")
-    parser.add_argument("--patience", type=int, default=500,
-                        help="Stop if reward doesn't improve by >1.0 over this many iterations")
-    parser.add_argument("--resume", type=str, default=None,
-                        help="Path to checkpoint .pt to resume from (restores actor, critic, optimizer, normalizer)")
+    parser.add_argument(
+        "--patience",
+        type=int,
+        default=500,
+        help="Stop if reward doesn't improve by >1.0 over this many iterations",
+    )
+    parser.add_argument(
+        "--resume",
+        type=str,
+        default=None,
+        help="Path to checkpoint .pt to resume from (restores actor, critic, optimizer, normalizer)",
+    )
     args = parser.parse_args(argv)
 
     mod = _load_env_config_module(args.env_config)

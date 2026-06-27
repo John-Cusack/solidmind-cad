@@ -1,4 +1,5 @@
 """MCP tool implementations for field-problem analysis (analysis.* tools)."""
+
 from __future__ import annotations
 
 import concurrent.futures
@@ -471,8 +472,7 @@ def analysis_stress_from_simulation(
             "backend": "analytical",
             "has_analytical_torques": True,
             "part_torques_nm": {
-                k: v.get("torque_nm", 0)
-                for k, v in propagation_result.get("states", {}).items()
+                k: v.get("torque_nm", 0) for k, v in propagation_result.get("states", {}).items()
             },
         }
 
@@ -581,7 +581,9 @@ def analysis_aero_check(
         }
 
     # Parse reference values
-    ref = AeroReference.from_dict(reference) if reference else AeroReference(area_m2=1.0, chord_m=0.1)
+    ref = (
+        AeroReference.from_dict(reference) if reference else AeroReference(area_m2=1.0, chord_m=0.1)
+    )
 
     # Parse rotors
     rotor_specs: list[RotorSpec] = []
@@ -685,6 +687,7 @@ def analysis_aero_check(
 
     # Solve
     import tempfile
+
     work_dir = Path(tempfile.mkdtemp(prefix=f"solidmind_{analysis_id}_"))
     try:
         input_path = field_solver.write_input(spec, mesh_info, work_dir)
@@ -764,17 +767,29 @@ def analysis_torque_sweep(
     import math
 
     if not materials:
-        return {"ok": False, "error": {"code": "NO_MATERIALS", "message": "Provide at least one material."}}
+        return {
+            "ok": False,
+            "error": {"code": "NO_MATERIALS", "message": "Provide at least one material."},
+        }
     if not torques_nmm:
-        return {"ok": False, "error": {"code": "NO_TORQUES", "message": "Provide at least one torque value."}}
+        return {
+            "ok": False,
+            "error": {"code": "NO_TORQUES", "message": "Provide at least one torque value."},
+        }
     if pitch_radius_mm <= 0:
-        return {"ok": False, "error": {"code": "BAD_RADIUS", "message": "pitch_radius_mm must be > 0."}}
+        return {
+            "ok": False,
+            "error": {"code": "BAD_RADIUS", "message": "pitch_radius_mm must be > 0."},
+        }
 
     direction = load_direction or [0.0, 1.0, 0.0]
     # Normalise direction
     mag = math.sqrt(sum(d * d for d in direction))
     if mag < 1e-12:
-        return {"ok": False, "error": {"code": "BAD_DIRECTION", "message": "load_direction must be non-zero."}}
+        return {
+            "ok": False,
+            "error": {"code": "BAD_DIRECTION", "message": "load_direction must be non-zero."},
+        }
     direction = [d / mag for d in direction]
 
     # Resolve all materials up front
@@ -828,15 +843,17 @@ def analysis_torque_sweep(
     ref_force = 1.0  # 1 N reference
     ref_bcs = [
         BoundaryCondition.from_dict({"bc_type": "fixed", "faces": fixed_faces}),
-        BoundaryCondition.from_dict({
-            "bc_type": "force",
-            "faces": [load_face],
-            "value": {
-                "fx": direction[0] * ref_force,
-                "fy": direction[1] * ref_force,
-                "fz": direction[2] * ref_force,
-            },
-        }),
+        BoundaryCondition.from_dict(
+            {
+                "bc_type": "force",
+                "faces": [load_face],
+                "value": {
+                    "fx": direction[0] * ref_force,
+                    "fy": direction[1] * ref_force,
+                    "fz": direction[2] * ref_force,
+                },
+            }
+        ),
     ]
 
     face_groups: dict[str, list[str]] = {}
@@ -857,7 +874,10 @@ def analysis_torque_sweep(
     if primary_solver is None:
         primary_solver = get_solver("", AnalysisType.STRUCTURAL, dof_count=dof_count)
         if primary_solver is None:
-            return {"ok": False, "error": {"code": "NO_SOLVER", "message": "No structural solver available."}}
+            return {
+                "ok": False,
+                "error": {"code": "NO_SOLVER", "message": "No structural solver available."},
+            }
     assert primary_solver is not None
 
     # ── Poisson-ratio grouping optimization ──
@@ -1079,11 +1099,13 @@ def analysis_thermal_check(
         for bc in bcs:
             val = dict(bc.value)
             val["max_temperature_k"] = max_temperature_k
-            patched.append(BoundaryCondition(
-                bc_type=bc.bc_type,
-                faces=bc.faces,
-                value=val,
-            ))
+            patched.append(
+                BoundaryCondition(
+                    bc_type=bc.bc_type,
+                    faces=bc.faces,
+                    value=val,
+                )
+            )
         bcs = patched
 
     # Resolve solver
@@ -1098,8 +1120,7 @@ def analysis_thermal_check(
                 "error": {
                     "code": "SOLVER_NOT_FOUND",
                     "message": (
-                        f"Solver {solver!r} not found. "
-                        f"Available: {[s['name'] for s in available]}"
+                        f"Solver {solver!r} not found. Available: {[s['name'] for s in available]}"
                     ),
                 },
             }
@@ -1116,14 +1137,12 @@ def analysis_thermal_check(
                 "ok": False,
                 "error": {
                     "code": "NO_SOLVER",
-                    "message": (
-                        "No thermal solver available. "
-                        "Install Elmer: apt install elmer"
-                    ),
+                    "message": ("No thermal solver available. Install Elmer: apt install elmer"),
                 },
             }
 
     import uuid
+
     analysis_id = f"thermal_{uuid.uuid4().hex[:8]}"
 
     # Export STEP
@@ -1175,6 +1194,7 @@ def analysis_thermal_check(
 
     # Solve
     import tempfile
+
     work_dir = Path(tempfile.mkdtemp(prefix=f"solidmind_{analysis_id}_"))
     try:
         input_path = field_solver.write_input(spec, mesh_info, work_dir)
@@ -1266,9 +1286,7 @@ def analysis_conjugate_thermal_check(
             "ok": False,
             "error": {
                 "code": "ZERO_CONDUCTIVITY",
-                "message": (
-                    f"Material {mat.name!r} has zero thermal conductivity."
-                ),
+                "message": (f"Material {mat.name!r} has zero thermal conductivity."),
             },
         }
 
@@ -1302,34 +1320,40 @@ def analysis_conjugate_thermal_check(
     bcs: list[BoundaryCondition] = []
 
     # Velocity inlet
-    bcs.append(BoundaryCondition(
-        bc_type="velocity_inlet",
-        faces=tuple(flow_faces_inlet),
-        value={
-            "vx_m_s": flow_velocity[0],
-            "vy_m_s": flow_velocity[1],
-            "vz_m_s": flow_velocity[2],
-            "temperature_k": flow_temperature_k,
-            **fp,
-        },
-    ))
+    bcs.append(
+        BoundaryCondition(
+            bc_type="velocity_inlet",
+            faces=tuple(flow_faces_inlet),
+            value={
+                "vx_m_s": flow_velocity[0],
+                "vy_m_s": flow_velocity[1],
+                "vz_m_s": flow_velocity[2],
+                "temperature_k": flow_temperature_k,
+                **fp,
+            },
+        )
+    )
 
     # Pressure outlet
-    bcs.append(BoundaryCondition(
-        bc_type="pressure_outlet",
-        faces=tuple(flow_faces_outlet),
-        value={"pressure_pa": 0.0},
-    ))
+    bcs.append(
+        BoundaryCondition(
+            bc_type="pressure_outlet",
+            faces=tuple(flow_faces_outlet),
+            value={"pressure_pa": 0.0},
+        )
+    )
 
     # Heat source on solid
     heat_value: dict[str, float] = {"flux_w_m2": heat_flux_w_m2}
     if max_temperature_k > 0:
         heat_value["max_temperature_k"] = max_temperature_k
-    bcs.append(BoundaryCondition(
-        bc_type="heat_flux",
-        faces=tuple(heat_source_faces),
-        value=heat_value,
-    ))
+    bcs.append(
+        BoundaryCondition(
+            bc_type="heat_flux",
+            faces=tuple(heat_source_faces),
+            value=heat_value,
+        )
+    )
 
     # Resolve solver — explicit override, or prefer Elmer, fall back to mock
     requested_solver = solver.strip()
@@ -1367,8 +1391,7 @@ def analysis_conjugate_thermal_check(
                     "error": {
                         "code": "NO_SOLVER",
                         "message": (
-                            "No conjugate heat solver available. "
-                            "Install Elmer: apt install elmer"
+                            "No conjugate heat solver available. Install Elmer: apt install elmer"
                         ),
                     },
                 }
@@ -1393,6 +1416,7 @@ def analysis_conjugate_thermal_check(
         )
 
     import uuid
+
     analysis_id = f"cht_{uuid.uuid4().hex[:8]}"
 
     # Export STEP
@@ -1447,6 +1471,7 @@ def analysis_conjugate_thermal_check(
 
     # Solve
     import tempfile
+
     work_dir = Path(tempfile.mkdtemp(prefix=f"solidmind_{analysis_id}_"))
     try:
         input_path = field_solver.write_input(spec, mesh_info, work_dir)

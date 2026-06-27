@@ -1,4 +1,5 @@
 """Tests for server.urdf_analyzer — URDF parsing and morphology classification."""
+
 from __future__ import annotations
 
 import os
@@ -105,7 +106,9 @@ class TestAnalyzeMinimalURDF(unittest.TestCase):
   </joint>
 </robot>"""
         with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".urdf", delete=False,
+            mode="w",
+            suffix=".urdf",
+            delete=False,
         ) as f:
             f.write(urdf)
             f.flush()

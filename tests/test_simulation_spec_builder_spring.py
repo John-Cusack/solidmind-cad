@@ -4,6 +4,7 @@ Pure-Python tests (no Chrono needed): verify a prismatic joint carrying spring
 params emits a sibling ``spring`` object, and that a spring-less prismatic emits
 output byte-identical to before (regression guard).
 """
+
 from __future__ import annotations
 
 import unittest
@@ -75,15 +76,17 @@ class TestSpringEmission(unittest.TestCase):
 
     def test_spring_on_non_prismatic_warns(self) -> None:
         joint = JointEdge(
-            id="hinge", joint_type=JointType.REVOLUTE,
-            parent_part="ground", child_part="plunger",
+            id="hinge",
+            joint_type=JointType.REVOLUTE,
+            parent_part="ground",
+            child_part="plunger",
             spring_k_n_per_m=300.0,
         )
         mech = Mechanism(
             name="m",
-            parts=(PartNode(id="ground", is_ground=True),
-                   PartNode(id="plunger", mass_kg=0.05)),
-            joints=(joint,), drives=(),
+            parts=(PartNode(id="ground", is_ground=True), PartNode(id="plunger", mass_kg=0.05)),
+            joints=(joint,),
+            drives=(),
         )
         with self.assertLogs("solidmind.simulation_spec_builder", level="WARNING") as cm:
             objs = build_simulation_spec(mech)["objects"]
@@ -103,13 +106,16 @@ class TestSpringEmission(unittest.TestCase):
         objs = build_simulation_spec(_slider(with_spring=False))["objects"]
         prismatics = _by_type(objs, "prismatic")
         self.assertEqual(len(prismatics), 1)
-        self.assertEqual(prismatics[0], {
-            "type": "prismatic",
-            "id": "slide",
-            "body_1": "ground",
-            "body_2": "plunger",
-            "pos": [0.0, 0.0, 0.0],
-        })
+        self.assertEqual(
+            prismatics[0],
+            {
+                "type": "prismatic",
+                "id": "slide",
+                "body_1": "ground",
+                "body_2": "plunger",
+                "pos": [0.0, 0.0, 0.0],
+            },
+        )
 
     def test_rest_length_optional(self) -> None:
         joint = JointEdge(
@@ -122,8 +128,7 @@ class TestSpringEmission(unittest.TestCase):
         )
         mech = Mechanism(
             name="m",
-            parts=(PartNode(id="ground", is_ground=True),
-                   PartNode(id="plunger", mass_kg=0.05)),
+            parts=(PartNode(id="ground", is_ground=True), PartNode(id="plunger", mass_kg=0.05)),
             joints=(joint,),
             drives=(),
         )

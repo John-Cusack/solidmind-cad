@@ -59,11 +59,9 @@ class TestFeatureSupportManifest(unittest.TestCase):
         for result in results:
             if result.computed_status != result.baseline_status:
                 mismatches.append(
-
-                        f"{result.platform} / {result.feature}: "
-                        f"baseline={result.baseline_status}, computed={result.computed_status}, "
-                        f"checks={result.passed_checks}/{result.total_checks}"
-
+                    f"{result.platform} / {result.feature}: "
+                    f"baseline={result.baseline_status}, computed={result.computed_status}, "
+                    f"checks={result.passed_checks}/{result.total_checks}"
                 )
         self.assertEqual([], mismatches, "\n".join(mismatches))
 

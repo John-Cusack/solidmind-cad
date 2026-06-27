@@ -5,6 +5,7 @@ per ISO 286.  Generates a bore cross-section profile (half-section for
 revolution) with optional chamfer and counterbore.  Pure Python — no Rust
 dependency.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -18,9 +19,18 @@ from server.geometry_helpers import _line
 
 # Diameter range breakpoints (mm).  Each range is (low, high].
 _RANGES: list[tuple[float, float]] = [
-    (0, 3), (3, 6), (6, 10), (10, 18), (18, 30),
-    (30, 50), (50, 80), (80, 120), (120, 180),
-    (180, 250), (250, 315), (315, 400),
+    (0, 3),
+    (3, 6),
+    (6, 10),
+    (10, 18),
+    (18, 30),
+    (30, 50),
+    (50, 80),
+    (80, 120),
+    (120, 180),
+    (180, 250),
+    (250, 315),
+    (315, 400),
 ]
 
 
@@ -36,11 +46,11 @@ def _range_index(d: float) -> int:
 
 # IT grade values in μm, indexed [range_index].  Grades 5–9.
 _IT: dict[int, list[int]] = {
-    5:  [4,  5,  6,  8,  9,  11, 13, 15, 18, 20, 23, 25],
-    6:  [6,  8,  9,  11, 13, 16, 19, 22, 25, 29, 32, 36],
-    7:  [10, 12, 15, 18, 21, 25, 30, 35, 40, 46, 52, 57],
-    8:  [14, 18, 22, 27, 33, 39, 46, 54, 63, 72, 81, 89],
-    9:  [25, 30, 36, 43, 52, 62, 74, 87, 100, 115, 130, 140],
+    5: [4, 5, 6, 8, 9, 11, 13, 15, 18, 20, 23, 25],
+    6: [6, 8, 9, 11, 13, 16, 19, 22, 25, 29, 32, 36],
+    7: [10, 12, 15, 18, 21, 25, 30, 35, 40, 46, 52, 57],
+    8: [14, 18, 22, 27, 33, 39, 46, 54, 63, 72, 81, 89],
+    9: [25, 30, 36, 43, 52, 62, 74, 87, 100, 115, 130, 140],
 }
 
 
@@ -56,20 +66,21 @@ def _it_value(grade: int, idx: int) -> int:
 # Positions k–zc: value is the LOWER deviation (always ≥ 0).
 _SHAFT_DEV: dict[str, list[int]] = {
     "f": [-6, -10, -13, -16, -20, -25, -30, -36, -43, -50, -56, -62],
-    "g": [-2,  -4,  -5,  -6,  -7,  -9, -10, -12, -14, -15, -17, -18],
-    "h": [0,    0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0],
-    "k": [0,    1,   1,   1,   2,   2,   2,   3,   3,   4,   4,   4],
-    "m": [2,    4,   6,   7,   8,   9,  11,  13,  15,  17,  20,  21],
-    "n": [4,    8,  10,  12,  15,  17,  20,  23,  27,  31,  34,  37],
-    "p": [6,   12,  15,  18,  22,  26,  32,  37,  43,  50,  56,  62],
-    "r": [10,  15,  19,  23,  28,  34,  41,  48,  55,  63,  72,  78],
-    "s": [14,  19,  23,  28,  35,  43,  53,  59,  68,  79,  88,  98],
+    "g": [-2, -4, -5, -6, -7, -9, -10, -12, -14, -15, -17, -18],
+    "h": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    "k": [0, 1, 1, 1, 2, 2, 2, 3, 3, 4, 4, 4],
+    "m": [2, 4, 6, 7, 8, 9, 11, 13, 15, 17, 20, 21],
+    "n": [4, 8, 10, 12, 15, 17, 20, 23, 27, 31, 34, 37],
+    "p": [6, 12, 15, 18, 22, 26, 32, 37, 43, 50, 56, 62],
+    "r": [10, 15, 19, 23, 28, 34, 41, 48, 55, 63, 72, 78],
+    "s": [14, 19, 23, 28, 35, 43, 53, 59, 68, 79, 88, 98],
 }
 
 
 # ---------------------------------------------------------------------------
 # Tolerance zone computation
 # ---------------------------------------------------------------------------
+
 
 @dataclass(frozen=True, slots=True)
 class ToleranceZone:
@@ -130,26 +141,20 @@ def _parse_class(spec: str) -> tuple[str, int]:
 # ---------------------------------------------------------------------------
 
 _FIT_PRESETS: dict[str, dict[str, str]] = {
-    "clearance":       {"hole": "H8", "shaft": "f7",
-                        "desc": "Free-running fit, wide clearance"},
-    "close_clearance": {"hole": "H7", "shaft": "g6",
-                        "desc": "Close-running fit, small clearance"},
-    "sliding":         {"hole": "H7", "shaft": "h6",
-                        "desc": "Sliding fit, precise location"},
-    "transition":      {"hole": "H7", "shaft": "k6",
-                        "desc": "Transition fit, light tap to assemble"},
-    "press":           {"hole": "H7", "shaft": "p6",
-                        "desc": "Light press fit, arbor press required"},
-    "medium_press":    {"hole": "H7", "shaft": "r6",
-                        "desc": "Medium press, permanent assembly"},
-    "heavy_press":     {"hole": "H7", "shaft": "s6",
-                        "desc": "Heavy press / shrink fit"},
+    "clearance": {"hole": "H8", "shaft": "f7", "desc": "Free-running fit, wide clearance"},
+    "close_clearance": {"hole": "H7", "shaft": "g6", "desc": "Close-running fit, small clearance"},
+    "sliding": {"hole": "H7", "shaft": "h6", "desc": "Sliding fit, precise location"},
+    "transition": {"hole": "H7", "shaft": "k6", "desc": "Transition fit, light tap to assemble"},
+    "press": {"hole": "H7", "shaft": "p6", "desc": "Light press fit, arbor press required"},
+    "medium_press": {"hole": "H7", "shaft": "r6", "desc": "Medium press, permanent assembly"},
+    "heavy_press": {"hole": "H7", "shaft": "s6", "desc": "Heavy press / shrink fit"},
 }
 
 
 # ---------------------------------------------------------------------------
 # Main generator
 # ---------------------------------------------------------------------------
+
 
 def press_fit_bore(
     nominal_diameter: float,
@@ -313,9 +318,11 @@ def press_fit_bore(
         "shaft_max": round(shaft_max, 4),
         "clearance_min_um": clearance_min_um,
         "clearance_max_um": clearance_max_um,
-        "fit_type": "clearance" if clearance_min_um > 0
-                    else "interference" if clearance_max_um < 0
-                    else "transition",
+        "fit_type": "clearance"
+        if clearance_min_um > 0
+        else "interference"
+        if clearance_max_um < 0
+        else "transition",
         "fit_description": fit_description,
         "build_hint": (
             f"Bore to Ø{bore_target:.3f} mm "

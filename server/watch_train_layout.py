@@ -5,6 +5,7 @@ complete going train from a target beat rate. Solves the constrained
 combinatorial problem of finding tooth/pinion combinations that produce
 the correct total ratio while respecting spatial constraints.
 """
+
 from __future__ import annotations
 
 import itertools
@@ -149,13 +150,13 @@ def watch_gear_train_layout(
     positions, and interference check.
     """
     if beat_rate_bph not in (18000, 21600, 28800, 36000):
-        raise ValueError(
-            f"beat_rate_bph must be 18000/21600/28800/36000, got {beat_rate_bph}"
-        )
+        raise ValueError(f"beat_rate_bph must be 18000/21600/28800/36000, got {beat_rate_bph}")
 
     total_ratio = _total_ratio_needed(
-        beat_rate_bph, center_wheel_rev_per_hour,
-        fourth_wheel_rev_per_min, escape_wheel_teeth,
+        beat_rate_bph,
+        center_wheel_rev_per_hour,
+        fourth_wheel_rev_per_min,
+        escape_wheel_teeth,
     )
 
     # For a standard going train (center→third→fourth→escape):
@@ -211,9 +212,11 @@ def watch_gear_train_layout(
                             best_s1s2 = ((w1, p1), (w2, p2))
 
         if best_s1s2 and best_stage3:
-            actual_total = (best_s1s2[0][0] / best_s1s2[0][1]) * \
-                           (best_s1s2[1][0] / best_s1s2[1][1]) * \
-                           (best_stage3[0] / best_stage3[1])
+            actual_total = (
+                (best_s1s2[0][0] / best_s1s2[0][1])
+                * (best_s1s2[1][0] / best_s1s2[1][1])
+                * (best_stage3[0] / best_stage3[1])
+            )
 
             stage_names = [
                 "center_to_third",
@@ -228,24 +231,30 @@ def watch_gear_train_layout(
                 pd_pinion = module_mid * pinion
                 center_dist = (pd_wheel + pd_pinion) / 2.0
 
-                stages.append({
-                    "name": name,
-                    "wheel_teeth": wheel,
-                    "pinion_leaves": pinion,
-                    "ratio": round(ratio, 4),
-                    "module": module_mid,
-                    "wheel_pitch_d": round(pd_wheel, 3),
-                    "pinion_pitch_d": round(pd_pinion, 3),
-                    "center_distance": round(center_dist, 3),
-                })
+                stages.append(
+                    {
+                        "name": name,
+                        "wheel_teeth": wheel,
+                        "pinion_leaves": pinion,
+                        "ratio": round(ratio, 4),
+                        "module": module_mid,
+                        "wheel_pitch_d": round(pd_wheel, 3),
+                        "pinion_pitch_d": round(pd_pinion, 3),
+                        "center_distance": round(center_dist, 3),
+                    }
+                )
     else:
         # 2-stage (unusual) or 4-stage
         combos_found = _find_train_combinations(
-            total_ratio, preferred_num_stages,
-            min_pinion_leaves, max_pinion_leaves,
+            total_ratio,
+            preferred_num_stages,
+            min_pinion_leaves,
+            max_pinion_leaves,
         )
         if combos_found:
-            best = min(combos_found, key=lambda c: _score_combination(c, module_range, movement_diameter))
+            best = min(
+                combos_found, key=lambda c: _score_combination(c, module_range, movement_diameter)
+            )
             actual_total = 1.0
             for i, (wheel, pinion) in enumerate(best):
                 ratio = wheel / pinion
@@ -253,16 +262,18 @@ def watch_gear_train_layout(
                 pd_wheel = module_mid * wheel
                 pd_pinion = module_mid * pinion
                 center_dist = (pd_wheel + pd_pinion) / 2.0
-                stages.append({
-                    "name": f"stage_{i+1}",
-                    "wheel_teeth": wheel,
-                    "pinion_leaves": pinion,
-                    "ratio": round(ratio, 4),
-                    "module": module_mid,
-                    "wheel_pitch_d": round(pd_wheel, 3),
-                    "pinion_pitch_d": round(pd_pinion, 3),
-                    "center_distance": round(center_dist, 3),
-                })
+                stages.append(
+                    {
+                        "name": f"stage_{i + 1}",
+                        "wheel_teeth": wheel,
+                        "pinion_leaves": pinion,
+                        "ratio": round(ratio, 4),
+                        "module": module_mid,
+                        "wheel_pitch_d": round(pd_wheel, 3),
+                        "pinion_pitch_d": round(pd_pinion, 3),
+                        "center_distance": round(center_dist, 3),
+                    }
+                )
 
     # Compute actual total ratio and beat error
     actual_ratio = 1.0
@@ -286,7 +297,7 @@ def watch_gear_train_layout(
             x = dist * math.cos(angle)
             y = dist * math.sin(angle)
             parts = s["name"].split("_to_")
-            bore_name = parts[-1] if len(parts) > 1 else f"bore_{i+1}"
+            bore_name = parts[-1] if len(parts) > 1 else f"bore_{i + 1}"
             bore_positions.append({"name": bore_name, "x": round(x, 3), "y": round(y, 3)})
 
     # Interference check

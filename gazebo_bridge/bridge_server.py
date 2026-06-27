@@ -1,4 +1,5 @@
 """TCP bridge server for Gazebo simulation/teleop commands."""
+
 from __future__ import annotations
 
 import argparse
@@ -115,33 +116,59 @@ class GazeboBridgeServer:
         try:
             msg = json.loads(line.decode("utf-8"))
         except (json.JSONDecodeError, UnicodeDecodeError) as exc:
-            return json.dumps({
-                "ok": False,
-                "error": {"code": "GAZEBO_PROTOCOL_ERROR", "message": f"JSON parse error: {exc}"},
-            }) + "\n"
+            return (
+                json.dumps(
+                    {
+                        "ok": False,
+                        "error": {
+                            "code": "GAZEBO_PROTOCOL_ERROR",
+                            "message": f"JSON parse error: {exc}",
+                        },
+                    }
+                )
+                + "\n"
+            )
 
         cmd = msg.get("cmd", "")
         args = msg.get("args", {})
         if not isinstance(args, dict):
-            return json.dumps({
-                "ok": False,
-                "error": {"code": "GAZEBO_PROTOCOL_ERROR", "message": "Message field 'args' must be an object."},
-            }) + "\n"
+            return (
+                json.dumps(
+                    {
+                        "ok": False,
+                        "error": {
+                            "code": "GAZEBO_PROTOCOL_ERROR",
+                            "message": "Message field 'args' must be an object.",
+                        },
+                    }
+                )
+                + "\n"
+            )
 
         try:
             result = self._route(cmd, args)
             return json.dumps({"ok": True, "result": result}) + "\n"
         except GazeboRuntimeError as exc:
-            return json.dumps({
-                "ok": False,
-                "error": {"code": exc.code or "GAZEBO_COMMAND_ERROR", "message": str(exc)},
-            }) + "\n"
+            return (
+                json.dumps(
+                    {
+                        "ok": False,
+                        "error": {"code": exc.code or "GAZEBO_COMMAND_ERROR", "message": str(exc)},
+                    }
+                )
+                + "\n"
+            )
         except Exception as exc:
             logger.exception("Unhandled error in command '%s'", cmd)
-            return json.dumps({
-                "ok": False,
-                "error": {"code": "GAZEBO_INTERNAL_ERROR", "message": str(exc)},
-            }) + "\n"
+            return (
+                json.dumps(
+                    {
+                        "ok": False,
+                        "error": {"code": "GAZEBO_INTERNAL_ERROR", "message": str(exc)},
+                    }
+                )
+                + "\n"
+            )
 
     def _route(self, cmd: str, args: dict[str, Any]) -> Any:
         if cmd == "ping":

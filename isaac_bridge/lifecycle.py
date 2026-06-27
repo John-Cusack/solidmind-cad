@@ -9,6 +9,7 @@ both tests and scripts.  Handles:
 - Clean shutdown (disconnect → server shutdown → thread join)
 - Context manager support (``with IsaacLifecycle(...) as lc:``)
 """
+
 from __future__ import annotations
 
 import logging
@@ -136,9 +137,7 @@ class IsaacLifecycle:
                 time.sleep(0.5)
         else:
             self.stop()
-            raise RuntimeError(
-                f"Client could not connect to bridge within {timeout}s: {last_exc}"
-            )
+            raise RuntimeError(f"Client could not connect to bridge within {timeout}s: {last_exc}")
 
         # Verify the bridge is responsive
         try:
@@ -207,6 +206,7 @@ class IsaacLifecycle:
         result = self.client.screenshot(**kwargs)
         if path is not None and "image_base64" in result:
             import base64
+
             with open(path, "wb") as f:
                 f.write(base64.b64decode(result["image_base64"]))
             result["saved_to"] = path

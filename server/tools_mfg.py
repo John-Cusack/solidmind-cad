@@ -4,6 +4,7 @@ Replaces the spec interview approach with an on-demand readiness check.
 Manufacturing properties are stored in the FreeCAD document (or a sidecar)
 and can be queried/updated via these tools.
 """
+
 from __future__ import annotations
 
 import logging
@@ -29,18 +30,35 @@ def _error_result(code: str, message: str) -> dict[str, Any]:
 
 # The canonical set of manufacturing properties
 MFG_PROPERTIES: dict[str, dict[str, Any]] = {
-    "process": {"type": "string", "description": "Manufacturing process (cnc, fdm, sla, sls)", "required": True},
-    "material_family": {"type": "string", "description": "Material family (aluminum, steel, abs, pla, etc.)", "required": True},
-    "material_grade": {"type": "string", "description": "Specific material grade (6061-T6, 304, etc.)"},
+    "process": {
+        "type": "string",
+        "description": "Manufacturing process (cnc, fdm, sla, sls)",
+        "required": True,
+    },
+    "material_family": {
+        "type": "string",
+        "description": "Material family (aluminum, steel, abs, pla, etc.)",
+        "required": True,
+    },
+    "material_grade": {
+        "type": "string",
+        "description": "Specific material grade (6061-T6, 304, etc.)",
+    },
     "quantity": {"type": "integer", "description": "Number of parts to produce", "required": True},
-    "tolerance_general": {"type": "string", "description": "General tolerance class (ISO 2768-m, etc.)"},
+    "tolerance_general": {
+        "type": "string",
+        "description": "General tolerance class (ISO 2768-m, etc.)",
+    },
     "surface_finish_ra": {"type": "number", "description": "Surface roughness Ra in micrometers"},
     "coating": {"type": "string", "description": "Surface coating or treatment"},
     "color": {"type": "string", "description": "Part color (for 3D printing)"},
     "layer_height_mm": {"type": "number", "description": "Layer height in mm (for 3D printing)"},
     "infill_percent": {"type": "integer", "description": "Infill percentage (for 3D printing)"},
     "wall_count": {"type": "integer", "description": "Number of wall lines (for 3D printing)"},
-    "critical_features": {"type": "string", "description": "Description of critical features/dimensions"},
+    "critical_features": {
+        "type": "string",
+        "description": "Description of critical features/dimensions",
+    },
     "notes": {"type": "string", "description": "Additional manufacturing notes"},
 }
 
@@ -115,22 +133,26 @@ def mfg_readiness_check(
 
     # -- Missing info checks --
     if not props.get("material_family"):
-        findings.append(Finding(
-            rule_id=f"{process}.material.required",
-            severity=Severity.BLOCK,
-            message="Material family not specified. Set material_family (e.g., 'aluminum', 'pla').",
-            field="material_family",
-            priority=900,
-        ).to_dict())
+        findings.append(
+            Finding(
+                rule_id=f"{process}.material.required",
+                severity=Severity.BLOCK,
+                message="Material family not specified. Set material_family (e.g., 'aluminum', 'pla').",
+                field="material_family",
+                priority=900,
+            ).to_dict()
+        )
 
     if not props.get("quantity"):
-        findings.append(Finding(
-            rule_id=f"{process}.quantity.required",
-            severity=Severity.WARN,
-            message="Quantity not specified. Defaults to 1.",
-            field="quantity",
-            priority=800,
-        ).to_dict())
+        findings.append(
+            Finding(
+                rule_id=f"{process}.quantity.required",
+                severity=Severity.WARN,
+                message="Quantity not specified. Defaults to 1.",
+                field="quantity",
+                priority=800,
+            ).to_dict()
+        )
 
     if process == "cnc":
         findings.extend(_check_cnc(props))
@@ -167,7 +189,8 @@ def mfg_readiness_check(
     if _TOOL_LOG:
         log.info(
             "OK   mfg_readiness_check %.3fs findings=%d",
-            time.monotonic() - t0, len(findings),
+            time.monotonic() - t0,
+            len(findings),
         )
     return result
 
@@ -185,8 +208,10 @@ def mfg_export_rfq(
     lines = ["# Request for Quote", ""]
     lines.append(f"**Process:** {props.get('process', 'Not specified')}")
     lines.append(f"**Quantity:** {props.get('quantity', 'Not specified')}")
-    lines.append(f"**Material:** {props.get('material_family', 'Not specified')} "
-                 f"{props.get('material_grade', '')}")
+    lines.append(
+        f"**Material:** {props.get('material_family', 'Not specified')} "
+        f"{props.get('material_grade', '')}"
+    )
     lines.append("")
 
     if props.get("tolerance_general"):
@@ -206,8 +231,10 @@ def mfg_export_rfq(
         lines.append("")
         lines.append("## Part Dimensions")
         bb = dimensions.get("bounding_box", {})
-        lines.append(f"**Bounding Box:** {bb.get('x_len', '?'):.1f} x "
-                     f"{bb.get('y_len', '?'):.1f} x {bb.get('z_len', '?'):.1f} mm")
+        lines.append(
+            f"**Bounding Box:** {bb.get('x_len', '?'):.1f} x "
+            f"{bb.get('y_len', '?'):.1f} x {bb.get('z_len', '?'):.1f} mm"
+        )
         if "volume" in dimensions:
             lines.append(f"**Volume:** {dimensions['volume']:.1f} mm\u00b3")
 
@@ -221,36 +248,43 @@ def mfg_export_rfq(
 # Process-specific checks
 # ---------------------------------------------------------------------------
 
+
 def _check_cnc(props: dict[str, Any]) -> list[dict[str, Any]]:
     """CNC-specific readiness checks."""
     findings: list[dict[str, Any]] = []
 
     if not props.get("material_grade"):
-        findings.append(Finding(
-            rule_id="cnc.material.grade.required",
-            severity=Severity.WARN,
-            message="Material grade not specified. Vendor will need to know (e.g., 6061-T6, 304SS).",
-            field="material_grade",
-            priority=850,
-        ).to_dict())
+        findings.append(
+            Finding(
+                rule_id="cnc.material.grade.required",
+                severity=Severity.WARN,
+                message="Material grade not specified. Vendor will need to know (e.g., 6061-T6, 304SS).",
+                field="material_grade",
+                priority=850,
+            ).to_dict()
+        )
 
     if not props.get("tolerance_general"):
-        findings.append(Finding(
-            rule_id="cnc.tolerance.required",
-            severity=Severity.WARN,
-            message="No general tolerance specified. Consider ISO 2768-m or similar.",
-            field="tolerance_general",
-            priority=780,
-        ).to_dict())
+        findings.append(
+            Finding(
+                rule_id="cnc.tolerance.required",
+                severity=Severity.WARN,
+                message="No general tolerance specified. Consider ISO 2768-m or similar.",
+                field="tolerance_general",
+                priority=780,
+            ).to_dict()
+        )
 
     if not props.get("surface_finish_ra"):
-        findings.append(Finding(
-            rule_id="cnc.surface_finish.required",
-            severity=Severity.WARN,
-            message="No surface finish specified. Default shop finish will be used.",
-            field="surface_finish_ra",
-            priority=770,
-        ).to_dict())
+        findings.append(
+            Finding(
+                rule_id="cnc.surface_finish.required",
+                severity=Severity.WARN,
+                message="No surface finish specified. Default shop finish will be used.",
+                field="surface_finish_ra",
+                priority=770,
+            ).to_dict()
+        )
 
     return findings
 
@@ -260,22 +294,26 @@ def _check_3d_print(props: dict[str, Any], process: str) -> list[dict[str, Any]]
     findings: list[dict[str, Any]] = []
 
     if not props.get("layer_height_mm") and process == "fdm":
-        findings.append(Finding(
-            rule_id="print.layer_height.recommended",
-            severity=Severity.NOTE,
-            message="Layer height not specified. Common default is 0.2mm.",
-            field="layer_height_mm",
-            priority=600,
-        ).to_dict())
+        findings.append(
+            Finding(
+                rule_id="print.layer_height.recommended",
+                severity=Severity.NOTE,
+                message="Layer height not specified. Common default is 0.2mm.",
+                field="layer_height_mm",
+                priority=600,
+            ).to_dict()
+        )
 
     if not props.get("infill_percent") and process == "fdm":
-        findings.append(Finding(
-            rule_id="print.infill.recommended",
-            severity=Severity.NOTE,
-            message="Infill percentage not specified. Common default is 20%.",
-            field="infill_percent",
-            priority=590,
-        ).to_dict())
+        findings.append(
+            Finding(
+                rule_id="print.infill.recommended",
+                severity=Severity.NOTE,
+                message="Infill percentage not specified. Common default is 20%.",
+                field="infill_percent",
+                priority=590,
+            ).to_dict()
+        )
 
     return findings
 
@@ -291,12 +329,14 @@ def _check_geometry(process: str, doc: str | None) -> list[dict[str, Any]]:
         dims = client.send_command("get_dimensions", object_name="Body", doc=doc)
     except (FreeCADConnectionError, FreeCADCommandError):
         # Can't check geometry without FreeCAD connection
-        findings.append(Finding(
-            rule_id="geometry.not_connected",
-            severity=Severity.NOTE,
-            message="Cannot check geometry — FreeCAD not connected or no body found.",
-            priority=100,
-        ).to_dict())
+        findings.append(
+            Finding(
+                rule_id="geometry.not_connected",
+                severity=Severity.NOTE,
+                message="Cannot check geometry — FreeCAD not connected or no body found.",
+                priority=100,
+            ).to_dict()
+        )
         return findings
 
     bb = dims.get("bounding_box", {})
@@ -309,30 +349,36 @@ def _check_geometry(process: str, doc: str | None) -> list[dict[str, Any]]:
     min_dim = min(x_len, y_len, z_len)
 
     if max_dim > 2000:
-        findings.append(Finding(
-            rule_id="geometry.dimension.large",
-            severity=Severity.WARN,
-            message=f"Largest dimension is {max_dim:.1f}mm ({max_dim/25.4:.1f}in). "
-                    "Verify units are correct.",
-            priority=950,
-        ).to_dict())
+        findings.append(
+            Finding(
+                rule_id="geometry.dimension.large",
+                severity=Severity.WARN,
+                message=f"Largest dimension is {max_dim:.1f}mm ({max_dim / 25.4:.1f}in). "
+                "Verify units are correct.",
+                priority=950,
+            ).to_dict()
+        )
 
     if min_dim < 0.5 and min_dim > 0:
-        findings.append(Finding(
-            rule_id="geometry.dimension.small",
-            severity=Severity.WARN,
-            message=f"Smallest dimension is {min_dim:.2f}mm. This may be below manufacturing limits.",
-            priority=940,
-        ).to_dict())
+        findings.append(
+            Finding(
+                rule_id="geometry.dimension.small",
+                severity=Severity.WARN,
+                message=f"Smallest dimension is {min_dim:.2f}mm. This may be below manufacturing limits.",
+                priority=940,
+            ).to_dict()
+        )
 
     if min_dim > 0 and max_dim / min_dim > 50:
-        findings.append(Finding(
-            rule_id="geometry.aspect_ratio.extreme",
-            severity=Severity.WARN,
-            message=f"Extreme aspect ratio ({max_dim/min_dim:.0f}:1). "
-                    "May cause manufacturing difficulties.",
-            priority=800,
-        ).to_dict())
+        findings.append(
+            Finding(
+                rule_id="geometry.aspect_ratio.extreme",
+                severity=Severity.WARN,
+                message=f"Extreme aspect ratio ({max_dim / min_dim:.0f}:1). "
+                "May cause manufacturing difficulties.",
+                priority=800,
+            ).to_dict()
+        )
 
     volume = dims.get("volume", 0)
     if volume is not None and volume > 0:
@@ -340,12 +386,14 @@ def _check_geometry(process: str, doc: str | None) -> list[dict[str, Any]]:
         if bbox_vol > 0:
             fill_ratio = volume / bbox_vol
             if fill_ratio < 0.01:
-                findings.append(Finding(
-                    rule_id="geometry.fill_ratio.low",
-                    severity=Severity.NOTE,
-                    message=f"Very low fill ratio ({fill_ratio:.1%}). Part is mostly air — verify model is correct.",
-                    priority=700,
-                ).to_dict())
+                findings.append(
+                    Finding(
+                        rule_id="geometry.fill_ratio.low",
+                        severity=Severity.NOTE,
+                        message=f"Very low fill ratio ({fill_ratio:.1%}). Part is mostly air — verify model is correct.",
+                        priority=700,
+                    ).to_dict()
+                )
 
     return findings
 

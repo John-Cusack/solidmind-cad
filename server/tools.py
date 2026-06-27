@@ -27,7 +27,9 @@ _Source = Literal["user", "llm_proposal", "default", "import", "user_skip"]
 _MISSING = object()
 
 
-def _tool_error(code: str, message: str, field: str | None = None, details: dict | None = None) -> ToolError:
+def _tool_error(
+    code: str, message: str, field: str | None = None, details: dict | None = None
+) -> ToolError:
     return ToolError(code=code, message=message, field=field, details=details or {})
 
 
@@ -84,10 +86,12 @@ def _assess_design_path(spec_obj: dict[str, Any]) -> dict[str, Any]:
     blockers: list[tuple[str, str]] = []
 
     if maturity != "L1":
-        blockers.append((
-            "maturity_not_l1",
-            f"Maturity {maturity!r} requires full specification gating.",
-        ))
+        blockers.append(
+            (
+                "maturity_not_l1",
+                f"Maturity {maturity!r} requires full specification gating.",
+            )
+        )
 
     interfaces = part.get("interfaces", []) if isinstance(part, dict) else []
     if isinstance(interfaces, list):
@@ -101,49 +105,71 @@ def _assess_design_path(spec_obj: dict[str, Any]) -> dict[str, Any]:
         if critical_features:
             blockers.append(("critical_features_present", "Critical features are specified."))
     elif critical_features is not None:
-        blockers.append(("critical_features_malformed", "Part critical_features field is not a list."))
+        blockers.append(
+            ("critical_features_malformed", "Part critical_features field is not a list.")
+        )
 
     output_target = mfg.get("output_target", "vendor") if isinstance(mfg, dict) else "vendor"
     if output_target != "vendor":
-        blockers.append((
-            "non_vendor_output_target",
-            f"Output target {output_target!r} requires explicit print settings/spec detail.",
-        ))
+        blockers.append(
+            (
+                "non_vendor_output_target",
+                f"Output target {output_target!r} requires explicit print settings/spec detail.",
+            )
+        )
 
     tolerances = mfg.get("tolerances", {}) if isinstance(mfg, dict) else {}
     if isinstance(tolerances, dict):
         if _is_non_blank_string(tolerances.get("general")):
-            blockers.append(("tolerances_general_present", "General tolerance notes are specified."))
+            blockers.append(
+                ("tolerances_general_present", "General tolerance notes are specified.")
+            )
         critical_tolerances = tolerances.get("critical", [])
         if isinstance(critical_tolerances, list):
             if critical_tolerances:
-                blockers.append(("tolerances_critical_present", "Critical tolerance notes are specified."))
+                blockers.append(
+                    ("tolerances_critical_present", "Critical tolerance notes are specified.")
+                )
         elif critical_tolerances is not None:
-            blockers.append(("tolerances_critical_malformed", "Critical tolerance field is not a list."))
+            blockers.append(
+                ("tolerances_critical_malformed", "Critical tolerance field is not a list.")
+            )
     elif tolerances is not None:
         blockers.append(("tolerances_malformed", "Tolerance section is malformed."))
 
     appearance = mfg.get("appearance", {}) if isinstance(mfg, dict) else {}
     if isinstance(appearance, dict):
         if _is_non_blank_string(appearance.get("color")):
-            blockers.append(("appearance_color_present", "Appearance color requirement is specified."))
+            blockers.append(
+                ("appearance_color_present", "Appearance color requirement is specified.")
+            )
         if _is_non_blank_string(appearance.get("finish")):
-            blockers.append(("appearance_finish_present", "Appearance finish requirement is specified."))
+            blockers.append(
+                ("appearance_finish_present", "Appearance finish requirement is specified.")
+            )
         if appearance.get("support_marks_ok") is False:
-            blockers.append(("appearance_support_marks_strict", "Support-mark restriction is specified."))
+            blockers.append(
+                ("appearance_support_marks_strict", "Support-mark restriction is specified.")
+            )
         cosmetic_surfaces = appearance.get("cosmetic_surfaces", [])
         if isinstance(cosmetic_surfaces, list):
             if cosmetic_surfaces:
-                blockers.append(("appearance_cosmetic_surfaces_present", "Cosmetic surfaces are specified."))
+                blockers.append(
+                    ("appearance_cosmetic_surfaces_present", "Cosmetic surfaces are specified.")
+                )
         elif cosmetic_surfaces is not None:
-            blockers.append(("appearance_cosmetic_surfaces_malformed", "Cosmetic surfaces field is not a list."))
+            blockers.append(
+                ("appearance_cosmetic_surfaces_malformed", "Cosmetic surfaces field is not a list.")
+            )
     elif appearance is not None:
         blockers.append(("appearance_malformed", "Appearance section is malformed."))
 
     post_processing = mfg.get("post_processing", []) if isinstance(mfg, dict) else []
     if isinstance(post_processing, list):
         if post_processing:
-            blockers.append(("post_processing_present", "Post-processing requirements are specified."))
+            blockers.append(
+                ("post_processing_present", "Post-processing requirements are specified.")
+            )
     elif post_processing is not None:
         blockers.append(("post_processing_malformed", "Post-processing field is not a list."))
 
@@ -163,9 +189,16 @@ def _assess_design_path(spec_obj: dict[str, Any]) -> dict[str, Any]:
         reqs = inspection.get("requirements", [])
         if isinstance(reqs, list):
             if reqs:
-                blockers.append(("inspection_requirements_present", "Inspection requirements are specified."))
+                blockers.append(
+                    ("inspection_requirements_present", "Inspection requirements are specified.")
+                )
         elif reqs is not None:
-            blockers.append(("inspection_requirements_malformed", "Inspection requirements field is not a list."))
+            blockers.append(
+                (
+                    "inspection_requirements_malformed",
+                    "Inspection requirements field is not a list.",
+                )
+            )
     elif inspection is not None:
         blockers.append(("inspection_malformed", "Inspection section is malformed."))
 
@@ -280,7 +313,11 @@ def spec_apply_answer(
         return {
             "spec_draft_updated": spec_draft,
             "applied": False,
-            "errors": [_tool_error("INVALID_JSON_POINTER", "path must be a non-empty string", field="/path").to_dict()],
+            "errors": [
+                _tool_error(
+                    "INVALID_JSON_POINTER", "path must be a non-empty string", field="/path"
+                ).to_dict()
+            ],
             "warnings": [],
         }
 
@@ -288,7 +325,9 @@ def spec_apply_answer(
         return {
             "spec_draft_updated": spec_draft,
             "applied": False,
-            "errors": [_tool_error("TYPE_ERROR", f"Invalid source: {source!r}", field="/source").to_dict()],
+            "errors": [
+                _tool_error("TYPE_ERROR", f"Invalid source: {source!r}", field="/source").to_dict()
+            ],
             "warnings": [],
         }
 
@@ -296,7 +335,11 @@ def spec_apply_answer(
         return {
             "spec_draft_updated": spec_draft,
             "applied": False,
-            "errors": [_tool_error("TYPE_ERROR", f"value is required for op={op!r}", field="/value").to_dict()],
+            "errors": [
+                _tool_error(
+                    "TYPE_ERROR", f"value is required for op={op!r}", field="/value"
+                ).to_dict()
+            ],
             "warnings": [],
         }
 
@@ -408,7 +451,9 @@ def _choose_question_text(q: Question, signals: ConversationSignals) -> str:
     return q.plain
 
 
-def spec_next_question(*, spec_draft: dict, conversation_signals: dict | None = None) -> dict[str, Any]:
+def spec_next_question(
+    *, spec_draft: dict, conversation_signals: dict | None = None
+) -> dict[str, Any]:
     meta = spec_draft.get("meta") if isinstance(spec_draft, dict) else None
     maturity = meta.get("maturity_level") if isinstance(meta, dict) else None
     maturity_level = maturity if maturity in MATURITY_LEVELS else "L1"
@@ -577,20 +622,20 @@ def _export_brief_cnc(spec: dict) -> dict[str, Any]:
     lines.append("## Part")
     lines.append(f"- Name: {part.get('name', '')}")
     lines.append(f"- Description: {part.get('description', '')}")
-    lines.append(f"- Envelope: x={env.get('x','')}, y={env.get('y','')}, z={env.get('z','')}")
+    lines.append(f"- Envelope: x={env.get('x', '')}, y={env.get('y', '')}, z={env.get('z', '')}")
     lines.append("")
     lines.append("## Manufacturing")
-    lines.append(f"- Material: {material.get('grade','')} ({material.get('family','')})")
-    lines.append(f"- General tolerance: {tolerances.get('general','')}")
-    lines.append(f"- Surface finish (Ra um): {sf.get('ra_um','')}")
-    lines.append(f"- Coating: {sf.get('coating','')}")
+    lines.append(f"- Material: {material.get('grade', '')} ({material.get('family', '')})")
+    lines.append(f"- General tolerance: {tolerances.get('general', '')}")
+    lines.append(f"- Surface finish (Ra um): {sf.get('ra_um', '')}")
+    lines.append(f"- Coating: {sf.get('coating', '')}")
     lines.append("")
     lines.append("## Inspection")
-    lines.append(f"- Method: {insp.get('method','')}")
+    lines.append(f"- Method: {insp.get('method', '')}")
     lines.append("")
     lines.append("## Deliverables")
     lines.append(f"- CAD formats: {', '.join(deliv.get('cad_formats', []) or [])}")
-    lines.append(f"- Drawing required: {deliv.get('drawing_required','')}")
+    lines.append(f"- Drawing required: {deliv.get('drawing_required', '')}")
     lines.append("")
     _append_common_tail(lines, spec)
     return {"markdown": "\n".join(lines).rstrip() + "\n"}
@@ -620,17 +665,19 @@ def _export_brief_print_3d(spec: dict) -> dict[str, Any]:
     lines.append("## Part")
     lines.append(f"- Name: {part.get('name', '')}")
     lines.append(f"- Description: {part.get('description', '')}")
-    lines.append(f"- Envelope: x={env.get('x','')}, y={env.get('y','')}, z={env.get('z','')}")
+    lines.append(f"- Envelope: x={env.get('x', '')}, y={env.get('y', '')}, z={env.get('z', '')}")
     lines.append("")
     lines.append("## Manufacturing")
     lines.append(f"- Technology: {mfg.get('technology', '')}")
     lines.append(f"- Output target: {mfg.get('output_target', '')}")
-    lines.append(f"- Material: {material.get('grade','')} ({material.get('family','')})")
+    lines.append(f"- Material: {material.get('grade', '')} ({material.get('family', '')})")
     lines.append(f"- Fit tolerance notes: {tolerances.get('general', '')}")
     lines.append(f"- Appearance color: {appearance.get('color', '')}")
     lines.append(f"- Appearance finish: {appearance.get('finish', '')}")
     lines.append(f"- Support marks acceptable: {appearance.get('support_marks_ok', '')}")
-    cosmetic_surfaces = appearance.get("cosmetic_surfaces", []) if isinstance(appearance, dict) else []
+    cosmetic_surfaces = (
+        appearance.get("cosmetic_surfaces", []) if isinstance(appearance, dict) else []
+    )
     lines.append(f"- Cosmetic surfaces: {', '.join(cosmetic_surfaces or [])}")
     post_processing = mfg.get("post_processing", []) if isinstance(mfg, dict) else []
     lines.append(f"- Post processing: {', '.join(post_processing or [])}")
@@ -649,7 +696,7 @@ def _export_brief_print_3d(spec: dict) -> dict[str, Any]:
     lines.append("")
     lines.append("## Deliverables")
     lines.append(f"- CAD formats: {', '.join(deliv.get('cad_formats', []) or [])}")
-    lines.append(f"- Drawing required: {deliv.get('drawing_required','')}")
+    lines.append(f"- Drawing required: {deliv.get('drawing_required', '')}")
     lines.append("")
     _append_common_tail(lines, spec)
     return {"markdown": "\n".join(lines).rstrip() + "\n"}
@@ -678,14 +725,14 @@ def _export_rfq_summary_cnc(spec: dict) -> dict[str, Any]:
     lines.append("")
     lines.append(f"- Quantity: {part.get('quantity', '')}")
     lines.append(f"- Units: {meta.get('units', '')}")
-    lines.append(f"- Envelope: x={env.get('x','')}, y={env.get('y','')}, z={env.get('z','')}")
-    lines.append(f"- Material: {material.get('grade','')}")
-    lines.append(f"- General tolerance: {tolerances.get('general','')}")
-    lines.append(f"- Surface finish (Ra um): {sf.get('ra_um','')}")
+    lines.append(f"- Envelope: x={env.get('x', '')}, y={env.get('y', '')}, z={env.get('z', '')}")
+    lines.append(f"- Material: {material.get('grade', '')}")
+    lines.append(f"- General tolerance: {tolerances.get('general', '')}")
+    lines.append(f"- Surface finish (Ra um): {sf.get('ra_um', '')}")
     lines.append("")
     lines.append("## Files Requested")
     lines.append(f"- CAD: {', '.join(deliv.get('cad_formats', []) or [])}")
-    lines.append(f"- Drawing required: {deliv.get('drawing_required','')}")
+    lines.append(f"- Drawing required: {deliv.get('drawing_required', '')}")
     lines.append("")
     return {"markdown": "\n".join(lines).rstrip() + "\n"}
 
@@ -707,7 +754,7 @@ def _export_rfq_summary_print_3d(spec: dict) -> dict[str, Any]:
     lines.append("")
     lines.append(f"- Quantity: {part.get('quantity', '')}")
     lines.append(f"- Units: {meta.get('units', '')}")
-    lines.append(f"- Envelope: x={env.get('x','')}, y={env.get('y','')}, z={env.get('z','')}")
+    lines.append(f"- Envelope: x={env.get('x', '')}, y={env.get('y', '')}, z={env.get('z', '')}")
     lines.append(f"- Technology: {mfg.get('technology', '')}")
     lines.append(f"- Output target: {mfg.get('output_target', '')}")
     lines.append(f"- Material: {material.get('grade', '')} ({material.get('family', '')})")
@@ -728,7 +775,7 @@ def _export_rfq_summary_print_3d(spec: dict) -> dict[str, Any]:
         lines.append("")
     lines.append("## Files Requested")
     lines.append(f"- CAD: {', '.join(deliv.get('cad_formats', []) or [])}")
-    lines.append(f"- Drawing required: {deliv.get('drawing_required','')}")
+    lines.append(f"- Drawing required: {deliv.get('drawing_required', '')}")
     lines.append("")
     return {"markdown": "\n".join(lines).rstrip() + "\n"}
 
@@ -757,11 +804,16 @@ def spec_generate_cad(
         errors.append(
             _tool_error(
                 "NOT_FINALIZED",
-                "Spec contains internal fields (_interview/_audit). "
-                "Run spec.finalize first.",
+                "Spec contains internal fields (_interview/_audit). Run spec.finalize first.",
             ).to_dict()
         )
-        return {"file_path": None, "cad_data": None, "metadata": {}, "warnings": [], "errors": errors}
+        return {
+            "file_path": None,
+            "cad_data": None,
+            "metadata": {},
+            "warnings": [],
+            "errors": errors,
+        }
 
     meta = spec.get("meta", {}) if isinstance(spec, dict) else {}
     maturity = meta.get("maturity_level", "L1")
@@ -775,10 +827,8 @@ def spec_generate_cad(
         reasons = list(design_gate.get("reason_codes", []))
         reason_text = f" reason_codes={','.join(reasons)}" if reasons else ""
         precondition_warnings.append(
-
-                f"Coverage {coverage:.0%} is below {maturity} threshold {threshold:.0%}; "
-                f"proceeding in notify-only mode on design_path={mode}.{reason_text}"
-
+            f"Coverage {coverage:.0%} is below {maturity} threshold {threshold:.0%}; "
+            f"proceeding in notify-only mode on design_path={mode}.{reason_text}"
         )
 
     # Precondition 3: optional hash verification
@@ -854,6 +904,7 @@ def _generate_cad_generic_v1(
 
     # Step 2: Compile EIR operations via FreeCAD compiler
     from server.geometry_ir import EIRBuilder, Invariant
+
     eir_builder = EIRBuilder()
     for op_data in eir_dict.get("operations", []):
         invariants = [
@@ -889,6 +940,7 @@ def _generate_cad_generic_v1(
     # Step 4: Verify
     # Reconstruct GIR object for verification
     from server.geometry_ir import GIRBuilder, Quantity
+
     gir_builder = GIRBuilder()
     gir_builder.add_global_frame()
     for feat in gir_dict.get("features", []):
@@ -909,16 +961,18 @@ def _generate_cad_generic_v1(
     )
 
     # Build Section 4.8 response
-    notices = plan_notices + [
-        {"code": n.code, "severity": n.severity, "message": n.message, "context": n.context}
-        for n in verification_report.notices
-    ] + [
-        {"code": n.code, "severity": n.severity, "message": n.message, "context": n.context}
-        for n in compiler_result.notices
-    ] + [
-        rec.to_notice()
-        for rec in repair_recommendations
-    ]
+    notices = (
+        plan_notices
+        + [
+            {"code": n.code, "severity": n.severity, "message": n.message, "context": n.context}
+            for n in verification_report.notices
+        ]
+        + [
+            {"code": n.code, "severity": n.severity, "message": n.message, "context": n.context}
+            for n in compiler_result.notices
+        ]
+        + [rec.to_notice() for rec in repair_recommendations]
+    )
 
     metadata = {
         "engine_mode": "generic_v1",
@@ -950,7 +1004,10 @@ def _generate_cad_generic_v1(
     }
 
 
-def spec_plan_geometry(*, spec: dict[str, Any], options: dict[str, Any] | None = None) -> dict[str, Any]:
+def spec_plan_geometry(
+    *, spec: dict[str, Any], options: dict[str, Any] | None = None
+) -> dict[str, Any]:
     """Read-only observability: returns GIR/EIR + notices without executing."""
     from server.geometry_planning import plan_geometry
+
     return plan_geometry(spec, options=options)

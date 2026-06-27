@@ -1,4 +1,5 @@
 """MCP tool implementations for simulation engine lifecycle (sim.* tools)."""
+
 from __future__ import annotations
 
 from typing import Any

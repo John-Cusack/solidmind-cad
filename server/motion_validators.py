@@ -4,6 +4,7 @@ Each validator is a pure function that takes a Mechanism and returns a
 ValidatorResult.  The VALIDATORS registry maps names to callables for
 easy dispatch and discovery.
 """
+
 from __future__ import annotations
 
 import math
@@ -17,6 +18,7 @@ from server.motion_models import JointType, Mechanism
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _gear_joints(mech: Mechanism) -> list:
     """Return all gear-mesh joints."""
@@ -62,6 +64,7 @@ def _revolute_origin_map(mech: Mechanism) -> dict[str, tuple[float, float, float
 # ---------------------------------------------------------------------------
 # Gear mesh phase computation
 # ---------------------------------------------------------------------------
+
 
 def _find_gear_seed(mech: Mechanism) -> str | None:
     """Find the driven part to use as BFS seed for gear computations.
@@ -160,10 +163,7 @@ def compute_gear_mesh_phases(mech: Mechanism) -> dict[str, float]:
                 z_current = joint.teeth_child
                 z_neighbor = joint.teeth_parent
 
-            if (
-                z_neighbor is None or z_neighbor <= 0
-                or z_current is None or z_current <= 0
-            ):
+            if z_neighbor is None or z_neighbor <= 0 or z_current is None or z_current <= 0:
                 visited.add(neighbor)
                 phases[neighbor] = 0.0
                 queue.append(neighbor)
@@ -258,6 +258,7 @@ def compute_gear_animation_ratios(mech: Mechanism) -> dict[str, float]:
 # ---------------------------------------------------------------------------
 # Speed propagation (BFS from driven joints)
 # ---------------------------------------------------------------------------
+
 
 def propagate_speeds(mech: Mechanism) -> dict[str, float]:
     """BFS from driven joints to compute RPM at every part.
@@ -386,7 +387,8 @@ def propagate_speeds(mech: Mechanism) -> dict[str, float]:
 
             ratio = _effective_ratio(joint)
             if ratio is not None and joint.joint_type in (
-                JointType.GEAR_MESH, JointType.BELT_CHAIN,
+                JointType.GEAR_MESH,
+                JointType.BELT_CHAIN,
             ):
                 # Convention: ratio = teeth_parent / teeth_child
                 # parent speed / child speed = teeth_child / teeth_parent = 1/ratio
@@ -460,7 +462,8 @@ def propagate_torques(mech: Mechanism) -> dict[str, float]:
             ratio = _effective_ratio(joint)
             eff = joint.mesh_efficiency
             if ratio is not None and joint.joint_type in (
-                JointType.GEAR_MESH, JointType.BELT_CHAIN,
+                JointType.GEAR_MESH,
+                JointType.BELT_CHAIN,
             ):
                 if current == joint.parent_part:
                     neighbor_torque = current_torque / ratio * eff
@@ -483,6 +486,7 @@ def propagate_torques(mech: Mechanism) -> dict[str, float]:
 # ---------------------------------------------------------------------------
 # Individual validators
 # ---------------------------------------------------------------------------
+
 
 def _check_gear_ratio_consistency(mech: Mechanism) -> ValidatorResult:
     """Verify gear_ratio matches teeth_parent/teeth_child for all gear meshes."""
@@ -546,17 +550,22 @@ def check_tooth_interference(
         z_c = j.teeth_child
 
         if (
-            o_parent is None or o_child is None
-            or z_p is None or z_p <= 0
-            or z_c is None or z_c <= 0
+            o_parent is None
+            or o_child is None
+            or z_p is None
+            or z_p <= 0
+            or z_c is None
+            or z_c <= 0
         ):
-            results.append({
-                "joint_id": j.id,
-                "parent": j.parent_part,
-                "child": j.child_part,
-                "ok": None,
-                "detail": "missing origins or teeth data",
-            })
+            results.append(
+                {
+                    "joint_id": j.id,
+                    "parent": j.parent_part,
+                    "child": j.child_part,
+                    "ok": None,
+                    "detail": "missing origins or teeth data",
+                }
+            )
             continue
 
         dx = o_child[0] - o_parent[0]
@@ -627,16 +636,18 @@ def check_tooth_interference(
             ok = True
             detail = f"Correct tooth-gap interlocking (clearance {clearance:.2f}°)"
 
-        results.append({
-            "joint_id": j.id,
-            "parent": j.parent_part,
-            "child": j.child_part,
-            "ok": ok,
-            "residual_parent_deg": round(dist_to_tooth_p, 4),
-            "residual_child_deg": round(dist_to_tooth_c, 4),
-            "clearance_deg": round(clearance, 4),
-            "detail": detail,
-        })
+        results.append(
+            {
+                "joint_id": j.id,
+                "parent": j.parent_part,
+                "child": j.child_part,
+                "ok": ok,
+                "residual_parent_deg": round(dist_to_tooth_p, 4),
+                "residual_child_deg": round(dist_to_tooth_c, 4),
+                "clearance_deg": round(clearance, 4),
+                "detail": detail,
+            }
+        )
 
     return results
 
@@ -718,7 +729,8 @@ def _check_speed_propagation(mech: Mechanism) -> ValidatorResult:
     """Compute speeds via BFS and report results."""
     speeds = propagate_speeds(mech)
     unreachable = [
-        pid for pid, rpm in speeds.items()
+        pid
+        for pid, rpm in speeds.items()
         if rpm == 0.0 and not (mech.get_part(pid) and mech.get_part(pid).is_ground)
     ]
     if unreachable:
@@ -802,7 +814,11 @@ def _check_power_conservation(mech: Mechanism) -> ValidatorResult:
             name="power_conservation",
             status="fail",
             message=f"Output power ({p_out:.2f} W) exceeds input ({p_in:.2f} W) — energy creation",
-            measured={"p_in_w": round(p_in, 4), "p_out_w": round(p_out, 4), "ratio": round(ratio, 4)},
+            measured={
+                "p_in_w": round(p_in, 4),
+                "p_out_w": round(p_out, 4),
+                "ratio": round(ratio, 4),
+            },
             priority=350,
         )
     return ValidatorResult(
@@ -825,7 +841,12 @@ def _check_dof_analysis(mech: Mechanism) -> ValidatorResult:
     j1 = 0
     j2 = 0
     for j in mech.joints:
-        if j.joint_type in (JointType.REVOLUTE, JointType.PRISMATIC, JointType.GEAR_MESH, JointType.BELT_CHAIN):
+        if j.joint_type in (
+            JointType.REVOLUTE,
+            JointType.PRISMATIC,
+            JointType.GEAR_MESH,
+            JointType.BELT_CHAIN,
+        ):
             j1 += 1
         elif j.joint_type == JointType.FIXED:
             j1 += 1  # Fixed removes all relative DOF; in 2D that's ~3 constraints, but Gruebler counts as j1
@@ -898,10 +919,7 @@ def _check_planet_spacing(mech: Mechanism) -> ValidatorResult:
         mesh_counts[j.parent_part].append(j.child_part)
         mesh_counts[j.child_part].append(j.parent_part)
 
-    sun_candidates = [
-        pid for pid, neighbors in mesh_counts.items()
-        if len(neighbors) >= 2
-    ]
+    sun_candidates = [pid for pid, neighbors in mesh_counts.items() if len(neighbors) >= 2]
 
     if not sun_candidates:
         return ValidatorResult(
@@ -926,8 +944,12 @@ def _check_planet_spacing(mech: Mechanism) -> ValidatorResult:
                 name="planet_spacing_check",
                 status="warn",
                 message=f"Part '{sun_id}' has {n_planets} meshing partners — "
-                        f"angular spacing {min_spacing_deg:.1f}° may be too tight",
-                measured={"sun_id": sun_id, "planet_count": n_planets, "spacing_deg": min_spacing_deg},
+                f"angular spacing {min_spacing_deg:.1f}° may be too tight",
+                measured={
+                    "sun_id": sun_id,
+                    "planet_count": n_planets,
+                    "spacing_deg": min_spacing_deg,
+                },
                 priority=450,
             )
 
@@ -976,14 +998,14 @@ def _check_linkage_grashof(mech: Mechanism) -> ValidatorResult:
         return ValidatorResult(
             name="linkage_grashof",
             status="pass",
-            message=f"Grashof condition satisfied: s+l={s+l_:.1f} <= p+q={p+q:.1f} — full rotation possible",
+            message=f"Grashof condition satisfied: s+l={s + l_:.1f} <= p+q={p + q:.1f} — full rotation possible",
             measured={"s": s, "p": p, "q": q, "l": l_, "grashof": True},
             priority=500,
         )
     return ValidatorResult(
         name="linkage_grashof",
         status="warn",
-        message=f"Grashof condition NOT satisfied: s+l={s+l_:.1f} > p+q={p+q:.1f} — no full rotation",
+        message=f"Grashof condition NOT satisfied: s+l={s + l_:.1f} > p+q={p + q:.1f} — no full rotation",
         measured={"s": s, "p": p, "q": q, "l": l_, "grashof": False},
         priority=500,
     )
@@ -1058,6 +1080,7 @@ def _check_expected_outputs(mech: Mechanism) -> ValidatorResult:
 # ---------------------------------------------------------------------------
 # Gear train analysis (dedicated tool)
 # ---------------------------------------------------------------------------
+
 
 def analyze_gear_train(mech: Mechanism) -> dict[str, Any]:
     """Analyze a gear train: overall ratio, per-stage ratios, contact ratios.
@@ -1140,10 +1163,13 @@ def run_validators(
     for name in names:
         fn = VALIDATORS.get(name)
         if fn is None:
-            results.append(ValidatorResult(
-                name=name, status="fail",
-                message=f"Unknown validator: {name}",
-            ))
+            results.append(
+                ValidatorResult(
+                    name=name,
+                    status="fail",
+                    message=f"Unknown validator: {name}",
+                )
+            )
             continue
         results.append(fn(mech))
     results.sort(key=lambda r: r.priority)
@@ -1153,6 +1179,7 @@ def run_validators(
 # ---------------------------------------------------------------------------
 # Structural mechanism validation (pre-storage checks)
 # ---------------------------------------------------------------------------
+
 
 def validate_mechanism_structure(
     mech: Mechanism,
@@ -1199,15 +1226,11 @@ def validate_mechanism_structure(
         # Check axis components are finite
         for i, val in enumerate(j.axis):
             if not math.isfinite(val):
-                errors.append(
-                    f"Joint '{j.id}': axis[{i}]={val} is not finite"
-                )
+                errors.append(f"Joint '{j.id}': axis[{i}]={val} is not finite")
         # Check origin components are finite
         for i, val in enumerate(j.origin):
             if not math.isfinite(val):
-                errors.append(
-                    f"Joint '{j.id}': origin[{i}]={val} is not finite"
-                )
+                errors.append(f"Joint '{j.id}': origin[{i}]={val} is not finite")
         # Axis should be unit-length (5% tolerance)
         axis_mag_sq = sum(a * a for a in j.axis)
         if axis_mag_sq > 0:
@@ -1226,35 +1249,23 @@ def validate_mechanism_structure(
 
         # Gear ratio / teeth finite
         if j.gear_ratio is not None and not math.isfinite(j.gear_ratio):
-            errors.append(
-                f"Joint '{j.id}': gear_ratio={j.gear_ratio} is not finite"
-            )
+            errors.append(f"Joint '{j.id}': gear_ratio={j.gear_ratio} is not finite")
         if j.teeth_parent is not None and j.teeth_parent <= 0:
-            errors.append(
-                f"Joint '{j.id}': teeth_parent={j.teeth_parent} must be positive"
-            )
+            errors.append(f"Joint '{j.id}': teeth_parent={j.teeth_parent} must be positive")
         if j.teeth_child is not None and j.teeth_child <= 0:
-            errors.append(
-                f"Joint '{j.id}': teeth_child={j.teeth_child} must be positive"
-            )
+            errors.append(f"Joint '{j.id}': teeth_child={j.teeth_child} must be positive")
 
     # 5. Dangling part references in joints
     for j in mech.joints:
         if j.parent_part not in part_ids:
-            errors.append(
-                f"Joint '{j.id}' references unknown parent_part '{j.parent_part}'"
-            )
+            errors.append(f"Joint '{j.id}' references unknown parent_part '{j.parent_part}'")
         if j.child_part not in part_ids:
-            errors.append(
-                f"Joint '{j.id}' references unknown child_part '{j.child_part}'"
-            )
+            errors.append(f"Joint '{j.id}' references unknown child_part '{j.child_part}'")
 
     # 6. Dangling joint references in drives
     for d in mech.drives:
         if mech.get_joint(d.joint_id) is None:
-            errors.append(
-                f"Drive references unknown joint_id '{d.joint_id}'"
-            )
+            errors.append(f"Drive references unknown joint_id '{d.joint_id}'")
 
     # 7. No ground part — warning in "warn" mode, error in "strict" mode.
     if not mech.ground_parts():
@@ -1322,8 +1333,7 @@ def validate_mechanism_structure(
             if axis_mag_sq > 0:  # zero-axis already caught above
                 if max(abs(j.axis[i]) for i in range(3)) < 0.9:
                     warnings.append(
-                        f"Joint '{j.id}': prismatic axis not aligned "
-                        f"with any principal direction"
+                        f"Joint '{j.id}': prismatic axis not aligned with any principal direction"
                     )
 
     # 10b. Continuous joint with angle limits
@@ -1331,8 +1341,7 @@ def validate_mechanism_structure(
         if j.joint_type == JointType.CONTINUOUS:
             if j.min_angle_deg is not None or j.max_angle_deg is not None:
                 warnings.append(
-                    f"Joint '{j.id}': continuous joint has angle limits "
-                    f"set (use revolute instead)"
+                    f"Joint '{j.id}': continuous joint has angle limits set (use revolute instead)"
                 )
 
     # 11. Duplicate joint connections (including reverse direction: a→b and b→a)
@@ -1341,8 +1350,7 @@ def validate_mechanism_structure(
         key = frozenset((j.parent_part, j.child_part))
         if key in seen_connections:
             errors.append(
-                f"Duplicate joint connection: '{j.parent_part}' → "
-                f"'{j.child_part}' (joint '{j.id}')"
+                f"Duplicate joint connection: '{j.parent_part}' → '{j.child_part}' (joint '{j.id}')"
             )
         seen_connections.add(key)
 
@@ -1352,8 +1360,7 @@ def validate_mechanism_structure(
             errors.append(f"Part '{p.id}': mass_kg={p.mass_kg} is negative")
         if p.mass_kg is not None and p.mass_kg == 0 and not p.is_ground:
             warnings.append(
-                f"Part '{p.id}': mass_kg=0 on non-ground part "
-                f"(will cause simulation instability)"
+                f"Part '{p.id}': mass_kg=0 on non-ground part (will cause simulation instability)"
             )
 
     # 13. Applied forces
@@ -1361,23 +1368,15 @@ def validate_mechanism_structure(
     for i, f in enumerate(mech.applied_forces):
         label = f.label or f"applied_forces[{i}]"
         if f.target_body not in part_ids:
-            errors.append(
-                f"Applied force '{label}' targets unknown body '{f.target_body}'"
-            )
+            errors.append(f"Applied force '{label}' targets unknown body '{f.target_body}'")
         for k, val in enumerate(f.position_local):
             if not math.isfinite(val):
-                errors.append(
-                    f"Applied force '{label}': position_local[{k}]={val} is not finite"
-                )
+                errors.append(f"Applied force '{label}': position_local[{k}]={val} is not finite")
         for k, val in enumerate(f.force_vector):
             if not math.isfinite(val):
-                errors.append(
-                    f"Applied force '{label}': force_vector[{k}]={val} is not finite"
-                )
+                errors.append(f"Applied force '{label}': force_vector[{k}]={val} is not finite")
         if all(v == 0.0 for v in f.force_vector):
-            warnings.append(
-                f"Applied force '{label}' has zero force vector — no effect"
-            )
+            warnings.append(f"Applied force '{label}' has zero force vector — no effect")
         if f.frame not in valid_frames:
             errors.append(
                 f"Applied force '{label}' has invalid frame '{f.frame}' "

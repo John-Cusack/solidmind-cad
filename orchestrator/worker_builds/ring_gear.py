@@ -12,6 +12,7 @@ planetary train share the same module + pressure-angle + center-
 distance constraints. This avoids the orchestrator having to duplicate
 gear-math anywhere outside the Rust kernel.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -123,9 +124,7 @@ def build_ring_gear(
     }
 
     interface_id = (
-        "ifc1"
-        if interfaces is None
-        else (interfaces[0] if interfaces else {}).get("id", "ifc1")
+        "ifc1" if interfaces is None else (interfaces[0] if interfaces else {}).get("id", "ifc1")
     )
 
     # Internal gears have no physical cylinder at the pitch diameter

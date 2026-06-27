@@ -1,4 +1,5 @@
 """Tests for fastener dimension lookup."""
+
 from __future__ import annotations
 
 import unittest
@@ -9,7 +10,6 @@ from server.tools_fastener import cad_fastener_spec
 
 
 class TestFastenerLookup(unittest.TestCase):
-
     def test_m4_socket_head(self) -> None:
         spec = lookup("M4", 20.0, "socket_head")
         assert spec is not None
@@ -21,7 +21,7 @@ class TestFastenerLookup(unittest.TestCase):
         self.assertAlmostEqual(spec.socket_size, 3.0)
         self.assertAlmostEqual(spec.through_hole_normal, 4.5)
         self.assertAlmostEqual(spec.counterbore_diameter, 8.0)  # 7.0 + 1.0
-        self.assertAlmostEqual(spec.counterbore_depth, 4.5)     # 4.0 + 0.5
+        self.assertAlmostEqual(spec.counterbore_depth, 4.5)  # 4.0 + 0.5
         self.assertEqual(spec.length, 20.0)
         self.assertAlmostEqual(spec.tap_drill_coarse, 3.3)
 
@@ -84,10 +84,12 @@ class TestFastenerLookup(unittest.TestCase):
         for size in SUPPORTED_SIZES:
             spec = lookup(size, 20.0)
             assert spec is not None
-            self.assertLess(spec.through_hole_close, spec.through_hole_normal,
-                            f"{size}: close >= normal")
-            self.assertLess(spec.through_hole_normal, spec.through_hole_loose,
-                            f"{size}: normal >= loose")
+            self.assertLess(
+                spec.through_hole_close, spec.through_hole_normal, f"{size}: close >= normal"
+            )
+            self.assertLess(
+                spec.through_hole_normal, spec.through_hole_loose, f"{size}: normal >= loose"
+            )
 
     def test_to_dict(self) -> None:
         spec = lookup("M4", 20.0)
@@ -100,7 +102,6 @@ class TestFastenerLookup(unittest.TestCase):
 
 
 class TestFastenerTool(unittest.TestCase):
-
     def test_basic_call(self) -> None:
         result = cad_fastener_spec(size="M4", length=20.0)
         self.assertTrue(result["ok"])
@@ -327,9 +328,7 @@ class TestFastenerFreeCADBuild(unittest.TestCase):
                 "sketch": "MountSketch",
                 "element_count": 4,
                 "constraint_count": 0,
-                "geometry": [
-                    {"type": "circle", "index": i} for i in range(4)
-                ],
+                "geometry": [{"type": "circle", "index": i} for i in range(4)],
             },
             {"sketch": "MountSketch", "fully_constrained": True, "open_vertices": 0},
         ]
@@ -344,8 +343,7 @@ class TestFastenerFreeCADBuild(unittest.TestCase):
 
         # Verify the sketch received circles with the correct radius
         populate_call = [
-            c for c in client.send_command.call_args_list
-            if c[0][0] == "sketch_populate"
+            c for c in client.send_command.call_args_list if c[0][0] == "sketch_populate"
         ][0]
         sent_elements = populate_call[1]["elements"]
         self.assertEqual(len(sent_elements), 4)
@@ -386,19 +384,23 @@ class TestFastenerFreeCADBuild(unittest.TestCase):
             if spec is None:
                 continue
             self.assertGreater(
-                spec.counterbore_diameter, spec.head_diameter,
+                spec.counterbore_diameter,
+                spec.head_diameter,
                 f"{size}: counterbore must clear head",
             )
             self.assertGreater(
-                spec.counterbore_depth, spec.head_height,
+                spec.counterbore_depth,
+                spec.head_height,
                 f"{size}: counterbore must be deeper than head",
             )
             self.assertGreater(
-                spec.through_hole_normal, spec.thread_diameter,
+                spec.through_hole_normal,
+                spec.thread_diameter,
                 f"{size}: clearance hole must be larger than thread",
             )
             self.assertGreater(
-                spec.tap_drill_coarse, 0,
+                spec.tap_drill_coarse,
+                0,
                 f"{size}: tap drill must be positive",
             )
 

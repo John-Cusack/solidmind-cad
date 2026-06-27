@@ -3,6 +3,7 @@
 Covers the calibration-first model: monotonicity, the zero/limit cases, the
 v∝x / range∝x² relationships, calibration round-trips, and input validation.
 """
+
 from __future__ import annotations
 
 import math
@@ -25,7 +26,7 @@ def _spec(**kw) -> pm.LauncherSpec:
 
 class TestEnergyChain(unittest.TestCase):
     def test_spring_energy(self) -> None:
-        self.assertAlmostEqual(pm.spring_energy_j(300.0, 0.02), 0.5 * 300.0 * 0.02 ** 2)
+        self.assertAlmostEqual(pm.spring_energy_j(300.0, 0.02), 0.5 * 300.0 * 0.02**2)
 
     def test_velocity_proportional_to_pullback(self) -> None:
         # Fixed efficiency ⇒ v ∝ x.

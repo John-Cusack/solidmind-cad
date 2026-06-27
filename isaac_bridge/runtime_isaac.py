@@ -4,6 +4,7 @@ The runtime exposes deterministic command handlers for the bridge protocol.
 When Omniverse Isaac APIs are available, a minimal physics stepping path is used.
 Otherwise, a deterministic analytical fallback is used for local/CI execution.
 """
+
 from __future__ import annotations
 
 import base64
@@ -34,14 +35,16 @@ logger = logging.getLogger("solidmind.isaac_runtime")
 # USD prim type names that represent joints.  Checked via GetTypeName() which
 # is reliable across Isaac Sim versions — unlike HasAPI() which only works for
 # applied API schemas, not typed schemas.
-_JOINT_TYPE_NAMES: frozenset[str] = frozenset({
-    "PhysicsRevoluteJoint",
-    "PhysicsPrismaticJoint",
-    "PhysicsFixedJoint",
-    "PhysicsSphericalJoint",
-    "PhysicsDistanceJoint",
-    "PhysicsJoint",
-})
+_JOINT_TYPE_NAMES: frozenset[str] = frozenset(
+    {
+        "PhysicsRevoluteJoint",
+        "PhysicsPrismaticJoint",
+        "PhysicsFixedJoint",
+        "PhysicsSphericalJoint",
+        "PhysicsDistanceJoint",
+        "PhysicsJoint",
+    }
+)
 
 
 class IsaacRuntimeError(Exception):
@@ -80,9 +83,7 @@ class _MainThreadDispatcher:
     """
 
     def __init__(self) -> None:
-        self._queue: queue.Queue[
-            tuple[Any, tuple, dict, threading.Event, list]
-        ] = queue.Queue()
+        self._queue: queue.Queue[tuple[Any, tuple, dict, threading.Event, list]] = queue.Queue()
         self._enabled = False
 
     def enable(self) -> None:
@@ -225,6 +226,7 @@ class _IsaacWorldEngine:
             # unavailable (e.g. in CI without full Omniverse stack).
             try:
                 from pxr import PhysxSchema  # type: ignore[import-not-found]
+
                 physx_api = PhysxSchema.PhysxSceneAPI.Apply(scene_prim)
                 physx_api.CreateSolverTypeAttr("TGS")
                 physx_api.CreateMaxDepenetrationVelocityAttr(5.0)
@@ -236,12 +238,15 @@ class _IsaacWorldEngine:
                     physx_api.CreateMinVelocityIterationCountAttr(4)
                 logger.info("[engine] setup_scene: TGS solver configured (max_depen_vel=5.0)")
             except Exception as exc:
-                logger.warning("[engine] setup_scene: PhysX solver config failed (non-fatal): %s", exc)
+                logger.warning(
+                    "[engine] setup_scene: PhysX solver config failed (non-fatal): %s", exc
+                )
 
             # Ground plane
             ground_path = "/World/GroundPlane"
             if not stage.GetPrimAtPath(ground_path).IsValid():
                 from omni.isaac.core.objects import GroundPlane  # type: ignore[import-not-found]
+
                 GroundPlane(prim_path=ground_path)
 
             # Ground plane physics material with friction.  Non-fatal if
@@ -270,9 +275,13 @@ class _IsaacWorldEngine:
                         UsdShade.Tokens.weakerThanDescendants,
                         "physics",
                     )
-                logger.info("[engine] setup_scene: ground friction material applied (static=1.0, dynamic=0.8)")
+                logger.info(
+                    "[engine] setup_scene: ground friction material applied (static=1.0, dynamic=0.8)"
+                )
             except Exception as exc:
-                logger.warning("[engine] setup_scene: ground material config failed (non-fatal): %s", exc)
+                logger.warning(
+                    "[engine] setup_scene: ground material config failed (non-fatal): %s", exc
+                )
 
             # Distant light (direct illumination — key light from above-right)
             light_path = "/World/DistantLight"
@@ -282,6 +291,7 @@ class _IsaacWorldEngine:
                 dlight.CreateIntensityAttr(5000)
                 dlight.CreateAngleAttr(1.0)  # soft shadows
                 from pxr import UsdGeom  # type: ignore[import-not-found]
+
                 UsdGeom.Xformable(light_prim).AddRotateXYZOp().Set(Gf.Vec3f(-45, 30, 0))
 
             # Dome light (ambient/indirect illumination — essential for RTX
@@ -296,15 +306,20 @@ class _IsaacWorldEngine:
             # Ground plane visual material (grey so robot is visible against it)
             try:
                 from pxr import Sdf, UsdShade  # type: ignore[import-not-found]
+
                 ground_vis_mat_path = "/World/GroundVisualMaterial"
                 if not stage.GetPrimAtPath(ground_vis_mat_path).IsValid():
                     gvm = stage.DefinePrim(ground_vis_mat_path, "Material")
                     gv_shader = stage.DefinePrim(f"{ground_vis_mat_path}/Shader", "Shader")
                     gvs = UsdShade.Shader(gv_shader)
                     gvs.CreateIdAttr("UsdPreviewSurface")
-                    gvs.CreateInput("diffuseColor", Sdf.ValueTypeNames.Color3f).Set(Gf.Vec3f(0.5, 0.5, 0.5))
+                    gvs.CreateInput("diffuseColor", Sdf.ValueTypeNames.Color3f).Set(
+                        Gf.Vec3f(0.5, 0.5, 0.5)
+                    )
                     gvs.CreateInput("roughness", Sdf.ValueTypeNames.Float).Set(0.8)
-                    UsdShade.Material(gvm).CreateSurfaceOutput().ConnectToSource(gvs.ConnectableAPI(), "surface")
+                    UsdShade.Material(gvm).CreateSurfaceOutput().ConnectToSource(
+                        gvs.ConnectableAPI(), "surface"
+                    )
                     # Bind to ground plane
                     gp = stage.GetPrimAtPath("/World/GroundPlane")
                     if gp.IsValid():
@@ -392,6 +407,7 @@ class _IsaacWorldEngine:
         _drive_type_set = False
         try:
             import sys
+
             _urdf_mod = sys.modules.get("isaacsim.asset.importer.urdf._urdf")
             if _urdf_mod is None:
                 import isaacsim.asset.importer.urdf._urdf as _urdf_mod  # type: ignore[import-not-found]
@@ -407,14 +423,17 @@ class _IsaacWorldEngine:
             else:
                 logger.warning(
                     "[engine] import_urdf: UrdfJointTargetType not found in _urdf module. "
-                    "Available attrs: %s", [a for a in dir(_urdf_mod) if "rdf" in a.lower() or "oint" in a.lower() or "rive" in a.lower()],
+                    "Available attrs: %s",
+                    [
+                        a
+                        for a in dir(_urdf_mod)
+                        if "rdf" in a.lower() or "oint" in a.lower() or "rive" in a.lower()
+                    ],
                 )
         except Exception as exc:
             logger.warning("[engine] import_urdf: failed to load UrdfJointTargetType: %r", exc)
         if not _drive_type_set:
-            import_config.default_drive_type = (
-                1 if config.default_drive_type == "velocity" else 0
-            )
+            import_config.default_drive_type = 1 if config.default_drive_type == "velocity" else 0
         # Stiffness/damping attribute names vary across Isaac Sim versions.
         _cfg_attrs = dir(import_config)
         for attr, value in [
@@ -429,7 +448,11 @@ class _IsaacWorldEngine:
                     logger.warning("[engine] import_urdf: failed to set %s: %r", attr, exc)
         logger.info(
             "[engine] import_urdf: ImportConfig drive attrs available: %s",
-            [a for a in _cfg_attrs if "drive" in a.lower() or "damp" in a.lower() or "stiff" in a.lower()],
+            [
+                a
+                for a in _cfg_attrs
+                if "drive" in a.lower() or "damp" in a.lower() or "stiff" in a.lower()
+            ],
         )
 
         # Remove any stale prim at the expected import path to avoid
@@ -465,6 +488,7 @@ class _IsaacWorldEngine:
         root_prim = stage.GetPrimAtPath(prim_path)
         if root_prim.IsValid():
             from pxr import Usd  # type: ignore[import-not-found]
+
             for prim in Usd.PrimRange(root_prim):
                 type_name = prim.GetTypeName()
                 if type_name:
@@ -499,7 +523,10 @@ class _IsaacWorldEngine:
         )
         logger.info(
             "[engine] import_urdf: done in %.3fs — prim=%s joints=%d links=%d",
-            time.monotonic() - t0, prim_path, joint_count, link_count,
+            time.monotonic() - t0,
+            prim_path,
+            joint_count,
+            link_count,
         )
         return prim_path, joint_count, link_count
 
@@ -530,7 +557,9 @@ class _IsaacWorldEngine:
             shader_prim = stage.DefinePrim(shader_path, "Shader")
             shader = UsdShade.Shader(shader_prim)
             shader.CreateIdAttr("UsdPreviewSurface")
-            shader.CreateInput("diffuseColor", Sdf.ValueTypeNames.Color3f).Set(Gf.Vec3f(1.0, 0.4, 0.0))
+            shader.CreateInput("diffuseColor", Sdf.ValueTypeNames.Color3f).Set(
+                Gf.Vec3f(1.0, 0.4, 0.0)
+            )
             shader.CreateInput("roughness", Sdf.ValueTypeNames.Float).Set(0.4)
             shader.CreateInput("metallic", Sdf.ValueTypeNames.Float).Set(0.0)
 
@@ -552,7 +581,11 @@ class _IsaacWorldEngine:
                 for child in p.GetChildren():
                     stack.append(child)
 
-            logger.info("[engine] _apply_display_color: bound material to %d meshes under %s", count, prim_path)
+            logger.info(
+                "[engine] _apply_display_color: bound material to %d meshes under %s",
+                count,
+                prim_path,
+            )
         except Exception as exc:
             logger.warning("[engine] _apply_display_color failed (non-fatal): %s", exc)
 
@@ -594,6 +627,7 @@ class _IsaacWorldEngine:
             from omni.kit.viewport.utility import (
                 get_active_viewport,  # type: ignore[import-not-found]
             )
+
             viewport = get_active_viewport()
             if viewport is not None:
                 _reposition_camera(
@@ -604,7 +638,9 @@ class _IsaacWorldEngine:
                 )
                 logger.info(
                     "[engine] _frame_camera: framed on %s — center=%s radius=%.3f",
-                    prim_path, center, radius,
+                    prim_path,
+                    center,
+                    radius,
                 )
             else:
                 logger.debug("[engine] _frame_camera: no active viewport")
@@ -662,7 +698,9 @@ class _IsaacWorldEngine:
             logger.warning("[engine] _configure_drives_post_import failed (non-fatal): %s", exc)
 
     def _ensure_collision_geometry(
-        self, prim_path: str, urdf_path: str | None = None,
+        self,
+        prim_path: str,
+        urdf_path: str | None = None,
     ) -> None:
         """Add collision boxes to links whose collision Xforms are empty.
 
@@ -703,6 +741,7 @@ class _IsaacWorldEngine:
                 # them causes self-collision with the parent's collider.
                 try:
                     import xml.etree.ElementTree as _ET
+
                     _tree = _ET.parse(urdf_path)
                     for _j in _tree.findall(".//joint"):
                         if _j.get("type") == "fixed":
@@ -715,7 +754,8 @@ class _IsaacWorldEngine:
                         logger.info(
                             "[engine] _ensure_collision_geometry: skipping %d fixed-joint child links: %s",
                             len(fixed_child_links),
-                            ", ".join(sorted(fixed_child_links)[:6]) + ("..." if len(fixed_child_links) > 6 else ""),
+                            ", ".join(sorted(fixed_child_links)[:6])
+                            + ("..." if len(fixed_child_links) > 6 else ""),
                         )
                 except Exception as _exc:
                     logger.debug("[engine] failed to parse fixed joints from URDF: %s", _exc)
@@ -792,6 +832,7 @@ class _IsaacWorldEngine:
                 UsdPhysics.CollisionAPI.Apply(col_prim)
                 try:
                     from pxr import PhysxSchema  # type: ignore[import-not-found]
+
                     PhysxSchema.PhysxCollisionAPI.Apply(col_prim)
                 except Exception:
                     pass
@@ -810,6 +851,7 @@ class _IsaacWorldEngine:
                     UsdPhysics.CollisionAPI.Apply(foot_prim)
                     try:
                         from pxr import PhysxSchema  # type: ignore[import-not-found]
+
                         PhysxSchema.PhysxCollisionAPI.Apply(foot_prim)
                     except Exception:
                         pass
@@ -817,16 +859,25 @@ class _IsaacWorldEngine:
                 added += 1
                 logger.debug(
                     "[engine] _ensure_collision_geometry: %s half_ext=(%.4f, %.4f, %.4f) center=(%.4f, %.4f, %.4f)",
-                    link_name, sx, sy, sz, center[0], center[1], center[2],
+                    link_name,
+                    sx,
+                    sy,
+                    sz,
+                    center[0],
+                    center[1],
+                    center[2],
                 )
 
             if added > 0:
                 logger.info(
                     "[engine] _ensure_collision_geometry: added %d collision boxes to links under %s",
-                    added, prim_path,
+                    added,
+                    prim_path,
                 )
             else:
-                logger.debug("[engine] _ensure_collision_geometry: all links already have colliders")
+                logger.debug(
+                    "[engine] _ensure_collision_geometry: all links already have colliders"
+                )
         except Exception as exc:
             logger.warning("[engine] _ensure_collision_geometry failed (non-fatal): %s", exc)
 
@@ -875,7 +926,8 @@ class _IsaacWorldEngine:
                     except Exception as exc:
                         logger.warning(
                             "[engine] JointStateAPI.Apply failed for %s (non-fatal): %s",
-                            prim_name, exc,
+                            prim_name,
+                            exc,
                         )
 
                     configured += 1
@@ -930,6 +982,7 @@ class _IsaacWorldEngine:
         name_to_rad = {k: math.radians(v) for k, v in positions_deg.items()}
         try:
             import numpy as np  # type: ignore[import-not-found]
+
             joint_names = articulation.dof_names
             if joint_names:
                 current_pos = articulation.get_joint_positions()
@@ -949,9 +1002,7 @@ class _IsaacWorldEngine:
                         num_dof,
                     )
         except Exception as exc:
-            logger.warning(
-                "[engine] set_joints_default_state failed (non-fatal): %s", exc
-            )
+            logger.warning("[engine] set_joints_default_state failed (non-fatal): %s", exc)
 
         logger.info(
             "[engine] set_initial_joint_positions: configured %d drive targets",
@@ -1076,14 +1127,22 @@ class _IsaacWorldEngine:
             # For mobile robots the URDF root is at z=0 but the standing
             # configuration has feet at z=-ground_clearance.  Without this
             # offset the legs start underground and the robot collapses.
-            logger.info("[engine] start_simulation: config.spawn_height=%r", getattr(config, 'spawn_height', 'MISSING'))
-            if getattr(config, 'spawn_height', 0) and abs(config.spawn_height) > 1e-6:
+            logger.info(
+                "[engine] start_simulation: config.spawn_height=%r",
+                getattr(config, "spawn_height", "MISSING"),
+            )
+            if getattr(config, "spawn_height", 0) and abs(config.spawn_height) > 1e-6:
                 try:
                     import omni.usd  # type: ignore[import-not-found]
                     from pxr import Gf, UsdGeom  # type: ignore[import-not-found]
+
                     stage = omni.usd.get_context().get_stage()
                     root_prim = stage.GetPrimAtPath(pp)
-                    logger.info("[engine] start_simulation: root_prim valid=%s path=%s", root_prim.IsValid(), pp)
+                    logger.info(
+                        "[engine] start_simulation: root_prim valid=%s path=%s",
+                        root_prim.IsValid(),
+                        pp,
+                    )
                     if root_prim.IsValid():
                         xformable = UsdGeom.Xformable(root_prim)
                         # URDF importer already creates xformOp:translate —
@@ -1099,10 +1158,13 @@ class _IsaacWorldEngine:
                             xformable.AddTranslateOp().Set(Gf.Vec3d(0, 0, config.spawn_height))
                         logger.info(
                             "[engine] start_simulation: spawn_height=%.4f applied on %s",
-                            config.spawn_height, pp,
+                            config.spawn_height,
+                            pp,
                         )
                 except Exception as exc:
-                    logger.warning("[engine] start_simulation: spawn_height failed: %s", exc, exc_info=True)
+                    logger.warning(
+                        "[engine] start_simulation: spawn_height failed: %s", exc, exc_info=True
+                    )
 
             # Phase 1: Set JointStateAPI + drive targets on USD (before world.reset)
             if config.initial_joint_positions:
@@ -1129,8 +1191,10 @@ class _IsaacWorldEngine:
                     cur_pos = art.get_joint_positions()
                     logger.info("[engine] start_simulation: DOF names: %s", dof_names)
                     if cur_pos is not None:
-                        logger.info("[engine] start_simulation: joint positions after reset: %s",
-                                    [f"{p:.1f}" for p in cur_pos])
+                        logger.info(
+                            "[engine] start_simulation: joint positions after reset: %s",
+                            [f"{p:.1f}" for p in cur_pos],
+                        )
                 except Exception as exc:
                     logger.warning("[engine] start_simulation: position readback failed: %s", exc)
 
@@ -1156,7 +1220,10 @@ class _IsaacWorldEngine:
 
         logger.info(
             "[engine] start_simulation: complete in %.3fs — prim=%s joints=%d links=%d",
-            time.monotonic() - t0, prim_path, joint_count, link_count,
+            time.monotonic() - t0,
+            prim_path,
+            joint_count,
+            link_count,
         )
         return prim_path, joint_count, link_count, articulation, warnings
 
@@ -1182,7 +1249,9 @@ class _IsaacWorldEngine:
                 if step_i > 0 and step_i % 500 == 0:
                     logger.info(
                         "[engine] step_and_sample: step %d/%d (%.1fs elapsed)",
-                        step_i, n_steps, time.monotonic() - t0,
+                        step_i,
+                        n_steps,
+                        time.monotonic() - t0,
                     )
                 if step_i % sample_every == 0 or step_i == n_steps - 1:
                     try:
@@ -1209,7 +1278,8 @@ class _IsaacWorldEngine:
 
         logger.info(
             "[engine] step_and_sample: done in %.3fs — %d samples collected",
-            time.monotonic() - t0, len(samples),
+            time.monotonic() - t0,
+            len(samples),
         )
         return samples
 
@@ -1218,9 +1288,11 @@ class _IsaacWorldEngine:
 
         Dispatched to the main thread in non-headless mode.
         """
+
         def _do_cleanup() -> None:
             try:
                 import omni.timeline  # type: ignore[import-not-found]
+
                 timeline = omni.timeline.get_timeline_interface()
                 timeline.stop()
             except Exception:
@@ -1239,6 +1311,7 @@ class _IsaacWorldEngine:
 
             try:
                 import omni.usd  # type: ignore[import-not-found]
+
                 stage = omni.usd.get_context().get_stage()
                 for prim_path in self._imported_prims:
                     prim = stage.GetPrimAtPath(prim_path)
@@ -1360,14 +1433,16 @@ def _reposition_camera(
             for _ in range(16):
                 sim_app.update()
         logger.debug(
-            "[runtime] camera repositioned via set_camera_view "
-            "eye=%s target=%s cam=%s",
-            eye_tuple, target_tuple, cam_path,
+            "[runtime] camera repositioned via set_camera_view eye=%s target=%s cam=%s",
+            eye_tuple,
+            target_tuple,
+            cam_path,
         )
         return
     except Exception as exc:
         logger.debug(
-            "[runtime] set_camera_view unavailable, trying fallback: %s", exc,
+            "[runtime] set_camera_view unavailable, trying fallback: %s",
+            exc,
         )
 
     # ------------------------------------------------------------------
@@ -1410,14 +1485,16 @@ def _reposition_camera(
             for _ in range(16):
                 sim_app.update()
         logger.debug(
-            "[runtime] camera repositioned via SetLookAt "
-            "eye=%s target=%s cam=%s",
-            eye_tuple, target_tuple, cam_path,
+            "[runtime] camera repositioned via SetLookAt eye=%s target=%s cam=%s",
+            eye_tuple,
+            target_tuple,
+            cam_path,
         )
         return
     except Exception as exc:
         logger.warning(
-            "[runtime] camera reposition failed (non-fatal): %s", exc,
+            "[runtime] camera reposition failed (non-fatal): %s",
+            exc,
         )
 
 
@@ -1445,6 +1522,7 @@ def _parse_urdf_collision_extents(
                 num_tris = struct.unpack("<I", num_tri_bytes)[0]
                 # Quick heuristic: binary STL has 80 + 4 + 50*num_tris bytes
                 import os
+
                 file_size = os.path.getsize(stl_path)
                 expected_binary = 84 + 50 * num_tris
                 if abs(file_size - expected_binary) < 10:
@@ -1475,7 +1553,10 @@ def _parse_urdf_collision_extents(
                     mn = [float("inf")] * 3
                     mx = [float("-inf")] * 3
                     import re
-                    for m in re.finditer(r"vertex\s+([-\d.eE+]+)\s+([-\d.eE+]+)\s+([-\d.eE+]+)", text):
+
+                    for m in re.finditer(
+                        r"vertex\s+([-\d.eE+]+)\s+([-\d.eE+]+)\s+([-\d.eE+]+)", text
+                    ):
                         x, y, z = float(m.group(1)), float(m.group(2)), float(m.group(3))
                         mn[0] = min(mn[0], x)
                         mn[1] = min(mn[1], y)
@@ -1652,7 +1733,8 @@ class IsaacRuntime:
         self._engine.setup_scene()
 
         env_path = self._engine.load_environment(
-            usd_url, skip_ground_plane=skip_ground_plane,
+            usd_url,
+            skip_ground_plane=skip_ground_plane,
         )
         return {
             "env_prim_path": env_path,
@@ -1683,8 +1765,12 @@ class IsaacRuntime:
                 type_name = type(val).__name__
                 if "Quat" in type_name:
                     try:
-                        return [float(val.GetReal()), float(val.GetImaginary()[0]),
-                                float(val.GetImaginary()[1]), float(val.GetImaginary()[2])]
+                        return [
+                            float(val.GetReal()),
+                            float(val.GetImaginary()[0]),
+                            float(val.GetImaginary()[1]),
+                            float(val.GetImaginary()[2]),
+                        ]
                     except Exception:
                         return str(val)
                 # Gf.Vec* -> list of floats
@@ -1736,8 +1822,10 @@ class IsaacRuntime:
 
                 # Extract joint details for physics joints
                 if type_name in (
-                    "PhysicsRevoluteJoint", "PhysicsPrismaticJoint",
-                    "PhysicsFixedJoint", "PhysicsJoint",
+                    "PhysicsRevoluteJoint",
+                    "PhysicsPrismaticJoint",
+                    "PhysicsFixedJoint",
+                    "PhysicsJoint",
                 ):
                     jd: dict[str, Any] = {
                         "path": str(prim.GetPath()),
@@ -1753,12 +1841,8 @@ class IsaacRuntime:
                             )
                     # Drive stiffness/damping/target from DriveAPI
                     for drive_ns in ("angular", "linear"):
-                        stiffness_attr = prim.GetAttribute(
-                            f"drive:{drive_ns}:physics:stiffness"
-                        )
-                        damping_attr = prim.GetAttribute(
-                            f"drive:{drive_ns}:physics:damping"
-                        )
+                        stiffness_attr = prim.GetAttribute(f"drive:{drive_ns}:physics:stiffness")
+                        damping_attr = prim.GetAttribute(f"drive:{drive_ns}:physics:damping")
                         target_pos_attr = prim.GetAttribute(
                             f"drive:{drive_ns}:physics:targetPosition"
                         )
@@ -1770,13 +1854,19 @@ class IsaacRuntime:
                         if damping_attr and damping_attr.HasValue():
                             jd[f"drive_{drive_ns}_damping"] = _to_json_safe(damping_attr.Get())
                         if target_pos_attr and target_pos_attr.HasValue():
-                            jd[f"drive_{drive_ns}_target_position"] = _to_json_safe(target_pos_attr.Get())
+                            jd[f"drive_{drive_ns}_target_position"] = _to_json_safe(
+                                target_pos_attr.Get()
+                            )
                         if target_vel_attr and target_vel_attr.HasValue():
-                            jd[f"drive_{drive_ns}_target_velocity"] = _to_json_safe(target_vel_attr.Get())
+                            jd[f"drive_{drive_ns}_target_velocity"] = _to_json_safe(
+                                target_vel_attr.Get()
+                            )
                     # Local position offsets
                     for pos_name in (
-                        "physics:localPos0", "physics:localPos1",
-                        "physics:localRot0", "physics:localRot1",
+                        "physics:localPos0",
+                        "physics:localPos1",
+                        "physics:localRot0",
+                        "physics:localRot1",
                     ):
                         attr = prim.GetAttribute(pos_name)
                         if attr and attr.HasValue():
@@ -1796,17 +1886,13 @@ class IsaacRuntime:
                 try:
                     art_path = articulation_info["prim_path"]
                     # Check if there's an articulation in the scene
-                    art = self._engine.world.scene.get_object(
-                        art_path.split("/")[-1]
-                    )
+                    art = self._engine.world.scene.get_object(art_path.split("/")[-1])
                     if art is not None and hasattr(art, "dof_names"):
                         articulation_info["dof_count"] = art.num_dof
                         articulation_info["dof_names"] = list(art.dof_names or [])
                         pos = art.get_joint_positions()
                         if pos is not None:
-                            articulation_info["joint_positions_rad"] = [
-                                float(p) for p in pos
-                            ]
+                            articulation_info["joint_positions_rad"] = [float(p) for p in pos]
                 except Exception as exc:
                     articulation_info["dof_error"] = str(exc)
 
@@ -1848,6 +1934,7 @@ class IsaacRuntime:
         # Reload the module to pick up code changes
         logger.info("[runtime] reload: reloading isaac_bridge.runtime_isaac...")
         import isaac_bridge.runtime_isaac as _self_mod
+
         # Capture the old dispatcher BEFORE reload replaces it in the module dict.
         _old_dispatcher = _self_mod.main_thread_dispatcher
         importlib.reload(_self_mod)
@@ -1912,7 +1999,9 @@ class IsaacRuntime:
             if views:
                 result["verification_images"] = views
         except Exception as exc:
-            logger.warning("[runtime] import_urdf: verification capture failed: %s", exc, exc_info=True)
+            logger.warning(
+                "[runtime] import_urdf: verification capture failed: %s", exc, exc_info=True
+            )
 
         return result
 
@@ -1940,7 +2029,10 @@ class IsaacRuntime:
         """
         logger.info(
             "[runtime] simulate_start: duration=%.3f dt=%.4f urdf=%s headless=%s",
-            duration_s, dt_s, urdf_path, self._headless,
+            duration_s,
+            dt_s,
+            urdf_path,
+            self._headless,
         )
         t0 = time.monotonic()
 
@@ -1994,7 +2086,9 @@ class IsaacRuntime:
         interactive = False
 
         if urdf_path and self._engine.available:
-            logger.info("[runtime] simulate_start: URDF path provided and engine available — setting up...")
+            logger.info(
+                "[runtime] simulate_start: URDF path provided and engine available — setting up..."
+            )
             # Clean up any previous scene so we start fresh.
             if self._engine._scene_ready:
                 logger.info("[runtime] simulate_start: cleaning up previous scene")
@@ -2009,14 +2103,20 @@ class IsaacRuntime:
             except IsaacRuntimeError:
                 raise
             except Exception as exc:
-                logger.error("[runtime] simulate_start: engine setup failed: %s", exc, exc_info=True)
+                logger.error(
+                    "[runtime] simulate_start: engine setup failed: %s", exc, exc_info=True
+                )
                 warnings.append(f"URDF import/setup failed: {exc}")
 
             if not self._headless and articulation is not None:
                 interactive = True
-                logger.info("[runtime] simulate_start: non-headless + articulation → interactive mode")
+                logger.info(
+                    "[runtime] simulate_start: non-headless + articulation → interactive mode"
+                )
         elif urdf_path:
-            logger.info("[runtime] simulate_start: URDF provided but engine not available — reference mode")
+            logger.info(
+                "[runtime] simulate_start: URDF provided but engine not available — reference mode"
+            )
         else:
             logger.info("[runtime] simulate_start: no URDF — reference/analytical mode")
 
@@ -2042,10 +2142,14 @@ class IsaacRuntime:
             ]
             sample_times = _sample_times(duration_s=duration_s, output_interval=output_interval)
             for t in sample_times:
-                session.samples.append({
-                    "t": t,
-                    "parts": {pid: {"omega_rpm": float(speeds.get(pid, 0.0))} for pid in part_ids},
-                })
+                session.samples.append(
+                    {
+                        "t": t,
+                        "parts": {
+                            pid: {"omega_rpm": float(speeds.get(pid, 0.0))} for pid in part_ids
+                        },
+                    }
+                )
             session.completed_steps = n_steps
             session.status = "complete"
 
@@ -2055,7 +2159,9 @@ class IsaacRuntime:
         # In headless mode with a live articulation, spawn batch stepping thread
         if self._headless and articulation is not None and session.status == "running":
             sample_every = max(1, n_steps // 100)
-            logger.info("[runtime] simulate_start: spawning batch worker thread (%d steps)", n_steps)
+            logger.info(
+                "[runtime] simulate_start: spawning batch worker thread (%d steps)", n_steps
+            )
             thread = threading.Thread(
                 target=self._batch_step_worker,
                 args=(session, n_steps, sample_every, dt_s, speeds),
@@ -2071,7 +2177,10 @@ class IsaacRuntime:
 
         logger.info(
             "[runtime] simulate_start: returning session=%s status=%s interactive=%s (%.3fs)",
-            session_id, session.status, interactive, time.monotonic() - t0,
+            session_id,
+            session.status,
+            interactive,
+            time.monotonic() - t0,
         )
         result: dict[str, Any] = {
             "session_id": session_id,
@@ -2116,12 +2225,16 @@ class IsaacRuntime:
         speeds: dict[str, float],
     ) -> None:
         """Background thread: step physics, collect samples, mark complete."""
-        logger.info("[runtime] batch_worker: starting %d steps for session %s", n_steps, session.session_id)
+        logger.info(
+            "[runtime] batch_worker: starting %d steps for session %s", n_steps, session.session_id
+        )
         t0 = time.monotonic()
         try:
             if session.articulation is not None:
                 joint_samples = self._engine.step_and_sample(
-                    n_steps, session.articulation, sample_every,
+                    n_steps,
+                    session.articulation,
+                    sample_every,
                 )
                 part_ids = [
                     p["id"]
@@ -2157,7 +2270,10 @@ class IsaacRuntime:
             session.status = "complete"
             logger.info(
                 "[runtime] batch_worker: done in %.3fs — session=%s steps=%d samples=%d",
-                time.monotonic() - t0, session.session_id, session.completed_steps, len(session.samples),
+                time.monotonic() - t0,
+                session.session_id,
+                session.completed_steps,
+                len(session.samples),
             )
             with self._lock:
                 self._batch_threads.pop(session.session_id, None)
@@ -2301,6 +2417,7 @@ class IsaacRuntime:
         the live PhysX handles — more reliable than USD DriveAPI attr
         changes which may not be picked up after ``world.reset()``.
         """
+
         def _do() -> None:
             try:
                 import numpy as np  # type: ignore[import-not-found]
@@ -2328,11 +2445,13 @@ class IsaacRuntime:
                 logger.info(
                     "[runtime] _configure_velocity_drives: "
                     "stiffness=0 damping=1e4 on %d/%d DOFs via set_gains()",
-                    configured, len(dof_index_map),
+                    configured,
+                    len(dof_index_map),
                 )
                 logger.info(
                     "[runtime] _configure_velocity_drives: kps=%s kds=%s",
-                    kps.tolist(), kds.tolist(),
+                    kps.tolist(),
+                    kds.tolist(),
                 )
             except Exception as exc:
                 logger.warning("[runtime] _configure_velocity_drives failed: %s", exc)
@@ -2389,10 +2508,11 @@ class IsaacRuntime:
                     self._engine.cleanup()
 
                 cfg = URDFImportConfig.from_dict(import_config)
-                prim_path, _jc, _lc, articulation, drive_warns = (
-                    self._engine.start_simulation(
-                        urdf_path, cfg, mech, skip_mechanism_drives=True,
-                    )
+                prim_path, _jc, _lc, articulation, drive_warns = self._engine.start_simulation(
+                    urdf_path,
+                    cfg,
+                    mech,
+                    skip_mechanism_drives=True,
                 )
                 warnings.extend(drive_warns)
             except IsaacRuntimeError:
@@ -2417,36 +2537,36 @@ class IsaacRuntime:
         joint_limits: dict[str, tuple[float, float]] = {}
         if articulation is not None:
             avail_dofs = _get_dof_names_safe(articulation)
-            logger.info("[runtime] teleop_start: available DOFs (%d): %s",
-                        len(avail_dofs), avail_dofs)
+            logger.info(
+                "[runtime] teleop_start: available DOFs (%d): %s", len(avail_dofs), avail_dofs
+            )
             # For multi-DOF controllers (2-DOF, 3-DOF), the controller
             # outputs targets keyed by leg_joint_names (e.g. 18 joints for
             # a 3-DOF hexapod).  The DOF map must use those names, not the
             # 1-DOF joint_names (which default to 6 hip names).
-            if (teleop_config.dofs_per_leg >= 2
-                    and teleop_config.leg_joint_names):
+            if teleop_config.dofs_per_leg >= 2 and teleop_config.leg_joint_names:
                 joints_to_map = teleop_config.leg_joint_names
             else:
                 joints_to_map = teleop_config.joint_names
-            logger.info("[runtime] teleop_start: required joints (%d): %s",
-                        len(joints_to_map), list(joints_to_map))
+            logger.info(
+                "[runtime] teleop_start: required joints (%d): %s",
+                len(joints_to_map),
+                list(joints_to_map),
+            )
             dof_index_map, joint_limits = _resolve_dof_map(
-                articulation, joints_to_map,
+                articulation,
+                joints_to_map,
             )
             if not dof_index_map:
                 raise IsaacRuntimeError(
                     "TELEOP_JOINT_MAP_FAILED",
-                    "None of the required joint names could be mapped to "
-                    "articulation DOFs",
+                    "None of the required joint names could be mapped to articulation DOFs",
                     details={
                         "required_joints": list(joints_to_map),
                         "available_dofs": _get_dof_names_safe(articulation),
                     },
                 )
-            missing = [
-                j for j in teleop_config.joint_names
-                if j not in dof_index_map
-            ]
+            missing = [j for j in teleop_config.joint_names if j not in dof_index_map]
             if missing and not allow_partial:
                 raise IsaacRuntimeError(
                     "TELEOP_JOINT_MAP_FAILED",
@@ -2621,7 +2741,8 @@ class IsaacRuntime:
         # Snapshot active teleop sessions under lock.
         with self._lock:
             teleop_sessions = [
-                s for s in self._sessions.values()
+                s
+                for s in self._sessions.values()
                 if s.session_type == "teleop"
                 and s.teleop_config is not None
                 and s.controller is not None
@@ -2636,7 +2757,8 @@ class IsaacRuntime:
             except Exception as exc:
                 logger.warning(
                     "[runtime] tick_teleop: error on session %s: %s",
-                    session.session_id, exc,
+                    session.session_id,
+                    exc,
                 )
                 session.last_apply_ok = False
 
@@ -2662,12 +2784,16 @@ class IsaacRuntime:
                 self._populate_physics_state(session, state_snapshot)
             except Exception as exc:
                 logger.debug(
-                    "[runtime] _populate_physics_state failed: %s", exc,
+                    "[runtime] _populate_physics_state failed: %s",
+                    exc,
                 )
 
         # 1. Compute targets
         targets, new_phase = controller.compute_targets(
-            state_snapshot, dt_s, config, session.gait_phase,
+            state_snapshot,
+            dt_s,
+            config,
+            session.gait_phase,
         )
         session.gait_phase = new_phase
 
@@ -2687,7 +2813,8 @@ class IsaacRuntime:
             except Exception as exc:
                 logger.warning(
                     "[runtime] _apply_and_step failed for %s: %s",
-                    session.session_id, exc,
+                    session.session_id,
+                    exc,
                 )
                 session.last_apply_ok = False
         else:
@@ -2724,8 +2851,16 @@ class IsaacRuntime:
             joint_pos_raw = art.get_joint_positions()
             joint_vel_raw = art.get_joint_velocities()
             if joint_pos_raw is not None and joint_vel_raw is not None:
-                raw_pos = joint_pos_raw.tolist() if hasattr(joint_pos_raw, 'tolist') else list(joint_pos_raw)
-                raw_vel = joint_vel_raw.tolist() if hasattr(joint_vel_raw, 'tolist') else list(joint_vel_raw)
+                raw_pos = (
+                    joint_pos_raw.tolist()
+                    if hasattr(joint_pos_raw, "tolist")
+                    else list(joint_pos_raw)
+                )
+                raw_vel = (
+                    joint_vel_raw.tolist()
+                    if hasattr(joint_vel_raw, "tolist")
+                    else list(joint_vel_raw)
+                )
 
                 cfg = session.teleop_config
                 dof_map = session.dof_index_map
@@ -2746,7 +2881,8 @@ class IsaacRuntime:
                     if n_mapped < len(cfg.joint_names) and session.tick_count <= 1:
                         logger.warning(
                             "Joint reorder: %d/%d joints mapped (unmapped get default pos)",
-                            n_mapped, len(cfg.joint_names),
+                            n_mapped,
+                            len(cfg.joint_names),
                         )
                     state.joint_positions = ordered_pos
                     state.joint_velocities = ordered_vel
@@ -2760,24 +2896,26 @@ class IsaacRuntime:
         # Root body state: position, orientation, velocities
         try:
             pos, quat = art.get_world_pose()  # pos (3,), quat (4,) wxyz
-            vel = art.get_linear_velocity()    # (3,) world frame
+            vel = art.get_linear_velocity()  # (3,) world frame
             ang_vel = art.get_angular_velocity()  # (3,) world frame
 
             if pos is not None and quat is not None:
                 # Convert to numpy for math
-                if hasattr(pos, 'numpy'):
-                    pos = pos.numpy() if hasattr(pos, 'numpy') else np.array(pos)
-                if hasattr(quat, 'numpy'):
-                    quat = quat.numpy() if hasattr(quat, 'numpy') else np.array(quat)
-                if hasattr(vel, 'numpy'):
-                    vel = vel.numpy() if hasattr(vel, 'numpy') else np.array(vel)
-                if hasattr(ang_vel, 'numpy'):
-                    ang_vel = ang_vel.numpy() if hasattr(ang_vel, 'numpy') else np.array(ang_vel)
+                if hasattr(pos, "numpy"):
+                    pos = pos.numpy() if hasattr(pos, "numpy") else np.array(pos)
+                if hasattr(quat, "numpy"):
+                    quat = quat.numpy() if hasattr(quat, "numpy") else np.array(quat)
+                if hasattr(vel, "numpy"):
+                    vel = vel.numpy() if hasattr(vel, "numpy") else np.array(vel)
+                if hasattr(ang_vel, "numpy"):
+                    ang_vel = ang_vel.numpy() if hasattr(ang_vel, "numpy") else np.array(ang_vel)
 
                 pos = np.asarray(pos, dtype=np.float64)
                 quat = np.asarray(quat, dtype=np.float64)
                 vel = np.asarray(vel, dtype=np.float64) if vel is not None else np.zeros(3)
-                ang_vel = np.asarray(ang_vel, dtype=np.float64) if ang_vel is not None else np.zeros(3)
+                ang_vel = (
+                    np.asarray(ang_vel, dtype=np.float64) if ang_vel is not None else np.zeros(3)
+                )
 
                 # Rotate world-frame velocities to body frame using quaternion inverse
                 # quat is wxyz
@@ -2787,6 +2925,7 @@ class IsaacRuntime:
                 # Using the formula: v' = v + 2w(u x v) + 2(u x (u x v))
                 # where u = [-x, -y, -z] (conjugate)
                 u = np.array([-x, -y, -z])
+
                 def _quat_rotate_inv(v: Any) -> Any:
                     uv = np.cross(u, v)
                     uuv = np.cross(u, uv)
@@ -2889,9 +3028,9 @@ class IsaacRuntime:
             dist = radius * 2.5
             # View definitions: (label, eye_offset_direction)
             view_defs = [
-                ("iso",   Gf.Vec3d(0.577, 0.577, 0.577)),
+                ("iso", Gf.Vec3d(0.577, 0.577, 0.577)),
                 ("front", Gf.Vec3d(0.0, -1.0, 0.15)),
-                ("top",   Gf.Vec3d(0.0, 0.0, 1.0)),
+                ("top", Gf.Vec3d(0.0, 0.0, 1.0)),
                 ("right", Gf.Vec3d(1.0, 0.0, 0.15)),
             ]
 
@@ -2931,13 +3070,15 @@ class IsaacRuntime:
                 if os.path.isfile(tmp_path) and os.path.getsize(tmp_path) > 0:
                     with open(tmp_path, "rb") as f:
                         image_data = base64.b64encode(f.read()).decode("ascii")
-                    captured.append({
-                        "view": label,
-                        "image_base64": image_data,
-                        "mime_type": "image/png",
-                        "width": width,
-                        "height": height,
-                    })
+                    captured.append(
+                        {
+                            "view": label,
+                            "image_base64": image_data,
+                            "mime_type": "image/png",
+                            "width": width,
+                            "height": height,
+                        }
+                    )
                     try:
                         os.unlink(tmp_path)
                     except OSError:
@@ -3016,7 +3157,9 @@ class IsaacRuntime:
 
             logger.debug(
                 "[runtime] auto-frame: center=%s radius=%.3f dist=%.3f",
-                center, radius, dist,
+                center,
+                radius,
+                dist,
             )
             return (
                 [eye[0], eye[1], eye[2]],
@@ -3028,13 +3171,13 @@ class IsaacRuntime:
 
     # Preset direction table for camera positioning.
     _PRESET_DIRECTIONS: dict[str, tuple[float, float, float]] = {
-        "iso":    (0.577, 0.577, 0.577),
-        "front":  (0.0, -1.0, 0.15),
-        "back":   (0.0, 1.0, 0.15),
-        "top":    (0.0, 0.0, 1.0),
+        "iso": (0.577, 0.577, 0.577),
+        "front": (0.0, -1.0, 0.15),
+        "back": (0.0, 1.0, 0.15),
+        "top": (0.0, 0.0, 1.0),
         "bottom": (0.0, 0.0, -1.0),
-        "right":  (1.0, 0.0, 0.15),
-        "left":   (-1.0, 0.0, 0.15),
+        "right": (1.0, 0.0, 0.15),
+        "left": (-1.0, 0.0, 0.15),
     }
 
     def screenshot(
@@ -3117,7 +3260,9 @@ class IsaacRuntime:
                 pass
 
             # Capture to temp file, read back, base64 encode
-            tmp_path = os.path.join(tempfile.gettempdir(), f"isaac_screenshot_{uuid.uuid4().hex[:8]}.png")
+            tmp_path = os.path.join(
+                tempfile.gettempdir(), f"isaac_screenshot_{uuid.uuid4().hex[:8]}.png"
+            )
             try:
                 capture_viewport_to_file(viewport, tmp_path)
 
@@ -3294,9 +3439,7 @@ def _steady_state_speeds(mechanism: dict[str, Any]) -> dict[str, float]:
     if not isinstance(drives, list) or not isinstance(joints, list):
         return speeds
     joint_by_id = {
-        str(j.get("id")): j
-        for j in joints
-        if isinstance(j, dict) and isinstance(j.get("id"), str)
+        str(j.get("id")): j for j in joints if isinstance(j, dict) and isinstance(j.get("id"), str)
     }
     for drive in drives:
         if not isinstance(drive, dict):

@@ -1,4 +1,5 @@
 """Tests for the Hexapod2DOFController."""
+
 from __future__ import annotations
 
 import math
@@ -12,12 +13,18 @@ _DEG2RAD = math.pi / 180.0
 # 2-DOF config: 6 legs × 2 joints = 12 joint names
 # Rectangular body: 3 left, 3 right, legs point straight outward
 _2DOF_JOINT_NAMES = [
-    "hip_yaw_L1", "hip_pitch_L1",
-    "hip_yaw_L2", "hip_pitch_L2",
-    "hip_yaw_L3", "hip_pitch_L3",
-    "hip_yaw_R1", "hip_pitch_R1",
-    "hip_yaw_R2", "hip_pitch_R2",
-    "hip_yaw_R3", "hip_pitch_R3",
+    "hip_yaw_L1",
+    "hip_pitch_L1",
+    "hip_yaw_L2",
+    "hip_pitch_L2",
+    "hip_yaw_L3",
+    "hip_pitch_L3",
+    "hip_yaw_R1",
+    "hip_pitch_R1",
+    "hip_yaw_R2",
+    "hip_pitch_R2",
+    "hip_yaw_R3",
+    "hip_pitch_R3",
 ]
 
 _PHASE_OFFSETS = [0.0, 0.5, 0.0, 0.5, 0.0, 0.5]
@@ -59,7 +66,10 @@ class TestProtocol(unittest.TestCase):
     def test_returns_correct_types(self) -> None:
         ctrl = Hexapod2DOFController()
         targets, new_phase = ctrl.compute_targets(
-            _state(vx=0.2), 0.02, _2dof_config(), 0.0,
+            _state(vx=0.2),
+            0.02,
+            _2dof_config(),
+            0.0,
         )
         self.assertIsInstance(targets, dict)
         self.assertIsInstance(new_phase, float)
@@ -106,8 +116,7 @@ class TestFemurLift(unittest.TestCase):
 
         # Femur should lift significantly (at least half of lift_deg)
         half_lift = cfg.lift_deg * _DEG2RAD * 0.5
-        self.assertGreater(max_femur, half_lift,
-                           "Femur should lift during swing phase")
+        self.assertGreater(max_femur, half_lift, "Femur should lift during swing phase")
 
     def test_femur_never_negative(self) -> None:
         """Femur lift should always be >= 0 (lift up, never push down)."""
@@ -121,8 +130,9 @@ class TestFemurLift(unittest.TestCase):
             targets, phase = ctrl.compute_targets(_state(vx=0.3), 0.02, cfg, phase)
             for name in _2DOF_JOINT_NAMES:
                 if "pitch" in name:
-                    self.assertGreaterEqual(targets[name], -1e-9,
-                                            f"{name} should never be negative")
+                    self.assertGreaterEqual(
+                        targets[name], -1e-9, f"{name} should never be negative"
+                    )
 
 
 class TestTripodAlternation(unittest.TestCase):
@@ -143,8 +153,7 @@ class TestTripodAlternation(unittest.TestCase):
         l2_coxa = targets["hip_yaw_L2"]
         # They should generally have opposite signs (or one near zero)
         if abs(l1_coxa) > 0.01 and abs(l2_coxa) > 0.01:
-            self.assertLess(l1_coxa * l2_coxa, 0.0,
-                            "Tripod A and B coxa should oppose")
+            self.assertLess(l1_coxa * l2_coxa, 0.0, "Tripod A and B coxa should oppose")
 
 
 class TestLeftRightMirror(unittest.TestCase):
@@ -170,7 +179,9 @@ class TestLeftRightMirror(unittest.TestCase):
             r_val = targets[f"hip_yaw_R{i}"]
             if abs(l_val) > 0.01:
                 self.assertAlmostEqual(
-                    l_val, -r_val, places=6,
+                    l_val,
+                    -r_val,
+                    places=6,
                     msg=f"L{i} and R{i} coxa should be negated",
                 )
 

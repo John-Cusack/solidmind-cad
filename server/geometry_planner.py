@@ -84,23 +84,17 @@ class StrategyPlanner:
         hybrid_score = 0.0
 
         if has_extrude:
-            extrude_count = sum(
-                1 for f in features if f.get("type") == "extrude_intent"
-            )
+            extrude_count = sum(1 for f in features if f.get("type") == "extrude_intent")
             prism_score += extrude_count * 10
             hybrid_score += extrude_count * 5
 
         if has_revolve:
-            revolve_count = sum(
-                1 for f in features if f.get("type") == "revolve_intent"
-            )
+            revolve_count = sum(1 for f in features if f.get("type") == "revolve_intent")
             revolve_score += revolve_count * 15
             hybrid_score += revolve_count * 5
 
         if has_pattern:
-            pattern_count = sum(
-                1 for f in features if f.get("type") == "pattern_intent"
-            )
+            pattern_count = sum(1 for f in features if f.get("type") == "pattern_intent")
             prism_score += pattern_count * 5
             revolve_score += pattern_count * 3
 

@@ -9,6 +9,7 @@ Embeddings are forced off so the test is fast and offline — retrieval rides on
 LanceDB's FTS (keyword) index, which is independent of the vector backend.
 Skipped when LanceDB/pyarrow aren't installed.
 """
+
 from __future__ import annotations
 
 import os
@@ -23,6 +24,7 @@ def _lancedb_available() -> bool:
     try:
         import lancedb  # noqa: F401
         import pyarrow  # noqa: F401
+
         return True
     except Exception:
         return False

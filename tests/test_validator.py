@@ -1,4 +1,5 @@
 """Tests for orchestrator.validator."""
+
 from __future__ import annotations
 
 import unittest
@@ -27,25 +28,34 @@ from orchestrator.validator import (
 
 def _make_spec() -> MasterSpec:
     spec = MasterSpec(name="test")
-    spec.subsystems.append(Subsystem(
-        id="s1", name="gear",
-        kind=SubsystemKind.GENERATED,
-        envelope_mm=[20, 20, 10],
-        mass_budget_kg=0.05,
-        material="steel",
-        interfaces=["ifc1"],
-    ))
-    spec.interfaces.append(Interface(
-        id="ifc1", name="shaft_bore",
-        subsystem_a="gear", subsystem_b="shaft",
-        geometry={"diameter_mm": 8.0},
-        frame_a=CoordinateFrame(origin_mm=[0, 0, 5]),
-        mating=MatingSemantic(type="cylindrical_fit"),
-        validation=ValidationMethod(check_points=[
-            ValidationCheckPoint(feature="bore_dia", expected_mm=8.0, tolerance_mm=0.015),
-            ValidationCheckPoint(feature="bore_depth", expected_mm=15.0, tolerance_mm=0.1),
-        ]),
-    ))
+    spec.subsystems.append(
+        Subsystem(
+            id="s1",
+            name="gear",
+            kind=SubsystemKind.GENERATED,
+            envelope_mm=[20, 20, 10],
+            mass_budget_kg=0.05,
+            material="steel",
+            interfaces=["ifc1"],
+        )
+    )
+    spec.interfaces.append(
+        Interface(
+            id="ifc1",
+            name="shaft_bore",
+            subsystem_a="gear",
+            subsystem_b="shaft",
+            geometry={"diameter_mm": 8.0},
+            frame_a=CoordinateFrame(origin_mm=[0, 0, 5]),
+            mating=MatingSemantic(type="cylindrical_fit"),
+            validation=ValidationMethod(
+                check_points=[
+                    ValidationCheckPoint(feature="bore_dia", expected_mm=8.0, tolerance_mm=0.015),
+                    ValidationCheckPoint(feature="bore_depth", expected_mm=15.0, tolerance_mm=0.1),
+                ]
+            ),
+        )
+    )
     return spec
 
 
@@ -119,7 +129,8 @@ class TestValidateWorkerResult(unittest.TestCase):
         spec = _make_spec()
         result = WorkerResult(subsystem_name="gear", worker_id="gear_0", status="success")
         report = validate_worker_result(
-            spec, result,
+            spec,
+            result,
             measurements={"ifc1": {"bore_dia": 8.005, "bore_depth": 15.0}},
             actual_bbox_mm=[19, 18, 9],
             actual_mass_kg=0.04,
@@ -131,7 +142,8 @@ class TestValidateWorkerResult(unittest.TestCase):
         spec = _make_spec()
         result = WorkerResult(subsystem_name="gear", worker_id="gear_0", status="success")
         report = validate_worker_result(
-            spec, result,
+            spec,
+            result,
             measurements={"ifc1": {"bore_dia": 9.0, "bore_depth": 15.0}},
         )
         self.assertFalse(report.overall_pass)
@@ -147,10 +159,13 @@ class TestCheckGateG5(unittest.TestCase):
 
     def test_failure(self) -> None:
         spec = _make_spec()
-        reports = [ValidationReport(
-            subsystem_name="gear", overall_pass=False,
-            failure_codes=[FailureCode.INTERFACE_DIM_MISMATCH],
-        )]
+        reports = [
+            ValidationReport(
+                subsystem_name="gear",
+                overall_pass=False,
+                failure_codes=[FailureCode.INTERFACE_DIM_MISMATCH],
+            )
+        ]
         ok, issues = check_gate_g5(spec, reports)
         self.assertFalse(ok)
         self.assertGreater(len(issues), 0)
@@ -175,7 +190,8 @@ class TestMeasurementSource(unittest.TestCase):
         spec = _make_spec()
         result = WorkerResult(subsystem_name="gear", worker_id="gear_0", status="success")
         report = validate_worker_result(
-            spec, result,
+            spec,
+            result,
             measurements={"ifc1": {"bore_dia": 8.005, "bore_depth": 15.0}},
             actual_bbox_mm=[19, 18, 9],
             actual_mass_kg=0.04,
@@ -189,7 +205,8 @@ class TestMeasurementSource(unittest.TestCase):
         spec = _make_spec()
         result = WorkerResult(subsystem_name="gear", worker_id="gear_0", status="success")
         report = validate_worker_result(
-            spec, result,
+            spec,
+            result,
             measurements={"ifc1": {"bore_dia": 8.005, "bore_depth": 15.0}},
             actual_bbox_mm=[19, 18, 9],
             actual_mass_kg=0.04,
@@ -206,6 +223,7 @@ class TestSkeletonConstraintValidation(unittest.TestCase):
 
     def test_part_exceeds_reserved_volume(self) -> None:
         from orchestrator.spec import AssemblySkeleton
+
         spec = _make_spec()
         spec.skeleton = AssemblySkeleton(
             reserved_volumes={
@@ -214,18 +232,18 @@ class TestSkeletonConstraintValidation(unittest.TestCase):
         )
         result = WorkerResult(subsystem_name="gear", worker_id="gear_0", status="success")
         report = validate_worker_result(
-            spec, result,
+            spec,
+            result,
             actual_bbox_mm=[25, 25, 15],  # exceeds 20x20x10
             actual_mass_kg=0.04,
         )
         self.assertFalse(report.overall_pass)
-        self.assertTrue(any(
-            not sc.passed for sc in report.skeleton_checks
-        ))
+        self.assertTrue(any(not sc.passed for sc in report.skeleton_checks))
         self.assertIn(FailureCode.SKELETON_CONFLICT, report.failure_codes)
 
     def test_part_fits_reserved_volume(self) -> None:
         from orchestrator.spec import AssemblySkeleton
+
         spec = _make_spec()
         spec.skeleton = AssemblySkeleton(
             reserved_volumes={
@@ -234,14 +252,13 @@ class TestSkeletonConstraintValidation(unittest.TestCase):
         )
         result = WorkerResult(subsystem_name="gear", worker_id="gear_0", status="success")
         report = validate_worker_result(
-            spec, result,
+            spec,
+            result,
             actual_bbox_mm=[18, 18, 9],  # fits
             actual_mass_kg=0.04,
         )
         # Should pass skeleton check (may still fail on dimensions if no measurements)
-        skeleton_fails = [
-            sc for sc in report.skeleton_checks if not sc.passed
-        ]
+        skeleton_fails = [sc for sc in report.skeleton_checks if not sc.passed]
         self.assertEqual(len(skeleton_fails), 0)
 
 

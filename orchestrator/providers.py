@@ -1,4 +1,5 @@
 """LLM provider abstraction — Anthropic, Cerebras, or any OpenAI-compatible API."""
+
 from __future__ import annotations
 
 import os
@@ -29,15 +30,14 @@ class ProviderConfig:
     def api_key(self) -> str:
         val = os.environ.get(self.api_key_env, "")
         if not val:
-            raise OSError(
-                f"Missing API key: set ${self.api_key_env}"
-            )
+            raise OSError(f"Missing API key: set ${self.api_key_env}")
         return val
 
 
 # ---------------------------------------------------------------------------
 # Provider interface
 # ---------------------------------------------------------------------------
+
 
 @dataclass(frozen=True, slots=True)
 class Message:
@@ -110,6 +110,7 @@ def make_provider_config(
 # Concrete providers (lazy imports so deps are optional)
 # ---------------------------------------------------------------------------
 
+
 class AnthropicProvider:
     """Anthropic Messages API."""
 
@@ -120,6 +121,7 @@ class AnthropicProvider:
     def _get_client(self) -> Any:
         if self._client is None:
             import anthropic
+
             self._client = anthropic.AsyncAnthropic(api_key=self.config.api_key)
         return self._client
 
@@ -167,6 +169,7 @@ class CerebrasProvider:
     def _get_client(self) -> Any:
         if self._client is None:
             import openai
+
             self._client = openai.AsyncOpenAI(
                 api_key=self.config.api_key,
                 base_url=self.config.base_url or "https://api.cerebras.ai/v1",
@@ -201,7 +204,9 @@ class CerebrasProvider:
             usage={
                 "prompt_tokens": resp.usage.prompt_tokens,
                 "completion_tokens": resp.usage.completion_tokens,
-            } if resp.usage else {},
+            }
+            if resp.usage
+            else {},
             raw=resp,
         )
 
@@ -212,6 +217,7 @@ class OpenAICompatProvider(CerebrasProvider):
     def _get_client(self) -> Any:
         if self._client is None:
             import openai
+
             self._client = openai.AsyncOpenAI(
                 api_key=self.config.api_key,
                 base_url=self.config.base_url,

@@ -1,4 +1,5 @@
 """Optional PX4 lifecycle e2e tests for Gazebo bridge."""
+
 from __future__ import annotations
 
 import os
@@ -96,4 +97,3 @@ class TestGazeboPx4E2E(unittest.TestCase):
         px4_stopped = self.client.px4_stop()
         self.assertIn("status", px4_stopped)
         self.assertFalse(px4_stopped["status"].get("running", True))
-

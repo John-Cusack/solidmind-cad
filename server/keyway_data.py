@@ -3,6 +3,7 @@
 Lookup tables for DIN 6885, ANSI B17.1, and Woodruff key standards.
 Returns sketch elements and build hints for CAD integration.
 """
+
 from __future__ import annotations
 
 import math
@@ -48,27 +49,27 @@ _DIN6885_RANGES: list[tuple[float, float, float, float]] = [
 # shaft_dia_inch → (key_width_inch, key_height_inch)
 # ---------------------------------------------------------------------------
 _ANSI_B17_1: dict[str, tuple[float, float]] = {
-    "1/4":   (1 / 16, 1 / 16),
-    "5/16":  (1 / 16, 1 / 16),
-    "3/8":   (3 / 32, 3 / 32),
-    "7/16":  (3 / 32, 3 / 32),
-    "1/2":   (1 / 8, 1 / 8),
-    "9/16":  (1 / 8, 1 / 8),
-    "5/8":   (3 / 16, 3 / 16),
-    "3/4":   (3 / 16, 3 / 16),
-    "7/8":   (3 / 16, 3 / 16),
-    "1":     (1 / 4, 1 / 4),
+    "1/4": (1 / 16, 1 / 16),
+    "5/16": (1 / 16, 1 / 16),
+    "3/8": (3 / 32, 3 / 32),
+    "7/16": (3 / 32, 3 / 32),
+    "1/2": (1 / 8, 1 / 8),
+    "9/16": (1 / 8, 1 / 8),
+    "5/8": (3 / 16, 3 / 16),
+    "3/4": (3 / 16, 3 / 16),
+    "7/8": (3 / 16, 3 / 16),
+    "1": (1 / 4, 1 / 4),
     "1-1/4": (1 / 4, 1 / 4),
     "1-3/8": (5 / 16, 5 / 16),
     "1-1/2": (3 / 8, 3 / 8),
     "1-3/4": (3 / 8, 3 / 8),
-    "2":     (1 / 2, 1 / 2),
+    "2": (1 / 2, 1 / 2),
     "2-1/4": (1 / 2, 1 / 2),
     "2-1/2": (5 / 8, 5 / 8),
     "2-3/4": (5 / 8, 5 / 8),
-    "3":     (3 / 4, 3 / 4),
+    "3": (3 / 4, 3 / 4),
     "3-1/2": (7 / 8, 7 / 8),
-    "4":     (1, 1),
+    "4": (1, 1),
 }
 
 # ---------------------------------------------------------------------------
@@ -78,25 +79,25 @@ _ANSI_B17_1: dict[str, tuple[float, float]] = {
 # preceding digits = width/32 inch.  Table below in metric equivalents.
 # ---------------------------------------------------------------------------
 _WOODRUFF: dict[str, tuple[float, float, float]] = {
-    "202":  (1.59, 6.35, 2.38),
-    "203":  (1.59, 9.53, 3.57),
-    "204":  (1.59, 12.70, 4.76),
-    "303":  (2.38, 9.53, 3.57),
-    "304":  (2.38, 12.70, 4.76),
-    "305":  (2.38, 15.88, 5.56),
-    "404":  (3.18, 12.70, 4.76),
-    "405":  (3.18, 15.88, 5.56),
-    "406":  (3.18, 19.05, 6.35),
-    "505":  (3.97, 15.88, 5.56),
-    "506":  (3.97, 19.05, 6.35),
-    "507":  (3.97, 22.23, 7.14),
-    "606":  (4.76, 19.05, 6.35),
-    "607":  (4.76, 22.23, 7.14),
-    "608":  (4.76, 25.40, 7.94),
-    "807":  (6.35, 22.23, 7.14),
-    "808":  (6.35, 25.40, 7.94),
-    "809":  (6.35, 28.58, 8.73),
-    "810":  (6.35, 31.75, 9.53),
+    "202": (1.59, 6.35, 2.38),
+    "203": (1.59, 9.53, 3.57),
+    "204": (1.59, 12.70, 4.76),
+    "303": (2.38, 9.53, 3.57),
+    "304": (2.38, 12.70, 4.76),
+    "305": (2.38, 15.88, 5.56),
+    "404": (3.18, 12.70, 4.76),
+    "405": (3.18, 15.88, 5.56),
+    "406": (3.18, 19.05, 6.35),
+    "505": (3.97, 15.88, 5.56),
+    "506": (3.97, 19.05, 6.35),
+    "507": (3.97, 22.23, 7.14),
+    "606": (4.76, 19.05, 6.35),
+    "607": (4.76, 22.23, 7.14),
+    "608": (4.76, 25.40, 7.94),
+    "807": (6.35, 22.23, 7.14),
+    "808": (6.35, 25.40, 7.94),
+    "809": (6.35, 28.58, 8.73),
+    "810": (6.35, 31.75, 9.53),
     "1008": (7.94, 25.40, 7.94),
     "1009": (7.94, 28.58, 8.73),
     "1010": (7.94, 31.75, 9.53),
@@ -117,9 +118,7 @@ def _lookup_din6885(shaft_dia: float) -> tuple[float, float]:
             return (w, h)
     if math.isclose(shaft_dia, 130.0):
         return (32, 18)
-    raise ValueError(
-        f"Shaft diameter {shaft_dia} mm outside DIN 6885 range (6-130 mm)"
-    )
+    raise ValueError(f"Shaft diameter {shaft_dia} mm outside DIN 6885 range (6-130 mm)")
 
 
 def _lookup_ansi(shaft_dia_inch: str) -> tuple[float, float]:
@@ -128,8 +127,7 @@ def _lookup_ansi(shaft_dia_inch: str) -> tuple[float, float]:
     if spec is None:
         valid = ", ".join(sorted(_ANSI_B17_1.keys(), key=_frac_to_float))
         raise ValueError(
-            f"Shaft diameter '{shaft_dia_inch}' not in ANSI B17.1 table. "
-            f"Valid sizes: {valid}"
+            f"Shaft diameter '{shaft_dia_inch}' not in ANSI B17.1 table. Valid sizes: {valid}"
         )
     return spec
 
@@ -152,10 +150,7 @@ def _lookup_woodruff(key_number: str) -> tuple[float, float, float]:
     spec = _WOODRUFF.get(key_number)
     if spec is None:
         valid = ", ".join(sorted(_WOODRUFF.keys()))
-        raise ValueError(
-            f"Woodruff key number '{key_number}' not in table. "
-            f"Valid numbers: {valid}"
-        )
+        raise ValueError(f"Woodruff key number '{key_number}' not in table. Valid numbers: {valid}")
     return spec
 
 
@@ -216,7 +211,7 @@ def keyway_profile(
         kw = kw_in * 25.4
         kh = kh_in * 25.4
         spec = _make_keyway_spec(kw, kh)
-        unit_label = f"mm (from {kw_in:.4f}\" × {kh_in:.4f}\")"
+        unit_label = f'mm (from {kw_in:.4f}" × {kh_in:.4f}")'
     elif standard == "woodruff":
         if woodruff_number is None:
             raise ValueError("woodruff_number required for Woodruff standard")
@@ -231,9 +226,7 @@ def keyway_profile(
             key_length = w_mm  # Woodruff key length ≈ width
         unit_label = f"mm (Woodruff #{woodruff_number}, cutter Ø{dia_mm})"
     else:
-        raise ValueError(
-            f"Unknown standard '{standard}'. Use 'din6885', 'ansi', or 'woodruff'."
-        )
+        raise ValueError(f"Unknown standard '{standard}'. Use 'din6885', 'ansi', or 'woodruff'.")
 
     if key_length is None:
         key_length = round(spec.width * 1.5, 1)

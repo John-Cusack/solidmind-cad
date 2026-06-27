@@ -14,6 +14,7 @@ column ahead of the dart, and barrel losses. So a predicted-vs-measured gap is a
 ``range ∝ x^2``. Calibrate efficiency from one measured shot, then predict the
 others and report relative error.
 """
+
 from __future__ import annotations
 
 import math
@@ -31,6 +32,7 @@ class LauncherSpec:
     README tells the user to treat it (and the spring constant) as values to
     measure, not truths.
     """
+
     spring_k_n_per_m: float
     dart_mass_kg: float
     launch_angle_deg: float = 12.0
@@ -58,7 +60,7 @@ def spring_energy_j(spring_k_n_per_m: float, pullback_m: float) -> float:
         raise ValueError("spring_k_n_per_m must be positive")
     if pullback_m < 0.0:
         raise ValueError("pullback_m must be non-negative")
-    return 0.5 * spring_k_n_per_m * pullback_m ** 2
+    return 0.5 * spring_k_n_per_m * pullback_m**2
 
 
 def muzzle_velocity_m_s(spec: LauncherSpec, pullback_m: float) -> float:
@@ -123,9 +125,7 @@ def _velocity_for_range(
     return 0.5 * (lo + hi)
 
 
-def calibrate_efficiency(
-    spec: LauncherSpec, pullback_m: float, measured_range_m: float
-) -> float:
+def calibrate_efficiency(spec: LauncherSpec, pullback_m: float, measured_range_m: float) -> float:
     """Fit ``efficiency`` from a single measured shot.
 
     Inverts the measured range for the required muzzle velocity, then solves the
@@ -141,7 +141,7 @@ def calibrate_efficiency(
     v_required = _velocity_for_range(
         measured_range_m, spec.launch_angle_deg, spec.launch_height_m, spec.gravity_m_s2
     )
-    eff = spec.dart_mass_kg * v_required ** 2 / (spec.spring_k_n_per_m * pullback_m ** 2)
+    eff = spec.dart_mass_kg * v_required**2 / (spec.spring_k_n_per_m * pullback_m**2)
     if not (0.0 < eff <= 1.0):
         raise ValueError(
             f"calibrated efficiency {eff:.3f} outside (0, 1] — check the spring "
@@ -172,9 +172,11 @@ def predict_table(spec: LauncherSpec, pullbacks_mm: list[float]) -> list[dict[st
     for x_mm in pullbacks_mm:
         x_m = x_mm / 1000.0
         v = muzzle_velocity_m_s(spec, x_m)
-        rows.append({
-            "pullback_mm": x_mm,
-            "muzzle_velocity_m_s": round(v, 4),
-            "predicted_range_m": round(predicted_range_m(spec, x_m), 4),
-        })
+        rows.append(
+            {
+                "pullback_mm": x_mm,
+                "muzzle_velocity_m_s": round(v, 4),
+                "predicted_range_m": round(predicted_range_m(spec, x_m), 4),
+            }
+        )
     return rows

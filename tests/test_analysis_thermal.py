@@ -1,4 +1,5 @@
 """Tests for Elmer thermal analysis integration."""
+
 from __future__ import annotations
 
 import shutil
@@ -145,10 +146,7 @@ class TestThermalCheckValidation(unittest.TestCase):
         self.assertTrue(result["ok"])
         self.assertIn("scalar_fields", result)
         # Should have a temperature field
-        temp_fields = [
-            f for f in result["scalar_fields"]
-            if f["field_name"] == "temperature"
-        ]
+        temp_fields = [f for f in result["scalar_fields"] if f["field_name"] == "temperature"]
         self.assertEqual(len(temp_fields), 1)
         self.assertEqual(temp_fields[0]["unit"], "K")
 
@@ -413,12 +411,15 @@ class TestElmerSolverUnit(unittest.TestCase):
                 self.skipTest("meshio or numpy not installed")
 
             # Synthetic mesh: 4 points (one tet)
-            points = np.array([
-                [0, 0, 0],
-                [1, 0, 0],
-                [0, 1, 0],
-                [0, 0, 1],
-            ], dtype=float)
+            points = np.array(
+                [
+                    [0, 0, 0],
+                    [1, 0, 0],
+                    [0, 1, 0],
+                    [0, 0, 1],
+                ],
+                dtype=float,
+            )
             cells = [("tetra", np.array([[0, 1, 2, 3]]))]
             temp_data = np.array([300.0, 350.0, 375.0, 400.0])
 
@@ -434,10 +435,7 @@ class TestElmerSolverUnit(unittest.TestCase):
 
         self.assertEqual(result.solver_name, "elmer")
         # Should have temperature field
-        temp_fields = [
-            f for f in result.scalar_fields
-            if f.field_name == "temperature"
-        ]
+        temp_fields = [f for f in result.scalar_fields if f.field_name == "temperature"]
         self.assertEqual(len(temp_fields), 1)
         self.assertAlmostEqual(temp_fields[0].min_val, 300.0, places=1)
         self.assertAlmostEqual(temp_fields[0].max_val, 400.0, places=1)
@@ -599,9 +597,7 @@ class TestMaterialEMProperties(unittest.TestCase):
 # Real Elmer solver tests (skipped if not installed)
 # ---------------------------------------------------------------------------
 
-_ELMER_AVAILABLE = bool(
-    shutil.which("ElmerSolver") and shutil.which("ElmerGrid")
-)
+_ELMER_AVAILABLE = bool(shutil.which("ElmerSolver") and shutil.which("ElmerGrid"))
 
 
 def _create_box_step(
@@ -762,14 +758,22 @@ class TestElmerRealFeatures(unittest.TestCase):
         results: dict[str, float] = {}
         materials = {
             "copper": Material(
-                name="copper", youngs_modulus_mpa=117_000, poissons_ratio=0.34,
-                density_kg_m3=8940, yield_strength_mpa=69,
-                thermal_conductivity_w_mk=391, specific_heat_j_kgk=385,
+                name="copper",
+                youngs_modulus_mpa=117_000,
+                poissons_ratio=0.34,
+                density_kg_m3=8940,
+                yield_strength_mpa=69,
+                thermal_conductivity_w_mk=391,
+                specific_heat_j_kgk=385,
             ),
             "steel": Material(
-                name="steel", youngs_modulus_mpa=200_000, poissons_ratio=0.3,
-                density_kg_m3=7800, yield_strength_mpa=250,
-                thermal_conductivity_w_mk=51.9, specific_heat_j_kgk=490,
+                name="steel",
+                youngs_modulus_mpa=200_000,
+                poissons_ratio=0.3,
+                density_kg_m3=7800,
+                yield_strength_mpa=250,
+                thermal_conductivity_w_mk=51.9,
+                specific_heat_j_kgk=490,
             ),
         }
 
@@ -810,7 +814,9 @@ class TestElmerRealFeatures(unittest.TestCase):
 
         # For 1D steady Dirichlet-Dirichlet, T is independent of k → same solution
         self.assertAlmostEqual(
-            results["copper"], results["steel"], delta=5,
+            results["copper"],
+            results["steel"],
+            delta=5,
         )
 
     # ---- Test 4: convection cooling ----
@@ -899,7 +905,8 @@ class TestElmerRealFeatures(unittest.TestCase):
         # Strictly increasing
         for i in range(len(max_temps) - 1):
             self.assertLess(
-                max_temps[i], max_temps[i + 1],
+                max_temps[i],
+                max_temps[i + 1],
                 f"Expected T_max({fluxes[i]}) < T_max({fluxes[i + 1]}), "
                 f"got {max_temps[i]} >= {max_temps[i + 1]}",
             )
@@ -1056,7 +1063,9 @@ class TestElmerRealFeatures(unittest.TestCase):
 
         # Both should give nearly identical T_mean (mesh-independent for linear problem)
         self.assertAlmostEqual(
-            means["coarse"], means["fine"], delta=2,
+            means["coarse"],
+            means["fine"],
+            delta=2,
         )
 
 

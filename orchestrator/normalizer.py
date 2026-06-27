@@ -1,4 +1,5 @@
 """Normalizer — parse and validate user goals into structured objectives."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -76,13 +77,15 @@ def goal_to_spec_fields(goal: NormalizedGoal) -> dict[str, Any]:
 
     objectives = []
     for obj in goal.objectives:
-        objectives.append(Objective(
-            name=obj.get("name", ""),
-            direction=obj.get("direction", ""),
-            unit=obj.get("unit", ""),
-            weight=obj.get("weight", 1.0),
-            threshold=obj.get("threshold"),
-        ))
+        objectives.append(
+            Objective(
+                name=obj.get("name", ""),
+                direction=obj.get("direction", ""),
+                unit=obj.get("unit", ""),
+                weight=obj.get("weight", 1.0),
+                threshold=obj.get("threshold"),
+            )
+        )
 
     return {
         "objectives": objectives,

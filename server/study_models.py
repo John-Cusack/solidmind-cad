@@ -1,4 +1,5 @@
 """Data models for parametric design optimization studies."""
+
 from __future__ import annotations
 
 import math
@@ -26,6 +27,7 @@ OptDirection = Literal["maximize", "minimize"]
 @dataclass(frozen=True, slots=True)
 class DesignVariable:
     """A single design variable to sweep over."""
+
     name: str
     var_type: VariableType
     min_val: float | None = None
@@ -122,6 +124,7 @@ class DesignVariable:
 @dataclass(frozen=True, slots=True)
 class SolverConfig:
     """Configuration for the simulation solver."""
+
     solver_type: str  # "bemt_xfoil" | "openfoam"
     params: dict[str, Any] = dc_field(default_factory=dict)
     timeout_s: float = 300.0
@@ -150,6 +153,7 @@ class SolverConfig:
 @dataclass(frozen=True, slots=True)
 class ObjectiveConfig:
     """Defines what to optimize for."""
+
     primary_metric: str
     direction: OptDirection = "maximize"
     constraint_bounds: dict[str, tuple[float | None, float | None]] = dc_field(
@@ -161,9 +165,7 @@ class ObjectiveConfig:
         return {
             "primary_metric": self.primary_metric,
             "direction": self.direction,
-            "constraint_bounds": {
-                k: list(v) for k, v in self.constraint_bounds.items()
-            },
+            "constraint_bounds": {k: list(v) for k, v in self.constraint_bounds.items()},
             "weights": self.weights,
         }
 
@@ -185,6 +187,7 @@ class ObjectiveConfig:
 @dataclass(slots=True)
 class Variant:
     """A single design point with its evaluation results."""
+
     variant_id: str
     params: dict[str, Any]
     phase: Literal["coarse", "refined"]
@@ -222,6 +225,7 @@ class Variant:
 @dataclass(slots=True)
 class Study:
     """Top-level mutable container for a parametric study."""
+
     id: str
     name: str
     variables: list[DesignVariable]

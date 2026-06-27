@@ -5,6 +5,7 @@ seam so they run without a real PX4.  E2E tests against a live PX4
 process live in ``tests/test_gazebo_px4_real_runtime.py`` (Phase 2's
 real-runtime gate).
 """
+
 from __future__ import annotations
 
 import threading
@@ -72,7 +73,9 @@ class _FakeConnection:
                 self._inbox_cv.wait(timeout=remaining)
 
     def recv_match(
-        self, blocking: bool = True, timeout: float | None = None,
+        self,
+        blocking: bool = True,
+        timeout: float | None = None,
     ) -> _FakeMessage | None:
         deadline = time.monotonic() + (timeout or 0.0)
         with self._inbox_cv:
@@ -92,17 +95,22 @@ class _FakeConnection:
 
 def _factory_for(conn: _FakeConnection):
     """Return a ``connect_factory`` callable that yields ``conn``."""
+
     def factory(url: str, ss: int, sc: int) -> _FakeConnection:
         return conn
+
     return factory
 
 
 class TestMavlinkControllerConnect(unittest.TestCase):
     def test_connect_waits_for_heartbeat_and_starts_rx(self) -> None:
         fake = _FakeConnection(target_system=1, target_component=1)
-        fake.inject_message(_FakeMessage(
-            "HEARTBEAT", {"base_mode": 0, "custom_mode": 0},
-        ))
+        fake.inject_message(
+            _FakeMessage(
+                "HEARTBEAT",
+                {"base_mode": 0, "custom_mode": 0},
+            )
+        )
         ctrl = MavlinkController(connect_factory=_factory_for(fake))
         ctrl.connect(timeout_s=1.0)
         try:
@@ -138,11 +146,16 @@ class TestMavlinkControllerCommands(unittest.TestCase):
 
     def _ack(self, command: int, result: int = 0) -> None:
         """Inject a COMMAND_ACK after a tiny delay so the rx loop sees it."""
+
         def deliver() -> None:
             time.sleep(0.05)
-            self.fake.inject_message(_FakeMessage(
-                "COMMAND_ACK", {"command": command, "result": result},
-            ))
+            self.fake.inject_message(
+                _FakeMessage(
+                    "COMMAND_ACK",
+                    {"command": command, "result": result},
+                )
+            )
+
         threading.Thread(target=deliver, daemon=True).start()
 
     def test_arm_sends_command_long_and_waits_for_ack(self) -> None:
@@ -151,10 +164,10 @@ class TestMavlinkControllerCommands(unittest.TestCase):
         self.fake.mav.command_long_send.assert_called()
         args = self.fake.mav.command_long_send.call_args.args
         # Args: tgt_sys, tgt_comp, command, confirmation, p1..p7
-        self.assertEqual(args[0], 1)              # target_system
-        self.assertEqual(args[1], 1)              # target_component
-        self.assertEqual(args[2], 400)            # MAV_CMD_COMPONENT_ARM_DISARM
-        self.assertEqual(args[4], 1.0)            # param1 = 1 (arm)
+        self.assertEqual(args[0], 1)  # target_system
+        self.assertEqual(args[1], 1)  # target_component
+        self.assertEqual(args[2], 400)  # MAV_CMD_COMPONENT_ARM_DISARM
+        self.assertEqual(args[4], 1.0)  # param1 = 1 (arm)
         # PX4 v1.17 SITL requires force-arm (param2=21196) by default.
         self.assertEqual(args[5], 21196.0)
 
@@ -162,24 +175,24 @@ class TestMavlinkControllerCommands(unittest.TestCase):
         self._ack(400)
         self.ctrl.arm(timeout_s=2.0, force=False)
         args = self.fake.mav.command_long_send.call_args.args
-        self.assertEqual(args[5], 0.0)            # param2 = 0 (no force)
+        self.assertEqual(args[5], 0.0)  # param2 = 0 (no force)
 
     def test_takeoff_via_mode_switches_to_auto_takeoff(self) -> None:
         self._ack(176)
         self.ctrl.takeoff_via_mode(timeout_s=2.0)
         args = self.fake.mav.command_long_send.call_args.args
-        self.assertEqual(args[2], 176)            # MAV_CMD_DO_SET_MODE
-        self.assertEqual(args[4], 1.0)            # CUSTOM_MODE_ENABLED
-        self.assertEqual(args[5], 4.0)            # AUTO main mode
-        self.assertEqual(args[6], 2.0)            # AUTO_TAKEOFF sub mode
+        self.assertEqual(args[2], 176)  # MAV_CMD_DO_SET_MODE
+        self.assertEqual(args[4], 1.0)  # CUSTOM_MODE_ENABLED
+        self.assertEqual(args[5], 4.0)  # AUTO main mode
+        self.assertEqual(args[6], 2.0)  # AUTO_TAKEOFF sub mode
 
     def test_land_via_mode_switches_to_auto_land(self) -> None:
         self._ack(176)
         self.ctrl.land_via_mode(timeout_s=2.0)
         args = self.fake.mav.command_long_send.call_args.args
         self.assertEqual(args[2], 176)
-        self.assertEqual(args[5], 4.0)            # AUTO main
-        self.assertEqual(args[6], 6.0)            # AUTO_LAND sub
+        self.assertEqual(args[5], 4.0)  # AUTO main
+        self.assertEqual(args[6], 6.0)  # AUTO_LAND sub
 
     def test_disarm_sets_param1_to_zero(self) -> None:
         self._ack(400)
@@ -192,14 +205,14 @@ class TestMavlinkControllerCommands(unittest.TestCase):
         self._ack(22)
         self.ctrl.takeoff(7.5, timeout_s=2.0)
         args = self.fake.mav.command_long_send.call_args.args
-        self.assertEqual(args[2], 22)             # MAV_CMD_NAV_TAKEOFF
-        self.assertEqual(args[10], 7.5)           # param7
+        self.assertEqual(args[2], 22)  # MAV_CMD_NAV_TAKEOFF
+        self.assertEqual(args[10], 7.5)  # param7
 
     def test_land_sends_correct_command(self) -> None:
         self._ack(21)
         self.ctrl.land(timeout_s=2.0)
         args = self.fake.mav.command_long_send.call_args.args
-        self.assertEqual(args[2], 21)             # MAV_CMD_NAV_LAND
+        self.assertEqual(args[2], 21)  # MAV_CMD_NAV_LAND
 
     def test_command_rejected_raises(self) -> None:
         self._ack(400, result=4)  # MAV_RESULT_FAILED
@@ -233,7 +246,8 @@ class TestMavlinkControllerSetpointStream(unittest.TestCase):
         # Wait for at least 3 ticks at 100 Hz.
         time.sleep(0.2)
         self.assertGreater(
-            self.fake.mav.set_position_target_local_ned_send.call_count, 2,
+            self.fake.mav.set_position_target_local_ned_send.call_count,
+            2,
         )
         # Validate the velocity fields of the most recent send.
         args = self.fake.mav.set_position_target_local_ned_send.call_args.args
@@ -249,17 +263,13 @@ class TestMavlinkControllerSetpointStream(unittest.TestCase):
         self.ctrl.set_velocity(0.0, 0.0, 0.0, 0.0)
         self.ctrl.start_setpoint_stream()
         time.sleep(0.1)
-        first_call_args = (
-            self.fake.mav.set_position_target_local_ned_send.call_args.args
-        )
+        first_call_args = self.fake.mav.set_position_target_local_ned_send.call_args.args
         self.assertAlmostEqual(first_call_args[8], 0.0)
 
         # Update setpoint mid-stream.
         self.ctrl.set_velocity(2.0, 0.0, 0.0, 0.0)
         time.sleep(0.1)
-        latest_args = (
-            self.fake.mav.set_position_target_local_ned_send.call_args.args
-        )
+        latest_args = self.fake.mav.set_position_target_local_ned_send.call_args.args
         self.assertAlmostEqual(latest_args[8], 2.0)
 
     def test_start_setpoint_stream_requires_connection(self) -> None:
@@ -281,10 +291,12 @@ class TestMavlinkControllerTelemetry(unittest.TestCase):
         self.ctrl.disconnect()
 
     def test_local_position_ned_message_updates_telemetry(self) -> None:
-        self.fake.inject_message(_FakeMessage(
-            "LOCAL_POSITION_NED",
-            {"x": 1.0, "y": 2.0, "z": -3.0, "vx": 0.1, "vy": 0.2, "vz": 0.3},
-        ))
+        self.fake.inject_message(
+            _FakeMessage(
+                "LOCAL_POSITION_NED",
+                {"x": 1.0, "y": 2.0, "z": -3.0, "vx": 0.1, "vy": 0.2, "vz": 0.3},
+            )
+        )
         # Allow rx loop to drain the message.
         deadline = time.monotonic() + 1.0
         while time.monotonic() < deadline:

@@ -1,4 +1,5 @@
 """Design Structure Matrix — interaction analysis and clustering."""
+
 from __future__ import annotations
 
 import json

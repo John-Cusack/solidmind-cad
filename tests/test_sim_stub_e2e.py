@@ -2,6 +2,7 @@
 
 No mocks — exercises real bridge code to catch protocol drift.
 """
+
 from __future__ import annotations
 
 import json
@@ -48,12 +49,17 @@ class TestSimulateReturnTimeSeries(unittest.TestCase):
         port = unused_tcp_port()
         mech = mechanism_factory("gear_pair")
         with GazeboStubBridge(port) as bridge:
-            resp = _send_command(bridge.host, bridge.port, "simulate", {
-                "mechanism": mech,
-                "duration_s": 0.5,
-                "dt_s": 0.01,
-                "output_interval": 0.1,
-            })
+            resp = _send_command(
+                bridge.host,
+                bridge.port,
+                "simulate",
+                {
+                    "mechanism": mech,
+                    "duration_s": 0.5,
+                    "dt_s": 0.01,
+                    "output_interval": 0.1,
+                },
+            )
         self.assertTrue(resp["ok"], resp)
         result = resp["result"]
         self.assertIn("time_series", result)
@@ -80,9 +86,14 @@ class TestTeleopFullLifecycle(unittest.TestCase):
         port = unused_tcp_port()
         with GazeboStubBridge(port) as bridge:
             # Start
-            start_resp = _send_command(bridge.host, bridge.port, "teleop_start", {
-                "profile": {"controller_type": "multirotor_direct"},
-            })
+            start_resp = _send_command(
+                bridge.host,
+                bridge.port,
+                "teleop_start",
+                {
+                    "profile": {"controller_type": "multirotor_direct"},
+                },
+            )
             self.assertTrue(start_resp["ok"], start_resp)
             session_id = start_resp["result"]["session_id"]
             self.assertIsInstance(session_id, str)
@@ -90,26 +101,41 @@ class TestTeleopFullLifecycle(unittest.TestCase):
 
             # 3 command ticks
             for i in range(3):
-                cmd_resp = _send_command(bridge.host, bridge.port, "teleop_command", {
-                    "session_id": session_id,
-                    "vx_mps": 1.0,
-                    "dt_s": 0.02,
-                })
+                cmd_resp = _send_command(
+                    bridge.host,
+                    bridge.port,
+                    "teleop_command",
+                    {
+                        "session_id": session_id,
+                        "vx_mps": 1.0,
+                        "dt_s": 0.02,
+                    },
+                )
                 self.assertTrue(cmd_resp["ok"], cmd_resp)
                 self.assertTrue(cmd_resp["result"]["applied"])
                 self.assertEqual(cmd_resp["result"]["tick_count"], i + 1)
 
             # State
-            state_resp = _send_command(bridge.host, bridge.port, "teleop_state", {
-                "session_id": session_id,
-            })
+            state_resp = _send_command(
+                bridge.host,
+                bridge.port,
+                "teleop_state",
+                {
+                    "session_id": session_id,
+                },
+            )
             self.assertTrue(state_resp["ok"], state_resp)
             self.assertIn("state", state_resp["result"])
 
             # Stop
-            stop_resp = _send_command(bridge.host, bridge.port, "teleop_stop", {
-                "session_id": session_id,
-            })
+            stop_resp = _send_command(
+                bridge.host,
+                bridge.port,
+                "teleop_stop",
+                {
+                    "session_id": session_id,
+                },
+            )
             self.assertTrue(stop_resp["ok"], stop_resp)
             self.assertTrue(stop_resp["result"]["stopped"])
             self.assertEqual(stop_resp["result"]["tick_count"], 3)
@@ -130,10 +156,15 @@ class TestSpawnModel(unittest.TestCase):
 
         try:
             with GazeboStubBridge(port) as bridge:
-                resp = _send_command(bridge.host, bridge.port, "spawn_model", {
-                    "sdf_path": sdf_path,
-                    "model_name": "test_model",
-                })
+                resp = _send_command(
+                    bridge.host,
+                    bridge.port,
+                    "spawn_model",
+                    {
+                        "sdf_path": sdf_path,
+                        "model_name": "test_model",
+                    },
+                )
             self.assertTrue(resp["ok"], resp)
             self.assertTrue(resp["result"]["spawned"])
             self.assertIsInstance(resp["result"]["entity_id"], int)
@@ -161,12 +192,22 @@ class TestConcurrentSessions(unittest.TestCase):
         port = unused_tcp_port()
         with GazeboStubBridge(port) as bridge:
             # Start two sessions
-            s1 = _send_command(bridge.host, bridge.port, "teleop_start", {
-                "profile": {"controller_type": "multirotor_direct"},
-            })
-            s2 = _send_command(bridge.host, bridge.port, "teleop_start", {
-                "profile": {"controller_type": "multirotor_direct"},
-            })
+            s1 = _send_command(
+                bridge.host,
+                bridge.port,
+                "teleop_start",
+                {
+                    "profile": {"controller_type": "multirotor_direct"},
+                },
+            )
+            s2 = _send_command(
+                bridge.host,
+                bridge.port,
+                "teleop_start",
+                {
+                    "profile": {"controller_type": "multirotor_direct"},
+                },
+            )
             self.assertTrue(s1["ok"])
             self.assertTrue(s2["ok"])
             sid1 = s1["result"]["session_id"]
@@ -174,23 +215,38 @@ class TestConcurrentSessions(unittest.TestCase):
             self.assertNotEqual(sid1, sid2)
 
             # Command only session 1
-            _send_command(bridge.host, bridge.port, "teleop_command", {
-                "session_id": sid1,
-                "vx_mps": 2.0,
-                "dt_s": 0.1,
-            })
+            _send_command(
+                bridge.host,
+                bridge.port,
+                "teleop_command",
+                {
+                    "session_id": sid1,
+                    "vx_mps": 2.0,
+                    "dt_s": 0.1,
+                },
+            )
 
             # Session 2 should still be at tick 0
-            state2 = _send_command(bridge.host, bridge.port, "teleop_state", {
-                "session_id": sid2,
-            })
+            state2 = _send_command(
+                bridge.host,
+                bridge.port,
+                "teleop_state",
+                {
+                    "session_id": sid2,
+                },
+            )
             self.assertTrue(state2["ok"])
             self.assertEqual(state2["result"]["tick_count"], 0)
 
             # Session 1 should be at tick 1
-            state1 = _send_command(bridge.host, bridge.port, "teleop_state", {
-                "session_id": sid1,
-            })
+            state1 = _send_command(
+                bridge.host,
+                bridge.port,
+                "teleop_state",
+                {
+                    "session_id": sid1,
+                },
+            )
             self.assertTrue(state1["ok"])
             self.assertEqual(state1["result"]["tick_count"], 1)
 

@@ -4,6 +4,7 @@ Probes FreeCAD once at import time and exports stable APIs that abstract away
 version differences between FreeCAD 0.21 and 1.0+.  Follows the same pattern
 as ``freecad_addon/qt_compat.py``.
 """
+
 from __future__ import annotations
 
 import logging
@@ -16,6 +17,7 @@ logger = logging.getLogger("solidmind.compat")
 # ---------------------------------------------------------------------------
 # Version detection
 # ---------------------------------------------------------------------------
+
 
 def _parse_version() -> tuple[int, int]:
     """Parse FreeCAD.Version() into a (major, minor) tuple."""
@@ -34,13 +36,17 @@ IS_V1_1_PLUS: bool = VERSION_TUPLE >= (1, 1)
 
 logger.info(
     "FreeCAD version: %d.%d (IS_V1_PLUS=%s, IS_V1_1_PLUS=%s)",
-    VERSION_TUPLE[0], VERSION_TUPLE[1], IS_V1_PLUS, IS_V1_1_PLUS,
+    VERSION_TUPLE[0],
+    VERSION_TUPLE[1],
+    IS_V1_PLUS,
+    IS_V1_1_PLUS,
 )
 
 
 # ---------------------------------------------------------------------------
 # Sketch support property
 # ---------------------------------------------------------------------------
+
 
 def set_sketch_support(sketch: Any, support: Any, map_mode: str = "FlatFace") -> None:
     """Set sketch attachment support, handling property name differences.
@@ -63,6 +69,7 @@ def set_sketch_support(sketch: Any, support: Any, map_mode: str = "FlatFace") ->
 # Assembly module imports
 # ---------------------------------------------------------------------------
 
+
 def get_assembly_modules() -> tuple[Any, Any]:
     """Import JointObject + UtilsAssembly with workbench activation fallback.
 
@@ -71,6 +78,7 @@ def get_assembly_modules() -> tuple[Any, Any]:
     try:
         import JointObject  # type: ignore[import-untyped]
         import UtilsAssembly  # type: ignore[import-untyped]
+
         return JointObject, UtilsAssembly
     except ImportError:
         pass
@@ -78,10 +86,12 @@ def get_assembly_modules() -> tuple[Any, Any]:
     # Workbench may not have added its path yet — try activating it
     try:
         import FreeCADGui  # type: ignore[import-untyped]
+
         if FreeCADGui is not None:
             FreeCADGui.activateWorkbench("AssemblyWorkbench")
         import JointObject  # type: ignore[import-untyped]
         import UtilsAssembly  # type: ignore[import-untyped]
+
         return JointObject, UtilsAssembly
     except (ImportError, Exception) as exc:
         raise ImportError(
@@ -96,6 +106,7 @@ def get_assembly_modules() -> tuple[Any, Any]:
 # ---------------------------------------------------------------------------
 # Object lookup
 # ---------------------------------------------------------------------------
+
 
 def find_object(doc: Any, name: str, search_groups: bool = True) -> Any | None:
     """Look up an object by name with fallback strategies.
@@ -130,7 +141,8 @@ def find_object(doc: Any, name: str, search_groups: bool = True) -> Any | None:
                 if child.Name == name or child.Label == name:
                     logger.info(
                         "find_object: '%s' found inside group '%s'",
-                        name, obj.Name,
+                        name,
+                        obj.Name,
                     )
                     return child
 
@@ -152,7 +164,8 @@ def find_joint_in_assembly(doc: Any, asm_obj: Any, name: str) -> Any | None:
                     if gchild.Name == name or gchild.Label == name:
                         logger.info(
                             "find_joint: '%s' found via Group traversal as '%s'",
-                            name, gchild.Name,
+                            name,
+                            gchild.Name,
                         )
                         return gchild
 
@@ -165,7 +178,8 @@ def find_joint_in_assembly(doc: Any, asm_obj: Any, name: str) -> Any | None:
                 if child.Name == name or child.Label == name:
                     logger.info(
                         "find_joint: '%s' found in JointGroup as '%s'",
-                        name, child.Name,
+                        name,
+                        child.Name,
                     )
                     return child
     except Exception as exc:
@@ -179,7 +193,10 @@ def find_joint_in_assembly(doc: Any, asm_obj: Any, name: str) -> Any | None:
 # Safe property access
 # ---------------------------------------------------------------------------
 
-def set_property_safe(obj: Any, primary: str, value: Any, fallbacks: list[str] | None = None) -> bool:
+
+def set_property_safe(
+    obj: Any, primary: str, value: Any, fallbacks: list[str] | None = None
+) -> bool:
     """Set a property on obj, trying primary name first then fallbacks.
 
     Returns True if set successfully, False if no matching property found.
@@ -187,7 +204,7 @@ def set_property_safe(obj: Any, primary: str, value: Any, fallbacks: list[str] |
     if hasattr(obj, primary):
         setattr(obj, primary, value)
         return True
-    for alt in (fallbacks or []):
+    for alt in fallbacks or []:
         if hasattr(obj, alt):
             logger.info("set_property_safe: '%s' not found, using fallback '%s'", primary, alt)
             setattr(obj, alt, value)
@@ -199,6 +216,7 @@ def set_property_safe(obj: Any, primary: str, value: Any, fallbacks: list[str] |
 # Diagnostics
 # ---------------------------------------------------------------------------
 
+
 def list_objects_like(doc: Any, pattern: str) -> list[dict[str, str]]:
     """List objects whose Name or TypeId contains ``pattern`` (case-insensitive).
 
@@ -207,14 +225,18 @@ def list_objects_like(doc: Any, pattern: str) -> list[dict[str, str]]:
     pattern_lower = pattern.lower()
     results: list[dict[str, str]] = []
     for obj in doc.Objects:
-        if (pattern_lower in obj.Name.lower()
-                or pattern_lower in obj.TypeId.lower()
-                or pattern_lower in obj.Label.lower()):
-            results.append({
-                "name": obj.Name,
-                "type": obj.TypeId,
-                "label": obj.Label,
-            })
+        if (
+            pattern_lower in obj.Name.lower()
+            or pattern_lower in obj.TypeId.lower()
+            or pattern_lower in obj.Label.lower()
+        ):
+            results.append(
+                {
+                    "name": obj.Name,
+                    "type": obj.TypeId,
+                    "label": obj.Label,
+                }
+            )
     return results
 
 
@@ -224,8 +246,12 @@ def probe_modules() -> dict[str, bool]:
     Returns a dict of module_name -> available (bool).
     """
     modules = [
-        "Sketcher", "Part", "PartDesign",
-        "JointObject", "UtilsAssembly", "pivy.coin",
+        "Sketcher",
+        "Part",
+        "PartDesign",
+        "JointObject",
+        "UtilsAssembly",
+        "pivy.coin",
     ]
     results: dict[str, bool] = {}
     for mod in modules:
@@ -241,11 +267,13 @@ def get_qt_backend() -> str:
     """Return the Qt backend in use (PySide2 or PySide6)."""
     try:
         import PySide2  # type: ignore[import-untyped]  # noqa: F401
+
         return "PySide2"
     except ImportError:
         pass
     try:
         import PySide6  # type: ignore[import-untyped]  # noqa: F401
+
         return "PySide6"
     except ImportError:
         return "unknown"
@@ -255,6 +283,7 @@ def get_workbenches() -> list[str]:
     """Return list of available workbenches, or empty list if FreeCADGui unavailable."""
     try:
         import FreeCADGui  # type: ignore[import-untyped]
+
         if FreeCADGui is not None and hasattr(FreeCADGui, "listWorkbenches"):
             return list(FreeCADGui.listWorkbenches().keys())
     except (ImportError, Exception):
@@ -276,6 +305,7 @@ def freecad_info() -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 # Version guards
 # ---------------------------------------------------------------------------
+
 
 def require_v1_plus(feature_name: str = "Assembly features") -> None:
     """Raise RuntimeError if FreeCAD version is below 1.0.

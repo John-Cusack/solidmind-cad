@@ -1,4 +1,5 @@
 """Tests for orchestrator.worker."""
+
 from __future__ import annotations
 
 import tempfile
@@ -19,18 +20,24 @@ from orchestrator.worker import (
 
 def _make_spec() -> MasterSpec:
     spec = MasterSpec(name="test")
-    spec.subsystems.append(Subsystem(
-        id="s1", name="gear",
-        kind=SubsystemKind.GENERATED,
-        envelope_mm=[20, 20, 10],
-        material="steel",
-        worker_count=2,
-    ))
-    spec.subsystems.append(Subsystem(
-        id="s2", name="bearing",
-        kind=SubsystemKind.CATALOG,
-        supplier_part="SKF 6201",
-    ))
+    spec.subsystems.append(
+        Subsystem(
+            id="s1",
+            name="gear",
+            kind=SubsystemKind.GENERATED,
+            envelope_mm=[20, 20, 10],
+            material="steel",
+            worker_count=2,
+        )
+    )
+    spec.subsystems.append(
+        Subsystem(
+            id="s2",
+            name="bearing",
+            kind=SubsystemKind.CATALOG,
+            supplier_part="SKF 6201",
+        )
+    )
     return spec
 
 
@@ -73,7 +80,9 @@ class TestAssessResults(unittest.TestCase):
     def test_failure_detected(self) -> None:
         results = [
             WorkerResult(subsystem_name="gear", worker_id="gear_0", status="success"),
-            WorkerResult(subsystem_name="gear", worker_id="gear_1", status="failed", error="timeout"),
+            WorkerResult(
+                subsystem_name="gear", worker_id="gear_1", status="failed", error="timeout"
+            ),
         ]
         ok, issues = assess_results(results)
         self.assertFalse(ok)

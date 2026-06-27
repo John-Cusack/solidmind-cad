@@ -4,6 +4,7 @@ DesignBrief — the core artifact.  PartEntry and InterfaceEntry track
 individual parts and their connections within an assembly design.
 All frozen dataclasses with __slots__ for consistency with the codebase.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -18,12 +19,13 @@ class PartEntry:
     ``kind`` is 'custom' (designed in CAD) or 'purchased' (off-the-shelf
     component whose specs constrain the custom parts around it).
     """
+
     name: str
-    kind: str = "custom"        # custom | purchased
+    kind: str = "custom"  # custom | purchased
     quantity: int = 1
     specs: dict[str, Any] = dc_field(default_factory=dict)
-    status: str = "pending"     # pending | building | built
-    body_label: str = ""        # set after cad.new_body creates it
+    status: str = "pending"  # pending | building | built
+    body_label: str = ""  # set after cad.new_body creates it
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -54,6 +56,7 @@ class InterfaceEntry:
     Tracks which port on part_a connects to which port on part_b,
     and the physical spec of the connection (bolt pattern, press fit, etc.).
     """
+
     part_a: str
     port_a: str
     part_b: str
@@ -88,10 +91,11 @@ class DesignBrief:
     parameters it extracts from user specs, research, or conversation.
     ``parts`` and ``interfaces`` track the assembly decomposition.
     """
+
     brief_id: str
     name: str
     parameters: dict[str, Any] = dc_field(default_factory=dict)
-    status: str = "intent"         # intent | sizing | layout | approved | building | done
+    status: str = "intent"  # intent | sizing | layout | approved | building | done
     research_notes: str = ""
     parts: list[PartEntry] = dc_field(default_factory=list)
     interfaces: list[InterfaceEntry] = dc_field(default_factory=list)
@@ -134,7 +138,4 @@ class DesignBrief:
 
     def get_interfaces_for(self, part_name: str) -> list[InterfaceEntry]:
         """Return all interfaces involving a given part."""
-        return [
-            i for i in self.interfaces
-            if i.part_a == part_name or i.part_b == part_name
-        ]
+        return [i for i in self.interfaces if i.part_a == part_name or i.part_b == part_name]

@@ -1,4 +1,5 @@
 """Tests for server.knowledge_store — mocked LanceDB, no real deps needed."""
+
 from __future__ import annotations
 
 import os
@@ -188,7 +189,9 @@ class TestKnowledgeStoreUnit(unittest.TestCase):
         mock_search.select.return_value = mock_search
         mock_search.limit.return_value = mock_search
         mock_search.to_list.return_value = [
-            {"source": "a.md"}, {"source": "a.md"}, {"source": "b.pdf"},
+            {"source": "a.md"},
+            {"source": "a.md"},
+            {"source": "b.pdf"},
         ]
 
         status = store.status()
@@ -257,8 +260,10 @@ class TestSingleton(unittest.TestCase):
         mock_st = MagicMock()
         mock_st.ndims.return_value = 384
 
-        with patch.dict("sys.modules", {"lancedb": mock_lancedb, "pyarrow": mock_pa}), \
-             patch("server.knowledge_store._make_embedding_fn", return_value=mock_st):
+        with (
+            patch.dict("sys.modules", {"lancedb": mock_lancedb, "pyarrow": mock_pa}),
+            patch("server.knowledge_store._make_embedding_fn", return_value=mock_st),
+        ):
             reset_knowledge_store()
             store = get_knowledge_store()
             self.assertIsNotNone(store)
@@ -268,11 +273,13 @@ class TestSingleton(unittest.TestCase):
 
 def _import_blocker(blocked_module: str):
     """Create an import side_effect that blocks a specific module."""
-    _real_import = __builtins__.__import__ if hasattr(__builtins__, '__import__') else __import__
+    _real_import = __builtins__.__import__ if hasattr(__builtins__, "__import__") else __import__
+
     def _blocker(name, *args, **kwargs):
         if name == blocked_module:
             raise ImportError(f"Mocked: {name} not installed")
         return _real_import(name, *args, **kwargs)
+
     return _blocker
 
 

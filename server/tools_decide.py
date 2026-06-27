@@ -1,4 +1,5 @@
 """MCP tool wrappers for the Decide/Interpret helpers (decide.* tools)."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -26,9 +27,7 @@ def decide_from_failure(*, check: dict[str, Any]) -> dict[str, Any]:
     return {"ok": True, "proposal": proposal.to_dict()}
 
 
-def decide_interpret(
-    *, result: dict[str, Any], expectations: dict[str, Any]
-) -> dict[str, Any]:
+def decide_interpret(*, result: dict[str, Any], expectations: dict[str, Any]) -> dict[str, Any]:
     """Compare a FieldResult against Reflect-step expectations."""
     try:
         res = FieldResult.from_dict(result)

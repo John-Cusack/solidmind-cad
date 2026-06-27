@@ -37,6 +37,7 @@ Phase 5: Connect MavlinkController, arm, set OFFBOARD, takeoff, hover, land
 
 Each phase prints a banner so progress is visible during the recording.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -59,16 +60,16 @@ logger = logging.getLogger("solidmind.examples.camera_drone")
 
 # Quadrotor in X configuration: motors at the four corners of a square,
 # arms emanating diagonally from the chassis centre.
-WHEELBASE_MM = 700.0           # corner-to-corner across the X
-ARM_OFFSET_MM = WHEELBASE_MM / (2 * math.sqrt(2))   # ≈ 247.5 mm
+WHEELBASE_MM = 700.0  # corner-to-corner across the X
+ARM_OFFSET_MM = WHEELBASE_MM / (2 * math.sqrt(2))  # ≈ 247.5 mm
 ROTOR_RADIUS_MM = 100.0
 ROTOR_THICKNESS_MM = 5.0
 
 # 3-blade prop geometry (single-sketch, 3 trapezoid blades + hub).
 PROP_HUB_RADIUS_MM = 10.0
-PROP_BLADE_LEN_MM = 90.0       # blade length from hub edge outward
-PROP_BLADE_INNER_W_MM = 18.0   # blade width at hub
-PROP_BLADE_OUTER_W_MM = 8.0    # blade width at tip
+PROP_BLADE_LEN_MM = 90.0  # blade length from hub edge outward
+PROP_BLADE_INNER_W_MM = 18.0  # blade width at hub
+PROP_BLADE_OUTER_W_MM = 8.0  # blade width at tip
 PROP_BLADE_COUNT = 3
 
 CHASSIS_W_MM = 200.0
@@ -88,10 +89,10 @@ ROTORS = [
     # -Y (right in FLU); the CA_ROTOR conversion in
     # server.px4_airframe_generator.extract_rotors() negates Y for
     # PX4's FRD frame.
-    ("rotor_FR",  ARM_OFFSET_MM, -ARM_OFFSET_MM, "ccw"),  # front-right
-    ("rotor_RL", -ARM_OFFSET_MM,  ARM_OFFSET_MM, "ccw"),  # rear-left
-    ("rotor_FL",  ARM_OFFSET_MM,  ARM_OFFSET_MM, "cw"),   # front-left
-    ("rotor_RR", -ARM_OFFSET_MM, -ARM_OFFSET_MM, "cw"),   # rear-right
+    ("rotor_FR", ARM_OFFSET_MM, -ARM_OFFSET_MM, "ccw"),  # front-right
+    ("rotor_RL", -ARM_OFFSET_MM, ARM_OFFSET_MM, "ccw"),  # rear-left
+    ("rotor_FL", ARM_OFFSET_MM, ARM_OFFSET_MM, "cw"),  # front-left
+    ("rotor_RR", -ARM_OFFSET_MM, -ARM_OFFSET_MM, "cw"),  # rear-right
 ]
 
 
@@ -161,27 +162,25 @@ def _build_3blade_props(document_name: str) -> list[str]:
             # tip-side narrower.  Slight overlap into the hub circle
             # so the boolean union closes cleanly.
             p1 = rot(R_HUB - 1.0, +HALF_INNER)
-            p2 = rot(R_TIP,       +HALF_OUTER)
-            p3 = rot(R_TIP,       -HALF_OUTER)
+            p2 = rot(R_TIP, +HALF_OUTER)
+            p3 = rot(R_TIP, -HALF_OUTER)
             p4 = rot(R_HUB - 1.0, -HALF_INNER)
-            elements.extend([
-                {"type": "line", "x1": p1[0], "y1": p1[1],
-                                 "x2": p2[0], "y2": p2[1]},
-                {"type": "line", "x1": p2[0], "y1": p2[1],
-                                 "x2": p3[0], "y2": p3[1]},
-                {"type": "line", "x1": p3[0], "y1": p3[1],
-                                 "x2": p4[0], "y2": p4[1]},
-                {"type": "line", "x1": p4[0], "y1": p4[1],
-                                 "x2": p1[0], "y2": p1[1]},
-            ])
+            elements.extend(
+                [
+                    {"type": "line", "x1": p1[0], "y1": p1[1], "x2": p2[0], "y2": p2[1]},
+                    {"type": "line", "x1": p2[0], "y1": p2[1], "x2": p3[0], "y2": p3[1]},
+                    {"type": "line", "x1": p3[0], "y1": p3[1], "x2": p4[0], "y2": p4[1]},
+                    {"type": "line", "x1": p4[0], "y1": p4[1], "x2": p1[0], "y2": p1[1]},
+                ]
+            )
 
         prop_sketch = cad_sketch(
-            body=name, plane="XY",
+            body=name,
+            plane="XY",
             elements=elements,
             doc=document_name,
         )
-        cad_pad(sketch=prop_sketch["sketch"],
-                length=ROTOR_THICKNESS_MM, doc=document_name)
+        cad_pad(sketch=prop_sketch["sketch"], length=ROTOR_THICKNESS_MM, doc=document_name)
         cad_set_placement(
             object_name=name,
             position=[dx, dy, CHASSIS_T_MM + 5.0],
@@ -212,16 +211,20 @@ def build_drone_geometry(document_name: str) -> dict[str, Any]:
     print("Building chassis (rectangular pad)…")
     cad_new_body(name="Chassis", doc=document_name)
     sketch_result = cad_sketch(
-        body="Chassis", plane="XY",
-        elements=[{
-            "type": "rect",
-            "x": -CHASSIS_W_MM / 2, "y": -CHASSIS_H_MM / 2,
-            "w": CHASSIS_W_MM, "h": CHASSIS_H_MM,
-        }],
+        body="Chassis",
+        plane="XY",
+        elements=[
+            {
+                "type": "rect",
+                "x": -CHASSIS_W_MM / 2,
+                "y": -CHASSIS_H_MM / 2,
+                "w": CHASSIS_W_MM,
+                "h": CHASSIS_H_MM,
+            }
+        ],
         doc=document_name,
     )
-    cad_pad(sketch=sketch_result["sketch"], length=CHASSIS_T_MM,
-            doc=document_name)
+    cad_pad(sketch=sketch_result["sketch"], length=CHASSIS_T_MM, doc=document_name)
 
     # ---- Rotors: 3-blade propellers, one per arm tip ----
     # Each prop = central hub circle + 3 trapezoid blades drawn in a
@@ -252,47 +255,57 @@ def define_rotor_mechanism(geometry: dict[str, Any]) -> str:
     _banner("Stage 2a: Define mechanism")
     parts = [
         {
-            "id": "chassis", "body_name": geometry["chassis_body"],
-            "is_ground": True, "mass_kg": CHASSIS_MASS_KG,
+            "id": "chassis",
+            "body_name": geometry["chassis_body"],
+            "is_ground": True,
+            "mass_kg": CHASSIS_MASS_KG,
         },
     ]
     joints = []
     for (rotor_name, dx, dy, _direction), body in zip(
-        ROTORS, geometry["rotor_bodies"], strict=True,
+        ROTORS,
+        geometry["rotor_bodies"],
+        strict=True,
     ):
         # Use the rotor's body name as the part id so that link names
         # in the SDF match. mass_kg ensures the airframe generator can
         # compute total mass.
-        parts.append({
-            "id": rotor_name,
-            "body_name": body,
-            "mass_kg": ROTOR_MASS_KG,
-        })
-        joints.append({
-            "id": f"{rotor_name}_joint",
-            "joint_type": "continuous",
-            "parent_part": "chassis",
-            "child_part": rotor_name,
-            "origin": [dx, dy, CHASSIS_T_MM + 5.0],
-            "axis": [0.0, 0.0, 1.0],
-        })
-    result = motion_define_mechanism({
-        "name": "quadrotor_camera_drone",
-        "parts": parts,
-        "joints": joints,
-        "drives": [],
-    })
-    if not result.get("ok"):
-        raise RuntimeError(
-            f"motion.define_mechanism failed: {result.get('error')}"
+        parts.append(
+            {
+                "id": rotor_name,
+                "body_name": body,
+                "mass_kg": ROTOR_MASS_KG,
+            }
         )
+        joints.append(
+            {
+                "id": f"{rotor_name}_joint",
+                "joint_type": "continuous",
+                "parent_part": "chassis",
+                "child_part": rotor_name,
+                "origin": [dx, dy, CHASSIS_T_MM + 5.0],
+                "axis": [0.0, 0.0, 1.0],
+            }
+        )
+    result = motion_define_mechanism(
+        {
+            "name": "quadrotor_camera_drone",
+            "parts": parts,
+            "joints": joints,
+            "drives": [],
+        }
+    )
+    if not result.get("ok"):
+        raise RuntimeError(f"motion.define_mechanism failed: {result.get('error')}")
     mech_id = result["mechanism_id"]
     print(f"Mechanism registered: {mech_id} ({len(parts)} parts, {len(joints)} joints)")
     return mech_id
 
 
 def export_sim_package_with_px4(
-    mechanism_id: str, output_dir: Path, px4_install: Path,
+    mechanism_id: str,
+    output_dir: Path,
+    px4_install: Path,
 ) -> dict[str, Any]:
     """Export STL + URDF + SDF + PX4 airframe init script in one call."""
     from server.tools_cad import cad_export_sim_package
@@ -323,9 +336,7 @@ def export_sim_package_with_px4(
         output_dir=str(output_dir),
     )
     if not result.get("ok"):
-        raise RuntimeError(
-            f"cad.export_sim_package failed: {result.get('error')}"
-        )
+        raise RuntimeError(f"cad.export_sim_package failed: {result.get('error')}")
 
     print(f"  SDF: {result.get('sdf_path')}")
     print(f"  URDF: {result.get('urdf_path')}")
@@ -336,9 +347,7 @@ def export_sim_package_with_px4(
     print(f"  Hover throttle: {result.get('airframe_hover_throttle', 0):.3f}")
 
     if result.get("airframe_error"):
-        raise RuntimeError(
-            f"airframe generation failed: {result['airframe_error']}"
-        )
+        raise RuntimeError(f"airframe generation failed: {result['airframe_error']}")
     return result
 
 
@@ -364,7 +373,7 @@ def _make_target_name(airframe_name: str) -> str:
 def _model_base_name(airframe_name: str) -> str:
     """Strip the ``gz_`` prefix to get the SDF model directory name."""
     target = _make_target_name(airframe_name)
-    return target[len("gz_"):]
+    return target[len("gz_") :]
 
 
 def deploy_model_to_px4(
@@ -406,12 +415,12 @@ def deploy_model_to_px4(
     # Minimal model.config — Gazebo requires this to load the model.
     (model_dir / "model.config").write_text(
         f'<?xml version="1.0"?>\n'
-        f'<model>\n'
-        f'  <name>{base}</name>\n'
-        f'  <version>1.0</version>\n'
+        f"<model>\n"
+        f"  <name>{base}</name>\n"
+        f"  <version>1.0</version>\n"
         f'  <sdf version="1.10">model.sdf</sdf>\n'
-        f'  <description>Generated by SolidMind run.py</description>\n'
-        f'</model>\n'
+        f"  <description>Generated by SolidMind run.py</description>\n"
+        f"</model>\n"
     )
     return model_dir
 
@@ -424,8 +433,7 @@ def patch_airframes_cmakelists(px4_install: Path, airframe_filename: str) -> Non
     the entry is already present.
     """
     cmake_lists = (
-        px4_install / "ROMFS" / "px4fmu_common" / "init.d-posix"
-        / "airframes" / "CMakeLists.txt"
+        px4_install / "ROMFS" / "px4fmu_common" / "init.d-posix" / "airframes" / "CMakeLists.txt"
     )
     text = cmake_lists.read_text()
     if airframe_filename in text:
@@ -435,14 +443,16 @@ def patch_airframes_cmakelists(px4_install: Path, airframe_filename: str) -> Non
     # doesn't care about indentation (real PX4 uses tabs; simpler
     # generated fixtures use spaces).
     import re
+
     marker = re.search(
         r"^([ \t]*)# \[22000, 22999\] Reserve for custom models",
-        text, re.MULTILINE,
+        text,
+        re.MULTILINE,
     )
     insertion_indent = marker.group(1) if marker else "\t"
     insertion = f"{insertion_indent}{airframe_filename}\n"
     if marker:
-        text = text[:marker.start()] + insertion + text[marker.start():]
+        text = text[: marker.start()] + insertion + text[marker.start() :]
     else:
         # Fallback: insert before the final ")".
         text = text.rstrip().rstrip(")") + insertion + ")\n"
@@ -482,7 +492,9 @@ def rebuild_px4_with_airframe(
         cwd=str(px4_install),
         # Stream output so the operator sees progress; the recording
         # voiceover can talk over it.
-        stdout=sys.stdout, stderr=sys.stderr, check=False,
+        stdout=sys.stdout,
+        stderr=sys.stderr,
+        check=False,
     )
     if proc.returncode != 0:
         raise RuntimeError(
@@ -498,7 +510,8 @@ def rebuild_px4_with_airframe(
 
 
 def launch_px4_sim(
-    px4_install: Path, airframe_name: str,
+    px4_install: Path,
+    airframe_name: str,
 ) -> subprocess.Popen[bytes]:
     """Launch PX4 + Gazebo SITL in a background subprocess.
 
@@ -514,18 +527,20 @@ def launch_px4_sim(
     print(f"  PX4_SIM_MODEL={airframe_name}")
 
     proc = subprocess.Popen(
-        cmd, cwd=str(px4_install), env=env,
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        cmd,
+        cwd=str(px4_install),
+        env=env,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
     )
 
     # Wait for UDP 14540 to become reachable.
     import socket
+
     deadline = time.monotonic() + 30.0
     while time.monotonic() < deadline:
         if proc.poll() is not None:
-            raise RuntimeError(
-                f"PX4 exited during boot (rc={proc.returncode})"
-            )
+            raise RuntimeError(f"PX4 exited during boot (rc={proc.returncode})")
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
                 sock.settimeout(0.5)
@@ -623,18 +638,23 @@ def parse_args() -> FlightArgs:
         help="Stop after the named stage (useful when iterating).",
     )
     p.add_argument(
-        "--px4-install", type=Path,
-        default=Path(os.environ.get(
-            "SOLIDMIND_PX4_INSTALL",
-            str(Path.home() / "repos" / "PX4-Autopilot"),
-        )),
+        "--px4-install",
+        type=Path,
+        default=Path(
+            os.environ.get(
+                "SOLIDMIND_PX4_INSTALL",
+                str(Path.home() / "repos" / "PX4-Autopilot"),
+            )
+        ),
     )
     p.add_argument(
-        "--skip-px4-rebuild", action="store_true",
+        "--skip-px4-rebuild",
+        action="store_true",
         help="Reuse an existing PX4 build (skip Stage 3).",
     )
     p.add_argument(
-        "--document-name", default="QuadrotorCameraDrone",
+        "--document-name",
+        default="QuadrotorCameraDrone",
     )
     args = p.parse_args()
     return FlightArgs(
@@ -677,22 +697,24 @@ def main() -> int:
         # Stage 2: Mechanism + export
         mech_id = define_rotor_mechanism(geometry)
         export_result = export_sim_package_with_px4(
-            mech_id, args.output_dir, args.px4_install,
+            mech_id,
+            args.output_dir,
+            args.px4_install,
         )
         airframe_name = export_result.get("airframe_name") or args.document_name
         # Filename of the init script on disk (e.g. "50837_gz_<name>"),
         # used to register the airframe in PX4's CMakeLists.
         airframe_path = export_result.get("airframe_path")
-        airframe_filename = (
-            Path(airframe_path).name if airframe_path else None
-        )
+        airframe_filename = Path(airframe_path).name if airframe_path else None
         if _stop_if_requested(args.stop_after or "", "export"):
             return 0
 
         # Stage 3: Rebuild PX4
         if not args.skip_px4_rebuild:
             rebuild_px4_with_airframe(
-                args.px4_install, airframe_name, args.output_dir,
+                args.px4_install,
+                airframe_name,
+                args.output_dir,
                 airframe_filename=airframe_filename,
             )
         if _stop_if_requested(args.stop_after or "", "rebuild"):

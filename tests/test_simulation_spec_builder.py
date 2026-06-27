@@ -1,4 +1,5 @@
 """Tests for the simulation spec builder (Python planner)."""
+
 from __future__ import annotations
 
 import unittest
@@ -34,35 +35,41 @@ def _make_planetary_mechanism(
     ]
     joints: list[JointEdge] = []
     for i in range(num_planets):
-        pid = f"planet_{i+1}"
+        pid = f"planet_{i + 1}"
         parts.append(PartNode(id=pid, inertia_kg_m2=0.0005))
 
         # Revolute: carrier → planet (non-ground to non-ground)
-        joints.append(JointEdge(
-            id=f"carrier_{pid}_rev",
-            joint_type=JointType.REVOLUTE,
-            parent_part="carrier",
-            child_part=pid,
-        ))
+        joints.append(
+            JointEdge(
+                id=f"carrier_{pid}_rev",
+                joint_type=JointType.REVOLUTE,
+                parent_part="carrier",
+                child_part=pid,
+            )
+        )
         # Gear mesh: sun → planet (external)
-        joints.append(JointEdge(
-            id=f"sun_{pid}_mesh",
-            joint_type=JointType.GEAR_MESH,
-            parent_part="sun",
-            child_part=pid,
-            teeth_parent=sun_teeth,
-            teeth_child=planet_teeth,
-        ))
+        joints.append(
+            JointEdge(
+                id=f"sun_{pid}_mesh",
+                joint_type=JointType.GEAR_MESH,
+                parent_part="sun",
+                child_part=pid,
+                teeth_parent=sun_teeth,
+                teeth_child=planet_teeth,
+            )
+        )
         # Gear mesh: planet → ring (internal)
-        joints.append(JointEdge(
-            id=f"{pid}_ring_mesh",
-            joint_type=JointType.GEAR_MESH,
-            parent_part=pid,
-            child_part="ring",
-            teeth_parent=planet_teeth,
-            teeth_child=ring_teeth,
-            internal=True,
-        ))
+        joints.append(
+            JointEdge(
+                id=f"{pid}_ring_mesh",
+                joint_type=JointType.GEAR_MESH,
+                parent_part=pid,
+                child_part="ring",
+                teeth_parent=planet_teeth,
+                teeth_child=ring_teeth,
+                internal=True,
+            )
+        )
 
     drives = [
         DriveCondition(
@@ -470,13 +477,15 @@ class TestAppliedForceForwarding(unittest.TestCase):
                 PartNode(id="blade", mass_kg=0.05, inertia_kg_m2=0.001),
             ),
             joints=(
-                JointEdge(id="rev",
-                          joint_type=JointType.REVOLUTE,
-                          parent_part="hub", child_part="blade",
-                          axis=(0, 0, 1)),
+                JointEdge(
+                    id="rev",
+                    joint_type=JointType.REVOLUTE,
+                    parent_part="hub",
+                    child_part="blade",
+                    axis=(0, 0, 1),
+                ),
             ),
-            drives=(DriveCondition(joint_id="rev", speed_rpm=4000.0,
-                                   driven_part="blade"),),
+            drives=(DriveCondition(joint_id="rev", speed_rpm=4000.0, driven_part="blade"),),
             applied_forces=applied_forces,
         )
 
@@ -488,12 +497,18 @@ class TestAppliedForceForwarding(unittest.TestCase):
         )
 
     def test_single_force_emits_one_object(self):
-        spec = build_simulation_spec(self._rotor_with_loads((
-            AppliedForce(target_body="blade",
-                         position_local=(0.075, 0.0, 0.0),
-                         force_vector=(0.0, 0.0, 1.5),
-                         label="station_3"),
-        )))
+        spec = build_simulation_spec(
+            self._rotor_with_loads(
+                (
+                    AppliedForce(
+                        target_body="blade",
+                        position_local=(0.075, 0.0, 0.0),
+                        force_vector=(0.0, 0.0, 1.5),
+                        label="station_3",
+                    ),
+                )
+            )
+        )
         forces = [o for o in spec["objects"] if o["type"] == "applied_force"]
         self.assertEqual(len(forces), 1)
         self.assertEqual(forces[0]["id"], "station_3")
@@ -503,23 +518,35 @@ class TestAppliedForceForwarding(unittest.TestCase):
         self.assertEqual(forces[0]["frame"], "body")
 
     def test_unlabeled_forces_get_indexed_ids(self):
-        spec = build_simulation_spec(self._rotor_with_loads(tuple(
-            AppliedForce(target_body="blade",
-                         position_local=(0.01 * i, 0, 0),
-                         force_vector=(0, 0, 1.0))
-            for i in range(3)
-        )))
+        spec = build_simulation_spec(
+            self._rotor_with_loads(
+                tuple(
+                    AppliedForce(
+                        target_body="blade",
+                        position_local=(0.01 * i, 0, 0),
+                        force_vector=(0, 0, 1.0),
+                    )
+                    for i in range(3)
+                )
+            )
+        )
         forces = [o for o in spec["objects"] if o["type"] == "applied_force"]
         ids = sorted(o["id"] for o in forces)
         self.assertEqual(ids, ["applied_force_0", "applied_force_1", "applied_force_2"])
 
     def test_world_frame_round_trips(self):
-        spec = build_simulation_spec(self._rotor_with_loads((
-            AppliedForce(target_body="blade",
-                         position_local=(0.05, 0.0, 0.0),
-                         force_vector=(0.0, 0.0, -9.81),
-                         frame="world"),
-        )))
+        spec = build_simulation_spec(
+            self._rotor_with_loads(
+                (
+                    AppliedForce(
+                        target_body="blade",
+                        position_local=(0.05, 0.0, 0.0),
+                        force_vector=(0.0, 0.0, -9.81),
+                        frame="world",
+                    ),
+                )
+            )
+        )
         forces = [o for o in spec["objects"] if o["type"] == "applied_force"]
         self.assertEqual(forces[0]["frame"], "world")
 

@@ -11,6 +11,7 @@ Usage inside FreeCAD's Python console or startup macro::
 
 Or to auto-start, add to FreeCAD's macro startup.
 """
+
 from __future__ import annotations
 
 import logging
@@ -54,10 +55,12 @@ def _setup_session_logging() -> Path:
 
     log_file = session_dir / "session.log"
     handler = logging.FileHandler(log_file, encoding="utf-8")
-    handler.setFormatter(logging.Formatter(
-        "%(asctime)s %(levelname)-5s %(name)s: %(message)s",
-        datefmt="%H:%M:%S",
-    ))
+    handler.setFormatter(
+        logging.Formatter(
+            "%(asctime)s %(levelname)-5s %(name)s: %(message)s",
+            datefmt="%H:%M:%S",
+        )
+    )
 
     root_logger = logging.getLogger("solidmind")
     root_logger.addHandler(handler)
@@ -70,9 +73,12 @@ def _run_health_check() -> None:
     """Log FreeCAD version and probe critical modules at startup."""
     try:
         from freecad_addon.compat import IS_V1_PLUS, VERSION_TUPLE, probe_modules
+
         logger.info(
             "FreeCAD version: %d.%d (v1+: %s)",
-            VERSION_TUPLE[0], VERSION_TUPLE[1], IS_V1_PLUS,
+            VERSION_TUPLE[0],
+            VERSION_TUPLE[1],
+            IS_V1_PLUS,
         )
         modules = probe_modules()
         for mod, available in modules.items():

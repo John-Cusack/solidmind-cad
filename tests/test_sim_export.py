@@ -2,6 +2,7 @@
 
 Pure unit tests — no FreeCAD or network dependency.
 """
+
 from __future__ import annotations
 
 import math
@@ -129,9 +130,7 @@ class TestBuildSimModel(unittest.TestCase):
                     max_angle_deg=90.0,
                 ),
             ),
-            drives=(
-                DriveCondition(joint_id="shoulder", speed_rpm=60.0),
-            ),
+            drives=(DriveCondition(joint_id="shoulder", speed_rpm=60.0),),
         )
 
     def _make_manifest(self) -> list[dict]:
@@ -306,9 +305,7 @@ class TestBuildSimModel(unittest.TestCase):
                     child_part="arm",
                 ),
             ),
-            drives=(
-                DriveCondition(joint_id="j1", torque_nm=50.0, speed_rpm=120.0),
-            ),
+            drives=(DriveCondition(joint_id="j1", torque_nm=50.0, speed_rpm=120.0),),
         )
 
         model = build_sim_model(mech, [])
@@ -369,10 +366,16 @@ class TestBuildSimModel(unittest.TestCase):
             drives=(),
         )
         manifest = [
-            {"name": "Body_Base", "mesh_path": "/m/base.stl",
-             "placement": {"position": [0, 0, 0], "rotation_quat": [1, 0, 0, 0]}},
-            {"name": "Body_Arm", "mesh_path": "/m/arm.stl",
-             "placement": {"position": [100, 0, 0], "rotation_quat": [w, 0, 0, z]}},
+            {
+                "name": "Body_Base",
+                "mesh_path": "/m/base.stl",
+                "placement": {"position": [0, 0, 0], "rotation_quat": [1, 0, 0, 0]},
+            },
+            {
+                "name": "Body_Arm",
+                "mesh_path": "/m/arm.stl",
+                "placement": {"position": [100, 0, 0], "rotation_quat": [w, 0, 0, z]},
+            },
         ]
 
         model = build_sim_model(mech, manifest)
@@ -401,10 +404,16 @@ class TestBuildSimModel(unittest.TestCase):
             drives=(),
         )
         manifest = [
-            {"name": "Body_Base", "mesh_path": "/m/base.stl",
-             "placement": {"position": [0, 0, 0], "rotation_quat": [1, 0, 0, 0]}},
-            {"name": "Body_Arm", "mesh_path": "/m/arm.stl",
-             "placement": {"position": [0, 0, 50], "rotation_quat": [1, 0, 0, 0]}},
+            {
+                "name": "Body_Base",
+                "mesh_path": "/m/base.stl",
+                "placement": {"position": [0, 0, 0], "rotation_quat": [1, 0, 0, 0]},
+            },
+            {
+                "name": "Body_Arm",
+                "mesh_path": "/m/arm.stl",
+                "placement": {"position": [0, 0, 50], "rotation_quat": [1, 0, 0, 0]},
+            },
         ]
 
         model = build_sim_model(mech, manifest)
@@ -417,9 +426,7 @@ class TestBuildSimModel(unittest.TestCase):
         """Mass + bbox in manifest -> box inertia tensor on SimLink."""
         mech = Mechanism(
             name="box_part",
-            parts=(
-                PartNode(id="block", body_name="Body_Block", is_ground=True, mass_kg=2.0),
-            ),
+            parts=(PartNode(id="block", body_name="Body_Block", is_ground=True, mass_kg=2.0),),
             joints=(),
             drives=(),
         )
@@ -439,9 +446,9 @@ class TestBuildSimModel(unittest.TestCase):
         # Box inertia: I = m/12 * (b^2 + c^2)
         dx, dy, dz = 0.1, 0.2, 0.3  # meters
         mass = 2.0
-        expected_ixx = mass / 12.0 * (dy ** 2 + dz ** 2)
-        expected_iyy = mass / 12.0 * (dx ** 2 + dz ** 2)
-        expected_izz = mass / 12.0 * (dx ** 2 + dy ** 2)
+        expected_ixx = mass / 12.0 * (dy**2 + dz**2)
+        expected_iyy = mass / 12.0 * (dx**2 + dz**2)
+        expected_izz = mass / 12.0 * (dx**2 + dy**2)
         self.assertAlmostEqual(link.inertia[0], expected_ixx, places=8)
         self.assertAlmostEqual(link.inertia[1], 0.0, places=8)
         self.assertAlmostEqual(link.inertia[2], 0.0, places=8)
@@ -453,9 +460,7 @@ class TestBuildSimModel(unittest.TestCase):
         """Scalar inertia_kg_m2 on PartNode -> diagonal tensor."""
         mech = Mechanism(
             name="scalar_inertia",
-            parts=(
-                PartNode(id="part", is_ground=True, mass_kg=1.0, inertia_kg_m2=0.05),
-            ),
+            parts=(PartNode(id="part", is_ground=True, mass_kg=1.0, inertia_kg_m2=0.05),),
             joints=(),
             drives=(),
         )
@@ -464,19 +469,17 @@ class TestBuildSimModel(unittest.TestCase):
         link = model.links[0]
         self.assertIsNotNone(link.inertia)
         self.assertAlmostEqual(link.inertia[0], 0.05)  # ixx
-        self.assertAlmostEqual(link.inertia[1], 0.0)   # ixy
-        self.assertAlmostEqual(link.inertia[2], 0.0)   # ixz
+        self.assertAlmostEqual(link.inertia[1], 0.0)  # ixy
+        self.assertAlmostEqual(link.inertia[2], 0.0)  # ixz
         self.assertAlmostEqual(link.inertia[3], 0.05)  # iyy
-        self.assertAlmostEqual(link.inertia[4], 0.0)   # iyz
+        self.assertAlmostEqual(link.inertia[4], 0.0)  # iyz
         self.assertAlmostEqual(link.inertia[5], 0.05)  # izz
 
     def test_auto_inertia_from_volume_no_mass(self) -> None:
         """Volume in manifest without mass -> estimate mass from default density."""
         mech = Mechanism(
             name="vol_part",
-            parts=(
-                PartNode(id="block", body_name="Body_Block", is_ground=True),
-            ),
+            parts=(PartNode(id="block", body_name="Body_Block", is_ground=True),),
             joints=(),
             drives=(),
         )
@@ -497,7 +500,6 @@ class TestBuildSimModel(unittest.TestCase):
         self.assertIsNotNone(link.mass_kg)
         self.assertAlmostEqual(link.mass_kg, 1.25, places=8)
         self.assertIsNotNone(link.inertia)
-
 
     def test_non_root_joint_rpy_composes_manifest_pitch(self) -> None:
         """Manifest pitch/roll on deeper links is composed into joint RPY.
@@ -536,12 +538,21 @@ class TestBuildSimModel(unittest.TestCase):
             drives=(),
         )
         manifest = [
-            {"name": "Body_Chassis", "mesh_path": "/m/chassis.stl",
-             "placement": {"position": [0, 0, 0], "rotation_quat": [1, 0, 0, 0]}},
-            {"name": "Body_Coxa", "mesh_path": "/m/coxa.stl",
-             "placement": {"position": [0, 100, 0], "rotation_quat": [1, 0, 0, 0]}},
-            {"name": "Body_Femur", "mesh_path": "/m/femur.stl",
-             "placement": {"position": [0, 200, 0], "rotation_quat": [w30, 0, y30, 0]}},
+            {
+                "name": "Body_Chassis",
+                "mesh_path": "/m/chassis.stl",
+                "placement": {"position": [0, 0, 0], "rotation_quat": [1, 0, 0, 0]},
+            },
+            {
+                "name": "Body_Coxa",
+                "mesh_path": "/m/coxa.stl",
+                "placement": {"position": [0, 100, 0], "rotation_quat": [1, 0, 0, 0]},
+            },
+            {
+                "name": "Body_Femur",
+                "mesh_path": "/m/femur.stl",
+                "placement": {"position": [0, 200, 0], "rotation_quat": [w30, 0, y30, 0]},
+            },
         ]
 
         model = build_sim_model(mech, manifest)
@@ -621,6 +632,7 @@ class TestBuildSimModel(unittest.TestCase):
         # Chassis + one leg: coxa at (70, 75, 0) -> yaw = atan2(75, 70) ≈ 0.8211
         # Femur/tibia have local-frame axis (0, 1, 0) for pitch.
         import math as m
+
         dx, dy = 70.0, 75.0
         expected_yaw = m.atan2(dy, dx)  # ≈ 0.8211 rad
         r = m.sqrt(dx * dx + dy * dy)
@@ -662,16 +674,32 @@ class TestBuildSimModel(unittest.TestCase):
             drives=(),
         )
         manifest = [
-            {"name": "Body_Chassis", "mesh_path": "/m/chassis.stl",
-             "placement": {"position": [0, 0, 0], "rotation_quat": [1, 0, 0, 0]}},
-            {"name": "Body_Coxa", "mesh_path": "/m/coxa.stl",
-             "placement": {"position": [dx, dy, 0], "rotation_quat": [1, 0, 0, 0]}},
-            {"name": "Body_Femur", "mesh_path": "/m/femur.stl",
-             "placement": {"position": [dx + dx / r * 50, dy + dy / r * 50, 0],
-                           "rotation_quat": [1, 0, 0, 0]}},
-            {"name": "Body_Tibia", "mesh_path": "/m/tibia.stl",
-             "placement": {"position": [dx + dx / r * 100, dy + dy / r * 100, 0],
-                           "rotation_quat": [1, 0, 0, 0]}},
+            {
+                "name": "Body_Chassis",
+                "mesh_path": "/m/chassis.stl",
+                "placement": {"position": [0, 0, 0], "rotation_quat": [1, 0, 0, 0]},
+            },
+            {
+                "name": "Body_Coxa",
+                "mesh_path": "/m/coxa.stl",
+                "placement": {"position": [dx, dy, 0], "rotation_quat": [1, 0, 0, 0]},
+            },
+            {
+                "name": "Body_Femur",
+                "mesh_path": "/m/femur.stl",
+                "placement": {
+                    "position": [dx + dx / r * 50, dy + dy / r * 50, 0],
+                    "rotation_quat": [1, 0, 0, 0],
+                },
+            },
+            {
+                "name": "Body_Tibia",
+                "mesh_path": "/m/tibia.stl",
+                "placement": {
+                    "position": [dx + dx / r * 100, dy + dy / r * 100, 0],
+                    "rotation_quat": [1, 0, 0, 0],
+                },
+            },
         ]
 
         model = build_sim_model(mech, manifest)
@@ -939,9 +967,7 @@ class TestWriteUrdf(unittest.TestCase):
         """Both visual and collision meshes have scale='0.001 0.001 0.001'."""
         model = SimModel(
             name="scaled",
-            links=(
-                SimLink(name="link1", mesh_path="/m/link1.stl"),
-            ),
+            links=(SimLink(name="link1", mesh_path="/m/link1.stl"),),
             joints=(),
         )
 
@@ -1263,20 +1289,29 @@ class TestGroundClearance(unittest.TestCase):
         # hip_yaw_L1 (chassis -> coxa) should have z = 0.1 (the real relative delta)
         # Joint origins are pure relative deltas; no z-correction applied.
         hip_jt = next(j for j in model.joints if j.name == "hip_yaw_L1")
-        self.assertAlmostEqual(hip_jt.origin_xyz[2], 0.1, places=4,
-                               msg="Root child joint Z should be the real relative delta")
+        self.assertAlmostEqual(
+            hip_jt.origin_xyz[2],
+            0.1,
+            places=4,
+            msg="Root child joint Z should be the real relative delta",
+        )
 
         # hip_pitch_L1 (coxa -> femur) is a deeper joint: delta Z = 0
         # (both coxa and femur are at z=100mm, so dz=0).  Should be unaffected.
         pitch_jt = next(j for j in model.joints if j.name == "hip_pitch_L1")
-        self.assertAlmostEqual(pitch_jt.origin_xyz[2], 0.0, places=4,
-                               msg="Deeper joint Z delta should remain ~0")
+        self.assertAlmostEqual(
+            pitch_jt.origin_xyz[2], 0.0, places=4, msg="Deeper joint Z delta should remain ~0"
+        )
 
         # FK check: base_link(0,0,0) + base_to_chassis(0,0,0.1) + hip_yaw(~0.052,~0.03,0.1)
         # => coxa world pos = (0.052, 0.03, 0.2) = gc + 100mm coxa offset
         coxa_fk_z = base_jt.origin_xyz[2] + hip_jt.origin_xyz[2]
-        self.assertAlmostEqual(coxa_fk_z, gc + 0.1, places=4,
-                               msg="FK chain should place coxa at ground_clearance + relative delta")
+        self.assertAlmostEqual(
+            coxa_fk_z,
+            gc + 0.1,
+            places=4,
+            msg="FK chain should place coxa at ground_clearance + relative delta",
+        )
 
     def test_ground_clearance_no_overcorrect_when_root_placed(self) -> None:
         """When the root body is already at z=ground_clearance, no Z correction needed."""
@@ -1325,8 +1360,9 @@ class TestGroundClearance(unittest.TestCase):
         # hip_yaw: chassis→coxa delta is (52,30,0) since both at z=100.
         # No correction needed because root manifest Z matches ground_clearance.
         hip_jt = next(j for j in model.joints if j.name == "hip_yaw_L1")
-        self.assertAlmostEqual(hip_jt.origin_xyz[2], 0.0, places=4,
-                               msg="No overcorrection when root already at height")
+        self.assertAlmostEqual(
+            hip_jt.origin_xyz[2], 0.0, places=4, msg="No overcorrection when root already at height"
+        )
 
         # FK chain: base_link(0) + base_to(0.1) + hip_yaw(0) = 0.1m = 100mm correct
         coxa_fk_z = base_jt.origin_xyz[2] + hip_jt.origin_xyz[2]
@@ -1364,9 +1400,21 @@ class TestEndToEnd(unittest.TestCase):
         )
 
         manifest = [
-            {"name": "Body_Ground", "mesh_path": "/m/ground.stl", "placement": {"position": [0, 0, 0], "rotation_quat": [1, 0, 0, 0]}},
-            {"name": "Body_Link1", "mesh_path": "/m/link1.stl", "placement": {"position": [0, 0, 0], "rotation_quat": [1, 0, 0, 0]}},
-            {"name": "Body_Link2", "mesh_path": "/m/link2.stl", "placement": {"position": [100, 0, 0], "rotation_quat": [1, 0, 0, 0]}},
+            {
+                "name": "Body_Ground",
+                "mesh_path": "/m/ground.stl",
+                "placement": {"position": [0, 0, 0], "rotation_quat": [1, 0, 0, 0]},
+            },
+            {
+                "name": "Body_Link1",
+                "mesh_path": "/m/link1.stl",
+                "placement": {"position": [0, 0, 0], "rotation_quat": [1, 0, 0, 0]},
+            },
+            {
+                "name": "Body_Link2",
+                "mesh_path": "/m/link2.stl",
+                "placement": {"position": [100, 0, 0], "rotation_quat": [1, 0, 0, 0]},
+            },
         ]
 
         model = build_sim_model(mechanism, manifest)
@@ -1405,9 +1453,9 @@ class TestBoxInertia(unittest.TestCase):
     def test_rectangular(self) -> None:
         """Asymmetric box should have different diagonal values."""
         inertia = _box_inertia(2.0, 0.1, 0.2, 0.3)
-        ixx = 2.0 / 12.0 * (0.2 ** 2 + 0.3 ** 2)
-        iyy = 2.0 / 12.0 * (0.1 ** 2 + 0.3 ** 2)
-        izz = 2.0 / 12.0 * (0.1 ** 2 + 0.2 ** 2)
+        ixx = 2.0 / 12.0 * (0.2**2 + 0.3**2)
+        iyy = 2.0 / 12.0 * (0.1**2 + 0.3**2)
+        izz = 2.0 / 12.0 * (0.1**2 + 0.2**2)
         self.assertAlmostEqual(inertia[0], ixx, places=10)
         self.assertAlmostEqual(inertia[3], iyy, places=10)
         self.assertAlmostEqual(inertia[5], izz, places=10)
@@ -1431,14 +1479,20 @@ class TestSchemaValidation(unittest.TestCase):
     def test_limits_lower_gt_upper_raises(self) -> None:
         with self.assertRaises(ValueError):
             SimJoint(
-                name="j", joint_type="revolute", parent="a", child="b",
+                name="j",
+                joint_type="revolute",
+                parent="a",
+                child="b",
                 limits=(1.0, -1.0),
             )
 
     def test_non_unit_axis_raises(self) -> None:
         with self.assertRaises(ValueError):
             SimJoint(
-                name="j", joint_type="revolute", parent="a", child="b",
+                name="j",
+                joint_type="revolute",
+                parent="a",
+                child="b",
                 axis=(1.0, 1.0, 0.0),  # magnitude sqrt(2), not 1.0
                 limits=(-1.0, 1.0),
             )
@@ -1459,7 +1513,10 @@ class TestSchemaValidation(unittest.TestCase):
 
     def test_valid_revolute_joint(self) -> None:
         j = SimJoint(
-            name="j1", joint_type="revolute", parent="a", child="b",
+            name="j1",
+            joint_type="revolute",
+            parent="a",
+            child="b",
             limits=(-1.57, 1.57),
         )
         self.assertEqual(j.limits, (-1.57, 1.57))
@@ -1566,9 +1623,7 @@ class TestJointEdgeActuatorFields(unittest.TestCase):
                     velocity_rad_s=5.0,
                 ),
             ),
-            drives=(
-                DriveCondition(joint_id="j1", torque_nm=50.0, speed_rpm=120.0),
-            ),
+            drives=(DriveCondition(joint_id="j1", torque_nm=50.0, speed_rpm=120.0),),
         )
 
         model = build_sim_model(mech, [])
@@ -1708,6 +1763,7 @@ class TestValidateUrdf(unittest.TestCase):
     def test_detects_missing_limit(self) -> None:
         """Manually write a revolute joint without <limit> and validate."""
         import xml.etree.ElementTree as ET2
+
         robot = ET2.Element("robot", name="bad")
         ET2.SubElement(robot, "link", name="a")
         ET2.SubElement(robot, "link", name="b")
@@ -1951,15 +2007,19 @@ class TestFKHelpers(unittest.TestCase):
     def test_aabb_overlap_volume(self) -> None:
         """50% overlap on each axis."""
         overlap = _aabb_overlap_volume(
-            (0.0, 0.0, 0.0), (2.0, 2.0, 2.0),
-            (1.0, 1.0, 1.0), (3.0, 3.0, 3.0),
+            (0.0, 0.0, 0.0),
+            (2.0, 2.0, 2.0),
+            (1.0, 1.0, 1.0),
+            (3.0, 3.0, 3.0),
         )
         self.assertAlmostEqual(overlap, 1.0)  # 1x1x1
 
     def test_aabb_no_overlap(self) -> None:
         overlap = _aabb_overlap_volume(
-            (0.0, 0.0, 0.0), (1.0, 1.0, 1.0),
-            (2.0, 2.0, 2.0), (3.0, 3.0, 3.0),
+            (0.0, 0.0, 0.0),
+            (1.0, 1.0, 1.0),
+            (2.0, 2.0, 2.0),
+            (3.0, 3.0, 3.0),
         )
         self.assertAlmostEqual(overlap, 0.0)
 
@@ -1984,8 +2044,11 @@ class TestValidateUrdfFK(unittest.TestCase):
             ),
             joints=(
                 SimJoint(
-                    name="j1", joint_type="revolute", parent="base_link",
-                    child="arm", limits=(-1.57, 1.57),
+                    name="j1",
+                    joint_type="revolute",
+                    parent="base_link",
+                    child="arm",
+                    limits=(-1.57, 1.57),
                     origin_xyz=(0.0, 0.0, 0.1),
                 ),
             ),
@@ -2047,7 +2110,9 @@ class TestValidateUrdfFK(unittest.TestCase):
 
         path = self._write_urdf_xml(robot)
         findings = validate_urdf_fk(path)
-        coxa_findings = [f for f in findings if f.rule_id == "urdf.fk.root_joint_yaw_matches_radial"]
+        coxa_findings = [
+            f for f in findings if f.rule_id == "urdf.fk.root_joint_yaw_matches_radial"
+        ]
         self.assertEqual(len(coxa_findings), 1)
 
     def test_coxa_yaw_correct(self) -> None:
@@ -2070,7 +2135,9 @@ class TestValidateUrdfFK(unittest.TestCase):
 
         path = self._write_urdf_xml(robot)
         findings = validate_urdf_fk(path)
-        coxa_findings = [f for f in findings if f.rule_id == "urdf.fk.root_joint_yaw_matches_radial"]
+        coxa_findings = [
+            f for f in findings if f.rule_id == "urdf.fk.root_joint_yaw_matches_radial"
+        ]
         self.assertEqual(len(coxa_findings), 0)
 
     def test_pitch_axis_wrong(self) -> None:
@@ -2173,6 +2240,7 @@ class TestValidateUrdfFK(unittest.TestCase):
 # Hexapod round-trip helper + test
 # ---------------------------------------------------------------------------
 
+
 def _make_hexapod_mechanism() -> tuple[
     Mechanism,
     list[dict[str, Any]],
@@ -2194,8 +2262,8 @@ def _make_hexapod_mechanism() -> tuple[
     ]
 
     # Segment lengths (mm along radial direction from joint)
-    coxa_len = 26.0   # half of 52mm bbox
-    femur_len = 33.0   # half of 66mm bbox
+    coxa_len = 26.0  # half of 52mm bbox
+    femur_len = 33.0  # half of 66mm bbox
 
     parts: list[PartNode] = [
         PartNode(id="chassis", body_name="Body_Chassis", is_ground=True, mass_kg=0.5),
@@ -2230,81 +2298,94 @@ def _make_hexapod_mechanism() -> tuple[
         # Joint positions (world frame, mm)
         coxa_pos = (cx, cy, 0.0)
         femur_pos = (cx + dx * coxa_len * 2, cy + dy * coxa_len * 2, 0.0)
-        tibia_pos = (cx + dx * (coxa_len * 2 + femur_len * 2), cy + dy * (coxa_len * 2 + femur_len * 2), 0.0)
+        tibia_pos = (
+            cx + dx * (coxa_len * 2 + femur_len * 2),
+            cy + dy * (coxa_len * 2 + femur_len * 2),
+            0.0,
+        )
 
-        parts.extend([
-            PartNode(id=coxa_id, body_name=f"Body_Coxa_{leg_id}", mass_kg=0.02),
-            PartNode(id=femur_id, body_name=f"Body_Femur_{leg_id}", mass_kg=0.03),
-            PartNode(id=tibia_id, body_name=f"Body_Tibia_{leg_id}", mass_kg=0.02),
-        ])
+        parts.extend(
+            [
+                PartNode(id=coxa_id, body_name=f"Body_Coxa_{leg_id}", mass_kg=0.02),
+                PartNode(id=femur_id, body_name=f"Body_Femur_{leg_id}", mass_kg=0.03),
+                PartNode(id=tibia_id, body_name=f"Body_Tibia_{leg_id}", mass_kg=0.02),
+            ]
+        )
 
-        joints.extend([
-            JointEdge(
-                id=f"j_coxa_{leg_id}",
-                joint_type=JointType.REVOLUTE,
-                parent_part="chassis",
-                child_part=coxa_id,
-                origin=coxa_pos,
-                axis=(0.0, 0.0, 1.0),
-                min_angle_deg=-30.0,
-                max_angle_deg=30.0,
-            ),
-            JointEdge(
-                id=f"j_femur_{leg_id}",
-                joint_type=JointType.REVOLUTE,
-                parent_part=coxa_id,
-                child_part=femur_id,
-                origin=femur_pos,
-                axis=(pitch_ax, pitch_ay, 0.0),
-                min_angle_deg=-90.0,
-                max_angle_deg=90.0,
-            ),
-            JointEdge(
-                id=f"j_tibia_{leg_id}",
-                joint_type=JointType.REVOLUTE,
-                parent_part=femur_id,
-                child_part=tibia_id,
-                origin=tibia_pos,
-                axis=(pitch_ax, pitch_ay, 0.0),
-                min_angle_deg=-135.0,
-                max_angle_deg=135.0,
-            ),
-        ])
+        joints.extend(
+            [
+                JointEdge(
+                    id=f"j_coxa_{leg_id}",
+                    joint_type=JointType.REVOLUTE,
+                    parent_part="chassis",
+                    child_part=coxa_id,
+                    origin=coxa_pos,
+                    axis=(0.0, 0.0, 1.0),
+                    min_angle_deg=-30.0,
+                    max_angle_deg=30.0,
+                ),
+                JointEdge(
+                    id=f"j_femur_{leg_id}",
+                    joint_type=JointType.REVOLUTE,
+                    parent_part=coxa_id,
+                    child_part=femur_id,
+                    origin=femur_pos,
+                    axis=(pitch_ax, pitch_ay, 0.0),
+                    min_angle_deg=-90.0,
+                    max_angle_deg=90.0,
+                ),
+                JointEdge(
+                    id=f"j_tibia_{leg_id}",
+                    joint_type=JointType.REVOLUTE,
+                    parent_part=femur_id,
+                    child_part=tibia_id,
+                    origin=tibia_pos,
+                    axis=(pitch_ax, pitch_ay, 0.0),
+                    min_angle_deg=-135.0,
+                    max_angle_deg=135.0,
+                ),
+            ]
+        )
 
         # Manifest entries (body-local meshes, centered at body origin)
-        manifest.extend([
-            {
-                "name": f"Body_Coxa_{leg_id}",
-                "mesh_path": f"/m/Body_Coxa_{leg_id}.stl",
-                "placement": {"position": list(coxa_pos), "rotation_quat": [1, 0, 0, 0]},
-                "bbox_mm": [52.0, 18.0, 10.0],
-                "bbox_min_mm": [0.0, -9.0, -5.0],
-            },
-            {
-                "name": f"Body_Femur_{leg_id}",
-                "mesh_path": f"/m/Body_Femur_{leg_id}.stl",
-                "placement": {"position": list(femur_pos), "rotation_quat": [1, 0, 0, 0]},
-                "bbox_mm": [66.0, 20.0, 10.0],
-                "bbox_min_mm": [0.0, -10.0, -5.0],
-            },
-            {
-                "name": f"Body_Tibia_{leg_id}",
-                "mesh_path": f"/m/Body_Tibia_{leg_id}.stl",
-                "placement": {"position": list(tibia_pos), "rotation_quat": [1, 0, 0, 0]},
-                "bbox_mm": [133.0, 15.0, 8.0],
-                "bbox_min_mm": [0.0, -7.5, -4.0],
-            },
-        ])
+        manifest.extend(
+            [
+                {
+                    "name": f"Body_Coxa_{leg_id}",
+                    "mesh_path": f"/m/Body_Coxa_{leg_id}.stl",
+                    "placement": {"position": list(coxa_pos), "rotation_quat": [1, 0, 0, 0]},
+                    "bbox_mm": [52.0, 18.0, 10.0],
+                    "bbox_min_mm": [0.0, -9.0, -5.0],
+                },
+                {
+                    "name": f"Body_Femur_{leg_id}",
+                    "mesh_path": f"/m/Body_Femur_{leg_id}.stl",
+                    "placement": {"position": list(femur_pos), "rotation_quat": [1, 0, 0, 0]},
+                    "bbox_mm": [66.0, 20.0, 10.0],
+                    "bbox_min_mm": [0.0, -10.0, -5.0],
+                },
+                {
+                    "name": f"Body_Tibia_{leg_id}",
+                    "mesh_path": f"/m/Body_Tibia_{leg_id}.stl",
+                    "placement": {"position": list(tibia_pos), "rotation_quat": [1, 0, 0, 0]},
+                    "bbox_mm": [133.0, 15.0, 8.0],
+                    "bbox_min_mm": [0.0, -7.5, -4.0],
+                },
+            ]
+        )
 
         # Mesh bboxes (body-local, mm)
         mesh_bboxes[coxa_id] = MeshBBox(
-            min_pt=(0.0, -9.0, -5.0), max_pt=(52.0, 9.0, 5.0),
+            min_pt=(0.0, -9.0, -5.0),
+            max_pt=(52.0, 9.0, 5.0),
         )
         mesh_bboxes[femur_id] = MeshBBox(
-            min_pt=(0.0, -10.0, -5.0), max_pt=(66.0, 10.0, 5.0),
+            min_pt=(0.0, -10.0, -5.0),
+            max_pt=(66.0, 10.0, 5.0),
         )
         mesh_bboxes[tibia_id] = MeshBBox(
-            min_pt=(0.0, -7.5, -4.0), max_pt=(133.0, 7.5, 4.0),
+            min_pt=(0.0, -7.5, -4.0),
+            max_pt=(133.0, 7.5, 4.0),
         )
 
     mechanism = Mechanism(
@@ -2342,15 +2423,23 @@ class TestHexapodRoundTrip(unittest.TestCase):
 
         # Check coxa yaws match atan2(dy, dx)
         for leg_id, cx, cy in [
-            ("L1", 52.0, 30.0), ("L2", 0.0, 60.0), ("L3", -52.0, 30.0),
-            ("R1", 52.0, -30.0), ("R2", 0.0, -60.0), ("R3", -52.0, -30.0),
+            ("L1", 52.0, 30.0),
+            ("L2", 0.0, 60.0),
+            ("L3", -52.0, 30.0),
+            ("R1", 52.0, -30.0),
+            ("R2", 0.0, -60.0),
+            ("R3", -52.0, -30.0),
         ]:
             jname = f"j_coxa_{leg_id}"
             expected_yaw = math.atan2(cy, cx)
             rpy_str = urdf_joints[jname].find("origin").attrib["rpy"]
             actual_yaw = float(rpy_str.split()[2])
-            self.assertAlmostEqual(actual_yaw, expected_yaw, places=3,
-                                   msg=f"{jname}: yaw {actual_yaw} != {expected_yaw}")
+            self.assertAlmostEqual(
+                actual_yaw,
+                expected_yaw,
+                places=3,
+                msg=f"{jname}: yaw {actual_yaw} != {expected_yaw}",
+            )
 
         # Check femur/tibia RPY = (0, 0, 0) and axis ≈ (0, ±1, 0)
         for jname, jel in urdf_joints.items():
@@ -2385,7 +2474,9 @@ class TestHexapodRoundTrip(unittest.TestCase):
         self.assertEqual(len(chassis_findings), 0)
 
         # All coxa yaw checks should pass
-        coxa_findings = [f for f in fk_findings if f.rule_id == "urdf.fk.root_joint_yaw_matches_radial"]
+        coxa_findings = [
+            f for f in fk_findings if f.rule_id == "urdf.fk.root_joint_yaw_matches_radial"
+        ]
         self.assertEqual(len(coxa_findings), 0)
 
         # All pitch axis checks should pass
@@ -2615,7 +2706,9 @@ class TestURDFGenerationPipeline(unittest.TestCase):
             model = build_sim_model(mech, [])
             actual_yaw = model.joints[0].origin_rpy[2]
             self.assertAlmostEqual(
-                actual_yaw, expected_yaw, places=5,
+                actual_yaw,
+                expected_yaw,
+                places=5,
                 msg=f"origin={origin}: yaw {actual_yaw} != {expected_yaw}",
             )
 
@@ -2638,7 +2731,9 @@ class TestURDFGenerationPipeline(unittest.TestCase):
         # Structural validation
         struct_findings = validate_urdf(fixture_urdf)
         struct_blockers = [f for f in struct_findings if f.severity == Severity.BLOCK]
-        self.assertEqual(struct_blockers, [], f"Fixture URDF structural blockers: {struct_blockers}")
+        self.assertEqual(
+            struct_blockers, [], f"Fixture URDF structural blockers: {struct_blockers}"
+        )
 
         # FK validation (no mesh_bboxes — vertical joint, not a serial chain)
         fk_findings = validate_urdf_fk(fixture_urdf)
@@ -2697,7 +2792,9 @@ class TestURDFGenerationPipeline(unittest.TestCase):
                 gen_xyz = [float(v) for v in gen_origin.attrib.get("xyz", "0 0 0").split()]
                 for i, (fv, gv) in enumerate(zip(fix_xyz, gen_xyz, strict=False)):
                     self.assertAlmostEqual(
-                        gv, fv, delta=TOL,
+                        gv,
+                        fv,
+                        delta=TOL,
                         msg=f"Joint '{jname}' origin xyz[{i}]: {gv} != {fv}",
                     )
 
@@ -2706,7 +2803,9 @@ class TestURDFGenerationPipeline(unittest.TestCase):
                 gen_rpy = [float(v) for v in gen_origin.attrib.get("rpy", "0 0 0").split()]
                 for i, (fv, gv) in enumerate(zip(fix_rpy, gen_rpy, strict=False)):
                     self.assertAlmostEqual(
-                        gv, fv, delta=TOL,
+                        gv,
+                        fv,
+                        delta=TOL,
                         msg=f"Joint '{jname}' origin rpy[{i}]: {gv} != {fv}",
                     )
 
@@ -2719,7 +2818,9 @@ class TestURDFGenerationPipeline(unittest.TestCase):
                 gen_ax = [float(v) for v in gen_axis.attrib.get("xyz", "0 0 1").split()]
                 for i, (fv, gv) in enumerate(zip(fix_ax, gen_ax, strict=False)):
                     self.assertAlmostEqual(
-                        gv, fv, delta=TOL,
+                        gv,
+                        fv,
+                        delta=TOL,
                         msg=f"Joint '{jname}' axis xyz[{i}]: {gv} != {fv}",
                     )
 
@@ -2733,12 +2834,15 @@ class TestURDFGenerationPipeline(unittest.TestCase):
                 self.assertIn(lname, gen_links_map, f"Missing link '{lname}' in generated URDF")
                 gen_mass_el = gen_links_map[lname].find("inertial/mass")
                 self.assertIsNotNone(
-                    gen_mass_el, f"Link '{lname}' missing <inertial><mass> in generated URDF",
+                    gen_mass_el,
+                    f"Link '{lname}' missing <inertial><mass> in generated URDF",
                 )
                 fix_mass = float(fix_mass_el.attrib["value"])
                 gen_mass = float(gen_mass_el.attrib["value"])
                 self.assertAlmostEqual(
-                    gen_mass, fix_mass, delta=TOL,
+                    gen_mass,
+                    fix_mass,
+                    delta=TOL,
                     msg=f"Link '{lname}' mass: {gen_mass} != {fix_mass}",
                 )
 
@@ -2776,15 +2880,10 @@ class TestChildDetachedFromParent(unittest.TestCase):
         path = self._write_urdf_xml(robot)
         # Chassis is 100×100×10mm centered at origin
         bboxes = {
-            "chassis": MeshBBox(
-                min_pt=(-50.0, -50.0, -5.0), max_pt=(50.0, 50.0, 5.0)
-            ),
+            "chassis": MeshBBox(min_pt=(-50.0, -50.0, -5.0), max_pt=(50.0, 50.0, 5.0)),
         }
         findings = validate_urdf_fk(path, mesh_bboxes=bboxes)
-        detach = [
-            f for f in findings
-            if f.rule_id == "urdf.fk.child_detached_from_parent"
-        ]
+        detach = [f for f in findings if f.rule_id == "urdf.fk.child_detached_from_parent"]
         self.assertEqual(len(detach), 1)
         self.assertEqual(detach[0].severity, Severity.BLOCK)
         self.assertIn("servo_A", detach[0].message)
@@ -2813,15 +2912,10 @@ class TestChildDetachedFromParent(unittest.TestCase):
         path = self._write_urdf_xml(robot)
         # Plate 150×150mm AABB → inscribed radius = 75mm
         bboxes = {
-            "plate": MeshBBox(
-                min_pt=(-75.0, -75.0, -5.0), max_pt=(75.0, 75.0, 5.0)
-            ),
+            "plate": MeshBBox(min_pt=(-75.0, -75.0, -5.0), max_pt=(75.0, 75.0, 5.0)),
         }
         findings = validate_urdf_fk(path, mesh_bboxes=bboxes)
-        detach = [
-            f for f in findings
-            if f.rule_id == "urdf.fk.child_detached_from_parent"
-        ]
+        detach = [f for f in findings if f.rule_id == "urdf.fk.child_detached_from_parent"]
         # Only servo_LF should trigger (WARN), servo_LM is within inscribed
         self.assertEqual(len(detach), 1)
         self.assertEqual(detach[0].severity, Severity.WARN)
@@ -2906,6 +3000,7 @@ class TestContinuousJoint(unittest.TestCase):
         model = build_sim_model(mech, manifest)
 
         import tempfile
+
         with tempfile.NamedTemporaryFile(suffix=".urdf", delete=False) as f:
             path = f.name
         write_urdf(model, path)
@@ -2973,9 +3068,7 @@ class TestCaseInsensitiveManifestMatch(unittest.TestCase):
     def test_body_name_case_mismatch(self) -> None:
         mech = Mechanism(
             name="test",
-            parts=(
-                PartNode(id="base", body_name="motor_fr", is_ground=True, mass_kg=1.0),
-            ),
+            parts=(PartNode(id="base", body_name="motor_fr", is_ground=True, mass_kg=1.0),),
             joints=(),
             drives=(),
         )
@@ -3121,6 +3214,7 @@ class TestBinaryStlTransform(unittest.TestCase):
     def _make_binary_stl(self, vertices: list[tuple[float, float, float]]) -> bytes:
         """Create a minimal binary STL with one triangle."""
         import struct
+
         header = b"\x00" * 80
         tri_count = len(vertices) // 3
         data = bytearray()
@@ -3136,9 +3230,13 @@ class TestBinaryStlTransform(unittest.TestCase):
         return header + struct.pack("<I", tri_count) + bytes(data)
 
     def test_detect_binary(self) -> None:
-        data = self._make_binary_stl([
-            (0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (0.0, 1.0, 0.0),
-        ])
+        data = self._make_binary_stl(
+            [
+                (0.0, 0.0, 0.0),
+                (1.0, 0.0, 0.0),
+                (0.0, 1.0, 0.0),
+            ]
+        )
         with tempfile.NamedTemporaryFile(suffix=".stl", delete=False) as f:
             f.write(data)
             path = f.name
@@ -3153,16 +3251,21 @@ class TestBinaryStlTransform(unittest.TestCase):
 
     def test_binary_translate(self) -> None:
         import struct as st
-        data = self._make_binary_stl([
-            (100.0, 200.0, 0.0), (110.0, 200.0, 0.0), (105.0, 210.0, 0.0),
-        ])
+
+        data = self._make_binary_stl(
+            [
+                (100.0, 200.0, 0.0),
+                (110.0, 200.0, 0.0),
+                (105.0, 210.0, 0.0),
+            ]
+        )
         with tempfile.NamedTemporaryFile(suffix=".stl", delete=False) as f:
             f.write(data)
             path = f.name
         _transform_stl_to_link_local(path, (100.0, 200.0, 0.0), (1.0, 0.0, 0.0, 0.0))
         with open(path, "rb") as f:
             f.read(80)  # header
-            f.read(4)   # count
+            f.read(4)  # count
             f.read(12)  # normal
             v1 = st.unpack("<3f", f.read(12))
         self.assertAlmostEqual(v1[0], 0.0, places=2)
@@ -3171,9 +3274,14 @@ class TestBinaryStlTransform(unittest.TestCase):
 
     def test_binary_rotate(self) -> None:
         import struct as st
-        data = self._make_binary_stl([
-            (50.0, 0.0, 0.0), (50.0, 0.0, 10.0), (60.0, 0.0, 0.0),
-        ])
+
+        data = self._make_binary_stl(
+            [
+                (50.0, 0.0, 0.0),
+                (50.0, 0.0, 10.0),
+                (60.0, 0.0, 0.0),
+            ]
+        )
         with tempfile.NamedTemporaryFile(suffix=".stl", delete=False) as f:
             f.write(data)
             path = f.name
@@ -3182,7 +3290,7 @@ class TestBinaryStlTransform(unittest.TestCase):
         _transform_stl_to_link_local(path, (0.0, 0.0, 0.0), quat)
         with open(path, "rb") as f:
             f.read(80)  # header
-            f.read(4)   # count
+            f.read(4)  # count
             f.read(12)  # normal
             v1 = st.unpack("<3f", f.read(12))
         expected_x = 50 * math.cos(-yaw)
@@ -3203,18 +3311,26 @@ class TestMeshTransformErrorMode(unittest.TestCase):
             ),
             joints=(
                 JointEdge(
-                    id="j1", joint_type=JointType.REVOLUTE,
-                    parent_part="base", child_part="arm",
+                    id="j1",
+                    joint_type=JointType.REVOLUTE,
+                    parent_part="base",
+                    child_part="arm",
                     origin=(100.0, 0.0, 0.0),
                 ),
             ),
             drives=(),
         )
         manifest = [
-            {"name": "base", "mesh_path": None,
-             "placement": {"position": [0, 0, 0], "rotation_quat": [1, 0, 0, 0]}},
-            {"name": "arm", "mesh_path": "/nonexistent/arm.stl",
-             "placement": {"position": [100, 0, 0], "rotation_quat": [1, 0, 0, 0]}},
+            {
+                "name": "base",
+                "mesh_path": None,
+                "placement": {"position": [0, 0, 0], "rotation_quat": [1, 0, 0, 0]},
+            },
+            {
+                "name": "arm",
+                "mesh_path": "/nonexistent/arm.stl",
+                "placement": {"position": [100, 0, 0], "rotation_quat": [1, 0, 0, 0]},
+            },
         ]
         # warn mode (default) should not raise
         model = build_sim_model(mech, manifest, mesh_transform_error_mode="warn")
@@ -3229,18 +3345,26 @@ class TestMeshTransformErrorMode(unittest.TestCase):
             ),
             joints=(
                 JointEdge(
-                    id="j1", joint_type=JointType.REVOLUTE,
-                    parent_part="base", child_part="arm",
+                    id="j1",
+                    joint_type=JointType.REVOLUTE,
+                    parent_part="base",
+                    child_part="arm",
                     origin=(100.0, 0.0, 0.0),
                 ),
             ),
             drives=(),
         )
         manifest = [
-            {"name": "base", "mesh_path": None,
-             "placement": {"position": [0, 0, 0], "rotation_quat": [1, 0, 0, 0]}},
-            {"name": "arm", "mesh_path": "/nonexistent/arm.stl",
-             "placement": {"position": [100, 0, 0], "rotation_quat": [1, 0, 0, 0]}},
+            {
+                "name": "base",
+                "mesh_path": None,
+                "placement": {"position": [0, 0, 0], "rotation_quat": [1, 0, 0, 0]},
+            },
+            {
+                "name": "arm",
+                "mesh_path": "/nonexistent/arm.stl",
+                "placement": {"position": [100, 0, 0], "rotation_quat": [1, 0, 0, 0]},
+            },
         ]
         with self.assertRaises(FileNotFoundError):
             build_sim_model(mech, manifest, mesh_transform_error_mode="fail")
@@ -3263,13 +3387,17 @@ class TestFullQuaternionBFS(unittest.TestCase):
             ),
             joints=(
                 JointEdge(
-                    id="j_coxa", joint_type=JointType.REVOLUTE,
-                    parent_part="chassis", child_part="coxa",
+                    id="j_coxa",
+                    joint_type=JointType.REVOLUTE,
+                    parent_part="chassis",
+                    child_part="coxa",
                     axis=(0.0, 0.0, 1.0),
                 ),
                 JointEdge(
-                    id="j_femur", joint_type=JointType.REVOLUTE,
-                    parent_part="coxa", child_part="femur",
+                    id="j_femur",
+                    joint_type=JointType.REVOLUTE,
+                    parent_part="coxa",
+                    child_part="femur",
                     origin=(dx + 50 * dx / 100, dy + 50 * dy / 100, 0.0),
                     axis=(0.0, 1.0, 0.0),
                 ),
@@ -3277,13 +3405,24 @@ class TestFullQuaternionBFS(unittest.TestCase):
             drives=(),
         )
         manifest = [
-            {"name": "chassis", "mesh_path": None,
-             "placement": {"position": [0, 0, 0], "rotation_quat": [1, 0, 0, 0]}},
-            {"name": "coxa", "mesh_path": None,
-             "placement": {"position": [dx, dy, 0], "rotation_quat": [1, 0, 0, 0]}},
-            {"name": "femur", "mesh_path": None,
-             "placement": {"position": [dx + 50 * dx / 100, dy + 50 * dy / 100, 0],
-                           "rotation_quat": [1, 0, 0, 0]}},
+            {
+                "name": "chassis",
+                "mesh_path": None,
+                "placement": {"position": [0, 0, 0], "rotation_quat": [1, 0, 0, 0]},
+            },
+            {
+                "name": "coxa",
+                "mesh_path": None,
+                "placement": {"position": [dx, dy, 0], "rotation_quat": [1, 0, 0, 0]},
+            },
+            {
+                "name": "femur",
+                "mesh_path": None,
+                "placement": {
+                    "position": [dx + 50 * dx / 100, dy + 50 * dy / 100, 0],
+                    "rotation_quat": [1, 0, 0, 0],
+                },
+            },
         ]
         model = build_sim_model(mech, manifest)
 
@@ -3310,13 +3449,17 @@ class TestFullQuaternionBFS(unittest.TestCase):
             ),
             joints=(
                 JointEdge(
-                    id="j_a", joint_type=JointType.REVOLUTE,
-                    parent_part="chassis", child_part="leg_a",
+                    id="j_a",
+                    joint_type=JointType.REVOLUTE,
+                    parent_part="chassis",
+                    child_part="leg_a",
                     origin=(100.0, 0.0, 0.0),
                 ),
                 JointEdge(
-                    id="j_b", joint_type=JointType.REVOLUTE,
-                    parent_part="chassis", child_part="leg_b",
+                    id="j_b",
+                    joint_type=JointType.REVOLUTE,
+                    parent_part="chassis",
+                    child_part="leg_b",
                     origin=(0.0, 100.0, 0.0),
                 ),
             ),
@@ -3338,6 +3481,7 @@ class TestMechanismStructuralValidation(unittest.TestCase):
 
     def test_valid_mechanism_no_errors(self) -> None:
         from server.motion_validators import validate_mechanism_structure
+
         mech = Mechanism(
             name="simple",
             parts=(
@@ -3346,8 +3490,10 @@ class TestMechanismStructuralValidation(unittest.TestCase):
             ),
             joints=(
                 JointEdge(
-                    id="j1", joint_type=JointType.REVOLUTE,
-                    parent_part="frame", child_part="wheel",
+                    id="j1",
+                    joint_type=JointType.REVOLUTE,
+                    parent_part="frame",
+                    child_part="wheel",
                 ),
             ),
             drives=(),
@@ -3357,6 +3503,7 @@ class TestMechanismStructuralValidation(unittest.TestCase):
 
     def test_duplicate_part_id(self) -> None:
         from server.motion_validators import validate_mechanism_structure
+
         mech = Mechanism(
             name="dup",
             parts=(
@@ -3371,6 +3518,7 @@ class TestMechanismStructuralValidation(unittest.TestCase):
 
     def test_duplicate_joint_id(self) -> None:
         from server.motion_validators import validate_mechanism_structure
+
         mech = Mechanism(
             name="dup",
             parts=(
@@ -3379,10 +3527,8 @@ class TestMechanismStructuralValidation(unittest.TestCase):
                 PartNode(id="c"),
             ),
             joints=(
-                JointEdge(id="j1", joint_type=JointType.REVOLUTE,
-                          parent_part="a", child_part="b"),
-                JointEdge(id="j1", joint_type=JointType.REVOLUTE,
-                          parent_part="a", child_part="c"),
+                JointEdge(id="j1", joint_type=JointType.REVOLUTE, parent_part="a", child_part="b"),
+                JointEdge(id="j1", joint_type=JointType.REVOLUTE, parent_part="a", child_part="c"),
             ),
             drives=(),
         )
@@ -3391,14 +3537,17 @@ class TestMechanismStructuralValidation(unittest.TestCase):
 
     def test_dangling_parent_reference(self) -> None:
         from server.motion_validators import validate_mechanism_structure
+
         mech = Mechanism(
             name="dangle",
-            parts=(
-                PartNode(id="a", is_ground=True),
-            ),
+            parts=(PartNode(id="a", is_ground=True),),
             joints=(
-                JointEdge(id="j1", joint_type=JointType.REVOLUTE,
-                          parent_part="a", child_part="nonexistent"),
+                JointEdge(
+                    id="j1",
+                    joint_type=JointType.REVOLUTE,
+                    parent_part="a",
+                    child_part="nonexistent",
+                ),
             ),
             drives=(),
         )
@@ -3407,6 +3556,7 @@ class TestMechanismStructuralValidation(unittest.TestCase):
 
     def test_zero_axis_vector(self) -> None:
         from server.motion_validators import validate_mechanism_structure
+
         mech = Mechanism(
             name="zero_axis",
             parts=(
@@ -3414,9 +3564,13 @@ class TestMechanismStructuralValidation(unittest.TestCase):
                 PartNode(id="b"),
             ),
             joints=(
-                JointEdge(id="j1", joint_type=JointType.REVOLUTE,
-                          parent_part="a", child_part="b",
-                          axis=(0.0, 0.0, 0.0)),
+                JointEdge(
+                    id="j1",
+                    joint_type=JointType.REVOLUTE,
+                    parent_part="a",
+                    child_part="b",
+                    axis=(0.0, 0.0, 0.0),
+                ),
             ),
             drives=(),
         )
@@ -3425,6 +3579,7 @@ class TestMechanismStructuralValidation(unittest.TestCase):
 
     def test_non_unit_axis_warning(self) -> None:
         from server.motion_validators import validate_mechanism_structure
+
         mech = Mechanism(
             name="non_unit",
             parts=(
@@ -3432,9 +3587,13 @@ class TestMechanismStructuralValidation(unittest.TestCase):
                 PartNode(id="b"),
             ),
             joints=(
-                JointEdge(id="j1", joint_type=JointType.REVOLUTE,
-                          parent_part="a", child_part="b",
-                          axis=(0.0, 0.0, 2.0)),
+                JointEdge(
+                    id="j1",
+                    joint_type=JointType.REVOLUTE,
+                    parent_part="a",
+                    child_part="b",
+                    axis=(0.0, 0.0, 2.0),
+                ),
             ),
             drives=(),
         )
@@ -3444,6 +3603,7 @@ class TestMechanismStructuralValidation(unittest.TestCase):
 
     def test_limit_consistency(self) -> None:
         from server.motion_validators import validate_mechanism_structure
+
         mech = Mechanism(
             name="bad_limits",
             parts=(
@@ -3451,9 +3611,14 @@ class TestMechanismStructuralValidation(unittest.TestCase):
                 PartNode(id="b"),
             ),
             joints=(
-                JointEdge(id="j1", joint_type=JointType.REVOLUTE,
-                          parent_part="a", child_part="b",
-                          min_angle_deg=90, max_angle_deg=10),
+                JointEdge(
+                    id="j1",
+                    joint_type=JointType.REVOLUTE,
+                    parent_part="a",
+                    child_part="b",
+                    min_angle_deg=90,
+                    max_angle_deg=10,
+                ),
             ),
             drives=(),
         )
@@ -3462,6 +3627,7 @@ class TestMechanismStructuralValidation(unittest.TestCase):
 
     def test_cycle_detection(self) -> None:
         from server.motion_validators import validate_mechanism_structure
+
         mech = Mechanism(
             name="cycle",
             parts=(
@@ -3470,12 +3636,9 @@ class TestMechanismStructuralValidation(unittest.TestCase):
                 PartNode(id="c"),
             ),
             joints=(
-                JointEdge(id="j1", joint_type=JointType.REVOLUTE,
-                          parent_part="a", child_part="b"),
-                JointEdge(id="j2", joint_type=JointType.REVOLUTE,
-                          parent_part="b", child_part="c"),
-                JointEdge(id="j3", joint_type=JointType.REVOLUTE,
-                          parent_part="c", child_part="a"),
+                JointEdge(id="j1", joint_type=JointType.REVOLUTE, parent_part="a", child_part="b"),
+                JointEdge(id="j2", joint_type=JointType.REVOLUTE, parent_part="b", child_part="c"),
+                JointEdge(id="j3", joint_type=JointType.REVOLUTE, parent_part="c", child_part="a"),
             ),
             drives=(),
         )
@@ -3484,6 +3647,7 @@ class TestMechanismStructuralValidation(unittest.TestCase):
 
     def test_duplicate_joint_connection(self) -> None:
         from server.motion_validators import validate_mechanism_structure
+
         mech = Mechanism(
             name="dup_conn",
             parts=(
@@ -3491,10 +3655,8 @@ class TestMechanismStructuralValidation(unittest.TestCase):
                 PartNode(id="b"),
             ),
             joints=(
-                JointEdge(id="j1", joint_type=JointType.REVOLUTE,
-                          parent_part="a", child_part="b"),
-                JointEdge(id="j2", joint_type=JointType.FIXED,
-                          parent_part="a", child_part="b"),
+                JointEdge(id="j1", joint_type=JointType.REVOLUTE, parent_part="a", child_part="b"),
+                JointEdge(id="j2", joint_type=JointType.FIXED, parent_part="a", child_part="b"),
             ),
             drives=(),
         )
@@ -3503,6 +3665,7 @@ class TestMechanismStructuralValidation(unittest.TestCase):
 
     def test_negative_mass(self) -> None:
         from server.motion_validators import validate_mechanism_structure
+
         mech = Mechanism(
             name="neg_mass",
             parts=(
@@ -3510,8 +3673,7 @@ class TestMechanismStructuralValidation(unittest.TestCase):
                 PartNode(id="b", mass_kg=-1.0),
             ),
             joints=(
-                JointEdge(id="j1", joint_type=JointType.REVOLUTE,
-                          parent_part="a", child_part="b"),
+                JointEdge(id="j1", joint_type=JointType.REVOLUTE, parent_part="a", child_part="b"),
             ),
             drives=(),
         )
@@ -3520,6 +3682,7 @@ class TestMechanismStructuralValidation(unittest.TestCase):
 
     def test_zero_mass_warning(self) -> None:
         from server.motion_validators import validate_mechanism_structure
+
         mech = Mechanism(
             name="zero_mass",
             parts=(
@@ -3527,8 +3690,7 @@ class TestMechanismStructuralValidation(unittest.TestCase):
                 PartNode(id="b", mass_kg=0.0),
             ),
             joints=(
-                JointEdge(id="j1", joint_type=JointType.REVOLUTE,
-                          parent_part="a", child_part="b"),
+                JointEdge(id="j1", joint_type=JointType.REVOLUTE, parent_part="a", child_part="b"),
             ),
             drives=(),
         )
@@ -3538,6 +3700,7 @@ class TestMechanismStructuralValidation(unittest.TestCase):
 
     def test_no_ground_is_warning(self) -> None:
         from server.motion_validators import validate_mechanism_structure
+
         mech = Mechanism(
             name="no_ground",
             parts=(
@@ -3545,8 +3708,7 @@ class TestMechanismStructuralValidation(unittest.TestCase):
                 PartNode(id="b"),
             ),
             joints=(
-                JointEdge(id="j1", joint_type=JointType.REVOLUTE,
-                          parent_part="a", child_part="b"),
+                JointEdge(id="j1", joint_type=JointType.REVOLUTE, parent_part="a", child_part="b"),
             ),
             drives=(),
         )
@@ -3556,21 +3718,19 @@ class TestMechanismStructuralValidation(unittest.TestCase):
 
     def test_dangling_drive_reference(self) -> None:
         from server.motion_validators import validate_mechanism_structure
+
         mech = Mechanism(
             name="bad_drive",
-            parts=(
-                PartNode(id="a", is_ground=True),
-            ),
+            parts=(PartNode(id="a", is_ground=True),),
             joints=(),
-            drives=(
-                DriveCondition(joint_id="nonexistent", speed_rpm=100),
-            ),
+            drives=(DriveCondition(joint_id="nonexistent", speed_rpm=100),),
         )
         errors, _ = validate_mechanism_structure(mech)
         self.assertTrue(any("unknown joint_id" in e for e in errors))
 
     def test_fixed_joint_non_default_axis_warning(self) -> None:
         from server.motion_validators import validate_mechanism_structure
+
         mech = Mechanism(
             name="fixed_axis",
             parts=(
@@ -3578,9 +3738,13 @@ class TestMechanismStructuralValidation(unittest.TestCase):
                 PartNode(id="b"),
             ),
             joints=(
-                JointEdge(id="j1", joint_type=JointType.FIXED,
-                          parent_part="a", child_part="b",
-                          axis=(1.0, 0.0, 0.0)),
+                JointEdge(
+                    id="j1",
+                    joint_type=JointType.FIXED,
+                    parent_part="a",
+                    child_part="b",
+                    axis=(1.0, 0.0, 0.0),
+                ),
             ),
             drives=(),
         )
@@ -3590,6 +3754,7 @@ class TestMechanismStructuralValidation(unittest.TestCase):
 
     def test_prismatic_non_principal_axis_warning(self) -> None:
         from server.motion_validators import validate_mechanism_structure
+
         mech = Mechanism(
             name="prism_diag",
             parts=(
@@ -3597,9 +3762,13 @@ class TestMechanismStructuralValidation(unittest.TestCase):
                 PartNode(id="b"),
             ),
             joints=(
-                JointEdge(id="j1", joint_type=JointType.PRISMATIC,
-                          parent_part="a", child_part="b",
-                          axis=(0.707, 0.707, 0.0)),
+                JointEdge(
+                    id="j1",
+                    joint_type=JointType.PRISMATIC,
+                    parent_part="a",
+                    child_part="b",
+                    axis=(0.707, 0.707, 0.0),
+                ),
             ),
             drives=(),
         )
@@ -3609,6 +3778,7 @@ class TestMechanismStructuralValidation(unittest.TestCase):
 
     def test_continuous_with_limits_warning(self) -> None:
         from server.motion_validators import validate_mechanism_structure
+
         mech = Mechanism(
             name="cont_limits",
             parts=(
@@ -3616,9 +3786,14 @@ class TestMechanismStructuralValidation(unittest.TestCase):
                 PartNode(id="b"),
             ),
             joints=(
-                JointEdge(id="j1", joint_type=JointType.CONTINUOUS,
-                          parent_part="a", child_part="b",
-                          min_angle_deg=-90, max_angle_deg=90),
+                JointEdge(
+                    id="j1",
+                    joint_type=JointType.CONTINUOUS,
+                    parent_part="a",
+                    child_part="b",
+                    min_angle_deg=-90,
+                    max_angle_deg=90,
+                ),
             ),
             drives=(),
         )
@@ -3628,6 +3803,7 @@ class TestMechanismStructuralValidation(unittest.TestCase):
 
     def test_prismatic_principal_axis_ok(self) -> None:
         from server.motion_validators import validate_mechanism_structure
+
         mech = Mechanism(
             name="prism_ok",
             parts=(
@@ -3635,9 +3811,13 @@ class TestMechanismStructuralValidation(unittest.TestCase):
                 PartNode(id="b"),
             ),
             joints=(
-                JointEdge(id="j1", joint_type=JointType.PRISMATIC,
-                          parent_part="a", child_part="b",
-                          axis=(0.0, 0.0, 1.0)),
+                JointEdge(
+                    id="j1",
+                    joint_type=JointType.PRISMATIC,
+                    parent_part="a",
+                    child_part="b",
+                    axis=(0.0, 0.0, 1.0),
+                ),
             ),
             drives=(),
         )
@@ -3647,6 +3827,7 @@ class TestMechanismStructuralValidation(unittest.TestCase):
 
     def test_negative_teeth_count(self) -> None:
         from server.motion_validators import validate_mechanism_structure
+
         mech = Mechanism(
             name="neg_teeth",
             parts=(
@@ -3654,9 +3835,14 @@ class TestMechanismStructuralValidation(unittest.TestCase):
                 PartNode(id="b"),
             ),
             joints=(
-                JointEdge(id="j1", joint_type=JointType.GEAR_MESH,
-                          parent_part="a", child_part="b",
-                          teeth_parent=-10, teeth_child=20),
+                JointEdge(
+                    id="j1",
+                    joint_type=JointType.GEAR_MESH,
+                    parent_part="a",
+                    child_part="b",
+                    teeth_parent=-10,
+                    teeth_child=20,
+                ),
             ),
             drives=(),
         )
@@ -3689,22 +3875,26 @@ class TestTopologyOptimization(unittest.TestCase):
             parts.append(PartNode(id=motor_id))
             parts.append(PartNode(id=prop_id))
             # Fixed joint: frame → motor
-            joints.append(JointEdge(
-                id=f"frame_to_motor_{i}",
-                joint_type=JointType.FIXED,
-                parent_part="frame",
-                child_part=motor_id,
-                origin=list(pos),
-            ))
+            joints.append(
+                JointEdge(
+                    id=f"frame_to_motor_{i}",
+                    joint_type=JointType.FIXED,
+                    parent_part="frame",
+                    child_part=motor_id,
+                    origin=list(pos),
+                )
+            )
             # Revolute joint: frame → prop (BEFORE optimization)
-            joints.append(JointEdge(
-                id=f"frame_to_prop_{i}",
-                joint_type=JointType.REVOLUTE,
-                parent_part="frame",
-                child_part=prop_id,
-                origin=list(pos),
-                axis=(0.0, 0.0, 1.0),
-            ))
+            joints.append(
+                JointEdge(
+                    id=f"frame_to_prop_{i}",
+                    joint_type=JointType.REVOLUTE,
+                    parent_part="frame",
+                    child_part=prop_id,
+                    origin=list(pos),
+                    axis=(0.0, 0.0, 1.0),
+                )
+            )
 
         return Mechanism(
             name="quadcopter",
@@ -3723,14 +3913,16 @@ class TestTopologyOptimization(unittest.TestCase):
 
         for part in mechanism.parts:
             pos = pos_map.get(part.id, (0.0, 0.0, 0.0))
-            manifest.append({
-                "name": part.id,
-                "mesh_path": None,
-                "placement": {
-                    "position": list(pos),
-                    "rotation_quat": [1.0, 0.0, 0.0, 0.0],
-                },
-            })
+            manifest.append(
+                {
+                    "name": part.id,
+                    "mesh_path": None,
+                    "placement": {
+                        "position": list(pos),
+                        "rotation_quat": [1.0, 0.0, 0.0, 0.0],
+                    },
+                }
+            )
         return manifest
 
     def test_props_reparented_to_motors(self) -> None:
@@ -3741,13 +3933,11 @@ class TestTopologyOptimization(unittest.TestCase):
 
         # Each prop's revolute joint should have motor as parent, not frame
         for i in range(4):
-            prop_joint = next(
-                j for j in model.joints if j.name == f"frame_to_prop_{i}"
-            )
+            prop_joint = next(j for j in model.joints if j.name == f"frame_to_prop_{i}")
             self.assertEqual(
-                prop_joint.parent, f"motor_{i}",
-                f"prop_{i} revolute joint should be parented to motor_{i}, "
-                f"not {prop_joint.parent}",
+                prop_joint.parent,
+                f"motor_{i}",
+                f"prop_{i} revolute joint should be parented to motor_{i}, not {prop_joint.parent}",
             )
 
     def test_fixed_joints_unchanged(self) -> None:
@@ -3757,9 +3947,7 @@ class TestTopologyOptimization(unittest.TestCase):
         model = build_sim_model(mech, manifest)
 
         for i in range(4):
-            motor_joint = next(
-                j for j in model.joints if j.name == f"frame_to_motor_{i}"
-            )
+            motor_joint = next(j for j in model.joints if j.name == f"frame_to_motor_{i}")
             self.assertEqual(motor_joint.parent, "frame")
 
     def test_prop_joint_origin_near_zero(self) -> None:
@@ -3769,14 +3957,14 @@ class TestTopologyOptimization(unittest.TestCase):
         model = build_sim_model(mech, manifest)
 
         for i in range(4):
-            prop_joint = next(
-                j for j in model.joints if j.name == f"frame_to_prop_{i}"
-            )
+            prop_joint = next(j for j in model.joints if j.name == f"frame_to_prop_{i}")
             # Motor and prop are at the same position, so the origin
             # from motor to prop should be approximately zero
             for dim in range(3):
                 self.assertAlmostEqual(
-                    prop_joint.origin_xyz[dim], 0.0, places=4,
+                    prop_joint.origin_xyz[dim],
+                    0.0,
+                    places=4,
                     msg=f"prop_{i} joint origin dim {dim} should be ~0",
                 )
 
@@ -3811,18 +3999,28 @@ class TestTopologyOptimization(unittest.TestCase):
             drives=(),
         )
         manifest = [
-            {"name": "frame", "mesh_path": None,
-             "placement": {"position": [0, 0, 0], "rotation_quat": [1, 0, 0, 0]}},
-            {"name": "motor", "mesh_path": None,
-             "placement": {"position": [100, 0, 0], "rotation_quat": [1, 0, 0, 0]}},
-            {"name": "sensor", "mesh_path": None,
-             "placement": {"position": [-100, 0, 0], "rotation_quat": [1, 0, 0, 0]}},
+            {
+                "name": "frame",
+                "mesh_path": None,
+                "placement": {"position": [0, 0, 0], "rotation_quat": [1, 0, 0, 0]},
+            },
+            {
+                "name": "motor",
+                "mesh_path": None,
+                "placement": {"position": [100, 0, 0], "rotation_quat": [1, 0, 0, 0]},
+            },
+            {
+                "name": "sensor",
+                "mesh_path": None,
+                "placement": {"position": [-100, 0, 0], "rotation_quat": [1, 0, 0, 0]},
+            },
         ]
         model = build_sim_model(mech, manifest)
 
         sensor_joint = next(j for j in model.joints if j.name == "frame_to_sensor")
         self.assertEqual(
-            sensor_joint.parent, "frame",
+            sensor_joint.parent,
+            "frame",
             "Sensor should remain parented to frame (not co-located with motor)",
         )
 
@@ -3858,18 +4056,28 @@ class TestTopologyOptimization(unittest.TestCase):
             drives=(),
         )
         manifest = [
-            {"name": "frame", "mesh_path": None,
-             "placement": {"position": [0, 0, 0], "rotation_quat": [1, 0, 0, 0]}},
-            {"name": "joint_a", "mesh_path": None,
-             "placement": {"position": [100, 0, 0], "rotation_quat": [1, 0, 0, 0]}},
-            {"name": "joint_b", "mesh_path": None,
-             "placement": {"position": [100, 0, 0], "rotation_quat": [1, 0, 0, 0]}},
+            {
+                "name": "frame",
+                "mesh_path": None,
+                "placement": {"position": [0, 0, 0], "rotation_quat": [1, 0, 0, 0]},
+            },
+            {
+                "name": "joint_a",
+                "mesh_path": None,
+                "placement": {"position": [100, 0, 0], "rotation_quat": [1, 0, 0, 0]},
+            },
+            {
+                "name": "joint_b",
+                "mesh_path": None,
+                "placement": {"position": [100, 0, 0], "rotation_quat": [1, 0, 0, 0]},
+            },
         ]
         model = build_sim_model(mech, manifest)
 
         joint_b = next(j for j in model.joints if j.name == "frame_to_b")
         self.assertEqual(
-            joint_b.parent, "frame",
+            joint_b.parent,
+            "frame",
             "Two revolute co-located siblings should not be rechained",
         )
 
@@ -3959,8 +4167,12 @@ class TestExtractLegGeometry(unittest.TestCase):
 
         legs = ["lf", "lm", "lr", "rf", "rm", "rr"]
         hip_positions = [
-            (0.07, 0.075), (0.0, 0.075), (-0.07, 0.075),
-            (0.07, -0.075), (0.0, -0.075), (-0.07, -0.075),
+            (0.07, 0.075),
+            (0.0, 0.075),
+            (-0.07, 0.075),
+            (0.07, -0.075),
+            (0.0, -0.075),
+            (-0.07, -0.075),
         ]
 
         for i, leg in enumerate(legs):
@@ -3969,26 +4181,38 @@ class TestExtractLegGeometry(unittest.TestCase):
             links.append(SimLink(name=f"femur_{leg}"))
             links.append(SimLink(name=f"tibia_{leg}"))
 
-            joints.append(SimJoint(
-                name=f"coxa_{leg}", joint_type="revolute",
-                parent="chassis", child=f"coxa_{leg}",
-                origin_xyz=(hx, hy, 0.0),
-                limits=(-0.785, 0.785),
-            ))
-            joints.append(SimJoint(
-                name=f"femur_{leg}", joint_type="revolute",
-                parent=f"coxa_{leg}", child=f"femur_{leg}",
-                origin_xyz=(hx + 0.052, hy, 0.0),
-                axis=(0.0, 1.0, 0.0),
-                limits=(-1.57, 1.57),
-            ))
-            joints.append(SimJoint(
-                name=f"tibia_{leg}", joint_type="revolute",
-                parent=f"femur_{leg}", child=f"tibia_{leg}",
-                origin_xyz=(hx + 0.052 + 0.066, hy, 0.0),
-                axis=(0.0, 1.0, 0.0),
-                limits=(-2.09, 0.0),
-            ))
+            joints.append(
+                SimJoint(
+                    name=f"coxa_{leg}",
+                    joint_type="revolute",
+                    parent="chassis",
+                    child=f"coxa_{leg}",
+                    origin_xyz=(hx, hy, 0.0),
+                    limits=(-0.785, 0.785),
+                )
+            )
+            joints.append(
+                SimJoint(
+                    name=f"femur_{leg}",
+                    joint_type="revolute",
+                    parent=f"coxa_{leg}",
+                    child=f"femur_{leg}",
+                    origin_xyz=(hx + 0.052, hy, 0.0),
+                    axis=(0.0, 1.0, 0.0),
+                    limits=(-1.57, 1.57),
+                )
+            )
+            joints.append(
+                SimJoint(
+                    name=f"tibia_{leg}",
+                    joint_type="revolute",
+                    parent=f"femur_{leg}",
+                    child=f"tibia_{leg}",
+                    origin_xyz=(hx + 0.052 + 0.066, hy, 0.0),
+                    axis=(0.0, 1.0, 0.0),
+                    limits=(-2.09, 0.0),
+                )
+            )
 
         return SimModel(
             name="hexapod",

@@ -3,6 +3,7 @@
 Loads a STEP file, creates physical groups for boundary condition faces,
 and generates a tetrahedral mesh.
 """
+
 from __future__ import annotations
 
 import logging
@@ -19,6 +20,7 @@ _DEFAULT_FLUID_MARGIN = 3.0  # bounding box margin multiplier for fluid domain
 def _gmsh_available() -> bool:
     try:
         import gmsh  # noqa: F401
+
         return True
     except ImportError:
         return False
@@ -55,9 +57,7 @@ def mesh_step_to_msh(
         Metadata about the generated mesh.
     """
     if not _gmsh_available():
-        raise RuntimeError(
-            "Gmsh is not installed. Install with: pip install gmsh"
-        )
+        raise RuntimeError("Gmsh is not installed. Install with: pip install gmsh")
 
     import gmsh
 
@@ -84,7 +84,8 @@ def mesh_step_to_msh(
                     else:
                         log.warning(
                             "Face ref %s out of range (have %d surfaces)",
-                            ref, len(surfaces),
+                            ref,
+                            len(surfaces),
                         )
                 if tags:
                     pg = gmsh.model.addPhysicalGroup(2, tags)
@@ -127,6 +128,7 @@ def mesh_step_to_msh(
         if output_path is None:
             fd, output_path = tempfile.mkstemp(suffix=".msh")
             import os
+
             os.close(fd)
 
         if msh_version > 0:
@@ -219,7 +221,8 @@ def mesh_step_to_cht_msh(
 
         # Step 2: Compute bounding box → fluid domain
         x_min, y_min, z_min, x_max, y_max, z_max = gmsh.model.occ.getBoundingBox(
-            3, solid_vols[0],
+            3,
+            solid_vols[0],
         )
         # If multiple solid volumes, expand to encompass all
         for sv in solid_vols[1:]:
@@ -235,8 +238,12 @@ def mesh_step_to_cht_msh(
         pad_z = dz * margin
 
         fluid_box = gmsh.model.occ.addBox(
-            x_min - pad_x, y_min - pad_y, z_min - pad_z,
-            dx + 2 * pad_x, dy + 2 * pad_y, dz + 2 * pad_z,
+            x_min - pad_x,
+            y_min - pad_y,
+            z_min - pad_z,
+            dx + 2 * pad_x,
+            dy + 2 * pad_y,
+            dz + 2 * pad_z,
         )
 
         # Step 3: Boolean fragment — creates shared interface surfaces
@@ -295,8 +302,10 @@ def mesh_step_to_cht_msh(
 
         log.info(
             "CHT mesh: %d solid volume(s) %s, %d fluid volume(s) %s",
-            len(solid_vol_tags), solid_vol_tags,
-            len(fluid_vol_tags), fluid_vol_tags,
+            len(solid_vol_tags),
+            solid_vol_tags,
+            len(fluid_vol_tags),
+            fluid_vol_tags,
         )
 
         # Step 5: Physical groups
@@ -436,6 +445,7 @@ def mesh_step_to_cht_msh(
         # Output
         if output_path is None:
             import os
+
             fd, output_path = tempfile.mkstemp(suffix=".msh")
             os.close(fd)
 

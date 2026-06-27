@@ -22,6 +22,7 @@ from typing import Any
 @dataclass
 class Position:
     """3D position [x, y, z] in mm."""
+
     x: float
     y: float
     z: float
@@ -33,6 +34,7 @@ class Position:
 @dataclass
 class Segment:
     """Represents a body primitive to create."""
+
     name: str
     shape: str
     dimensions: dict[str, float]
@@ -332,9 +334,7 @@ def main():
 
     # Print a summary table
     print("\n\n# Summary table:")
-    print(
-        f"{'Segment':<25} {'Position [x, y, z]':<50} {'Rotation':<30}"
-    )
+    print(f"{'Segment':<25} {'Position [x, y, z]':<50} {'Rotation':<30}")
     print("-" * 105)
     for seg in calc.segments:
         pos = seg.position

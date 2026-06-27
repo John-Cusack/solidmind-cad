@@ -6,6 +6,7 @@ Can be invoked as a subprocess:
 Reads study definition from studies/<study_id>/study.json, runs coarse sweep,
 refines around best result, ranks, and updates the file after each variant.
 """
+
 from __future__ import annotations
 
 import argparse

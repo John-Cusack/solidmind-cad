@@ -17,6 +17,7 @@ Naming convention:
 - ``cinema_drone()`` — a 6 kg X-quad with camera payload + battery,
   matching the example we just built in the camera_drone walkthrough.
 """
+
 from __future__ import annotations
 
 from server.airframes import Box, SensorPack, StructuralBody
@@ -69,18 +70,42 @@ def small_quad_3in(name: str = "small_quad") -> MulticopterAirframe:
         chassis=chassis,
         structural_bodies=(battery,),
         rotors=(
-            Rotor(name="rotor_FL", position_m=(+0.085, +0.085, 0.02),
-                  direction="ccw", radius_m=0.038, mass_kg=0.005,
-                  motor_constant=2.0e-06, max_rot_velocity_rad_s=2200.0),
-            Rotor(name="rotor_FR", position_m=(+0.085, -0.085, 0.02),
-                  direction="cw", radius_m=0.038, mass_kg=0.005,
-                  motor_constant=2.0e-06, max_rot_velocity_rad_s=2200.0),
-            Rotor(name="rotor_RR", position_m=(-0.085, -0.085, 0.02),
-                  direction="ccw", radius_m=0.038, mass_kg=0.005,
-                  motor_constant=2.0e-06, max_rot_velocity_rad_s=2200.0),
-            Rotor(name="rotor_RL", position_m=(-0.085, +0.085, 0.02),
-                  direction="cw", radius_m=0.038, mass_kg=0.005,
-                  motor_constant=2.0e-06, max_rot_velocity_rad_s=2200.0),
+            Rotor(
+                name="rotor_FL",
+                position_m=(+0.085, +0.085, 0.02),
+                direction="ccw",
+                radius_m=0.038,
+                mass_kg=0.005,
+                motor_constant=2.0e-06,
+                max_rot_velocity_rad_s=2200.0,
+            ),
+            Rotor(
+                name="rotor_FR",
+                position_m=(+0.085, -0.085, 0.02),
+                direction="cw",
+                radius_m=0.038,
+                mass_kg=0.005,
+                motor_constant=2.0e-06,
+                max_rot_velocity_rad_s=2200.0,
+            ),
+            Rotor(
+                name="rotor_RR",
+                position_m=(-0.085, -0.085, 0.02),
+                direction="ccw",
+                radius_m=0.038,
+                mass_kg=0.005,
+                motor_constant=2.0e-06,
+                max_rot_velocity_rad_s=2200.0,
+            ),
+            Rotor(
+                name="rotor_RL",
+                position_m=(-0.085, +0.085, 0.02),
+                direction="cw",
+                radius_m=0.038,
+                mass_kg=0.005,
+                motor_constant=2.0e-06,
+                max_rot_velocity_rad_s=2200.0,
+            ),
         ),
     )
 
@@ -142,14 +167,30 @@ def cinema_drone(name: str = "cinema_drone") -> MulticopterAirframe:
         chassis=chassis,
         structural_bodies=(battery, payload, arms, motor_mounts, wiring),
         rotors=(
-            Rotor(name="rotor_FL", position_m=(+0.2475, +0.2475, 0.038),
-                  direction="ccw", **rotor_kwargs),
-            Rotor(name="rotor_FR", position_m=(+0.2475, -0.2475, 0.038),
-                  direction="cw", **rotor_kwargs),
-            Rotor(name="rotor_RR", position_m=(-0.2475, -0.2475, 0.038),
-                  direction="ccw", **rotor_kwargs),
-            Rotor(name="rotor_RL", position_m=(-0.2475, +0.2475, 0.038),
-                  direction="cw", **rotor_kwargs),
+            Rotor(
+                name="rotor_FL",
+                position_m=(+0.2475, +0.2475, 0.038),
+                direction="ccw",
+                **rotor_kwargs,
+            ),
+            Rotor(
+                name="rotor_FR",
+                position_m=(+0.2475, -0.2475, 0.038),
+                direction="cw",
+                **rotor_kwargs,
+            ),
+            Rotor(
+                name="rotor_RR",
+                position_m=(-0.2475, -0.2475, 0.038),
+                direction="ccw",
+                **rotor_kwargs,
+            ),
+            Rotor(
+                name="rotor_RL",
+                position_m=(-0.2475, +0.2475, 0.038),
+                direction="cw",
+                **rotor_kwargs,
+            ),
         ),
     )
 

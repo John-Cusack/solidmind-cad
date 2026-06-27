@@ -3,6 +3,7 @@
 Single entry point that runs all applicable validation stages and returns
 a structured report with explicit gate mode semantics.
 """
+
 from __future__ import annotations
 
 import logging
@@ -40,7 +41,10 @@ def preflight_check(
     if gate_mode not in ("advisory", "strict"):
         return {
             "ok": False,
-            "error": {"code": "INVALID_INPUT", "message": f"gate_mode must be 'advisory' or 'strict', got '{gate_mode}'"},
+            "error": {
+                "code": "INVALID_INPUT",
+                "message": f"gate_mode must be 'advisory' or 'strict', got '{gate_mode}'",
+            },
         }
 
     t_total_start = time.monotonic()
@@ -109,9 +113,7 @@ def preflight_check(
     # ------------------------------------------------------------------
     total_suppressed = sum(c.get("suppressed_count", 0) for c in categories)
     total_policy_violations = sum(
-        1 for c in categories
-        for f in c.get("findings", [])
-        if f.get("_policy_note")
+        1 for c in categories for f in c.get("findings", []) if f.get("_policy_note")
     )
 
     statuses = [c["status"] for c in categories]
@@ -125,22 +127,31 @@ def preflight_check(
     # In strict mode, skipped stages with no data are a concern
     if gate_mode == "strict":
         skipped_critical = [
-            c["name"] for c in categories
-            if c["status"] == "skipped" and c["name"] in (
-                "static_clearance", "assembly_interference", "motion_validators",
+            c["name"]
+            for c in categories
+            if c["status"] == "skipped"
+            and c["name"]
+            in (
+                "static_clearance",
+                "assembly_interference",
+                "motion_validators",
             )
         ]
         if skipped_critical and overall != "fail":
             overall = "fail"
-            categories.append({
-                "name": "gate_coverage",
-                "status": "fail",
-                "findings": [{
-                    "reason_code": "INSUFFICIENT_COVERAGE",
-                    "message": f"Critical stages skipped in strict mode: {skipped_critical}",
-                }],
-                "suppressed_count": 0,
-            })
+            categories.append(
+                {
+                    "name": "gate_coverage",
+                    "status": "fail",
+                    "findings": [
+                        {
+                            "reason_code": "INSUFFICIENT_COVERAGE",
+                            "message": f"Critical stages skipped in strict mode: {skipped_critical}",
+                        }
+                    ],
+                    "suppressed_count": 0,
+                }
+            )
 
     total_ms = round((time.monotonic() - t_total_start) * 1000, 1)
 
@@ -167,6 +178,7 @@ def preflight_check(
 # ---------------------------------------------------------------------------
 # Stage implementations
 # ---------------------------------------------------------------------------
+
 
 def _run_design_completeness(
     brief_id: str,
@@ -237,12 +249,18 @@ def _run_name_resolution(
     findings: list[dict[str, Any]] = []
 
     if brief is None:
-        return name_map, policies, {
-            "name": "name_resolution",
-            "status": "fail",
-            "findings": [{"reason_code": "BRIEF_NOT_FOUND", "message": f"No brief '{brief_id}'"}],
-            "suppressed_count": 0,
-        }
+        return (
+            name_map,
+            policies,
+            {
+                "name": "name_resolution",
+                "status": "fail",
+                "findings": [
+                    {"reason_code": "BRIEF_NOT_FOUND", "message": f"No brief '{brief_id}'"}
+                ],
+                "suppressed_count": 0,
+            },
+        )
 
     # Build name map from brief parts
     brief_parts = [p.to_dict() for p in brief.parts]
@@ -261,24 +279,30 @@ def _run_name_resolution(
     # Check for parts without body mappings
     for p in brief.parts:
         if p.kind == "custom" and p.status == "built" and not name_map.get(p.name):
-            findings.append({
-                "reason_code": "POLICY_MISMATCH",
-                "message": f"Part '{p.name}' marked built but no body mapping found",
-            })
+            findings.append(
+                {
+                    "reason_code": "POLICY_MISMATCH",
+                    "message": f"Part '{p.name}' marked built but no body mapping found",
+                }
+            )
 
     # Derive collision policies from interfaces
     iface_dicts = [i.to_dict() for i in brief.interfaces]
     policies = derive_policies(iface_dicts)
 
     status = "warn" if findings else "pass"
-    return name_map, policies, {
-        "name": "name_resolution",
-        "status": status,
-        "findings": findings,
-        "suppressed_count": 0,
-        "name_map_size": len(name_map),
-        "policies_derived": len(policies),
-    }
+    return (
+        name_map,
+        policies,
+        {
+            "name": "name_resolution",
+            "status": status,
+            "findings": findings,
+            "suppressed_count": 0,
+            "name_map_size": len(name_map),
+            "policies_derived": len(policies),
+        },
+    )
 
 
 def _run_static_clearance(
@@ -297,10 +321,12 @@ def _run_static_clearance(
             return {
                 "name": "static_clearance",
                 "status": "skipped",
-                "findings": [{
-                    "reason_code": "TOOL_ERROR",
-                    "message": result.get("error", {}).get("message", "FreeCAD unavailable"),
-                }],
+                "findings": [
+                    {
+                        "reason_code": "TOOL_ERROR",
+                        "message": result.get("error", {}).get("message", "FreeCAD unavailable"),
+                    }
+                ],
                 "suppressed_count": 0,
                 "pairs_checked": 0,
             }
@@ -357,10 +383,12 @@ def _run_assembly_interference(
             return {
                 "name": "assembly_interference",
                 "status": "skipped",
-                "findings": [{
-                    "reason_code": "TOOL_ERROR",
-                    "message": result.get("error", {}).get("message", ""),
-                }],
+                "findings": [
+                    {
+                        "reason_code": "TOOL_ERROR",
+                        "message": result.get("error", {}).get("message", ""),
+                    }
+                ],
                 "suppressed_count": 0,
             }
 
@@ -368,13 +396,15 @@ def _run_assembly_interference(
         # Normalize collision format to match filter_violations expectations
         violations = []
         for c in collisions:
-            violations.append({
-                "body_a": c.get("part_a", ""),
-                "body_b": c.get("part_b", ""),
-                "intersecting": True,
-                "distance_mm": 0.0,
-                "overlap_volume_mm3": c.get("overlap_volume_mm3", 0.0),
-            })
+            violations.append(
+                {
+                    "body_a": c.get("part_a", ""),
+                    "body_b": c.get("part_b", ""),
+                    "intersecting": True,
+                    "distance_mm": 0.0,
+                    "overlap_volume_mm3": c.get("overlap_volume_mm3", 0.0),
+                }
+            )
 
         filtered, suppressed = filter_violations(violations, policies, name_map)
 
@@ -420,7 +450,9 @@ def _run_swept_clearance(
             return {
                 "name": "swept_clearance",
                 "status": "skipped",
-                "findings": [{"reason_code": "NOT_FOUND", "message": f"No mechanism '{mechanism_id}'"}],
+                "findings": [
+                    {"reason_code": "NOT_FOUND", "message": f"No mechanism '{mechanism_id}'"}
+                ],
                 "suppressed_count": 0,
                 "sweep_samples": 0,
             }
@@ -434,11 +466,13 @@ def _run_swept_clearance(
             # Check parent part for body name
             parent = mech.get_part(joint.parent_part)
             if parent and parent.body_name:
-                driven_bodies.append((
-                    parent.body_name,
-                    joint.axis,
-                    joint.origin,
-                ))
+                driven_bodies.append(
+                    (
+                        parent.body_name,
+                        joint.axis,
+                        joint.origin,
+                    )
+                )
 
         if not driven_bodies:
             return {
@@ -463,21 +497,27 @@ def _run_swept_clearance(
                 doc=doc,
             )
             if not result.get("ok"):
-                all_findings.append({
-                    "reason_code": "TOOL_ERROR",
-                    "message": f"Swept check failed for {body_name}: {result.get('error', {}).get('message', '')}",
-                })
+                all_findings.append(
+                    {
+                        "reason_code": "TOOL_ERROR",
+                        "message": f"Swept check failed for {body_name}: {result.get('error', {}).get('message', '')}",
+                    }
+                )
                 continue
 
             total_samples += result.get("steps", 0)
             for v in result.get("violations", []):
-                all_findings.append({
-                    "reason_code": "DYNAMIC_SWEEP_COLLISION",
-                    "body": body_name,
-                    **v,
-                })
+                all_findings.append(
+                    {
+                        "reason_code": "DYNAMIC_SWEEP_COLLISION",
+                        "body": body_name,
+                        **v,
+                    }
+                )
 
-        sweep_collisions = [f for f in all_findings if f.get("reason_code") == "DYNAMIC_SWEEP_COLLISION"]
+        sweep_collisions = [
+            f for f in all_findings if f.get("reason_code") == "DYNAMIC_SWEEP_COLLISION"
+        ]
         tool_errors = [f for f in all_findings if f.get("reason_code") == "TOOL_ERROR"]
 
         if sweep_collisions:
@@ -524,19 +564,24 @@ def _run_joint_connectivity(
             return {
                 "name": "joint_connectivity",
                 "status": "skipped",
-                "findings": [{
-                    "reason_code": "TOOL_ERROR",
-                    "message": result.get("error", {}).get("message", ""),
-                }],
+                "findings": [
+                    {
+                        "reason_code": "TOOL_ERROR",
+                        "message": result.get("error", {}).get("message", ""),
+                    }
+                ],
                 "suppressed_count": 0,
             }
 
         disconnected = result.get("disconnected_joints", [])
         if disconnected:
-            findings = [{
-                "reason_code": "CONNECTIVITY_FAIL",
-                **j,
-            } for j in disconnected]
+            findings = [
+                {
+                    "reason_code": "CONNECTIVITY_FAIL",
+                    **j,
+                }
+                for j in disconnected
+            ]
             return {
                 "name": "joint_connectivity",
                 "status": "fail",
@@ -578,10 +623,12 @@ def _run_motion_validators(
             return {
                 "name": "motion_validators",
                 "status": "fail",
-                "findings": [{
-                    "reason_code": "TOOL_ERROR",
-                    "message": result.get("error", {}).get("message", ""),
-                }],
+                "findings": [
+                    {
+                        "reason_code": "TOOL_ERROR",
+                        "message": result.get("error", {}).get("message", ""),
+                    }
+                ],
                 "suppressed_count": 0,
             }
 
@@ -593,19 +640,25 @@ def _run_motion_validators(
             vr_status = vr.get("status", "pass")
             if vr_status == "fail":
                 worst_status = "fail"
-                findings.append({
-                    "reason_code": "TOOTH_INTERFERENCE" if vr["name"] == "mesh_phasing" else vr["name"],
-                    "validator": vr["name"],
-                    "message": vr.get("message", ""),
-                    "measured": vr.get("measured", {}),
-                })
+                findings.append(
+                    {
+                        "reason_code": "TOOTH_INTERFERENCE"
+                        if vr["name"] == "mesh_phasing"
+                        else vr["name"],
+                        "validator": vr["name"],
+                        "message": vr.get("message", ""),
+                        "measured": vr.get("measured", {}),
+                    }
+                )
             elif vr_status == "warn" and worst_status != "fail":
                 worst_status = "warn"
-                findings.append({
-                    "reason_code": vr["name"],
-                    "validator": vr["name"],
-                    "message": vr.get("message", ""),
-                })
+                findings.append(
+                    {
+                        "reason_code": vr["name"],
+                        "validator": vr["name"],
+                        "message": vr.get("message", ""),
+                    }
+                )
 
         return {
             "name": "motion_validators",

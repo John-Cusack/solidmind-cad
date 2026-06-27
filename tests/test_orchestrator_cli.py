@@ -1,4 +1,5 @@
 """Tests for orchestrator.__main__ CLI."""
+
 from __future__ import annotations
 
 import subprocess
@@ -12,7 +13,8 @@ class TestOrchestratorCLI(unittest.TestCase):
     def test_help(self) -> None:
         result = subprocess.run(
             [sys.executable, "-m", "orchestrator", "--help"],
-            capture_output=True, text=True,
+            capture_output=True,
+            text=True,
         )
         self.assertEqual(result.returncode, 0)
         self.assertIn("orchestrator", result.stdout)
@@ -20,7 +22,8 @@ class TestOrchestratorCLI(unittest.TestCase):
     def test_no_args(self) -> None:
         result = subprocess.run(
             [sys.executable, "-m", "orchestrator"],
-            capture_output=True, text=True,
+            capture_output=True,
+            text=True,
         )
         self.assertEqual(result.returncode, 1)
 
@@ -28,9 +31,9 @@ class TestOrchestratorCLI(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             run_dir = Path(td) / "test_run"
             result = subprocess.run(
-                [sys.executable, "-m", "orchestrator",
-                 "build a gear", "-d", str(run_dir)],
-                capture_output=True, text=True,
+                [sys.executable, "-m", "orchestrator", "build a gear", "-d", str(run_dir)],
+                capture_output=True,
+                text=True,
             )
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("Initialized run", result.stdout)

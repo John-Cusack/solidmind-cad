@@ -30,6 +30,7 @@ The script delegates the actual building to ``run.py`` (with
 ``--takeoff-alt 3 --hover-secs 5``).  Output is the wall-clock time of
 each stage plus the total — useful for budgeting the recording session.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -68,6 +69,7 @@ def check_environment(px4_install: Path) -> bool:
     # FreeCAD bridge listening on 9876
     try:
         import socket
+
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.settimeout(1.0)
             s.connect(("127.0.0.1", 9876))
@@ -92,7 +94,9 @@ def check_environment(px4_install: Path) -> bool:
         try:
             out = subprocess.run(
                 ["gz", "sim", "--version"],
-                capture_output=True, text=True, timeout=4,
+                capture_output=True,
+                text=True,
+                timeout=4,
             )
             version = out.stdout.strip().splitlines()[-1] if out.stdout else "?"
             _ok(f"gz sim available (version {version})")
@@ -105,6 +109,7 @@ def check_environment(px4_install: Path) -> bool:
     # pymavlink importable
     try:
         import pymavlink  # noqa: F401
+
         _ok("pymavlink importable")
     except ImportError:
         _fail("pymavlink not installed. Run: pip install -e '.[drone]'")
@@ -137,12 +142,18 @@ def check_environment(px4_install: Path) -> bool:
 def run_stage(stage: str, args: argparse.Namespace) -> tuple[bool, float]:
     """Invoke run.py with ``--stop-after <stage>`` and time it."""
     cmd = [
-        sys.executable, str(RUN_SCRIPT),
-        "--output-dir", str(args.output_dir),
-        "--takeoff-alt", str(args.takeoff_alt),
-        "--hover-secs", str(args.hover_secs),
-        "--px4-install", str(args.px4_install),
-        "--stop-after", stage,
+        sys.executable,
+        str(RUN_SCRIPT),
+        "--output-dir",
+        str(args.output_dir),
+        "--takeoff-alt",
+        str(args.takeoff_alt),
+        "--hover-secs",
+        str(args.hover_secs),
+        "--px4-install",
+        str(args.px4_install),
+        "--stop-after",
+        stage,
     ]
     if stage != "build" and args.skip_px4_rebuild:
         cmd.append("--skip-px4-rebuild")
@@ -151,9 +162,14 @@ def run_stage(stage: str, args: argparse.Namespace) -> tuple[bool, float]:
     print(f"$ {' '.join(cmd)}", flush=True)
     t0 = time.monotonic()
     try:
-        proc = subprocess.run(cmd, cwd=REPO_ROOT, env={
-            **os.environ, "PYTHONPATH": str(REPO_ROOT),
-        })
+        proc = subprocess.run(
+            cmd,
+            cwd=REPO_ROOT,
+            env={
+                **os.environ,
+                "PYTHONPATH": str(REPO_ROOT),
+            },
+        )
     except KeyboardInterrupt:
         print(f"  interrupted after {time.monotonic() - t0:.1f}s", flush=True)
         return False, time.monotonic() - t0
@@ -174,33 +190,44 @@ def run_stage(stage: str, args: argparse.Namespace) -> tuple[bool, float]:
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument(
-        "--output-dir", type=Path, default=Path("/tmp/camera_drone_dryrun"),
+        "--output-dir",
+        type=Path,
+        default=Path("/tmp/camera_drone_dryrun"),
         help="Where run.py drops STL/URDF/SDF artifacts",
     )
     p.add_argument(
-        "--takeoff-alt", type=float, default=3.0,
+        "--takeoff-alt",
+        type=float,
+        default=3.0,
         help="Lower than the demo's 5m so the dry run is faster",
     )
     p.add_argument(
-        "--hover-secs", type=float, default=5.0,
+        "--hover-secs",
+        type=float,
+        default=5.0,
         help="Brief hover so the dry run finishes in ~5 min",
     )
     p.add_argument(
-        "--px4-install", type=Path,
-        default=Path(os.environ.get(
-            "SOLIDMIND_PX4_INSTALL",
-            str(Path.home() / "repos" / "PX4-Autopilot"),
-        )),
+        "--px4-install",
+        type=Path,
+        default=Path(
+            os.environ.get(
+                "SOLIDMIND_PX4_INSTALL",
+                str(Path.home() / "repos" / "PX4-Autopilot"),
+            )
+        ),
     )
     p.add_argument(
-        "--skip-px4-rebuild", action="store_true",
+        "--skip-px4-rebuild",
+        action="store_true",
         help="Reuse the existing PX4 build (skip Stage 3 rebuild). "
-             "Use this if you've already built once today.",
+        "Use this if you've already built once today.",
     )
     p.add_argument(
-        "--no-fly", action="store_true",
+        "--no-fly",
+        action="store_true",
         help="Stop after Stage 4 (build the prop). Skips PX4 rebuild + "
-             "flight — useful when iterating on geometry quickly.",
+        "flight — useful when iterating on geometry quickly.",
     )
     args = p.parse_args()
 

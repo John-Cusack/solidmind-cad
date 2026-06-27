@@ -9,6 +9,7 @@ ISO 7380 (button head), ISO 10642 (countersunk), ISO 273 (clearance holes),
 ISO 4026-4029 (set screws), ISO 7092/7093 (washers), ISO 4032 (hex nut),
 ISO 4035 (thin hex nut), ISO 7040/10511 (nyloc nut).
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -18,40 +19,41 @@ from typing import Any
 @dataclass(frozen=True, slots=True)
 class FastenerSpec:
     """Complete dimension set for a metric fastener."""
-    size: str               # e.g. "M4"
+
+    size: str  # e.g. "M4"
     thread_diameter: float  # nominal thread OD (mm)
-    pitch_coarse: float     # coarse thread pitch (mm)
-    pitch_fine: float       # fine thread pitch (mm), 0 if none standard
+    pitch_coarse: float  # coarse thread pitch (mm)
+    pitch_fine: float  # fine thread pitch (mm), 0 if none standard
 
     # Head dimensions (vary by head_type)
-    head_type: str          # socket_head | hex | button_head | countersunk | set_screw
-    head_diameter: float    # across-flats for hex, OD for others (mm)
-    head_height: float      # mm, 0 for set screws
+    head_type: str  # socket_head | hex | button_head | countersunk | set_screw
+    head_diameter: float  # across-flats for hex, OD for others (mm)
+    head_height: float  # mm, 0 for set screws
 
     # Holes
-    through_hole_close: float   # close-fit clearance hole (mm)
+    through_hole_close: float  # close-fit clearance hole (mm)
     through_hole_normal: float  # normal-fit clearance hole (mm)
-    through_hole_loose: float   # loose-fit clearance hole (mm)
+    through_hole_loose: float  # loose-fit clearance hole (mm)
 
     # Counterbore / countersink
     counterbore_diameter: float  # mm, 0 if not applicable
-    counterbore_depth: float     # mm (= head_height + 0.5 margin)
+    counterbore_depth: float  # mm (= head_height + 0.5 margin)
     countersink_diameter: float  # mm, 0 if not applicable
-    countersink_angle: float     # degrees, 0 if not applicable
+    countersink_angle: float  # degrees, 0 if not applicable
 
     # Socket / wrench
-    socket_size: float      # hex socket or wrench size (mm)
+    socket_size: float  # hex socket or wrench size (mm)
 
     # Washer (standard flat washer)
-    washer_od: float        # mm
-    washer_thickness: float # mm
+    washer_od: float  # mm
+    washer_thickness: float  # mm
 
     # Bolt length (user-specified, echoed back)
-    length: float           # mm
+    length: float  # mm
 
     # Tap drill
-    tap_drill_coarse: float # mm
-    tap_drill_fine: float   # mm, 0 if no fine pitch
+    tap_drill_coarse: float  # mm
+    tap_drill_fine: float  # mm, 0 if no fine pitch
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -80,105 +82,105 @@ class FastenerSpec:
 
 # ── Thread data: (pitch_coarse, pitch_fine, tap_drill_coarse, tap_drill_fine)
 _THREAD: dict[str, tuple[float, float, float, float]] = {
-    "M2":   (0.4,  0.0, 1.6,  0.0),
+    "M2": (0.4, 0.0, 1.6, 0.0),
     "M2.5": (0.45, 0.0, 2.05, 0.0),
-    "M3":   (0.5,  0.0, 2.5,  0.0),
-    "M4":   (0.7,  0.0, 3.3,  0.0),
-    "M5":   (0.8,  0.0, 4.2,  0.0),
-    "M6":   (1.0,  0.75, 5.0, 5.25),
-    "M8":   (1.25, 1.0,  6.8, 7.0),
-    "M10":  (1.5,  1.25, 8.5, 8.8),
-    "M12":  (1.75, 1.25, 10.2, 10.8),
-    "M16":  (2.0,  1.5,  14.0, 14.5),
-    "M20":  (2.5,  1.5,  17.5, 18.5),
-    "M24":  (3.0,  2.0,  21.0, 22.0),
+    "M3": (0.5, 0.0, 2.5, 0.0),
+    "M4": (0.7, 0.0, 3.3, 0.0),
+    "M5": (0.8, 0.0, 4.2, 0.0),
+    "M6": (1.0, 0.75, 5.0, 5.25),
+    "M8": (1.25, 1.0, 6.8, 7.0),
+    "M10": (1.5, 1.25, 8.5, 8.8),
+    "M12": (1.75, 1.25, 10.2, 10.8),
+    "M16": (2.0, 1.5, 14.0, 14.5),
+    "M20": (2.5, 1.5, 17.5, 18.5),
+    "M24": (3.0, 2.0, 21.0, 22.0),
 }
 
 # ── Clearance holes ISO 273: (close, normal, loose)
 _CLEARANCE: dict[str, tuple[float, float, float]] = {
-    "M2":   (2.2,  2.4,  2.6),
-    "M2.5": (2.7,  2.9,  3.1),
-    "M3":   (3.2,  3.4,  3.6),
-    "M4":   (4.3,  4.5,  4.8),
-    "M5":   (5.3,  5.5,  5.8),
-    "M6":   (6.4,  6.6,  7.0),
-    "M8":   (8.4,  9.0,  10.0),
-    "M10":  (10.5, 11.0, 12.0),
-    "M12":  (13.0, 13.5, 14.5),
-    "M16":  (17.0, 17.5, 18.5),
-    "M20":  (21.0, 22.0, 24.0),
-    "M24":  (25.0, 26.0, 28.0),
+    "M2": (2.2, 2.4, 2.6),
+    "M2.5": (2.7, 2.9, 3.1),
+    "M3": (3.2, 3.4, 3.6),
+    "M4": (4.3, 4.5, 4.8),
+    "M5": (5.3, 5.5, 5.8),
+    "M6": (6.4, 6.6, 7.0),
+    "M8": (8.4, 9.0, 10.0),
+    "M10": (10.5, 11.0, 12.0),
+    "M12": (13.0, 13.5, 14.5),
+    "M16": (17.0, 17.5, 18.5),
+    "M20": (21.0, 22.0, 24.0),
+    "M24": (25.0, 26.0, 28.0),
 }
 
 # ── Washer data ISO 7092/7093: (OD, thickness)
 _WASHER: dict[str, tuple[float, float]] = {
-    "M2":   (5.0,  0.3),
-    "M2.5": (6.0,  0.5),
-    "M3":   (7.0,  0.5),
-    "M4":   (9.0,  0.8),
-    "M5":   (10.0, 1.0),
-    "M6":   (12.0, 1.6),
-    "M8":   (16.0, 1.6),
-    "M10":  (20.0, 2.0),
-    "M12":  (24.0, 2.5),
-    "M16":  (30.0, 3.0),
-    "M20":  (37.0, 3.0),
-    "M24":  (44.0, 4.0),
+    "M2": (5.0, 0.3),
+    "M2.5": (6.0, 0.5),
+    "M3": (7.0, 0.5),
+    "M4": (9.0, 0.8),
+    "M5": (10.0, 1.0),
+    "M6": (12.0, 1.6),
+    "M8": (16.0, 1.6),
+    "M10": (20.0, 2.0),
+    "M12": (24.0, 2.5),
+    "M16": (30.0, 3.0),
+    "M20": (37.0, 3.0),
+    "M24": (44.0, 4.0),
 }
 
 # ── Head dimensions by type
 # socket_head (ISO 4762): (head_dia, head_height, socket_size)
 _SOCKET_HEAD: dict[str, tuple[float, float, float]] = {
-    "M2":   (3.8,  2.0,  1.5),
-    "M2.5": (4.5,  2.5,  2.0),
-    "M3":   (5.5,  3.0,  2.5),
-    "M4":   (7.0,  4.0,  3.0),
-    "M5":   (8.5,  5.0,  4.0),
-    "M6":   (10.0, 6.0,  5.0),
-    "M8":   (13.0, 8.0,  6.0),
-    "M10":  (16.0, 10.0, 8.0),
-    "M12":  (18.0, 12.0, 10.0),
-    "M16":  (24.0, 16.0, 14.0),
-    "M20":  (30.0, 20.0, 17.0),
-    "M24":  (36.0, 24.0, 19.0),
+    "M2": (3.8, 2.0, 1.5),
+    "M2.5": (4.5, 2.5, 2.0),
+    "M3": (5.5, 3.0, 2.5),
+    "M4": (7.0, 4.0, 3.0),
+    "M5": (8.5, 5.0, 4.0),
+    "M6": (10.0, 6.0, 5.0),
+    "M8": (13.0, 8.0, 6.0),
+    "M10": (16.0, 10.0, 8.0),
+    "M12": (18.0, 12.0, 10.0),
+    "M16": (24.0, 16.0, 14.0),
+    "M20": (30.0, 20.0, 17.0),
+    "M24": (36.0, 24.0, 19.0),
 }
 
 # hex (ISO 4014/4017): (across_flats, head_height, wrench_size)
 _HEX: dict[str, tuple[float, float, float]] = {
-    "M3":   (5.5,  2.0,  5.5),
-    "M4":   (7.0,  2.8,  7.0),
-    "M5":   (8.0,  3.5,  8.0),
-    "M6":   (10.0, 4.0,  10.0),
-    "M8":   (13.0, 5.3,  13.0),
-    "M10":  (16.0, 6.4,  16.0),
-    "M12":  (18.0, 7.5,  18.0),
-    "M16":  (24.0, 10.0, 24.0),
-    "M20":  (30.0, 12.5, 30.0),
-    "M24":  (36.0, 15.0, 36.0),
+    "M3": (5.5, 2.0, 5.5),
+    "M4": (7.0, 2.8, 7.0),
+    "M5": (8.0, 3.5, 8.0),
+    "M6": (10.0, 4.0, 10.0),
+    "M8": (13.0, 5.3, 13.0),
+    "M10": (16.0, 6.4, 16.0),
+    "M12": (18.0, 7.5, 18.0),
+    "M16": (24.0, 10.0, 24.0),
+    "M20": (30.0, 12.5, 30.0),
+    "M24": (36.0, 15.0, 36.0),
 }
 
 # button_head (ISO 7380): (head_dia, head_height, socket_size)
 _BUTTON_HEAD: dict[str, tuple[float, float, float]] = {
-    "M3":   (5.7,  1.65, 2.0),
-    "M4":   (7.6,  2.2,  2.5),
-    "M5":   (9.5,  2.75, 3.0),
-    "M6":   (10.5, 3.3,  4.0),
-    "M8":   (14.0, 4.4,  5.0),
-    "M10":  (17.5, 5.5,  6.0),
-    "M12":  (21.0, 6.6,  8.0),
+    "M3": (5.7, 1.65, 2.0),
+    "M4": (7.6, 2.2, 2.5),
+    "M5": (9.5, 2.75, 3.0),
+    "M6": (10.5, 3.3, 4.0),
+    "M8": (14.0, 4.4, 5.0),
+    "M10": (17.5, 5.5, 6.0),
+    "M12": (21.0, 6.6, 8.0),
 }
 
 # countersunk (ISO 10642): (head_dia, head_height, socket_size)
 _COUNTERSUNK: dict[str, tuple[float, float, float]] = {
-    "M3":   (6.72,  1.86, 2.0),
-    "M4":   (8.96,  2.48, 2.5),
-    "M5":   (11.2,  3.1,  3.0),
-    "M6":   (13.44, 3.72, 4.0),
-    "M8":   (17.92, 4.96, 5.0),
-    "M10":  (22.4,  6.2,  6.0),
-    "M12":  (26.88, 7.44, 8.0),
-    "M16":  (33.0,  8.8,  10.0),
-    "M20":  (40.0,  10.16, 12.0),
+    "M3": (6.72, 1.86, 2.0),
+    "M4": (8.96, 2.48, 2.5),
+    "M5": (11.2, 3.1, 3.0),
+    "M6": (13.44, 3.72, 4.0),
+    "M8": (17.92, 4.96, 5.0),
+    "M10": (22.4, 6.2, 6.0),
+    "M12": (26.88, 7.44, 8.0),
+    "M16": (33.0, 8.8, 10.0),
+    "M20": (40.0, 10.16, 12.0),
 }
 
 _HEAD_TABLES: dict[str, dict[str, tuple[float, float, float]]] = {
@@ -195,17 +197,19 @@ SUPPORTED_NUT_TYPES = ["hex", "thin", "nyloc"]
 
 # ── Nut data ─────────────────────────────────────────────────────
 
+
 @dataclass(frozen=True, slots=True)
 class NutSpec:
     """Complete dimension set for a metric nut."""
-    size: str               # e.g. "M4"
+
+    size: str  # e.g. "M4"
     thread_diameter: float  # nominal thread OD (mm)
-    pitch_coarse: float     # coarse thread pitch (mm)
-    nut_type: str           # hex | thin | nyloc
-    across_flats: float     # wrench size (mm)
-    across_corners: float   # point-to-point (mm)
-    height: float           # total nut height (mm)
-    through_hole: float     # thread bore diameter (mm) — same as nominal
+    pitch_coarse: float  # coarse thread pitch (mm)
+    nut_type: str  # hex | thin | nyloc
+    across_flats: float  # wrench size (mm)
+    across_corners: float  # point-to-point (mm)
+    height: float  # total nut height (mm)
+    through_hole: float  # thread bore diameter (mm) — same as nominal
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -222,46 +226,46 @@ class NutSpec:
 
 # ISO 4032 hex nut: (across_flats, height)
 _NUT_HEX: dict[str, tuple[float, float]] = {
-    "M2":   (4.0,   1.6),
-    "M2.5": (5.0,   2.0),
-    "M3":   (5.5,   2.4),
-    "M4":   (7.0,   3.2),
-    "M5":   (8.0,   4.7),
-    "M6":   (10.0,  5.2),
-    "M8":   (13.0,  6.8),
-    "M10":  (16.0,  8.4),
-    "M12":  (18.0, 10.8),
-    "M16":  (24.0, 14.8),
-    "M20":  (30.0, 18.0),
-    "M24":  (36.0, 21.5),
+    "M2": (4.0, 1.6),
+    "M2.5": (5.0, 2.0),
+    "M3": (5.5, 2.4),
+    "M4": (7.0, 3.2),
+    "M5": (8.0, 4.7),
+    "M6": (10.0, 5.2),
+    "M8": (13.0, 6.8),
+    "M10": (16.0, 8.4),
+    "M12": (18.0, 10.8),
+    "M16": (24.0, 14.8),
+    "M20": (30.0, 18.0),
+    "M24": (36.0, 21.5),
 }
 
 # ISO 4035 thin/jam nut: (across_flats, height)
 _NUT_THIN: dict[str, tuple[float, float]] = {
-    "M3":   (5.5,  1.8),
-    "M4":   (7.0,  2.2),
-    "M5":   (8.0,  2.7),
-    "M6":   (10.0, 3.2),
-    "M8":   (13.0, 4.0),
-    "M10":  (16.0, 5.0),
-    "M12":  (18.0, 6.0),
-    "M16":  (24.0, 8.0),
-    "M20":  (30.0, 10.0),
-    "M24":  (36.0, 12.0),
+    "M3": (5.5, 1.8),
+    "M4": (7.0, 2.2),
+    "M5": (8.0, 2.7),
+    "M6": (10.0, 3.2),
+    "M8": (13.0, 4.0),
+    "M10": (16.0, 5.0),
+    "M12": (18.0, 6.0),
+    "M16": (24.0, 8.0),
+    "M20": (30.0, 10.0),
+    "M24": (36.0, 12.0),
 }
 
 # ISO 7040/10511 nyloc nut: (across_flats, height)
 _NUT_NYLOC: dict[str, tuple[float, float]] = {
-    "M3":   (5.5,   4.0),
-    "M4":   (7.0,   5.0),
-    "M5":   (8.0,   5.0),
-    "M6":   (10.0,  6.0),
-    "M8":   (13.0,  8.0),
-    "M10":  (16.0, 10.0),
-    "M12":  (18.0, 12.0),
-    "M16":  (24.0, 16.0),
-    "M20":  (30.0, 20.0),
-    "M24":  (36.0, 21.5),
+    "M3": (5.5, 4.0),
+    "M4": (7.0, 5.0),
+    "M5": (8.0, 5.0),
+    "M6": (10.0, 6.0),
+    "M8": (13.0, 8.0),
+    "M10": (16.0, 10.0),
+    "M12": (18.0, 12.0),
+    "M16": (24.0, 16.0),
+    "M20": (30.0, 20.0),
+    "M24": (36.0, 21.5),
 }
 
 _NUT_TABLES: dict[str, dict[str, tuple[float, float]]] = {

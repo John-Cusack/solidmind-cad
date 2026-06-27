@@ -8,6 +8,7 @@ This module defines the CAD-side load contract used by direct solvers:
 
 Only first-order tetrahedral volume meshes (tet4) are supported in v1.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -119,7 +120,9 @@ def assemble_system(
             _apply_pressure_bc(nodal_forces, bc_triangles, topology.node_coords, bc)
             continue
 
-    topology_hash = _topology_hash(topology.node_coords, topology.connectivity, mesh_info.element_type)
+    topology_hash = _topology_hash(
+        topology.node_coords, topology.connectivity, mesh_info.element_type
+    )
     material_hash = _material_hash(spec.material)
     bc_hash = _bc_hash(spec.boundary_conditions, fixed_nodes)
     options_signature = _options_hash(solver_options)
@@ -216,7 +219,9 @@ def build_field_result_from_solution(
     solve_time_s: float,
 ) -> FieldResult:
     """Convert solved displacements to the standard ``FieldResult`` shape."""
-    vm, max_vm_idx, u_full, max_disp, max_disp_idx, mean_disp = recover_solution_fields(u_free, system)
+    vm, max_vm_idx, u_full, max_disp, max_disp_idx, mean_disp = recover_solution_fields(
+        u_free, system
+    )
 
     if vm.size > 0:
         max_vm = float(np.max(vm))
@@ -474,7 +479,7 @@ def _apply_total_force_bc(
 
     for nid in node_ids:
         base = int(nid) * 3
-        nodal_forces[base:base + 3] += per_node
+        nodal_forces[base : base + 3] += per_node
 
 
 def _apply_pressure_bc(
@@ -513,7 +518,7 @@ def _apply_pressure_bc(
         per_node = total_force / 3.0
         for nid in tri:
             base = int(nid) * 3
-            nodal_forces[base:base + 3] += per_node
+            nodal_forces[base : base + 3] += per_node
 
 
 def _constitutive_matrix(E: float, nu: float) -> np.ndarray:
@@ -682,7 +687,9 @@ def _bc_hash(boundary_conditions: Sequence[BoundaryCondition], fixed_nodes: set[
 def _options_hash(options: Mapping[str, Any] | None) -> str:
     if not options:
         return ""
-    return _sha256_text(json.dumps(dict(options), sort_keys=True, separators=(",", ":"), default=str))
+    return _sha256_text(
+        json.dumps(dict(options), sort_keys=True, separators=(",", ":"), default=str)
+    )
 
 
 def _sha256_text(text: str) -> str:

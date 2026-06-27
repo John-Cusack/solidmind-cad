@@ -5,6 +5,7 @@ get_part, add_interface, list_briefs, verify_build, generate_mechanism.
 The phased design pipeline uses these to decompose assemblies into parts
 with tracked interfaces and verify that all planned parts are built.
 """
+
 from __future__ import annotations
 
 import logging
@@ -44,6 +45,7 @@ def _error_result(code: str, message: str) -> dict[str, Any]:
 
 # ── Brief CRUD ──────────────────────────────────────────────────────
 
+
 def design_save_brief(
     name: str,
     parameters: dict[str, Any],
@@ -60,7 +62,9 @@ def design_save_brief(
     if not isinstance(parameters, dict):
         return _error_result("INVALID_INPUT", "Parameters must be a dict")
     if status not in _VALID_STATUSES:
-        return _error_result("INVALID_INPUT", f"Invalid status '{status}'. Must be one of: {sorted(_VALID_STATUSES)}")
+        return _error_result(
+            "INVALID_INPUT", f"Invalid status '{status}'. Must be one of: {sorted(_VALID_STATUSES)}"
+        )
 
     brief = store_brief(
         name=name,
@@ -163,11 +167,7 @@ def design_update_brief(
     result: dict[str, Any] = {"ok": True, "brief": updated.to_dict()}
 
     # Auto-register placement plan on transition to "building"
-    if (
-        status == "building"
-        and old_brief is not None
-        and old_brief.status != "building"
-    ):
+    if status == "building" and old_brief is not None and old_brief.status != "building":
         try:
             plan = _extract_placement_plan(updated)
             if plan:
@@ -175,18 +175,12 @@ def design_update_brief(
 
                 plan_result = cad_register_placement_plan(plan=plan)
                 if plan_result.get("ok"):
-                    result["placement_plan_registered"] = plan_result.get(
-                        "registered", 0
-                    )
+                    result["placement_plan_registered"] = plan_result.get("registered", 0)
         except Exception:
             log.debug("Failed to auto-register placement plan", exc_info=True)
 
     # Auto-run design_verify_build on transition to "done"
-    if (
-        status == "done"
-        and old_brief is not None
-        and old_brief.status != "done"
-    ):
+    if status == "done" and old_brief is not None and old_brief.status != "done":
         try:
             custom_count = sum(1 for p in updated.parts if p.kind == "custom")
             verify_result = design_verify_build(
@@ -206,6 +200,7 @@ def design_update_brief(
 
 # ── Part management ─────────────────────────────────────────────────
 
+
 def design_add_part(
     brief_id: str,
     name: str,
@@ -223,7 +218,9 @@ def design_add_part(
     if not name:
         return _error_result("INVALID_INPUT", "Part name is required")
     if kind not in _VALID_PART_KINDS:
-        return _error_result("INVALID_INPUT", f"Invalid kind '{kind}'. Must be one of: {sorted(_VALID_PART_KINDS)}")
+        return _error_result(
+            "INVALID_INPUT", f"Invalid kind '{kind}'. Must be one of: {sorted(_VALID_PART_KINDS)}"
+        )
 
     brief = get_brief(brief_id)
     if brief is None:
@@ -310,6 +307,7 @@ def design_get_part(brief_id: str, name: str) -> dict[str, Any]:
 
 # ── Interface management ────────────────────────────────────────────
 
+
 def design_add_interface(
     brief_id: str,
     part_a: str,
@@ -354,6 +352,7 @@ def design_add_interface(
 
 # ── List briefs ────────────────────────────────────────────────────
 
+
 def design_list_briefs() -> dict[str, Any]:
     """Return summary info for all stored briefs."""
     return {"ok": True, "briefs": list_briefs()}
@@ -362,18 +361,48 @@ def design_list_briefs() -> dict[str, Any]:
 # ── Mechanism generation ───────────────────────────────────────────
 
 # Mapping from interface spec keywords to joint types.
-_FIXED_KEYWORDS = frozenset({
-    "bolt", "bolt_pair", "screw", "rivet", "weld", "glue", "adhesive",
-    "clamp", "press_fit", "press-fit", "pressfit", "snap", "snap_fit",
-    "fixed", "bonded",
-})
-_REVOLUTE_KEYWORDS = frozenset({
-    "bearing", "shaft", "hinge", "pivot", "bushing", "journal",
-    "revolute", "rotation", "axle",
-})
-_PRISMATIC_KEYWORDS = frozenset({
-    "slider", "rail", "linear", "slide", "prismatic", "guide",
-})
+_FIXED_KEYWORDS = frozenset(
+    {
+        "bolt",
+        "bolt_pair",
+        "screw",
+        "rivet",
+        "weld",
+        "glue",
+        "adhesive",
+        "clamp",
+        "press_fit",
+        "press-fit",
+        "pressfit",
+        "snap",
+        "snap_fit",
+        "fixed",
+        "bonded",
+    }
+)
+_REVOLUTE_KEYWORDS = frozenset(
+    {
+        "bearing",
+        "shaft",
+        "hinge",
+        "pivot",
+        "bushing",
+        "journal",
+        "revolute",
+        "rotation",
+        "axle",
+    }
+)
+_PRISMATIC_KEYWORDS = frozenset(
+    {
+        "slider",
+        "rail",
+        "linear",
+        "slide",
+        "prismatic",
+        "guide",
+    }
+)
 
 
 def _classify_joint_type(spec: dict[str, Any]) -> JointType:
@@ -478,7 +507,9 @@ def design_generate_mechanism(
         return _error_result("NO_PARTS", "Brief has no parts defined")
 
     if not brief.interfaces:
-        return _error_result("NO_INTERFACES", "Brief has no interfaces defined — add interfaces first")
+        return _error_result(
+            "NO_INTERFACES", "Brief has no interfaces defined — add interfaces first"
+        )
 
     # Determine ground part
     ground_name = ground_part or brief.parts[0].name
@@ -491,12 +522,14 @@ def design_generate_mechanism(
     part_names: set[str] = set()
     for part in brief.parts:
         part_names.add(part.name)
-        part_nodes.append(PartNode(
-            id=part.name,
-            body_name=part.body_label or part.name,
-            mass_kg=_resolve_mass(part),
-            is_ground=(part.name == ground_name),
-        ))
+        part_nodes.append(
+            PartNode(
+                id=part.name,
+                body_name=part.body_label or part.name,
+                mass_kg=_resolve_mass(part),
+                is_ground=(part.name == ground_name),
+            )
+        )
 
     # Build JointEdges from interfaces
     joint_edges: list[JointEdge] = []
@@ -512,13 +545,15 @@ def design_generate_mechanism(
 
         joint_id = f"joint_{iface.part_a}_{iface.part_b}_{idx}"
 
-        joint_edges.append(JointEdge(
-            id=joint_id,
-            joint_type=joint_type,
-            parent_part=iface.part_a,
-            child_part=iface.part_b,
-            origin=origin,
-        ))
+        joint_edges.append(
+            JointEdge(
+                id=joint_id,
+                joint_type=joint_type,
+                parent_part=iface.part_a,
+                child_part=iface.part_b,
+                origin=origin,
+            )
+        )
 
     # Build mechanism dict (not stored yet — user reviews first)
     mechanism = Mechanism(
@@ -535,8 +570,11 @@ def design_generate_mechanism(
             "part_count": len(part_nodes),
             "joint_count": len(joint_edges),
             "ground_part": ground_name,
-            "joint_types": {jt.value: sum(1 for j in joint_edges if j.joint_type == jt)
-                           for jt in JointType if any(j.joint_type == jt for j in joint_edges)},
+            "joint_types": {
+                jt.value: sum(1 for j in joint_edges if j.joint_type == jt)
+                for jt in JointType
+                if any(j.joint_type == jt for j in joint_edges)
+            },
         },
         "hint": (
             "Review the mechanism dict above.  When ready, pass it to "
@@ -546,6 +584,7 @@ def design_generate_mechanism(
 
 
 # ── Build verification ─────────────────────────────────────────────
+
 
 def _check_dimension(
     spec_key: str,
@@ -642,17 +681,19 @@ def design_verify_build(
     for part in brief.parts:
         if part.kind == "purchased":
             purchased_count += 1
-            parts_report.append({
-                "name": part.name,
-                "kind": "purchased",
-                "quantity": part.quantity,
-                "status_in_brief": part.status,
-                "body_label": part.body_label,
-                "found_bodies": [],
-                "found_count": 0,
-                "verdict": "PURCHASED_SKIPPED",
-                "dimension_warnings": [],
-            })
+            parts_report.append(
+                {
+                    "name": part.name,
+                    "kind": "purchased",
+                    "quantity": part.quantity,
+                    "status_in_brief": part.status,
+                    "body_label": part.body_label,
+                    "found_bodies": [],
+                    "found_count": 0,
+                    "verdict": "PURCHASED_SKIPPED",
+                    "dimension_warnings": [],
+                }
+            )
             continue
 
         custom_planned += 1
@@ -709,7 +750,9 @@ def design_verify_build(
             for sk, sv in part.specs.items():
                 if sk in dim_keys:
                     warning = _check_dimension(
-                        sk, sv, body_size,
+                        sk,
+                        sv,
+                        body_size,
                         tolerance_pct=tolerance_pct,
                         tolerance_mm=tolerance_mm,
                     )
@@ -723,21 +766,21 @@ def design_verify_build(
             else:
                 action_items.append(f"Build {part.name} ({status_note})")
         elif verdict == "PARTIAL":
-            action_items.append(
-                f"Build remaining {part.name}: {found_count}/{part.quantity} found"
-            )
+            action_items.append(f"Build remaining {part.name}: {found_count}/{part.quantity} found")
 
-        parts_report.append({
-            "name": part.name,
-            "kind": part.kind,
-            "quantity": part.quantity,
-            "status_in_brief": part.status,
-            "body_label": part.body_label,
-            "found_bodies": found_bodies,
-            "found_count": found_count,
-            "verdict": verdict,
-            "dimension_warnings": dim_warnings,
-        })
+        parts_report.append(
+            {
+                "name": part.name,
+                "kind": part.kind,
+                "quantity": part.quantity,
+                "status_in_brief": part.status,
+                "body_label": part.body_label,
+                "found_bodies": found_bodies,
+                "found_count": found_count,
+                "verdict": verdict,
+                "dimension_warnings": dim_warnings,
+            }
+        )
 
     # Unmatched bodies (in FreeCAD but not in any brief part)
     all_labels = {b.get("label", b.get("name", "")) for b in bodies}
@@ -776,15 +819,14 @@ def design_verify_build(
         from server.tools_cad import cad_check_clearance  # noqa: C0415
 
         cl_result = cad_check_clearance(
-            threshold_mm=clearance_threshold_mm, doc=doc,
+            threshold_mm=clearance_threshold_mm,
+            doc=doc,
         )
         if cl_result.get("ok", False):
             clearance_violations = cl_result.get("violations", [])
             for v in clearance_violations:
                 if v.get("intersecting"):
-                    action_items.append(
-                        f"Clearance: {v['body_a']} intersects {v['body_b']}"
-                    )
+                    action_items.append(f"Clearance: {v['body_a']} intersects {v['body_b']}")
                 else:
                     action_items.append(
                         f"Clearance: {v['body_a']} ↔ {v['body_b']} = "

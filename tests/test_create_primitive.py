@@ -2,6 +2,7 @@
 
 Mock-based tests following the pattern in tests/test_tools_cad.py.
 """
+
 from __future__ import annotations
 
 import unittest
@@ -119,7 +120,9 @@ class TestCadCreatePrimitive(unittest.TestCase):
         client.send_command.return_value = {"body": "B", "pad": "Pad", "sketch": "Sketch"}
         mock_get.return_value = client
 
-        cad_create_primitive(name="B", shape="box", dimensions={"length": 1, "width": 1, "height": 1})
+        cad_create_primitive(
+            name="B", shape="box", dimensions={"length": 1, "width": 1, "height": 1}
+        )
 
         call_kwargs = client.send_command.call_args[1]
         self.assertFalse(call_kwargs["verify"])
@@ -193,7 +196,9 @@ class TestCadCreatePrimitives(unittest.TestCase):
         client.send_command.return_value = {"created": [], "failed": []}
         mock_get.return_value = client
 
-        items = [{"name": "A", "shape": "box", "dimensions": {"length": 1, "width": 1, "height": 1}}]
+        items = [
+            {"name": "A", "shape": "box", "dimensions": {"length": 1, "width": 1, "height": 1}}
+        ]
         cad_create_primitives(items=items)
 
         call_kwargs = client.send_command.call_args[1]

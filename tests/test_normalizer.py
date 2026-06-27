@@ -1,4 +1,5 @@
 """Tests for orchestrator.normalizer."""
+
 from __future__ import annotations
 
 import unittest

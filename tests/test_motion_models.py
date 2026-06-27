@@ -1,4 +1,5 @@
 """Tests for server.motion_models — data model round-trips and helpers."""
+
 from __future__ import annotations
 
 import unittest
@@ -44,13 +45,15 @@ class TestJointEdge(unittest.TestCase):
         self.assertEqual(j, j2)
 
     def test_axis_tuple(self):
-        j = JointEdge.from_dict({
-            "id": "j1",
-            "joint_type": "revolute",
-            "parent_part": "a",
-            "child_part": "b",
-            "axis": [1, 0, 0],
-        })
+        j = JointEdge.from_dict(
+            {
+                "id": "j1",
+                "joint_type": "revolute",
+                "parent_part": "a",
+                "child_part": "b",
+                "axis": [1, 0, 0],
+            }
+        )
         self.assertEqual(j.axis, (1, 0, 0))
 
 
@@ -93,9 +96,7 @@ class TestMechanism(unittest.TestCase):
                     child_part="output_shaft",
                 ),
             ),
-            drives=(
-                DriveCondition(joint_id="mesh1", speed_rpm=1000, torque_nm=5.0),
-            ),
+            drives=(DriveCondition(joint_id="mesh1", speed_rpm=1000, torque_nm=5.0),),
             expected_outputs={
                 "output_shaft_speed_rpm": 2000.0,
                 "output_shaft_torque_nm": 2.5,
@@ -127,18 +128,25 @@ class TestMechanism(unittest.TestCase):
         m = Mechanism(
             name="rotor_with_loads",
             parts=(PartNode(id="hub", is_ground=True), PartNode(id="blade")),
-            joints=(JointEdge(id="rev", joint_type=JointType.REVOLUTE,
-                              parent_part="hub", child_part="blade"),),
+            joints=(
+                JointEdge(
+                    id="rev", joint_type=JointType.REVOLUTE, parent_part="hub", child_part="blade"
+                ),
+            ),
             drives=(),
             applied_forces=(
-                AppliedForce(target_body="blade",
-                             position_local=(0.05, 0.0, 0.0),
-                             force_vector=(0.0, 0.0, 1.5),
-                             label="station_0"),
-                AppliedForce(target_body="blade",
-                             position_local=(0.10, 0.0, 0.0),
-                             force_vector=(0.0, 0.0, 2.7),
-                             frame="world"),
+                AppliedForce(
+                    target_body="blade",
+                    position_local=(0.05, 0.0, 0.0),
+                    force_vector=(0.0, 0.0, 1.5),
+                    label="station_0",
+                ),
+                AppliedForce(
+                    target_body="blade",
+                    position_local=(0.10, 0.0, 0.0),
+                    force_vector=(0.0, 0.0, 2.7),
+                    frame="world",
+                ),
             ),
         )
         d = m.to_dict()
@@ -156,15 +164,16 @@ class TestMechanism(unittest.TestCase):
 
 class TestAppliedForce(unittest.TestCase):
     def test_round_trip_minimal(self):
-        f = AppliedForce(target_body="blade",
-                         position_local=(0.0, 0.0, 0.0),
-                         force_vector=(1.0, 0.0, 0.0))
+        f = AppliedForce(
+            target_body="blade", position_local=(0.0, 0.0, 0.0), force_vector=(1.0, 0.0, 0.0)
+        )
         f2 = AppliedForce.from_dict(f.to_dict())
         self.assertEqual(f, f2)
 
     def test_label_roundtrips(self):
-        f = AppliedForce(target_body="b", position_local=(0,0,0),
-                         force_vector=(0,0,1), label="tip_force")
+        f = AppliedForce(
+            target_body="b", position_local=(0, 0, 0), force_vector=(0, 0, 1), label="tip_force"
+        )
         self.assertEqual(AppliedForce.from_dict(f.to_dict()).label, "tip_force")
 
 

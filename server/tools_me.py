@@ -1,4 +1,5 @@
 """MCP tool implementations for ME-grade design validation primitives."""
+
 from __future__ import annotations
 
 import logging
@@ -33,7 +34,9 @@ def me_validate_constraints(constraint_sheet: dict[str, Any]) -> dict[str, Any]:
     result = validate_constraint_sheet(constraint_sheet)
     if _TOOL_LOG:
         findings = result.get("findings", [])
-        log.info("OK   me_validate_constraints %.3fs findings=%d", time.monotonic() - t0, len(findings))
+        log.info(
+            "OK   me_validate_constraints %.3fs findings=%d", time.monotonic() - t0, len(findings)
+        )
     return result
 
 
@@ -97,5 +100,9 @@ def me_list_validators() -> dict[str, Any]:
     t0 = time.monotonic()
     result = {"ok": True, "validators": list_validators()}
     if _TOOL_LOG:
-        log.info("OK   me_list_validators %.3fs count=%d", time.monotonic() - t0, len(result["validators"]))
+        log.info(
+            "OK   me_list_validators %.3fs count=%d",
+            time.monotonic() - t0,
+            len(result["validators"]),
+        )
     return result

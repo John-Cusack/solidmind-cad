@@ -630,6 +630,7 @@ def _get_edge_refs(blend_spec: dict[str, Any], parent_feature_id: str) -> list[s
 # EIR generation
 # ---------------------------------------------------------------------------
 
+
 def _generate_eir(
     gir: GIR,
     strategy: str,
@@ -677,7 +678,9 @@ def _generate_eir(
                 depends_on=depends,
                 invariants=[
                     Invariant(type="solid_created", scope="global"),
-                    Invariant(type="dimension_check", threshold=feature.distance.value, scope="z_extent"),
+                    Invariant(
+                        type="dimension_check", threshold=feature.distance.value, scope="z_extent"
+                    ),
                 ],
                 feature_provenance_id=feature.id,
                 phase_id=feature.phase_id or _phase_for_feature_type(feature.type),
@@ -699,8 +702,16 @@ def _generate_eir(
                 },
                 depends_on=depends,
                 invariants=[
-                    Invariant(type="hole_diameter", threshold=feature.diameter.value, scope="local"),
-                    Invariant(type="hole_depth_ratio", threshold=(feature.depth.value / feature.diameter.value) if feature.diameter.value else None, scope="local"),
+                    Invariant(
+                        type="hole_diameter", threshold=feature.diameter.value, scope="local"
+                    ),
+                    Invariant(
+                        type="hole_depth_ratio",
+                        threshold=(feature.depth.value / feature.diameter.value)
+                        if feature.diameter.value
+                        else None,
+                        scope="local",
+                    ),
                 ],
                 feature_provenance_id=feature.id,
                 phase_id=feature.phase_id or _phase_for_feature_type(feature.type),
@@ -834,7 +845,9 @@ def _generate_eir(
                     "angle": feature.total_angle.value if feature.total_angle else 360.0,
                 },
                 depends_on=depends,
-                invariants=[Invariant(type="pattern_count", threshold=float(feature.count), scope="global")],
+                invariants=[
+                    Invariant(type="pattern_count", threshold=float(feature.count), scope="global")
+                ],
                 feature_provenance_id=feature.id,
                 phase_id=feature.phase_id or _phase_for_feature_type(feature.type),
                 reference_support_type=feature.reference_support_type,
@@ -886,6 +899,7 @@ def _generate_eir(
 # ---------------------------------------------------------------------------
 # Serialization helpers
 # ---------------------------------------------------------------------------
+
 
 def _gir_to_dict(gir: GIR) -> dict[str, Any]:
     """Serialize GIR to dict for JSON response."""

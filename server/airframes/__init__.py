@@ -46,6 +46,7 @@ The legacy ``mechanism + drone_config`` API still works for the
 hexapod, planetary gearbox, and any non-drone use of
 ``cad.export_sim_package``; ``AirframeSpec`` is purely additive.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -68,12 +69,14 @@ if TYPE_CHECKING:
 @dataclass(frozen=True, slots=True)
 class Box:
     """Rectangular cuboid."""
-    size_m: tuple[float, float, float]   # (dx, dy, dz)
+
+    size_m: tuple[float, float, float]  # (dx, dy, dz)
 
 
 @dataclass(frozen=True, slots=True)
 class Cylinder:
     """Solid cylinder along ``axis``."""
+
     radius_m: float
     length_m: float
     axis: Literal["x", "y", "z"] = "z"
@@ -82,6 +85,7 @@ class Cylinder:
 @dataclass(frozen=True, slots=True)
 class Disk:
     """Thin disk (a special case of cylinder for which we use disk inertia)."""
+
     radius_m: float
     thickness_m: float = 0.005
     axis: Literal["x", "y", "z"] = "z"
@@ -90,6 +94,7 @@ class Disk:
 @dataclass(frozen=True, slots=True)
 class CustomMesh:
     """Externally-supplied mesh.  Inertia must be provided explicitly."""
+
     mesh_path: str
 
 
@@ -112,6 +117,7 @@ class StructuralBody:
     link.  ``com_offset_m`` is measured from the chassis frame origin
     (typically the geometric centre of the FreeCAD ``FrameCenter`` body).
     """
+
     name: str
     mass_kg: float
     shape: ShapeSpec
@@ -120,8 +126,7 @@ class StructuralBody:
     def __post_init__(self) -> None:  # type: ignore[misc]
         if self.mass_kg <= 0.0:
             raise ValueError(
-                f"StructuralBody '{self.name}': mass_kg must be > 0, "
-                f"got {self.mass_kg}"
+                f"StructuralBody '{self.name}': mass_kg must be > 0, got {self.mass_kg}"
             )
 
 

@@ -1,4 +1,5 @@
 """Lightweight dataclass <-> dict helpers (replaces hand-rolled serialization)."""
+
 from __future__ import annotations
 
 import dataclasses

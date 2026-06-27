@@ -17,7 +17,12 @@ def make_base_spec_draft(*, maturity_level: str = "L1", process: str = "print_3d
             "output_target": "vendor",
             "material": {"family": "", "grade": ""},
             "tolerances": {"general": "", "critical": []},
-            "appearance": {"color": "", "finish": "", "support_marks_ok": True, "cosmetic_surfaces": []},
+            "appearance": {
+                "color": "",
+                "finish": "",
+                "support_marks_ok": True,
+                "cosmetic_surfaces": [],
+            },
             "post_processing": [],
             "in_house_settings": {
                 "notes": "",

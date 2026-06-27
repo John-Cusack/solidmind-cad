@@ -26,6 +26,7 @@ Typical flow from Claude Code's perspective:
     # 6. Score and rank — deterministic + Claude Code reasoning
     ranking = orchestrator.runner.score_results(run, report)
 """
+
 from __future__ import annotations
 
 import json
@@ -168,13 +169,15 @@ def build_worker_prompts(run: OrchestratorRun) -> list[dict[str, Any]]:
             output_dir.mkdir(parents=True, exist_ok=True)
 
             prompt = build_worker_prompt(run.spec, sub, interfaces, str(output_dir))
-            prompts.append({
-                "subsystem": sub.name,
-                "variant_index": variant_idx,
-                "prompt": prompt,
-                "description": f"Build {sub.name} (variant {variant_idx})",
-                "output_dir": str(output_dir),
-            })
+            prompts.append(
+                {
+                    "subsystem": sub.name,
+                    "variant_index": variant_idx,
+                    "prompt": prompt,
+                    "description": f"Build {sub.name} (variant {variant_idx})",
+                    "output_dir": str(output_dir),
+                }
+            )
     return prompts
 
 
@@ -256,10 +259,7 @@ def check_gate_g4(run: OrchestratorRun) -> tuple[bool, list[str]]:
     results = collect_worker_results(run)
     for r in results:
         if r["status"] != "complete":
-            issues.append(
-                f"{r['subsystem']}_{r['variant_index']}: "
-                f"status={r['status']}"
-            )
+            issues.append(f"{r['subsystem']}_{r['variant_index']}: status={r['status']}")
     return len(issues) == 0, issues
 
 
@@ -358,6 +358,7 @@ def validate_results(
                     format_verification_report,
                     verify_worker_measurements,
                 )
+
                 verification = verify_worker_measurements(
                     step_path=Path(step_files[0]),
                     claimed=claimed_actuals,
@@ -368,7 +369,8 @@ def validate_results(
                 if not verification.step_load_ok:
                     log.error(
                         "STEP load failed for %s: %s",
-                        worker_id, verification.error,
+                        worker_id,
+                        verification.error,
                     )
                     measurement_source = "claimed"
                     worker_measurements = claimed_actuals
@@ -377,9 +379,7 @@ def validate_results(
                     # Strip None entries so validate_dimensions treats them
                     # as "missing" rather than "measured as 0".
                     worker_measurements = {
-                        ifc_id: {
-                            f: v for f, v in features.items() if v is not None
-                        }
+                        ifc_id: {f: v for f, v in features.items() if v is not None}
                         for ifc_id, features in verification.interface_actuals_measured.items()
                     }
                     measurement_source = "orchestrator"
@@ -395,7 +395,8 @@ def validate_results(
             measurement_source = "claimed"
 
         report = validate_worker_result(
-            run.spec, wr,
+            run.spec,
+            wr,
             measurements=worker_measurements,
             actual_bbox_mm=actual_bbox,
             actual_mass_kg=actual_mass,
@@ -430,6 +431,7 @@ def score_results(
     Returns a ScoringReport with ranked candidates and Pareto frontier.
     """
     from orchestrator.scorer import score_run
+
     return score_run(run.spec, validation_reports, beam_width=beam_width, run_dir=run.run_dir)
 
 
@@ -444,8 +446,10 @@ def build_release(
     Returns a ReleasePackage.
     """
     from orchestrator.release import build_release_package
+
     return build_release_package(
-        run.spec, run.run_dir,
+        run.spec,
+        run.run_dir,
         scoring_report=scoring_report,
         validation_reports=validation_reports,
     )

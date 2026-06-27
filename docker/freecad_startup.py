@@ -9,6 +9,7 @@ safety). In GUI mode, QTimer dispatches from the job queue. In Docker
 headless mode, we skip QTimer but manually poll the job queue from
 this main-thread loop.
 """
+
 import os
 import queue
 import sys
@@ -71,4 +72,5 @@ try:
 
 except KeyboardInterrupt:
     from freecad_addon.socket_server import stop_server
+
     stop_server()

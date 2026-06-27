@@ -11,6 +11,7 @@ Binary: ``dust``.  Install from source:
 DUST uses surface panel geometry (not volume mesh), making it much faster
 than RANS CFD for rotor-on-rotor interaction studies.
 """
+
 from __future__ import annotations
 
 import logging
@@ -107,9 +108,13 @@ class DUSTSolver(FieldSolver):
         aoa_rad = math.radians(flow.angle_of_attack_deg)
         beta_rad = math.radians(flow.sideslip_deg)
         lines.append("&freestream")
-        lines.append(f"  u_inf_x = {flow.velocity_m_s * math.cos(aoa_rad) * math.cos(beta_rad):.6f}")
+        lines.append(
+            f"  u_inf_x = {flow.velocity_m_s * math.cos(aoa_rad) * math.cos(beta_rad):.6f}"
+        )
         lines.append(f"  u_inf_y = {flow.velocity_m_s * math.sin(beta_rad):.6f}")
-        lines.append(f"  u_inf_z = {flow.velocity_m_s * math.sin(aoa_rad) * math.cos(beta_rad):.6f}")
+        lines.append(
+            f"  u_inf_z = {flow.velocity_m_s * math.sin(aoa_rad) * math.cos(beta_rad):.6f}"
+        )
         lines.append("/")
         lines.append("")
 
@@ -185,9 +190,7 @@ class DUSTSolver(FieldSolver):
 
         if result.returncode != 0:
             log.error("dust failed (rc=%d): %s", result.returncode, result.stderr[:500])
-            raise RuntimeError(
-                f"DUST failed (rc={result.returncode}): {result.stderr[:500]}"
-            )
+            raise RuntimeError(f"DUST failed (rc={result.returncode}): {result.stderr[:500]}")
 
         return elapsed
 
@@ -232,6 +235,7 @@ class DUSTSolver(FieldSolver):
         """Convert volume mesh to surface STL for DUST panel method."""
         try:
             import meshio
+
             mesh = meshio.read(mesh_info.path)
             meshio.write(str(work_dir / "body.stl"), mesh, file_format="stl")
         except ImportError:
@@ -299,14 +303,14 @@ class MockDUSTSolver(FieldSolver):
         total_power = 0.0
         for rotor in rotors:
             # Simple momentum theory: T = CT * rho * A * (omega*R)^2
-            area = math.pi * rotor.radius_m ** 2
+            area = math.pi * rotor.radius_m**2
             omega = rotor.rpm * 2 * math.pi / 60
             tip_speed = omega * rotor.radius_m
             rho = 1.225
             ct = 0.008  # typical
             cq = 0.0006  # typical
-            thrust = ct * rho * area * tip_speed ** 2
-            torque = cq * rho * area * tip_speed ** 2 * rotor.radius_m
+            thrust = ct * rho * area * tip_speed**2
+            torque = cq * rho * area * tip_speed**2 * rotor.radius_m
             power = torque * omega
             total_thrust += thrust
             total_power += power
@@ -327,8 +331,12 @@ class MockDUSTSolver(FieldSolver):
         return AeroResult(
             analysis_id="mock_dust_001",
             status=checks[0].status if checks else CheckStatus.PASS,
-            cl=cl, cd=cd, cs=0.0,
-            cmx=0.0, cmy=0.0, cmz=0.0,
+            cl=cl,
+            cd=cd,
+            cs=0.0,
+            cmx=0.0,
+            cmy=0.0,
+            cmz=0.0,
             l_over_d=round(l_over_d, 2),
             lift_n=round(total_thrust, 4),
             drag_n=0.0,
@@ -385,6 +393,7 @@ def parse_dust_results(
     try:
         for ff in force_files:
             import csv
+
             with open(ff) as f:
                 reader = csv.DictReader(f)
                 rows = list(reader)
@@ -428,13 +437,14 @@ def parse_dust_results(
 
     # Extract rotor specs for checks
     rotors = [
-        RotorSpec.from_dict(bc.value)
-        for bc in spec.boundary_conditions
-        if bc.bc_type == "rotor"
+        RotorSpec.from_dict(bc.value) for bc in spec.boundary_conditions if bc.bc_type == "rotor"
     ]
 
     checks = _build_rotor_checks(
-        rotor_forces, total_lift, 0.0, rotors,
+        rotor_forces,
+        total_lift,
+        0.0,
+        rotors,
     )
 
     overall = CheckStatus.PASS
@@ -450,7 +460,10 @@ def parse_dust_results(
         status=overall,
         cl=round(total_cl, 6),
         cd=round(total_cd, 6),
-        cs=0.0, cmx=0.0, cmy=0.0, cmz=0.0,
+        cs=0.0,
+        cmx=0.0,
+        cmy=0.0,
+        cmz=0.0,
         l_over_d=round(l_over_d, 2),
         lift_n=round(total_lift, 4),
         drag_n=round(total_drag, 4),
@@ -470,29 +483,35 @@ def _build_rotor_checks(
     checks: list[AnalysisCheck] = []
 
     if not rotor_forces and not rotors:
-        checks.append(AnalysisCheck(
-            name="aero_result",
-            status=CheckStatus.PASS,
-            message="Aerodynamic analysis complete (no rotors defined)",
-        ))
+        checks.append(
+            AnalysisCheck(
+                name="aero_result",
+                status=CheckStatus.PASS,
+                message="Aerodynamic analysis complete (no rotors defined)",
+            )
+        )
         return checks
 
     # Total thrust check
     if total_thrust > 0:
-        checks.append(AnalysisCheck(
-            name="total_thrust",
-            status=CheckStatus.PASS,
-            message=f"Total thrust: {total_thrust:.2f} N",
-            measured=total_thrust,
-        ))
+        checks.append(
+            AnalysisCheck(
+                name="total_thrust",
+                status=CheckStatus.PASS,
+                message=f"Total thrust: {total_thrust:.2f} N",
+                measured=total_thrust,
+            )
+        )
     elif rotors:
-        checks.append(AnalysisCheck(
-            name="total_thrust",
-            status=CheckStatus.WARN,
-            message="No thrust produced — check rotor RPM and collective angle",
-            measured=0.0,
-            suggestion="Increase collective pitch or RPM.",
-        ))
+        checks.append(
+            AnalysisCheck(
+                name="total_thrust",
+                status=CheckStatus.WARN,
+                message="No thrust produced — check rotor RPM and collective angle",
+                measured=0.0,
+                suggestion="Increase collective pitch or RPM.",
+            )
+        )
 
     # Per-rotor thrust balance (for multi-rotors)
     if len(rotor_forces) > 1:
@@ -502,21 +521,25 @@ def _build_rotor_checks(
             if mean_t > 0:
                 max_imbalance = max(abs(t - mean_t) / mean_t for t in thrusts)
                 if max_imbalance > 0.15:
-                    checks.append(AnalysisCheck(
-                        name="thrust_balance",
-                        status=CheckStatus.WARN,
-                        message=f"Rotor thrust imbalance: {max_imbalance*100:.1f}% — wake interaction may be causing asymmetry",
-                        measured=max_imbalance,
-                        limit=0.15,
-                        suggestion="Adjust rotor spacing or add tilt to reduce wake impingement.",
-                    ))
+                    checks.append(
+                        AnalysisCheck(
+                            name="thrust_balance",
+                            status=CheckStatus.WARN,
+                            message=f"Rotor thrust imbalance: {max_imbalance * 100:.1f}% — wake interaction may be causing asymmetry",
+                            measured=max_imbalance,
+                            limit=0.15,
+                            suggestion="Adjust rotor spacing or add tilt to reduce wake impingement.",
+                        )
+                    )
                 else:
-                    checks.append(AnalysisCheck(
-                        name="thrust_balance",
-                        status=CheckStatus.PASS,
-                        message=f"Rotor thrust balance: {max_imbalance*100:.1f}% imbalance",
-                        measured=max_imbalance,
-                    ))
+                    checks.append(
+                        AnalysisCheck(
+                            name="thrust_balance",
+                            status=CheckStatus.PASS,
+                            message=f"Rotor thrust balance: {max_imbalance * 100:.1f}% imbalance",
+                            measured=max_imbalance,
+                        )
+                    )
 
     # Figure of merit (hover efficiency) for each rotor
     for rotor in rotors:
@@ -526,25 +549,29 @@ def _build_rotor_checks(
         if thrust > 0 and power > 0:
             # FM = T * sqrt(T / (2*rho*A)) / P
             rho = 1.225
-            area = math.pi * rotor.radius_m ** 2
+            area = math.pi * rotor.radius_m**2
             p_ideal = thrust * math.sqrt(thrust / (2 * rho * area))
             fm = p_ideal / power if power > 0 else 0
             if fm < 0.5:
-                checks.append(AnalysisCheck(
-                    name=f"figure_of_merit_{rotor.rotor_id}",
-                    status=CheckStatus.WARN,
-                    message=f"Rotor {rotor.rotor_id}: FM = {fm:.3f} (poor, typical > 0.6)",
-                    measured=fm,
-                    limit=0.6,
-                    suggestion="Optimize blade twist/chord distribution or reduce tip losses.",
-                ))
+                checks.append(
+                    AnalysisCheck(
+                        name=f"figure_of_merit_{rotor.rotor_id}",
+                        status=CheckStatus.WARN,
+                        message=f"Rotor {rotor.rotor_id}: FM = {fm:.3f} (poor, typical > 0.6)",
+                        measured=fm,
+                        limit=0.6,
+                        suggestion="Optimize blade twist/chord distribution or reduce tip losses.",
+                    )
+                )
             else:
-                checks.append(AnalysisCheck(
-                    name=f"figure_of_merit_{rotor.rotor_id}",
-                    status=CheckStatus.PASS,
-                    message=f"Rotor {rotor.rotor_id}: FM = {fm:.3f}",
-                    measured=fm,
-                ))
+                checks.append(
+                    AnalysisCheck(
+                        name=f"figure_of_merit_{rotor.rotor_id}",
+                        status=CheckStatus.PASS,
+                        message=f"Rotor {rotor.rotor_id}: FM = {fm:.3f}",
+                        measured=fm,
+                    )
+                )
 
     return checks
 
@@ -553,10 +580,15 @@ def _failed_aero_result(message: str) -> AeroResult:
     return AeroResult(
         analysis_id="",
         status=CheckStatus.FAIL,
-        cl=0.0, cd=0.0, cs=0.0,
-        cmx=0.0, cmy=0.0, cmz=0.0,
+        cl=0.0,
+        cd=0.0,
+        cs=0.0,
+        cmx=0.0,
+        cmy=0.0,
+        cmz=0.0,
         l_over_d=0.0,
-        lift_n=0.0, drag_n=0.0,
+        lift_n=0.0,
+        drag_n=0.0,
         checks=(
             AnalysisCheck(
                 name="solver_error",

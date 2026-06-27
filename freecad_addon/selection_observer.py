@@ -4,6 +4,7 @@ Registers with FreeCADGui.Selection to track what the user clicks on
 in the 3D view.  The stored selection is queryable via the ``get_selection``
 command in commands.py.
 """
+
 from __future__ import annotations
 
 import logging
@@ -61,19 +62,22 @@ class SelectionObserver:
         """Called when the user selects a sub-element."""
         if _TOOL_LOG:
             log.debug("addSelection doc=%s obj=%s sub=%s pos=%s", doc, obj, sub, pos)
-        self._selections.append({
-            "doc": doc,
-            "object": obj,
-            "sub_element": sub,
-            "position": list(pos),
-        })
+        self._selections.append(
+            {
+                "doc": doc,
+                "object": obj,
+                "sub_element": sub,
+                "position": list(pos),
+            }
+        )
 
     def removeSelection(self, doc: str, obj: str, sub: str) -> None:  # noqa: N802
         """Called when the user deselects a sub-element."""
         if _TOOL_LOG:
             log.debug("removeSelection doc=%s obj=%s sub=%s", doc, obj, sub)
         self._selections = [
-            s for s in self._selections
+            s
+            for s in self._selections
             if not (s["doc"] == doc and s["object"] == obj and s["sub_element"] == sub)
         ]
 

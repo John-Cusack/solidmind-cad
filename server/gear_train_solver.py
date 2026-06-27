@@ -4,6 +4,7 @@ Finds tooth count combinations that produce a target total ratio while
 respecting module range and spatial constraints.  Works for any multi-stage
 gear train — watch going trains, gearboxes, reduction drives, etc.
 """
+
 from __future__ import annotations
 
 import itertools
@@ -113,8 +114,13 @@ def gear_train_solver(
         raise ValueError(f"total_ratio must be positive, got {total_ratio}")
 
     combos = _find_train_combinations(
-        total_ratio, num_stages, min_pinion_teeth, max_pinion_teeth,
-        min_wheel_teeth, max_wheel_teeth, tolerance,
+        total_ratio,
+        num_stages,
+        min_pinion_teeth,
+        max_pinion_teeth,
+        min_wheel_teeth,
+        max_wheel_teeth,
+        tolerance,
     )
 
     if not combos:
@@ -141,16 +147,18 @@ def gear_train_solver(
         pd_pinion = module_mid * pinion
         center_dist = (pd_wheel + pd_pinion) / 2.0
 
-        stages.append({
-            "stage": i + 1,
-            "wheel_teeth": wheel,
-            "pinion_teeth": pinion,
-            "ratio": round(ratio, 4),
-            "module": module_mid,
-            "wheel_pitch_d": round(pd_wheel, 3),
-            "pinion_pitch_d": round(pd_pinion, 3),
-            "center_distance": round(center_dist, 3),
-        })
+        stages.append(
+            {
+                "stage": i + 1,
+                "wheel_teeth": wheel,
+                "pinion_teeth": pinion,
+                "ratio": round(ratio, 4),
+                "module": module_mid,
+                "wheel_pitch_d": round(pd_wheel, 3),
+                "pinion_pitch_d": round(pd_pinion, 3),
+                "center_distance": round(center_dist, 3),
+            }
+        )
 
     ratio_error = (actual_ratio - total_ratio) / total_ratio
 
@@ -159,11 +167,13 @@ def gear_train_solver(
     for i, s in enumerate(stages):
         angle = (i + 1) * (2 * math.pi / (num_stages + 1))
         dist = s["center_distance"]
-        bore_positions.append({
-            "name": f"stage_{i + 1}",
-            "x": round(dist * math.cos(angle), 3),
-            "y": round(dist * math.sin(angle), 3),
-        })
+        bore_positions.append(
+            {
+                "name": f"stage_{i + 1}",
+                "x": round(dist * math.cos(angle), 3),
+                "y": round(dist * math.sin(angle), 3),
+            }
+        )
 
     return {
         "ok": True,

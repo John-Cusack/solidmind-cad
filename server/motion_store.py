@@ -3,6 +3,7 @@
 Module-level dict store with UUID handles — same pattern as geometry_store.py.
 Mechanisms persist for the lifetime of the MCP server process.
 """
+
 from __future__ import annotations
 
 import secrets
@@ -37,12 +38,14 @@ def list_all() -> list[dict[str, Any]]:
     """Return summary info for all stored mechanisms."""
     result = []
     for handle, mech in _store.items():
-        result.append({
-            "id": handle,
-            "name": mech.name,
-            "part_count": len(mech.parts),
-            "joint_count": len(mech.joints),
-        })
+        result.append(
+            {
+                "id": handle,
+                "name": mech.name,
+                "part_count": len(mech.parts),
+                "joint_count": len(mech.joints),
+            }
+        )
     return result
 
 

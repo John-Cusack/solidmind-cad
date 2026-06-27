@@ -10,6 +10,7 @@ without ever invoking gmsh or CalculiX.
 SCF tables are coarse handbook approximations (Peterson / Roark ranges) intended
 for screening, not final sizing — a WARN result means "run the real solver".
 """
+
 from __future__ import annotations
 
 import math
@@ -38,18 +39,31 @@ _SUGGESTIONS: dict[FailureMode, str] = {
 
 # Shoulder fillet in bending, keyed by r/d (fillet radius / smaller width).
 _FILLET_KT_BENDING: tuple[tuple[float, float], ...] = (
-    (0.02, 2.80), (0.05, 2.20), (0.10, 1.85),
-    (0.15, 1.62), (0.20, 1.48), (0.30, 1.32), (0.50, 1.18),
+    (0.02, 2.80),
+    (0.05, 2.20),
+    (0.10, 1.85),
+    (0.15, 1.62),
+    (0.20, 1.48),
+    (0.30, 1.32),
+    (0.50, 1.18),
 )
 # Transverse circular hole in a plate (tension), keyed by d/w (hole / width).
 _HOLE_KT_TENSION: tuple[tuple[float, float], ...] = (
-    (0.00, 3.00), (0.10, 3.03), (0.20, 3.14),
-    (0.30, 3.36), (0.40, 3.74), (0.50, 4.32),
+    (0.00, 3.00),
+    (0.10, 3.03),
+    (0.20, 3.14),
+    (0.30, 3.36),
+    (0.40, 3.74),
+    (0.50, 4.32),
 )
 # U-notch in bending, keyed by r/d (notch radius / net width).
 _NOTCH_KT_BENDING: tuple[tuple[float, float], ...] = (
-    (0.02, 3.00), (0.05, 2.50), (0.10, 2.10),
-    (0.20, 1.70), (0.30, 1.50), (0.50, 1.30),
+    (0.02, 3.00),
+    (0.05, 2.50),
+    (0.10, 2.10),
+    (0.20, 1.70),
+    (0.30, 1.50),
+    (0.50, 1.30),
 )
 
 _SCF_TABLES = {
@@ -84,9 +98,7 @@ def stress_concentration_factor(feature: str, ratio: float) -> float:
     """
     key = feature.lower()
     if key not in _SCF_TABLES:
-        raise ValueError(
-            f"unknown SCF feature {feature!r}; expected one of {sorted(_SCF_TABLES)}"
-        )
+        raise ValueError(f"unknown SCF feature {feature!r}; expected one of {sorted(_SCF_TABLES)}")
     if ratio <= 0.0:
         return _SHARP_CORNER_KT
     return _interp(_SCF_TABLES[key], ratio)
@@ -106,7 +118,7 @@ def euler_buckling_load_n(
     if length_mm <= 0.0 or end_fixity <= 0.0:
         raise ValueError("length and end_fixity must be positive")
     kl = end_fixity * length_mm
-    return math.pi ** 2 * youngs_mpa * i_mm4 / (kl ** 2)
+    return math.pi**2 * youngs_mpa * i_mm4 / (kl**2)
 
 
 def _section_i_c(section: dict[str, Any]) -> tuple[float, float]:
@@ -121,11 +133,7 @@ def _section_i_c(section: dict[str, Any]) -> tuple[float, float]:
     if "i_mm4" in section and "c_mm" in section:
         return float(section["i_mm4"]), float(section["c_mm"])
     stype = section.get("type", "rectangle").lower()
-    params = {
-        (k[:-3] if k.endswith("_mm") else k): v
-        for k, v in section.items()
-        if k != "type"
-    }
+    params = {(k[:-3] if k.endswith("_mm") else k): v for k, v in section.items() if k != "type"}
     try:
         props = compute_section(stype, **params)
     except (TypeError, ValueError, ArithmeticError) as exc:
@@ -188,7 +196,8 @@ def screen_stress(
         if youngs_modulus_mpa <= 0.0:
             raise ValueError("youngs_modulus_mpa required for a buckling check")
         p_cr_n = euler_buckling_load_n(
-            youngs_modulus_mpa, i_mm4,
+            youngs_modulus_mpa,
+            i_mm4,
             float(buckling["length_mm"]),
             float(buckling.get("end_fixity", 1.0)),
         )

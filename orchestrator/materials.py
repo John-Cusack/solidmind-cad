@@ -1,4 +1,5 @@
 """Material property database for FEA analysis."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -9,10 +10,10 @@ class Material:
     """Mechanical properties for linear elastic FEA."""
 
     name: str
-    young_modulus_mpa: float      # E
-    poisson_ratio: float          # v
-    yield_strength_mpa: float     # Sy
-    density_kg_m3: float          # rho
+    young_modulus_mpa: float  # E
+    poisson_ratio: float  # v
+    yield_strength_mpa: float  # Sy
+    density_kg_m3: float  # rho
     fatigue_limit_mpa: float | None = None  # L3 future
 
 

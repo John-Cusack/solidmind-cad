@@ -8,6 +8,7 @@ sends a single-rotor spec with one applied force, and verifies that:
 
 Skipped when the daemon binary isn't built.
 """
+
 from __future__ import annotations
 
 import os
@@ -77,9 +78,9 @@ class TestAppliedForceE2E(unittest.TestCase):
         c.connect(timeout=2.0)
         return c
 
-    def _rotor_with_one_force(self, *, fz: float = 14.7,
-                              radius_m: float = 0.075,
-                              rpm: float = 4000.0) -> Mechanism:
+    def _rotor_with_one_force(
+        self, *, fz: float = 14.7, radius_m: float = 0.075, rpm: float = 4000.0
+    ) -> Mechanism:
         return Mechanism(
             name="rotor_e2e",
             parts=(
@@ -96,8 +97,9 @@ class TestAppliedForceE2E(unittest.TestCase):
                     origin=(0, 0, 0),
                 ),
             ),
-            drives=(DriveCondition(joint_id="rotor_test_joint", speed_rpm=rpm,
-                                   driven_part="blade"),),
+            drives=(
+                DriveCondition(joint_id="rotor_test_joint", speed_rpm=rpm, driven_part="blade"),
+            ),
             applied_forces=(
                 AppliedForce(
                     target_body="blade",
@@ -114,39 +116,42 @@ class TestAppliedForceE2E(unittest.TestCase):
         try:
             mech = self._rotor_with_one_force(fz=14.7)
             spec = build_simulation_spec(mech)
-            result = client.simulate(simulation_spec=spec, duration_s=1.0,
-                                     dt_s=1e-4, output_interval=0.01)
+            result = client.simulate(
+                simulation_spec=spec, duration_s=1.0, dt_s=1e-4, output_interval=0.01
+            )
         finally:
             client.disconnect()
 
         summary = result["summary"]
         self.assertIn("applied_force_world_z_mean_N", summary)
         thrust_mean = summary["applied_force_world_z_mean_N"]
-        self.assertAlmostEqual(thrust_mean, 14.7, delta=0.147,
-                               msg=f"thrust mean {thrust_mean} not within 1% of 14.7")
+        self.assertAlmostEqual(
+            thrust_mean, 14.7, delta=0.147, msg=f"thrust mean {thrust_mean} not within 1% of 14.7"
+        )
         self.assertEqual(summary["applied_force_count"], 1)
 
     def test_thrust_std_is_small_for_steady_load(self):
         client = self._client()
         try:
             spec = build_simulation_spec(self._rotor_with_one_force(fz=10.0))
-            result = client.simulate(simulation_spec=spec, duration_s=0.5,
-                                     dt_s=1e-4, output_interval=0.01)
+            result = client.simulate(
+                simulation_spec=spec, duration_s=0.5, dt_s=1e-4, output_interval=0.01
+            )
         finally:
             client.disconnect()
 
         std_z = result["summary"]["applied_force_world_z_std_N"]
         # For body-frame +Z force on a rotor whose own +Z stays aligned with world +Z
         # under a pure-yaw revolute drive, the world-frame Z component is steady.
-        self.assertLess(std_z, 0.1,
-                        f"std should be ~0 for a steady body-Z force; got {std_z}")
+        self.assertLess(std_z, 0.1, f"std should be ~0 for a steady body-Z force; got {std_z}")
 
     def test_joint_reactions_populated(self):
         client = self._client()
         try:
             spec = build_simulation_spec(self._rotor_with_one_force(fz=14.7))
-            result = client.simulate(simulation_spec=spec, duration_s=0.5,
-                                     dt_s=1e-4, output_interval=0.01)
+            result = client.simulate(
+                simulation_spec=spec, duration_s=0.5, dt_s=1e-4, output_interval=0.01
+            )
         finally:
             client.disconnect()
 
@@ -159,8 +164,7 @@ class TestAppliedForceE2E(unittest.TestCase):
         self.assertIn("rotor_test_joint", mean)
         # The hub bearing must support at least the applied thrust magnitude.
         # (Centripetal effects from the offset force add to this; lower bound is 14.7 N.)
-        self.assertGreater(mean["rotor_test_joint"], 5.0,
-                           "joint reaction is suspiciously small")
+        self.assertGreater(mean["rotor_test_joint"], 5.0, "joint reaction is suspiciously small")
 
     def test_zero_applied_force_count_when_no_loads(self):
         """Sanity: a mechanism without applied_forces still works and reports 0."""
@@ -168,17 +172,25 @@ class TestAppliedForceE2E(unittest.TestCase):
         try:
             mech = Mechanism(
                 name="rotor_no_loads",
-                parts=(PartNode(id="hub", is_ground=True),
-                       PartNode(id="blade", mass_kg=0.05, inertia_kg_m2=0.001)),
-                joints=(JointEdge(id="rev", joint_type=JointType.REVOLUTE,
-                                  parent_part="hub", child_part="blade",
-                                  axis=(0, 0, 1)),),
-                drives=(DriveCondition(joint_id="rev", speed_rpm=1000.0,
-                                       driven_part="blade"),),
+                parts=(
+                    PartNode(id="hub", is_ground=True),
+                    PartNode(id="blade", mass_kg=0.05, inertia_kg_m2=0.001),
+                ),
+                joints=(
+                    JointEdge(
+                        id="rev",
+                        joint_type=JointType.REVOLUTE,
+                        parent_part="hub",
+                        child_part="blade",
+                        axis=(0, 0, 1),
+                    ),
+                ),
+                drives=(DriveCondition(joint_id="rev", speed_rpm=1000.0, driven_part="blade"),),
             )
             spec = build_simulation_spec(mech)
-            result = client.simulate(simulation_spec=spec, duration_s=0.2,
-                                     dt_s=1e-4, output_interval=0.05)
+            result = client.simulate(
+                simulation_spec=spec, duration_s=0.2, dt_s=1e-4, output_interval=0.05
+            )
         finally:
             client.disconnect()
 

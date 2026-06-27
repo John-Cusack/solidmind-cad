@@ -101,12 +101,13 @@ class TestGeometryIR(unittest.TestCase):
         self.assertEqual(features1, features2)
         self.assertEqual(features1, ["F0", "F1"])
 
-
     def test_sweep_intent_creation(self) -> None:
         builder = GIRBuilder()
         frame_id = builder.add_global_frame()
         profile = builder.add_sketch_profile("XY", [{"type": "circle", "r": 5}], frame_id=frame_id)
-        spine = builder.add_sketch_profile("XZ", [{"type": "line", "x1": 0, "y1": 0, "x2": 100, "y2": 0}], frame_id=frame_id)
+        spine = builder.add_sketch_profile(
+            "XZ", [{"type": "line", "x1": 0, "y1": 0, "x2": 100, "y2": 0}], frame_id=frame_id
+        )
 
         sweep = builder.add_sweep_intent(
             profile_id=profile.id,

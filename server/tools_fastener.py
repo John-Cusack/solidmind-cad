@@ -3,6 +3,7 @@
 One tool: cad.fastener_spec — returns all dimensions needed to model
 a metric bolt, including through-holes, counterbores, tap drills, etc.
 """
+
 from __future__ import annotations
 
 from typing import Any

@@ -2,6 +2,7 @@
 
 Pure unit tests — no FreeCAD, Isaac, or network dependencies.
 """
+
 from __future__ import annotations
 
 import math
@@ -48,14 +49,13 @@ def _simple_mechanism(
 
     return Mechanism(
         name="test_mech",
-        parts=tuple(
-            PartNode(id=pid, body_name=bname, is_ground=gnd)
-            for pid, bname, gnd in parts
-        ),
+        parts=tuple(PartNode(id=pid, body_name=bname, is_ground=gnd) for pid, bname, gnd in parts),
         joints=tuple(
             JointEdge(
-                id=jid, joint_type=JointType(jtype),
-                parent_part=parent, child_part=child,
+                id=jid,
+                joint_type=JointType(jtype),
+                parent_part=parent,
+                child_part=child,
             )
             for jid, jtype, parent, child in joints
         ),
@@ -84,25 +84,33 @@ def _write_urdf(
             inertial = ET.SubElement(link_el, "inertial")
             ET.SubElement(inertial, "mass", value=str(link["mass"]))
             inertia = link.get("inertia", {"ixx": "0.001", "iyy": "0.001", "izz": "0.001"})
-            ET.SubElement(inertial, "inertia",
-                          ixx=str(inertia.get("ixx", "0.001")),
-                          ixy="0", ixz="0",
-                          iyy=str(inertia.get("iyy", "0.001")),
-                          iyz="0",
-                          izz=str(inertia.get("izz", "0.001")))
+            ET.SubElement(
+                inertial,
+                "inertia",
+                ixx=str(inertia.get("ixx", "0.001")),
+                ixy="0",
+                ixz="0",
+                iyy=str(inertia.get("iyy", "0.001")),
+                iyz="0",
+                izz=str(inertia.get("izz", "0.001")),
+            )
 
     for joint in joints:
-        joint_el = ET.SubElement(robot, "joint",
-                                  name=joint["name"],
-                                  type=joint.get("type", "revolute"))
+        joint_el = ET.SubElement(
+            robot, "joint", name=joint["name"], type=joint.get("type", "revolute")
+        )
         ET.SubElement(joint_el, "parent", link=joint["parent"])
         ET.SubElement(joint_el, "child", link=joint["child"])
         if joint.get("type", "revolute") in ("revolute", "prismatic"):
             limits = joint.get("limits", {})
-            ET.SubElement(joint_el, "limit",
-                          lower=str(limits.get("lower", "-1.0472")),
-                          upper=str(limits.get("upper", "1.0472")),
-                          effort="100", velocity="10")
+            ET.SubElement(
+                joint_el,
+                "limit",
+                lower=str(limits.get("lower", "-1.0472")),
+                upper=str(limits.get("upper", "1.0472")),
+                effort="100",
+                velocity="10",
+            )
 
     tree = ET.ElementTree(robot)
     path = os.path.join(tmpdir, f"{name}.urdf")
@@ -111,7 +119,6 @@ def _write_urdf(
 
 
 class TestVerifyMechanismVsTree(unittest.TestCase):
-
     def test_all_parts_found(self) -> None:
         mech = _simple_mechanism()
         bodies = [
@@ -158,7 +165,6 @@ class TestVerifyMechanismVsTree(unittest.TestCase):
 
 
 class TestVerifyMechanismVsUrdf(unittest.TestCase):
-
     def test_urdf_file_missing(self) -> None:
         mech = _simple_mechanism()
         findings = verify_mechanism_vs_urdf(mech, "/nonexistent/path.urdf")
@@ -179,8 +185,13 @@ class TestVerifyMechanismVsUrdf(unittest.TestCase):
                     {"name": "link_b", "mesh": "link_b.stl", "mass": 0.3},
                 ],
                 joints=[
-                    {"name": "j1", "type": "revolute", "parent": "link_a", "child": "link_b",
-                     "limits": {"lower": "-1.5", "upper": "1.5"}},
+                    {
+                        "name": "j1",
+                        "type": "revolute",
+                        "parent": "link_a",
+                        "child": "link_b",
+                        "limits": {"lower": "-1.5", "upper": "1.5"},
+                    },
                 ],
                 tmpdir=tmpdir,
             )
@@ -234,10 +245,20 @@ class TestVerifyMechanismVsUrdf(unittest.TestCase):
                     {"name": "link_b", "mass": 0.3},
                 ],
                 joints=[
-                    {"name": "j1", "type": "revolute", "parent": "link_a", "child": "link_b",
-                     "limits": {"lower": str(-math.radians(60)), "upper": str(math.radians(60))}},
-                    {"name": "j2", "type": "revolute", "parent": "link_a", "child": "link_b",
-                     "limits": {"lower": str(-math.radians(60)), "upper": str(math.radians(60))}},
+                    {
+                        "name": "j1",
+                        "type": "revolute",
+                        "parent": "link_a",
+                        "child": "link_b",
+                        "limits": {"lower": str(-math.radians(60)), "upper": str(math.radians(60))},
+                    },
+                    {
+                        "name": "j2",
+                        "type": "revolute",
+                        "parent": "link_a",
+                        "child": "link_b",
+                        "limits": {"lower": str(-math.radians(60)), "upper": str(math.radians(60))},
+                    },
                 ],
                 tmpdir=tmpdir,
             )
@@ -263,7 +284,6 @@ class TestVerifyMechanismVsUrdf(unittest.TestCase):
 
 
 class TestVerifyUrdfVsIsaac(unittest.TestCase):
-
     def test_diagnose_error(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             urdf_path = _write_urdf(
@@ -399,7 +419,6 @@ class TestVerifyUrdfVsIsaac(unittest.TestCase):
 
 
 class TestVerifySimPackageCombined(unittest.TestCase):
-
     def test_all_stages(self) -> None:
         mech = _simple_mechanism()
         bodies = [
@@ -418,8 +437,13 @@ class TestVerifySimPackageCombined(unittest.TestCase):
                     {"name": "link_b", "mesh": "link_b.stl", "mass": 0.3},
                 ],
                 joints=[
-                    {"name": "j1", "type": "revolute", "parent": "link_a", "child": "link_b",
-                     "limits": {"lower": "-1.5", "upper": "1.5"}},
+                    {
+                        "name": "j1",
+                        "type": "revolute",
+                        "parent": "link_a",
+                        "child": "link_b",
+                        "limits": {"lower": "-1.5", "upper": "1.5"},
+                    },
                 ],
                 tmpdir=tmpdir,
             )

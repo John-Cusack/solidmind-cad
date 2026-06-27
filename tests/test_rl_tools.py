@@ -1,4 +1,5 @@
 """Tests for server.tools_rl — MCP tool dispatch with mocked subprocess."""
+
 from __future__ import annotations
 
 import json
@@ -19,8 +20,7 @@ from server.tools_rl import (
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 _HEXAPOD_URDF = _PROJECT_ROOT / "hexapod_sim_pkg" / "Hexapod_v2_1DOF.urdf"
 
-_SAMPLE_JOINT_NAMES = ["coxa_lf", "femur_lf", "tibia_lf",
-                        "coxa_rf", "femur_rf", "tibia_rf"]
+_SAMPLE_JOINT_NAMES = ["coxa_lf", "femur_lf", "tibia_lf", "coxa_rf", "femur_rf", "tibia_rf"]
 _SAMPLE_ACTION_SCALES = [0.15, 0.3, 0.4, 0.15, 0.3, 0.4]
 
 
@@ -34,7 +34,8 @@ def _write_training_config(tmpdir: str, **overrides: object) -> None:
     }
     data.update(overrides)
     (Path(tmpdir) / "training_config.json").write_text(
-        json.dumps(data), encoding="utf-8",
+        json.dumps(data),
+        encoding="utf-8",
     )
 
 
@@ -163,7 +164,8 @@ class TestRLDeployPolicy(unittest.TestCase):
                 "alpha": 1.0,
             }
             (deployed / "deployment_config.json").write_text(
-                json.dumps(config), encoding="utf-8",
+                json.dumps(config),
+                encoding="utf-8",
             )
 
             result = rl_deploy_policy(checkpoint_dir=tmpdir)
@@ -171,7 +173,8 @@ class TestRLDeployPolicy(unittest.TestCase):
             self.assertTrue(result.get("reused_existing"))
             self.assertEqual(result["joint_names"], _SAMPLE_JOINT_NAMES)
             self.assertEqual(
-                result["action_scale_per_joint"], _SAMPLE_ACTION_SCALES,
+                result["action_scale_per_joint"],
+                _SAMPLE_ACTION_SCALES,
             )
 
     def test_deploy_action_scale_from_training_config(self) -> None:

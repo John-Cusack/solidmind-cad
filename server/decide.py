@@ -8,6 +8,7 @@
 Both are pure and self-contained so the orchestration loop (and the foam-dart
 example's ``iterate_until_pass``) can call them without a solver.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -24,10 +25,11 @@ from server.analysis_models import (
 @dataclass(frozen=True, slots=True)
 class FixProposal:
     """A concrete geometry change that addresses a failure mechanism."""
-    op: str          # cad.* operation, e.g. "add_fillet", "thicken_wall"
-    target: str      # feature / face group the op applies to
-    param: str       # parameter to change (e.g. "radius_mm")
-    delta: float     # signed change to apply
+
+    op: str  # cad.* operation, e.g. "add_fillet", "thicken_wall"
+    target: str  # feature / face group the op applies to
+    param: str  # parameter to change (e.g. "radius_mm")
+    delta: float  # signed change to apply
     rationale: str
 
     def to_dict(self) -> dict[str, Any]:
@@ -53,6 +55,7 @@ class FixProposal:
 @dataclass(frozen=True, slots=True)
 class Comparison:
     """Outcome of comparing a result against pre-sim expectations."""
+
     hotspot_matches_expectation: bool
     peak_within_expected_band: bool
     observed_failure_mode: FailureMode | None
@@ -130,23 +133,33 @@ def interpret_compare_to_expectations(
 # Mechanism → fix mapping. Each entry is (op, param, delta, rationale-template).
 _FIX_BY_MODE: dict[FailureMode, tuple[str, str, float, str]] = {
     FailureMode.STRESS_CONCENTRATION: (
-        "add_fillet", "radius_mm", 0.5,
+        "add_fillet",
+        "radius_mm",
+        0.5,
         "add or enlarge the root fillet at {target} to cut the stress-concentration factor",
     ),
     FailureMode.YIELD: (
-        "thicken_wall", "wall_mm", 1.0,
+        "thicken_wall",
+        "wall_mm",
+        1.0,
         "increase the section thickness at {target} to lower peak stress",
     ),
     FailureMode.BUCKLING: (
-        "increase_section", "section_mm", 1.0,
+        "increase_section",
+        "section_mm",
+        1.0,
         "increase second moment of area (or shorten the unsupported length) at {target}",
     ),
     FailureMode.DEFLECTION: (
-        "increase_section", "section_mm", 1.0,
+        "increase_section",
+        "section_mm",
+        1.0,
         "stiffen the section at {target} to reduce deflection",
     ),
     FailureMode.FATIGUE: (
-        "add_fillet", "radius_mm", 0.5,
+        "add_fillet",
+        "radius_mm",
+        0.5,
         "smooth the transition at {target} to raise fatigue life",
     ),
 }
@@ -177,6 +190,9 @@ def from_failure(check: AnalysisCheck) -> FixProposal | None:
     # from the check; fall back to the per-mode template otherwise.
     rationale = check.suggestion.strip() if check.suggestion else template.format(target=target)
     return FixProposal(
-        op=op, target=target, param=param, delta=delta,
+        op=op,
+        target=target,
+        param=param,
+        delta=delta,
         rationale=rationale,
     )

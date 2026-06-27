@@ -1,4 +1,5 @@
 """Tests for server.preflight — unified preflight check."""
+
 from __future__ import annotations
 
 import unittest
@@ -12,8 +13,10 @@ from server.preflight import preflight_check
 def _clear_stores():
     """Clear design and motion stores."""
     import server.design_store as ds
+
     ds._store.clear()
     from server import motion_store
+
     motion_store.clear()
 
 
@@ -70,9 +73,7 @@ class TestPreflightDesignCompleteness(TestPreflightBase):
         result = preflight_check("nonexistent_brief")
         self.assertTrue(result["ok"])  # preflight itself succeeds
         # But design_completeness stage should fail
-        completeness = next(
-            c for c in result["categories"] if c["name"] == "design_completeness"
-        )
+        completeness = next(c for c in result["categories"] if c["name"] == "design_completeness")
         self.assertIn(completeness["status"], ("fail", "skipped"))
 
     def test_empty_brief_passes(self):
@@ -80,9 +81,7 @@ class TestPreflightDesignCompleteness(TestPreflightBase):
         brief = store_brief("Empty", {})
         # Will fail because FreeCAD isn't running, but that's a tool error
         result = preflight_check(brief.brief_id)
-        completeness = next(
-            c for c in result["categories"] if c["name"] == "design_completeness"
-        )
+        completeness = next(c for c in result["categories"] if c["name"] == "design_completeness")
         # Without FreeCAD, this will be skipped/fail with TOOL_ERROR
         self.assertIn(completeness["status"], ("pass", "skipped", "fail"))
 
@@ -92,19 +91,27 @@ class TestPreflightNameResolution(TestPreflightBase):
 
     def test_name_map_from_brief_parts(self):
         brief = store_brief("Test", {})
-        add_part(brief.brief_id, PartEntry(
-            name="gear_a", kind="custom", body_label="Body_GearA",
-        ))
-        add_interface(brief.brief_id, InterfaceEntry(
-            part_a="gear_a", port_a="teeth",
-            part_b="gear_b", port_b="teeth",
-            spec={"type": "gear_mesh"},
-        ))
+        add_part(
+            brief.brief_id,
+            PartEntry(
+                name="gear_a",
+                kind="custom",
+                body_label="Body_GearA",
+            ),
+        )
+        add_interface(
+            brief.brief_id,
+            InterfaceEntry(
+                part_a="gear_a",
+                port_a="teeth",
+                part_b="gear_b",
+                port_b="teeth",
+                spec={"type": "gear_mesh"},
+            ),
+        )
 
         result = preflight_check(brief.brief_id)
-        name_res = next(
-            c for c in result["categories"] if c["name"] == "name_resolution"
-        )
+        name_res = next(c for c in result["categories"] if c["name"] == "name_resolution")
         self.assertIn(name_res["status"], ("pass", "warn"))
         self.assertGreaterEqual(name_res.get("policies_derived", 0), 1)
 
@@ -112,30 +119,43 @@ class TestPreflightNameResolution(TestPreflightBase):
         brief = store_brief("Test", {})
         add_part(brief.brief_id, PartEntry(name="a", kind="custom"))
         add_part(brief.brief_id, PartEntry(name="b", kind="custom"))
-        add_interface(brief.brief_id, InterfaceEntry(
-            part_a="a", port_a="teeth",
-            part_b="b", port_b="teeth",
-            spec={"type": "gear_mesh"},
-        ))
-        add_interface(brief.brief_id, InterfaceEntry(
-            part_a="a", port_a="bore",
-            part_b="b", port_b="shaft",
-            spec={"type": "press_fit"},
-        ))
+        add_interface(
+            brief.brief_id,
+            InterfaceEntry(
+                part_a="a",
+                port_a="teeth",
+                part_b="b",
+                port_b="teeth",
+                spec={"type": "gear_mesh"},
+            ),
+        )
+        add_interface(
+            brief.brief_id,
+            InterfaceEntry(
+                part_a="a",
+                port_a="bore",
+                part_b="b",
+                port_b="shaft",
+                spec={"type": "press_fit"},
+            ),
+        )
 
         result = preflight_check(brief.brief_id)
-        name_res = next(
-            c for c in result["categories"] if c["name"] == "name_resolution"
-        )
+        name_res = next(c for c in result["categories"] if c["name"] == "name_resolution")
         self.assertEqual(name_res.get("policies_derived", 0), 2)
 
     def test_policy_summary_reflects_policies(self):
         brief = store_brief("Test", {})
-        add_interface(brief.brief_id, InterfaceEntry(
-            part_a="a", port_a="",
-            part_b="b", port_b="",
-            spec={"type": "gear_mesh"},
-        ))
+        add_interface(
+            brief.brief_id,
+            InterfaceEntry(
+                part_a="a",
+                port_a="",
+                part_b="b",
+                port_b="",
+                spec={"type": "gear_mesh"},
+            ),
+        )
 
         result = preflight_check(brief.brief_id)
         ps = result["policy_summary"]
@@ -148,9 +168,7 @@ class TestPreflightStaticClearance(TestPreflightBase):
     def test_clearance_without_freecad_or_empty_doc(self):
         brief = store_brief("Test", {})
         result = preflight_check(brief.brief_id)
-        clearance = next(
-            c for c in result["categories"] if c["name"] == "static_clearance"
-        )
+        clearance = next(c for c in result["categories"] if c["name"] == "static_clearance")
         # Without FreeCAD: skipped with TOOL_ERROR
         # With FreeCAD but empty doc: pass with 0 pairs
         self.assertIn(clearance["status"], ("skipped", "pass"))
@@ -161,14 +179,9 @@ class TestPreflightStaticClearance(TestPreflightBase):
         mock_check.side_effect = RuntimeError("FreeCAD exploded")
         brief = store_brief("Test", {})
         result = preflight_check(brief.brief_id)
-        clearance = next(
-            c for c in result["categories"] if c["name"] == "static_clearance"
-        )
+        clearance = next(c for c in result["categories"] if c["name"] == "static_clearance")
         self.assertEqual(clearance["status"], "skipped")
-        self.assertTrue(any(
-            f.get("reason_code") == "TOOL_ERROR"
-            for f in clearance["findings"]
-        ))
+        self.assertTrue(any(f.get("reason_code") == "TOOL_ERROR" for f in clearance["findings"]))
         # Must NOT be pass — that would hide the failure
         self.assertNotEqual(clearance["status"], "pass")
 
@@ -181,14 +194,9 @@ class TestPreflightStaticClearance(TestPreflightBase):
         }
         brief = store_brief("Test", {})
         result = preflight_check(brief.brief_id)
-        clearance = next(
-            c for c in result["categories"] if c["name"] == "static_clearance"
-        )
+        clearance = next(c for c in result["categories"] if c["name"] == "static_clearance")
         self.assertEqual(clearance["status"], "skipped")
-        self.assertTrue(any(
-            f.get("reason_code") == "TOOL_ERROR"
-            for f in clearance["findings"]
-        ))
+        self.assertTrue(any(f.get("reason_code") == "TOOL_ERROR" for f in clearance["findings"]))
 
     @patch("server.tools_cad.cad_check_clearance")
     def test_clearance_pass_no_violations(self, mock_check):
@@ -200,9 +208,7 @@ class TestPreflightStaticClearance(TestPreflightBase):
         }
         brief = store_brief("Test", {})
         result = preflight_check(brief.brief_id)
-        clearance = next(
-            c for c in result["categories"] if c["name"] == "static_clearance"
-        )
+        clearance = next(c for c in result["categories"] if c["name"] == "static_clearance")
         self.assertEqual(clearance["status"], "pass")
         self.assertEqual(clearance["pairs_checked"], 3)
         self.assertEqual(result["coverage"]["pairs_checked"], 3)
@@ -212,19 +218,19 @@ class TestPreflightStaticClearance(TestPreflightBase):
         mock_check.return_value = {
             "ok": True,
             "pairs_checked": 3,
-            "violations": [{
-                "body_a": "Body_A",
-                "body_b": "Body_C",
-                "distance_mm": 0.2,
-                "intersecting": False,
-            }],
+            "violations": [
+                {
+                    "body_a": "Body_A",
+                    "body_b": "Body_C",
+                    "distance_mm": 0.2,
+                    "intersecting": False,
+                }
+            ],
             "all_clear": False,
         }
         brief = store_brief("Test", {})
         result = preflight_check(brief.brief_id)
-        clearance = next(
-            c for c in result["categories"] if c["name"] == "static_clearance"
-        )
+        clearance = next(c for c in result["categories"] if c["name"] == "static_clearance")
         self.assertEqual(clearance["status"], "warn")
         self.assertEqual(len(clearance["findings"]), 1)
 
@@ -233,27 +239,32 @@ class TestPreflightStaticClearance(TestPreflightBase):
         mock_check.return_value = {
             "ok": True,
             "pairs_checked": 1,
-            "violations": [{
-                "body_a": "Body_GearA",
-                "body_b": "Body_GearB",
-                "distance_mm": 0.0,
-                "intersecting": True,
-            }],
+            "violations": [
+                {
+                    "body_a": "Body_GearA",
+                    "body_b": "Body_GearB",
+                    "distance_mm": 0.0,
+                    "intersecting": True,
+                }
+            ],
             "all_clear": False,
         }
         brief = store_brief("Test", {})
         add_part(brief.brief_id, PartEntry(name="ga", body_label="Body_GearA"))
         add_part(brief.brief_id, PartEntry(name="gb", body_label="Body_GearB"))
-        add_interface(brief.brief_id, InterfaceEntry(
-            part_a="ga", port_a="teeth",
-            part_b="gb", port_b="teeth",
-            spec={"type": "gear_mesh"},
-        ))
+        add_interface(
+            brief.brief_id,
+            InterfaceEntry(
+                part_a="ga",
+                port_a="teeth",
+                part_b="gb",
+                port_b="teeth",
+                spec={"type": "gear_mesh"},
+            ),
+        )
 
         result = preflight_check(brief.brief_id)
-        clearance = next(
-            c for c in result["categories"] if c["name"] == "static_clearance"
-        )
+        clearance = next(c for c in result["categories"] if c["name"] == "static_clearance")
         # Gear mesh contact should be suppressed
         self.assertEqual(clearance["status"], "pass")
         self.assertEqual(clearance["suppressed_count"], 1)
@@ -267,38 +278,38 @@ class TestPreflightMotionValidators(TestPreflightBase):
     def test_skipped_without_mechanism(self):
         brief = store_brief("Test", {})
         result = preflight_check(brief.brief_id)
-        motion = next(
-            c for c in result["categories"] if c["name"] == "motion_validators"
-        )
+        motion = next(c for c in result["categories"] if c["name"] == "motion_validators")
         self.assertEqual(motion["status"], "skipped")
 
     def test_runs_with_mechanism(self):
         from server.tools_motion import motion_define_mechanism
 
         brief = store_brief("Test", {})
-        mech_result = motion_define_mechanism({
-            "name": "test_gear",
-            "parts": [
-                {"id": "a"},
-                {"id": "b"},
-                {"id": "frame", "is_ground": True},
-            ],
-            "joints": [{
-                "id": "mesh",
-                "joint_type": "gear_mesh",
-                "parent_part": "a",
-                "child_part": "b",
-                "teeth_parent": 20,
-                "teeth_child": 40,
-            }],
-            "drives": [{"joint_id": "mesh", "speed_rpm": 100}],
-        })
+        mech_result = motion_define_mechanism(
+            {
+                "name": "test_gear",
+                "parts": [
+                    {"id": "a"},
+                    {"id": "b"},
+                    {"id": "frame", "is_ground": True},
+                ],
+                "joints": [
+                    {
+                        "id": "mesh",
+                        "joint_type": "gear_mesh",
+                        "parent_part": "a",
+                        "child_part": "b",
+                        "teeth_parent": 20,
+                        "teeth_child": 40,
+                    }
+                ],
+                "drives": [{"joint_id": "mesh", "speed_rpm": 100}],
+            }
+        )
         mid = mech_result["mechanism_id"]
 
         result = preflight_check(brief.brief_id, mechanism_id=mid)
-        motion = next(
-            c for c in result["categories"] if c["name"] == "motion_validators"
-        )
+        motion = next(c for c in result["categories"] if c["name"] == "motion_validators")
         self.assertIn(motion["status"], ("pass", "warn"))
 
 
@@ -326,31 +337,33 @@ class TestPreflightStrictMode(TestPreflightBase):
         }
 
         brief = store_brief("Test", {})
-        mech_result = motion_define_mechanism({
-            "name": "test",
-            "parts": [
-                {"id": "a"},
-                {"id": "b"},
-                {"id": "frame", "is_ground": True},
-            ],
-            "joints": [{
-                "id": "mesh",
-                "joint_type": "gear_mesh",
-                "parent_part": "a",
-                "child_part": "b",
-                "teeth_parent": 20,
-                "teeth_child": 40,
-            }],
-            "drives": [{"joint_id": "mesh", "speed_rpm": 100}],
-        })
+        mech_result = motion_define_mechanism(
+            {
+                "name": "test",
+                "parts": [
+                    {"id": "a"},
+                    {"id": "b"},
+                    {"id": "frame", "is_ground": True},
+                ],
+                "joints": [
+                    {
+                        "id": "mesh",
+                        "joint_type": "gear_mesh",
+                        "parent_part": "a",
+                        "child_part": "b",
+                        "teeth_parent": 20,
+                        "teeth_child": 40,
+                    }
+                ],
+                "drives": [{"joint_id": "mesh", "speed_rpm": 100}],
+            }
+        )
         mid = mech_result["mechanism_id"]
 
         result = preflight_check(brief.brief_id, mechanism_id=mid, gate_mode="strict")
         # Some stages may still be skipped (assembly_interference, etc.)
         # but motion_validators should run
-        motion = next(
-            c for c in result["categories"] if c["name"] == "motion_validators"
-        )
+        motion = next(c for c in result["categories"] if c["name"] == "motion_validators")
         self.assertNotEqual(motion["status"], "skipped")
 
 
@@ -380,9 +393,7 @@ class TestPreflightSweptClearance(TestPreflightBase):
     def test_skipped_without_mechanism(self):
         brief = store_brief("Test", {})
         result = preflight_check(brief.brief_id)
-        swept = next(
-            c for c in result["categories"] if c["name"] == "swept_clearance"
-        )
+        swept = next(c for c in result["categories"] if c["name"] == "swept_clearance")
         self.assertEqual(swept["status"], "skipped")
         self.assertEqual(swept["sweep_samples"], 0)
 
@@ -393,9 +404,7 @@ class TestPreflightJointConnectivity(TestPreflightBase):
     def test_skipped_without_mechanism(self):
         brief = store_brief("Test", {})
         result = preflight_check(brief.brief_id)
-        conn = next(
-            c for c in result["categories"] if c["name"] == "joint_connectivity"
-        )
+        conn = next(c for c in result["categories"] if c["name"] == "joint_connectivity")
         self.assertEqual(conn["status"], "skipped")
 
 

@@ -6,6 +6,7 @@ coordinate transforms between body and hip frames.
 
 IK convention: elbow-down (tibia angle <= 0).
 """
+
 from __future__ import annotations
 
 import math
@@ -65,7 +66,10 @@ def forward_kinematics(angles: LegAngles, geom: LegGeometry) -> tuple[float, flo
 
 
 def inverse_kinematics(
-    px: float, py: float, pz: float, geom: LegGeometry,
+    px: float,
+    py: float,
+    pz: float,
+    geom: LegGeometry,
 ) -> LegAngles:
     """Solve 3-DOF IK for a foot position in the hip frame.
 

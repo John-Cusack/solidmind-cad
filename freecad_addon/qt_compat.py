@@ -1,4 +1,5 @@
 """Qt compatibility — resolve PySide2 vs PySide6 once, re-export."""
+
 from __future__ import annotations
 
 try:

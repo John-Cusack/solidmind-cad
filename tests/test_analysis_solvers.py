@@ -1,4 +1,5 @@
 """Tests for field solver ABC, registry, and pack discovery."""
+
 from __future__ import annotations
 
 import tempfile
@@ -177,14 +178,19 @@ class TestSolverPackDiscovery(unittest.TestCase):
         class FakeSolver(FieldSolver):
             def name(self) -> str:
                 return "fake_test_solver"
+
             def analysis_types(self) -> list[AnalysisType]:
                 return [AnalysisType.STRUCTURAL]
+
             def available(self) -> tuple[bool, str]:
                 return True, "fake"
+
             def write_input(self, spec, mesh_info, work_dir):
                 return work_dir / "fake.inp"
+
             def run(self, input_path, work_dir):
                 return 0.0
+
             def parse_results(self, work_dir, spec):
                 pass
 

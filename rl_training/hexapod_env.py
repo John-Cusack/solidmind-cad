@@ -19,6 +19,7 @@ Action space (18 dims): joint position offsets scaled by ``action_scale``.
 Episode: 20s max, terminates on fall (height < threshold, |roll/pitch| > 1 rad).
 Physics: 200 Hz, control at 50 Hz (decimation=4).
 """
+
 from __future__ import annotations
 
 import logging
@@ -211,6 +212,7 @@ class HexapodLocomotionEnv:
 
         # Drive type enum discovery (Isaac Sim 4.x uses typed enums)
         import sys as _sys
+
         _urdf_mod = _sys.modules.get("isaacsim.asset.importer.urdf._urdf")
         if _urdf_mod is None:
             try:
@@ -287,14 +289,19 @@ class HexapodLocomotionEnv:
 
         # Default joint positions tensor
         default_pos = torch.tensor(
-            self.cfg.default_joint_positions[:nj] if self.cfg.default_joint_positions else [0.0] * nj,
-            dtype=torch.float32, device=self.device,
+            self.cfg.default_joint_positions[:nj]
+            if self.cfg.default_joint_positions
+            else [0.0] * nj,
+            dtype=torch.float32,
+            device=self.device,
         )
         self._default_joint_pos = default_pos.unsqueeze(0).expand(n, -1).clone()
 
         # Observation and state buffers
         self._obs_buf = torch.zeros(n, self.cfg.obs_dim, dtype=torch.float32, device=self.device)
-        self._prev_actions = torch.zeros(n, self.cfg.action_dim, dtype=torch.float32, device=self.device)
+        self._prev_actions = torch.zeros(
+            n, self.cfg.action_dim, dtype=torch.float32, device=self.device
+        )
         self._episode_lengths = torch.zeros(n, dtype=torch.int32, device=self.device)
 
         # Velocity commands: [vx, vy, yaw_rate]
@@ -308,7 +315,9 @@ class HexapodLocomotionEnv:
         self._gait_phase = torch.zeros(n, dtype=torch.float32, device=self.device)
 
         # Two-step-ago actions for DOF acceleration penalty
-        self._prev_prev_actions = torch.zeros(n, self.cfg.action_dim, dtype=torch.float32, device=self.device)
+        self._prev_prev_actions = torch.zeros(
+            n, self.cfg.action_dim, dtype=torch.float32, device=self.device
+        )
 
         # Feet air time tracking (6 feet for hexapod)
         n_feet = len(self.cfg.foot_links) if self.cfg.foot_links else 6
@@ -322,30 +331,39 @@ class HexapodLocomotionEnv:
         if self.cfg.action_scale_per_joint and len(self.cfg.action_scale_per_joint) >= nj:
             self._action_scale = torch.tensor(
                 self.cfg.action_scale_per_joint[:nj],
-                dtype=torch.float32, device=self.device,
+                dtype=torch.float32,
+                device=self.device,
             )
         else:
             self._action_scale = torch.full(
-                (nj,), self.cfg.action_scale,
-                dtype=torch.float32, device=self.device,
+                (nj,),
+                self.cfg.action_scale,
+                dtype=torch.float32,
+                device=self.device,
             )
 
         self._joint_lower = torch.tensor(
             self.cfg.joint_lower_limits[:nj] if self.cfg.joint_lower_limits else [-math.pi] * nj,
-            dtype=torch.float32, device=self.device,
+            dtype=torch.float32,
+            device=self.device,
         )
         self._joint_upper = torch.tensor(
             self.cfg.joint_upper_limits[:nj] if self.cfg.joint_upper_limits else [math.pi] * nj,
-            dtype=torch.float32, device=self.device,
+            dtype=torch.float32,
+            device=self.device,
         )
 
         # Update capability flags for hot-loop checks
-        self._has_foot_view = getattr(self, '_foot_view', None) is not None
+        self._has_foot_view = getattr(self, "_foot_view", None) is not None
         self._has_base_view = self._base_view is not None
 
         self._is_initialized = True
-        log.info("HexapodLocomotionEnv initialized: %d envs, %d joints, obs_dim=%d",
-                 n, nj, self.cfg.obs_dim)
+        log.info(
+            "HexapodLocomotionEnv initialized: %d envs, %d joints, obs_dim=%d",
+            n,
+            nj,
+            self.cfg.obs_dim,
+        )
 
     def reset(self, env_ids: Any = None) -> Any:
         """Reset specified environments (or all if None).
@@ -445,7 +463,7 @@ class HexapodLocomotionEnv:
             self._command_timer[cmd_ids] = 0.0
 
         # Advance gait phase clock — proportional to command speed
-        cmd_vx = self._velocity_commands[:, 0]   # (num_envs,)
+        cmd_vx = self._velocity_commands[:, 0]  # (num_envs,)
         cmd_yaw = self._velocity_commands[:, 2]  # (num_envs,)
         cmd_speed = torch.max(torch.abs(cmd_vx), torch.abs(cmd_yaw))
         self._gait_phase = (self._gait_phase + dt * self.cfg.stride_frequency * cmd_speed) % 1.0
@@ -507,7 +525,8 @@ class HexapodLocomotionEnv:
         fall_pct = (100.0 * self._fall_count / total) if total > 0 else 0.0
         mean_ep_len = (
             sum(self._episode_lengths_completed) / len(self._episode_lengths_completed)
-            if self._episode_lengths_completed else 0.0
+            if self._episode_lengths_completed
+            else 0.0
         )
         stats: dict[str, Any] = {
             "fall_count": self._fall_count,
@@ -546,24 +565,30 @@ class HexapodLocomotionEnv:
 
         # Gait phase clock: sin/cos pair for periodic signal
         phase_angle = self._gait_phase.unsqueeze(-1) * (2.0 * math.pi)  # (n, 1)
-        gait_clock = torch.cat([
-            torch.sin(phase_angle),
-            torch.cos(phase_angle),
-        ], dim=-1)  # (n, 2)
+        gait_clock = torch.cat(
+            [
+                torch.sin(phase_angle),
+                torch.cos(phase_angle),
+            ],
+            dim=-1,
+        )  # (n, 2)
 
         # Build observation: [base_lin_vel(3), base_ang_vel(3), proj_gravity(3),
         #                     commands(3), gait_clock(2),
         #                     joint_pos_rel(N), joint_vel(N), prev_actions(N)]
-        self._obs_buf = torch.cat([
-            base_lin_vel,           # 3
-            base_ang_vel,           # 3
-            projected_gravity,      # 3
-            self._velocity_commands, # 3
-            gait_clock,             # 2
-            joint_pos_rel,          # num_joints
-            joint_vel,              # num_joints
-            self._prev_actions,     # num_joints
-        ], dim=-1)
+        self._obs_buf = torch.cat(
+            [
+                base_lin_vel,  # 3
+                base_ang_vel,  # 3
+                projected_gravity,  # 3
+                self._velocity_commands,  # 3
+                gait_clock,  # 2
+                joint_pos_rel,  # num_joints
+                joint_vel,  # num_joints
+                self._prev_actions,  # num_joints
+            ],
+            dim=-1,
+        )
 
     def _compute_rewards(self, actions: Any) -> Any:
         """Compute per-environment reward using Walk-These-Ways composition.
@@ -706,6 +731,7 @@ class HexapodLocomotionEnv:
 
 
 # ── Quaternion utilities (GPU-batched) ────────────────────────────────
+
 
 def _quat_rotate_inverse(q: Any, v: Any) -> Any:
     """Rotate vectors by the inverse of quaternions (batched).

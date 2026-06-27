@@ -1,4 +1,5 @@
 """Tests for orchestrator.interface_freeze."""
+
 from __future__ import annotations
 
 import unittest
@@ -33,9 +34,11 @@ def _complete_interface(**overrides) -> Interface:
         frame_a=CoordinateFrame(origin_mm=[0, 0, 5]),
         frame_b=CoordinateFrame(origin_mm=[0, 0, 0]),
         mating=MatingSemantic(type="cylindrical_fit"),
-        validation=ValidationMethod(check_points=[
-            ValidationCheckPoint(feature="bore_dia", expected_mm=8.0, tolerance_mm=0.01),
-        ]),
+        validation=ValidationMethod(
+            check_points=[
+                ValidationCheckPoint(feature="bore_dia", expected_mm=8.0, tolerance_mm=0.01),
+            ]
+        ),
     )
     defaults.update(overrides)
     return Interface(**defaults)
@@ -95,37 +98,51 @@ class TestIsInterfaceCompleteExtended(unittest.TestCase):
 class TestValidatePurchasedLock(unittest.TestCase):
     def test_valid_catalog(self) -> None:
         spec = MasterSpec(name="test")
-        spec.subsystems.append(Subsystem(
-            name="bearing", kind=SubsystemKind.CATALOG,
-            supplier_part="SKF 6201", quantity=2,
-        ))
+        spec.subsystems.append(
+            Subsystem(
+                name="bearing",
+                kind=SubsystemKind.CATALOG,
+                supplier_part="SKF 6201",
+                quantity=2,
+            )
+        )
         ok, issues = validate_purchased_lock(spec)
         self.assertTrue(ok, issues)
 
     def test_catalog_missing_part(self) -> None:
         spec = MasterSpec(name="test")
-        spec.subsystems.append(Subsystem(
-            name="bearing", kind=SubsystemKind.CATALOG,
-        ))
+        spec.subsystems.append(
+            Subsystem(
+                name="bearing",
+                kind=SubsystemKind.CATALOG,
+            )
+        )
         ok, issues = validate_purchased_lock(spec)
         self.assertFalse(ok)
         self.assertTrue(any("supplier_part" in i for i in issues))
 
     def test_standard_missing_standard(self) -> None:
         spec = MasterSpec(name="test")
-        spec.subsystems.append(Subsystem(
-            name="bolt", kind=SubsystemKind.STANDARD,
-        ))
+        spec.subsystems.append(
+            Subsystem(
+                name="bolt",
+                kind=SubsystemKind.STANDARD,
+            )
+        )
         ok, issues = validate_purchased_lock(spec)
         self.assertFalse(ok)
         self.assertTrue(any("standard" in i.lower() for i in issues))
 
     def test_zero_quantity_fails(self) -> None:
         spec = MasterSpec(name="test")
-        spec.subsystems.append(Subsystem(
-            name="bolt", kind=SubsystemKind.STANDARD,
-            standard="ISO 4762 M5x20", quantity=0,
-        ))
+        spec.subsystems.append(
+            Subsystem(
+                name="bolt",
+                kind=SubsystemKind.STANDARD,
+                standard="ISO 4762 M5x20",
+                quantity=0,
+            )
+        )
         ok, issues = validate_purchased_lock(spec)
         self.assertFalse(ok)
         self.assertTrue(any("quantity" in i for i in issues))
@@ -134,9 +151,11 @@ class TestValidatePurchasedLock(unittest.TestCase):
 class TestFreezeInterfaces(unittest.TestCase):
     def test_all_complete(self) -> None:
         spec = MasterSpec(name="test")
-        spec.interfaces.append(_complete_interface(
-            mating=MatingSemantic(type="planar_contact"),
-        ))
+        spec.interfaces.append(
+            _complete_interface(
+                mating=MatingSemantic(type="planar_contact"),
+            )
+        )
         ok, issues = freeze_interfaces(spec)
         self.assertTrue(ok, issues)
 
@@ -150,15 +169,24 @@ class TestFreezeInterfaces(unittest.TestCase):
 class TestLockPurchasedParts(unittest.TestCase):
     def test_identifies_locked(self) -> None:
         spec = MasterSpec(name="test")
-        spec.subsystems.append(Subsystem(
-            name="bearing", kind=SubsystemKind.CATALOG,
-        ))
-        spec.subsystems.append(Subsystem(
-            name="gear", kind=SubsystemKind.GENERATED,
-        ))
-        spec.subsystems.append(Subsystem(
-            name="bolt", kind=SubsystemKind.STANDARD,
-        ))
+        spec.subsystems.append(
+            Subsystem(
+                name="bearing",
+                kind=SubsystemKind.CATALOG,
+            )
+        )
+        spec.subsystems.append(
+            Subsystem(
+                name="gear",
+                kind=SubsystemKind.GENERATED,
+            )
+        )
+        spec.subsystems.append(
+            Subsystem(
+                name="bolt",
+                kind=SubsystemKind.STANDARD,
+            )
+        )
         locked = lock_purchased_parts(spec)
         self.assertEqual(sorted(locked), ["bearing", "bolt"])
 
@@ -166,9 +194,11 @@ class TestLockPurchasedParts(unittest.TestCase):
 class TestGenerateIcdSummary(unittest.TestCase):
     def test_summary_structure(self) -> None:
         spec = MasterSpec(name="test")
-        spec.interfaces.append(_complete_interface(
-            mating=MatingSemantic(type="planar_contact"),
-        ))
+        spec.interfaces.append(
+            _complete_interface(
+                mating=MatingSemantic(type="planar_contact"),
+            )
+        )
         spec.interfaces.append(Interface(name="bare"))
         summary = generate_icd_summary(spec)
         self.assertEqual(summary["total_interfaces"], 2)

@@ -1,4 +1,5 @@
 """Master spec dataclasses — the contract between orchestrator, council, and workers."""
+
 from __future__ import annotations
 
 import uuid
@@ -32,16 +33,16 @@ class ComplexityClass(str, Enum):
 
 
 class WorkerMode(str, Enum):
-    SUBAGENT = "subagent"        # MVP — Claude Code Agent tool, free on Max
+    SUBAGENT = "subagent"  # MVP — Claude Code Agent tool, free on Max
     CLAUDE_CODE = "claude_code"  # `claude --print` subprocess (headless/CI)
-    DOCKER = "docker"            # future — container with Claude Code + FreeCAD
-    API = "api"                  # future — direct API calls, any provider
+    DOCKER = "docker"  # future — container with Claude Code + FreeCAD
+    API = "api"  # future — direct API calls, any provider
 
 
 class SubsystemKind(str, Enum):
-    GENERATED = "generated"   # built by workers
-    CATALOG = "catalog"       # purchased, specific supplier part
-    STANDARD = "standard"     # off-the-shelf (bolts, bearings, seals)
+    GENERATED = "generated"  # built by workers
+    CATALOG = "catalog"  # purchased, specific supplier part
+    STANDARD = "standard"  # off-the-shelf (bolts, bearings, seals)
 
 
 class FailureCode(str, Enum):
@@ -81,6 +82,7 @@ _COMPLEXITY_DEFAULTS: dict[ComplexityClass, dict[str, Any]] = {
 # Objective
 # ---------------------------------------------------------------------------
 
+
 @dataclass(frozen=True, slots=True)
 class Objective:
     """A single optimization objective."""
@@ -95,6 +97,7 @@ class Objective:
 # ---------------------------------------------------------------------------
 # Interface (enriched with frames, mating, tolerances, validation)
 # ---------------------------------------------------------------------------
+
 
 @dataclass(frozen=True, slots=True)
 class CoordinateFrame:
@@ -202,9 +205,7 @@ class Interface:
 
     def is_complete(self) -> bool:
         """Check if interface has all required fields for freeze."""
-        has_frames = (
-            self.frame_a.origin_mm != [0, 0, 0] or self.frame_b.origin_mm != [0, 0, 0]
-        )
+        has_frames = self.frame_a.origin_mm != [0, 0, 0] or self.frame_b.origin_mm != [0, 0, 0]
         has_mating = bool(self.mating.type)
         has_geometry = bool(self.geometry)
         has_validation = bool(self.validation.check_points)
@@ -214,6 +215,7 @@ class Interface:
 # ---------------------------------------------------------------------------
 # Manufacturing and runtime policy
 # ---------------------------------------------------------------------------
+
 
 @dataclass(frozen=True, slots=True)
 class ReleaseRequirements:
@@ -257,6 +259,7 @@ class RuntimePolicy:
 # Subsystem
 # ---------------------------------------------------------------------------
 
+
 @dataclass(slots=True)
 class Subsystem:
     """A chunk of work assigned to one or more competing workers."""
@@ -274,8 +277,8 @@ class Subsystem:
     runtime_policy: RuntimePolicy | None = None  # derived from complexity if None
     manufacturing: ManufacturingSpec = field(default_factory=ManufacturingSpec)
     kind: SubsystemKind = SubsystemKind.GENERATED
-    standard: str = ""            # e.g. "ISO 4762 M5x20" for standard parts
-    supplier_part: str = ""       # e.g. "SKF 6201-2Z" for catalog parts
+    standard: str = ""  # e.g. "ISO 4762 M5x20" for standard parts
+    supplier_part: str = ""  # e.g. "SKF 6201-2Z" for catalog parts
     assembly_constraints: dict[str, Any] = field(default_factory=dict)
     quantity: int = 1
     release: ReleaseRequirements = field(default_factory=ReleaseRequirements)
@@ -287,6 +290,7 @@ class Subsystem:
 # ---------------------------------------------------------------------------
 # Knowledge config
 # ---------------------------------------------------------------------------
+
 
 @dataclass(frozen=True, slots=True)
 class KnowledgeConfig:
@@ -301,6 +305,7 @@ class KnowledgeConfig:
 # Cost policy
 # ---------------------------------------------------------------------------
 
+
 @dataclass(frozen=True, slots=True)
 class CostPolicy:
     """Budget caps for the entire run."""
@@ -313,6 +318,7 @@ class CostPolicy:
 # ---------------------------------------------------------------------------
 # Provenance and artifacts
 # ---------------------------------------------------------------------------
+
 
 @dataclass(frozen=True, slots=True)
 class ProvenanceManifest:
@@ -339,6 +345,7 @@ class ArtifactEntry:
 # ---------------------------------------------------------------------------
 # Worker result
 # ---------------------------------------------------------------------------
+
 
 @dataclass(slots=True)
 class WorkerResult:
@@ -372,6 +379,7 @@ class WorkerResult:
 # Assembly skeleton
 # ---------------------------------------------------------------------------
 
+
 @dataclass(frozen=True, slots=True)
 class AssemblySkeleton:
     """Assembly-level spatial truth — datums, axes, reserved volumes."""
@@ -386,6 +394,7 @@ class AssemblySkeleton:
 # ---------------------------------------------------------------------------
 # Master spec
 # ---------------------------------------------------------------------------
+
 
 @dataclass(slots=True)
 class MasterSpec:
@@ -457,19 +466,23 @@ class MasterSpec:
 
     def _to_dict(self) -> dict[str, Any]:
         from orchestrator._serde import dc_to_dict
+
         return dc_to_dict(self)
 
     @staticmethod
     def _sub_to_dict(s: Subsystem) -> dict[str, Any]:
         from orchestrator._serde import dc_to_dict
+
         return dc_to_dict(s)
 
     @staticmethod
     def _ifc_to_dict(i: Interface) -> dict[str, Any]:
         from orchestrator._serde import dc_to_dict
+
         return dc_to_dict(i)
 
     @classmethod
     def _from_dict(cls, d: dict[str, Any]) -> MasterSpec:
         from orchestrator._serde import dc_from_dict
+
         return dc_from_dict(cls, d)

@@ -2,6 +2,7 @@
 
 Uses an echo server (no Isaac runtime needed).
 """
+
 from __future__ import annotations
 
 import json
@@ -308,7 +309,9 @@ class TestIsaacClientTeleop(unittest.TestCase):
             started = client.teleop_start(mechanism={"name": "hex"}, profile={})
             self.assertEqual(started["session_id"], "sess_echo")
 
-            command = client.teleop_command("sess_echo", vx_mps=0.2, yaw_rate_rps=0.1, body_height_m=0.0)
+            command = client.teleop_command(
+                "sess_echo", vx_mps=0.2, yaw_rate_rps=0.1, body_height_m=0.0
+            )
             self.assertTrue(command["applied"])
 
             state = client.teleop_state("sess_echo")

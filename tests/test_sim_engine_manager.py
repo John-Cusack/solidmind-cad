@@ -1,4 +1,5 @@
 """Tests for server.sim_engine_manager — state machine, thread safety, health checks."""
+
 from __future__ import annotations
 
 import json
@@ -71,6 +72,7 @@ class TestConfiguration(unittest.TestCase):
         with patch.dict("os.environ", {}, clear=False):
             # Remove SOLIDMIND_SIM_HOST if present
             import os
+
             os.environ.pop("SOLIDMIND_SIM_HOST", None)
             self.assertEqual(_get_host(), "127.0.0.1")
 
@@ -80,6 +82,7 @@ class TestConfiguration(unittest.TestCase):
 
     def test_default_ports(self):
         import os
+
         for key in ["SOLIDMIND_CHRONO_PORT", "SOLIDMIND_GAZEBO_PORT", "SOLIDMIND_ISAAC_PORT"]:
             os.environ.pop(key, None)
         self.assertEqual(_get_port("chrono"), 9877)
@@ -282,10 +285,7 @@ class TestThreadSafety(unittest.TestCase):
             except Exception as exc:
                 errors.append(exc)
 
-        threads = [
-            threading.Thread(target=worker, args=(b,))
-            for b in VALID_BACKENDS
-        ]
+        threads = [threading.Thread(target=worker, args=(b,)) for b in VALID_BACKENDS]
         for t in threads:
             t.start()
         for t in threads:

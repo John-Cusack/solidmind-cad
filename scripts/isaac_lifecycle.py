@@ -21,6 +21,7 @@ The main thread runs ``_pump_main_thread()`` (required for Kit event loop).
 All operations go through the TCP client which dispatches to main thread
 via ``MainThreadDispatcher``.
 """
+
 from __future__ import annotations
 
 import argparse

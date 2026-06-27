@@ -2,6 +2,7 @@
 
 These tests use mocks so they run without FreeCAD.
 """
+
 from __future__ import annotations
 
 import math
@@ -110,7 +111,9 @@ class TestCaptureImageNaNGuards(unittest.TestCase):
     """Tests for Inf/NaN guards in _capture_image center/diagonal logic."""
 
     def _compute_center_and_diagonal(
-        self, bbox: FakeBoundBox, target_point: tuple[float, ...] | None = None,
+        self,
+        bbox: FakeBoundBox,
+        target_point: tuple[float, ...] | None = None,
     ) -> tuple[tuple[float, float, float], float]:
         """Replicate the guarded center/diagonal logic from _capture_image."""
         if target_point is None:
@@ -162,9 +165,7 @@ class TestCaptureImageNaNGuards(unittest.TestCase):
     def test_target_point_overrides_center(self) -> None:
         """When target_point is provided, bbox center is not used."""
         bb = FakeBoundBox()  # degenerate
-        center, _ = self._compute_center_and_diagonal(
-            bb, target_point=(1.0, 2.0, 3.0)
-        )
+        center, _ = self._compute_center_and_diagonal(bb, target_point=(1.0, 2.0, 3.0))
         self.assertEqual(center, (1.0, 2.0, 3.0))
 
     def test_cam_pos_always_finite(self) -> None:

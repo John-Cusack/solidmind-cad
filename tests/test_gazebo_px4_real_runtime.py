@@ -31,6 +31,7 @@ Run with::
 
     SOLIDMIND_RUN_PX4_E2E=1 python -m unittest tests.test_gazebo_px4_real_runtime
 """
+
 from __future__ import annotations
 
 import os
@@ -41,6 +42,7 @@ import unittest
 
 try:
     import pymavlink  # noqa: F401
+
     _HAS_PYMAVLINK = True
 except ImportError:
     _HAS_PYMAVLINK = False
@@ -73,9 +75,7 @@ def _px4_reachable(timeout_s: float = 0.5) -> bool:
 
 
 _PX4_E2E_ENABLED = (
-    os.environ.get("SOLIDMIND_RUN_PX4_E2E") == "1"
-    and _HAS_PYMAVLINK
-    and _px4_reachable()
+    os.environ.get("SOLIDMIND_RUN_PX4_E2E") == "1" and _HAS_PYMAVLINK and _px4_reachable()
 )
 
 
@@ -98,7 +98,8 @@ class TestGazeboPx4RealRuntime(unittest.TestCase):
 
         self.world_name = os.environ.get("SOLIDMIND_GAZEBO_WORLD", "default")
         self.server = GazeboBridgeServer(
-            host="127.0.0.1", port=0,
+            host="127.0.0.1",
+            port=0,
             runtime_mode="real",
             world_name=self.world_name,
             enable_px4=True,
@@ -164,7 +165,10 @@ class TestGazeboPx4RealRuntime(unittest.TestCase):
             for vx in (0.0, 0.5, 1.0, 0.0):
                 resp = self.client.teleop_command(
                     session_id=session_id,
-                    vx_mps=vx, vy_mps=0.0, vz_mps=0.0, yaw_rate_rps=0.0,
+                    vx_mps=vx,
+                    vy_mps=0.0,
+                    vz_mps=0.0,
+                    yaw_rate_rps=0.0,
                 )
                 self.assertTrue(resp.get("applied"), f"teleop_command rejected: {resp}")
 
@@ -179,7 +183,8 @@ class TestGazeboPx4RealRuntime(unittest.TestCase):
         #    the external process), but no session lingers.
         diag = self.client.diagnose()
         self.assertEqual(
-            diag.get("active_sessions", -1), 0,
+            diag.get("active_sessions", -1),
+            0,
             f"sessions leaked after stop: {diag}",
         )
 
@@ -195,16 +200,14 @@ class TestGazeboPx4RealRuntime(unittest.TestCase):
 
         # Count mavlink-* threads before stop.
         def _count_mavlink_threads() -> int:
-            return sum(
-                1 for t in threading.enumerate()
-                if t.name.startswith("mavlink-")
-            )
+            return sum(1 for t in threading.enumerate() if t.name.startswith("mavlink-"))
 
         # Allow the rx + tx threads a moment to spin up.
         time.sleep(0.5)
         active_before = _count_mavlink_threads()
         self.assertGreaterEqual(
-            active_before, 2,
+            active_before,
+            2,
             "expected mavlink-rx and mavlink-tx threads after teleop_start",
         )
 
@@ -218,7 +221,8 @@ class TestGazeboPx4RealRuntime(unittest.TestCase):
                 break
             time.sleep(0.1)
         self.assertEqual(
-            _count_mavlink_threads(), 0,
+            _count_mavlink_threads(),
+            0,
             "MAVLink threads leaked after teleop_stop",
         )
 

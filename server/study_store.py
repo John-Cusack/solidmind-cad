@@ -1,4 +1,5 @@
 """JSON-file persistence for parametric studies in studies/<study_id>/."""
+
 from __future__ import annotations
 
 import json
@@ -54,14 +55,16 @@ def list_studies(*, root: Path | None = None) -> list[dict[str, Any]]:
         if fp.is_file():
             try:
                 data = json.loads(fp.read_text())
-                summaries.append({
-                    "id": data["id"],
-                    "name": data["name"],
-                    "status": data.get("status", "draft"),
-                    "coarse_count": len(data.get("coarse_variants", [])),
-                    "refined_count": len(data.get("refined_variants", [])),
-                    "best_variant_id": data.get("best_variant_id"),
-                })
+                summaries.append(
+                    {
+                        "id": data["id"],
+                        "name": data["name"],
+                        "status": data.get("status", "draft"),
+                        "coarse_count": len(data.get("coarse_variants", [])),
+                        "refined_count": len(data.get("refined_variants", [])),
+                        "best_variant_id": data.get("best_variant_id"),
+                    }
+                )
             except (json.JSONDecodeError, KeyError):
                 continue
     return summaries
@@ -75,6 +78,7 @@ def study_exists(study_id: str, *, root: Path | None = None) -> bool:
 def delete_study(study_id: str, *, root: Path | None = None) -> bool:
     """Delete a study directory. Returns True if deleted."""
     import shutil
+
     d = _root(root) / study_id
     if d.is_dir():
         shutil.rmtree(d)

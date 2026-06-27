@@ -3,6 +3,7 @@
 Demonstrates both a tool pack and a knowledge pack in one module.
 Install with: pip install -e examples/solidmind-example-pack
 """
+
 from __future__ import annotations
 
 import math

@@ -1,4 +1,5 @@
 """Data models for the Gazebo bridge runtime."""
+
 from __future__ import annotations
 
 import time

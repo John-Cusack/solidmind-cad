@@ -2,6 +2,7 @@
 
 Uses an echo server (no Chrono binary needed) — same pattern as test_freecad_client.py.
 """
+
 from __future__ import annotations
 
 import json

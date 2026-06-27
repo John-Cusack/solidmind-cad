@@ -4,6 +4,7 @@ Like the fixed-wing stub, this just locks in the dataclass shape so
 the multi-frame-type architecture is ready when VTOL implementation
 lands.
 """
+
 from __future__ import annotations
 
 import unittest
@@ -27,7 +28,8 @@ class TestVTOLStub(unittest.TestCase):
                 Rotor(name="r3", position_m=(-0.20, +0.20, 0.05), direction="cw"),
             ),
             forward_motor=Motor(
-                name="forward_motor", position_m=(0.30, 0.0, 0.0),
+                name="forward_motor",
+                position_m=(0.30, 0.0, 0.0),
             ),
             wing=Wing(span_m=1.5, chord_m=0.25, area_m2=0.375),
         )
@@ -36,7 +38,7 @@ class TestVTOLStub(unittest.TestCase):
         af = self._make()
         # 2.0 chassis + 4 × 0.016 rotors = 2.064 kg
         self.assertAlmostEqual(af.total_mass_kg(), 2.064, places=4)
-        self.assertEqual(af.ca_airframe_id(), 11)   # PX4 standard VTOL
+        self.assertEqual(af.ca_airframe_id(), 11)  # PX4 standard VTOL
 
     def test_to_sim_model_raises_not_implemented(self) -> None:
         af = self._make()

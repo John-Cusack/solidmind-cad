@@ -4,6 +4,7 @@ Runs the full pipeline in headless/CI mode (claude_code worker mode).
 For interactive use, Claude Code IS the orchestrator (subagent mode)
 and calls orchestrator.runner directly.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -40,17 +41,20 @@ def main() -> int:
         help="Design goal (natural language)",
     )
     parser.add_argument(
-        "--spec", "-s",
+        "--spec",
+        "-s",
         type=Path,
         help="Path to an existing master_spec.yaml to resume from",
     )
     parser.add_argument(
-        "--run-dir", "-d",
+        "--run-dir",
+        "-d",
         type=Path,
         help="Run directory (default: auto-generated under runs/)",
     )
     parser.add_argument(
-        "--config", "-c",
+        "--config",
+        "-c",
         type=Path,
         help="Path to orchestrator config YAML",
     )
@@ -60,13 +64,15 @@ def main() -> int:
         help="Generate worker prompts without dispatching",
     )
     parser.add_argument(
-        "--max-parallel", "-j",
+        "--max-parallel",
+        "-j",
         type=int,
         default=4,
         help="Max parallel workers (default: 4)",
     )
     parser.add_argument(
-        "--verbose", "-v",
+        "--verbose",
+        "-v",
         action="store_true",
         help="Enable verbose logging",
     )
@@ -163,7 +169,9 @@ def _resume_from_spec(args: argparse.Namespace) -> int:
     if run.spec.worker_mode == WorkerMode.CLAUDE_CODE:
         return asyncio.run(_dispatch_headless(run, args.max_parallel))
     else:
-        print(f"\nWorker mode '{run.spec.worker_mode.value}' requires interactive Claude Code session.")
+        print(
+            f"\nWorker mode '{run.spec.worker_mode.value}' requires interactive Claude Code session."
+        )
         print("Use: python -m orchestrator --dry-run --spec ... to preview prompts.")
         return 0
 

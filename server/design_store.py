@@ -3,6 +3,7 @@
 Module-level dict store with token_hex handles — same pattern as
 motion_store.py.  Briefs persist for the lifetime of the MCP server process.
 """
+
 from __future__ import annotations
 
 import secrets
@@ -119,14 +120,16 @@ def update_part(
     for p in existing.parts:
         if p.name == part_name:
             found = True
-            new_parts.append(PartEntry(
-                name=p.name,
-                kind=patched.get("kind", p.kind),
-                quantity=patched.get("quantity", p.quantity),
-                specs=dict(patched.get("specs", p.specs)),
-                status=patched.get("status", p.status),
-                body_label=patched.get("body_label", p.body_label),
-            ))
+            new_parts.append(
+                PartEntry(
+                    name=p.name,
+                    kind=patched.get("kind", p.kind),
+                    quantity=patched.get("quantity", p.quantity),
+                    specs=dict(patched.get("specs", p.specs)),
+                    status=patched.get("status", p.status),
+                    body_label=patched.get("body_label", p.body_label),
+                )
+            )
         else:
             new_parts.append(p)
 

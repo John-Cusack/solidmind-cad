@@ -292,10 +292,14 @@ class TestSweepLoftEIRGeneration(unittest.TestCase):
         frame = builder.add_global_frame()
 
         profile = builder.add_sketch_profile(
-            plane="XY", elements=[], frame_id=frame,
+            plane="XY",
+            elements=[],
+            frame_id=frame,
         )
         spine = builder.add_sketch_profile(
-            plane="XZ", elements=[], frame_id=frame,
+            plane="XZ",
+            elements=[],
+            frame_id=frame,
         )
         builder.add_sweep_intent(
             profile_id=profile.id,
@@ -315,10 +319,14 @@ class TestSweepLoftEIRGeneration(unittest.TestCase):
         frame = builder.add_global_frame()
 
         s1 = builder.add_sketch_profile(
-            plane="XY", elements=[], frame_id=frame,
+            plane="XY",
+            elements=[],
+            frame_id=frame,
         )
         s2 = builder.add_sketch_profile(
-            plane="XY", elements=[], frame_id=frame,
+            plane="XY",
+            elements=[],
+            frame_id=frame,
         )
         builder.add_loft_intent(
             section_ids=[s1.id, s2.id],
@@ -344,10 +352,14 @@ class TestSweepLoftEIRGeneration(unittest.TestCase):
         frame = builder.add_global_frame()
 
         profile = builder.add_sketch_profile(
-            plane="XY", elements=[], frame_id=frame,
+            plane="XY",
+            elements=[],
+            frame_id=frame,
         )
         spine = builder.add_sketch_profile(
-            plane="XZ", elements=[], frame_id=frame,
+            plane="XZ",
+            elements=[],
+            frame_id=frame,
         )
         builder.add_sweep_intent(
             profile_id=profile.id,

@@ -1,4 +1,5 @@
 """Unit tests for direct tet4 assembly utilities."""
+
 from __future__ import annotations
 
 import unittest
@@ -13,6 +14,7 @@ from server.analysis_models import BoundaryCondition, Material
 
 try:
     import scipy  # noqa: F401
+
     HAS_SCIPY = True
 except Exception:
     HAS_SCIPY = False

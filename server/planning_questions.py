@@ -46,11 +46,15 @@ def evaluate_planning_question_budget(
         if process == "cnc":
             if _is_missing(planning.get("machine_mode")):
                 questions_asked.append("machine_mode")
-                assumptions.append("Assume CNC 3-axis machining and single setup unless specified otherwise.")
+                assumptions.append(
+                    "Assume CNC 3-axis machining and single setup unless specified otherwise."
+                )
         elif process == "fdm":
             if _is_missing(planning.get("build_orientation")):
                 questions_asked.append("build_orientation")
-                assumptions.append("Assume Z-up build orientation with support minimization policy.")
+                assumptions.append(
+                    "Assume Z-up build orientation with support minimization policy."
+                )
 
     # Question slot 2: interface-critical detail
     if len(questions_asked) < max_questions:
@@ -61,7 +65,9 @@ def evaluate_planning_question_budget(
 
         if part_interfaces in (None, [], ""):
             questions_asked.append("critical_interfaces")
-            assumptions.append("Assume no additional critical interfaces beyond explicit hole/feature definitions.")
+            assumptions.append(
+                "Assume no additional critical interfaces beyond explicit hole/feature definitions."
+            )
 
     # Archetype-specific assumptions when data is missing
     if archetype == "thin_wall" and _is_missing(planning.get("nominal_wall_mm")):

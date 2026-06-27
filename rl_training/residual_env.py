@@ -9,6 +9,7 @@ It imports Isaac Lab APIs at class definition time — the module can
 be imported from regular Python for type checking but will fail at
 runtime without Isaac Lab.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass

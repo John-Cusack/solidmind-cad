@@ -7,6 +7,7 @@ features at independent positions without needing a custom dispatcher.
 
 Build path: ``_build_envelope`` via ``sub_spec["envelope_holes"]``.
 """
+
 from __future__ import annotations
 
 import math
@@ -79,23 +80,31 @@ def build_rc_car_chassis(
     envelope_holes: list[dict[str, Any]] = [
         # Front axle bore (on centerline, +X)
         {
-            "cx": +half_wb, "cy": 0.0,
+            "cx": +half_wb,
+            "cy": 0.0,
             "diameter_mm": axle_bore_dia,
-            "type": "pocket", "depth_mm": 0.0,
+            "type": "pocket",
+            "depth_mm": 0.0,
         },
         # Rear axle bore (on centerline, -X)
         {
-            "cx": -half_wb, "cy": 0.0,
+            "cx": -half_wb,
+            "cy": 0.0,
             "diameter_mm": axle_bore_dia,
-            "type": "pocket", "depth_mm": 0.0,
+            "type": "pocket",
+            "depth_mm": 0.0,
         },
     ]
-    for (cx, cy) in mount_positions:
-        envelope_holes.append({
-            "cx": cx, "cy": cy,
-            "diameter_mm": mount_dia,
-            "type": "pocket", "depth_mm": 0.0,
-        })
+    for cx, cy in mount_positions:
+        envelope_holes.append(
+            {
+                "cx": cx,
+                "cy": cy,
+                "diameter_mm": mount_dia,
+                "type": "pocket",
+                "depth_mm": 0.0,
+            }
+        )
 
     build_spec: dict[str, Any] = dict(sub_spec)
     build_spec["name"] = part_name
@@ -120,7 +129,9 @@ def build_rc_car_chassis(
         mounts_id = ids[2] if len(ids) >= 3 and ids[2] else "ifc_mounts"
     else:
         front_id, rear_id, mounts_id = (
-            "ifc_axle_front", "ifc_axle_rear", "ifc_mounts",
+            "ifc_axle_front",
+            "ifc_axle_rear",
+            "ifc_mounts",
         )
 
     return common.dispatch_and_rewrite(

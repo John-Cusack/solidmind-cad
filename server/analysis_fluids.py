@@ -2,6 +2,7 @@
 
 Provides common fluids with density and viscosity at standard conditions.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -65,10 +66,7 @@ def get_fluid(name: str) -> dict[str, float] | None:
 
 def list_fluids() -> list[dict[str, Any]]:
     """List all available fluids with their properties."""
-    return [
-        {"name": name, **props}
-        for name, props in _FLUIDS.items()
-    ]
+    return [{"name": name, **props} for name, props in _FLUIDS.items()]
 
 
 def make_flow_conditions(

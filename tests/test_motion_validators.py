@@ -1,4 +1,5 @@
 """Tests for server.motion_validators — analytical validation checks."""
+
 from __future__ import annotations
 
 import math
@@ -47,8 +48,12 @@ def _simple_gear_pair(
                 gear_ratio=teeth_a / teeth_b,
                 mesh_efficiency=efficiency,
             ),
-            JointEdge(id="rev_a", joint_type=JointType.REVOLUTE, parent_part="frame", child_part="gear_a"),
-            JointEdge(id="rev_b", joint_type=JointType.REVOLUTE, parent_part="frame", child_part="gear_b"),
+            JointEdge(
+                id="rev_a", joint_type=JointType.REVOLUTE, parent_part="frame", child_part="gear_a"
+            ),
+            JointEdge(
+                id="rev_b", joint_type=JointType.REVOLUTE, parent_part="frame", child_part="gear_b"
+            ),
         ),
         drives=(DriveCondition(joint_id="mesh", speed_rpm=input_rpm, torque_nm=input_torque),),
     )
@@ -78,47 +83,57 @@ def _planetary_3to1(
     for i in range(n_planets):
         pid = f"planet_{i}"
         parts.append(PartNode(id=pid))
-        joints.append(JointEdge(
-            id=f"sun_planet_{i}",
-            joint_type=JointType.GEAR_MESH,
-            parent_part="sun",
-            child_part=pid,
-            teeth_parent=sun_teeth,
-            teeth_child=planet_teeth,
-            gear_ratio=sun_teeth / planet_teeth,
-        ))
+        joints.append(
+            JointEdge(
+                id=f"sun_planet_{i}",
+                joint_type=JointType.GEAR_MESH,
+                parent_part="sun",
+                child_part=pid,
+                teeth_parent=sun_teeth,
+                teeth_child=planet_teeth,
+                gear_ratio=sun_teeth / planet_teeth,
+            )
+        )
         # Planet-to-ring mesh (internal gear)
-        joints.append(JointEdge(
-            id=f"planet_ring_{i}",
-            joint_type=JointType.GEAR_MESH,
-            parent_part=pid,
-            child_part="ring",
-            teeth_parent=planet_teeth,
-            teeth_child=ring_teeth,
-            gear_ratio=planet_teeth / ring_teeth,
-            internal=True,
-        ))
+        joints.append(
+            JointEdge(
+                id=f"planet_ring_{i}",
+                joint_type=JointType.GEAR_MESH,
+                parent_part=pid,
+                child_part="ring",
+                teeth_parent=planet_teeth,
+                teeth_child=ring_teeth,
+                gear_ratio=planet_teeth / ring_teeth,
+                internal=True,
+            )
+        )
         # Planet on carrier (revolute)
-        joints.append(JointEdge(
-            id=f"planet_carrier_{i}",
-            joint_type=JointType.REVOLUTE,
-            parent_part="carrier",
-            child_part=pid,
-        ))
+        joints.append(
+            JointEdge(
+                id=f"planet_carrier_{i}",
+                joint_type=JointType.REVOLUTE,
+                parent_part="carrier",
+                child_part=pid,
+            )
+        )
 
     # Sun revolute (driven)
-    joints.append(JointEdge(
-        id="sun_rev",
-        joint_type=JointType.REVOLUTE,
-        parent_part="sun",
-        child_part="carrier",
-    ))
+    joints.append(
+        JointEdge(
+            id="sun_rev",
+            joint_type=JointType.REVOLUTE,
+            parent_part="sun",
+            child_part="carrier",
+        )
+    )
 
     return Mechanism(
         name="planetary_3to1",
         parts=tuple(parts),
         joints=tuple(joints),
-        drives=(DriveCondition(joint_id="sun_planet_0", speed_rpm=input_rpm, torque_nm=input_torque),),
+        drives=(
+            DriveCondition(joint_id="sun_planet_0", speed_rpm=input_rpm, torque_nm=input_torque),
+        ),
         expected_outputs={
             "carrier_speed_rpm": input_rpm / 3.0,
             "carrier_torque_nm": input_torque * 3.0,
@@ -137,10 +152,34 @@ def _four_bar(s: float, p: float, q: float, length: float) -> Mechanism:
             PartNode(id="rocker"),
         ),
         joints=(
-            JointEdge(id="j1", joint_type=JointType.REVOLUTE, parent_part="ground", child_part="crank", link_length_mm=s),
-            JointEdge(id="j2", joint_type=JointType.REVOLUTE, parent_part="crank", child_part="coupler", link_length_mm=p),
-            JointEdge(id="j3", joint_type=JointType.REVOLUTE, parent_part="coupler", child_part="rocker", link_length_mm=q),
-            JointEdge(id="j4", joint_type=JointType.REVOLUTE, parent_part="rocker", child_part="ground", link_length_mm=length),
+            JointEdge(
+                id="j1",
+                joint_type=JointType.REVOLUTE,
+                parent_part="ground",
+                child_part="crank",
+                link_length_mm=s,
+            ),
+            JointEdge(
+                id="j2",
+                joint_type=JointType.REVOLUTE,
+                parent_part="crank",
+                child_part="coupler",
+                link_length_mm=p,
+            ),
+            JointEdge(
+                id="j3",
+                joint_type=JointType.REVOLUTE,
+                parent_part="coupler",
+                child_part="rocker",
+                link_length_mm=q,
+            ),
+            JointEdge(
+                id="j4",
+                joint_type=JointType.REVOLUTE,
+                parent_part="rocker",
+                child_part="ground",
+                link_length_mm=length,
+            ),
         ),
         drives=(),
     )
@@ -188,15 +227,17 @@ class TestValidators(unittest.TestCase):
         mech = Mechanism(
             name="bad",
             parts=(PartNode(id="a"), PartNode(id="b"), PartNode(id="f", is_ground=True)),
-            joints=(JointEdge(
-                id="m",
-                joint_type=JointType.GEAR_MESH,
-                parent_part="a",
-                child_part="b",
-                teeth_parent=20,
-                teeth_child=40,
-                gear_ratio=3.0,  # wrong — should be 0.5
-            ),),
+            joints=(
+                JointEdge(
+                    id="m",
+                    joint_type=JointType.GEAR_MESH,
+                    parent_part="a",
+                    child_part="b",
+                    teeth_parent=20,
+                    teeth_child=40,
+                    gear_ratio=3.0,  # wrong — should be 0.5
+                ),
+            ),
             drives=(),
         )
         results = run_validators(mech, ["gear_ratio_consistency"])
@@ -360,8 +401,10 @@ class TestSerializationNullSafety(unittest.TestCase):
 
     def test_joint_edge_omits_none_fields(self):
         j = JointEdge(
-            id="j", joint_type=JointType.REVOLUTE,
-            parent_part="a", child_part="b",
+            id="j",
+            joint_type=JointType.REVOLUTE,
+            parent_part="a",
+            child_part="b",
         )
         d = j.to_dict()
         self.assertNotIn("gear_ratio", d)
@@ -379,8 +422,10 @@ class TestSerializationNullSafety(unittest.TestCase):
         """No value in any to_dict() output should be None."""
         part = PartNode(id="p")
         joint = JointEdge(
-            id="j", joint_type=JointType.REVOLUTE,
-            parent_part="a", child_part="b",
+            id="j",
+            joint_type=JointType.REVOLUTE,
+            parent_part="a",
+            child_part="b",
         )
         drive = DriveCondition(joint_id="d")
         for obj in (part, joint, drive):
@@ -394,30 +439,42 @@ class TestInternalFieldSerialization(unittest.TestCase):
 
     def test_internal_true_included(self):
         j = JointEdge(
-            id="pr", joint_type=JointType.GEAR_MESH,
-            parent_part="planet", child_part="ring",
-            teeth_parent=9, teeth_child=36,
-            gear_ratio=0.25, internal=True,
+            id="pr",
+            joint_type=JointType.GEAR_MESH,
+            parent_part="planet",
+            child_part="ring",
+            teeth_parent=9,
+            teeth_child=36,
+            gear_ratio=0.25,
+            internal=True,
         )
         d = j.to_dict()
         self.assertTrue(d["internal"])
 
     def test_internal_false_omitted(self):
         j = JointEdge(
-            id="sp", joint_type=JointType.GEAR_MESH,
-            parent_part="sun", child_part="planet",
-            teeth_parent=18, teeth_child=9,
-            gear_ratio=2.0, internal=False,
+            id="sp",
+            joint_type=JointType.GEAR_MESH,
+            parent_part="sun",
+            child_part="planet",
+            teeth_parent=18,
+            teeth_child=9,
+            gear_ratio=2.0,
+            internal=False,
         )
         d = j.to_dict()
         self.assertNotIn("internal", d)
 
     def test_internal_round_trips(self):
         j = JointEdge(
-            id="pr", joint_type=JointType.GEAR_MESH,
-            parent_part="planet", child_part="ring",
-            teeth_parent=9, teeth_child=36,
-            gear_ratio=0.25, internal=True,
+            id="pr",
+            joint_type=JointType.GEAR_MESH,
+            parent_part="planet",
+            child_part="ring",
+            teeth_parent=9,
+            teeth_child=36,
+            gear_ratio=0.25,
+            internal=True,
         )
         d = j.to_dict()
         j2 = JointEdge.from_dict(d)
@@ -429,8 +486,7 @@ class TestInternalFieldSerialization(unittest.TestCase):
         ring_joints = [j for j in d["joints"] if "ring" in j["id"]]
         self.assertGreater(len(ring_joints), 0)
         for j in ring_joints:
-            self.assertTrue(j.get("internal", False),
-                            f"Joint {j['id']} missing internal=true")
+            self.assertTrue(j.get("internal", False), f"Joint {j['id']} missing internal=true")
 
 
 class TestAppliedForceValidation(unittest.TestCase):
@@ -440,8 +496,11 @@ class TestAppliedForceValidation(unittest.TestCase):
         return Mechanism(
             name="rotor",
             parts=(PartNode(id="hub", is_ground=True), PartNode(id="blade")),
-            joints=(JointEdge(id="rev", joint_type=JointType.REVOLUTE,
-                              parent_part="hub", child_part="blade"),),
+            joints=(
+                JointEdge(
+                    id="rev", joint_type=JointType.REVOLUTE, parent_part="hub", child_part="blade"
+                ),
+            ),
             drives=(),
             applied_forces=applied_forces,
         )
@@ -452,54 +511,71 @@ class TestAppliedForceValidation(unittest.TestCase):
             self.assertNotIn("applied force", e.lower())
 
     def test_unknown_target_body_is_error(self):
-        m = self._rotor_mech((
-            AppliedForce(target_body="nonexistent",
-                         position_local=(0,0,0), force_vector=(0,0,1)),
-        ))
+        m = self._rotor_mech(
+            (
+                AppliedForce(
+                    target_body="nonexistent", position_local=(0, 0, 0), force_vector=(0, 0, 1)
+                ),
+            )
+        )
         errs, _ = validate_mechanism_structure(m)
         self.assertTrue(any("nonexistent" in e for e in errs))
 
     def test_non_finite_position_is_error(self):
-        m = self._rotor_mech((
-            AppliedForce(target_body="blade",
-                         position_local=(0.1, math.nan, 0.0),
-                         force_vector=(0,0,1)),
-        ))
+        m = self._rotor_mech(
+            (
+                AppliedForce(
+                    target_body="blade", position_local=(0.1, math.nan, 0.0), force_vector=(0, 0, 1)
+                ),
+            )
+        )
         errs, _ = validate_mechanism_structure(m)
         self.assertTrue(any("position_local" in e for e in errs))
 
     def test_non_finite_force_is_error(self):
-        m = self._rotor_mech((
-            AppliedForce(target_body="blade",
-                         position_local=(0,0,0),
-                         force_vector=(0.0, 0.0, math.inf)),
-        ))
+        m = self._rotor_mech(
+            (
+                AppliedForce(
+                    target_body="blade", position_local=(0, 0, 0), force_vector=(0.0, 0.0, math.inf)
+                ),
+            )
+        )
         errs, _ = validate_mechanism_structure(m)
         self.assertTrue(any("force_vector" in e for e in errs))
 
     def test_zero_force_is_warning_not_error(self):
-        m = self._rotor_mech((
-            AppliedForce(target_body="blade",
-                         position_local=(0,0,0), force_vector=(0,0,0)),
-        ))
+        m = self._rotor_mech(
+            (AppliedForce(target_body="blade", position_local=(0, 0, 0), force_vector=(0, 0, 0)),)
+        )
         errs, warns = validate_mechanism_structure(m)
         self.assertFalse(any("zero force" in e for e in errs))
         self.assertTrue(any("zero force" in w for w in warns))
 
     def test_invalid_frame_is_error(self):
-        m = self._rotor_mech((
-            AppliedForce(target_body="blade", position_local=(0,0,0),
-                         force_vector=(0,0,1), frame="oops"),
-        ))
+        m = self._rotor_mech(
+            (
+                AppliedForce(
+                    target_body="blade",
+                    position_local=(0, 0, 0),
+                    force_vector=(0, 0, 1),
+                    frame="oops",
+                ),
+            )
+        )
         errs, _ = validate_mechanism_structure(m)
         self.assertTrue(any("frame" in e and "oops" in e for e in errs))
 
     def test_label_appears_in_error_when_provided(self):
-        m = self._rotor_mech((
-            AppliedForce(target_body="missing",
-                         position_local=(0,0,0), force_vector=(0,0,1),
-                         label="bemt_station_5"),
-        ))
+        m = self._rotor_mech(
+            (
+                AppliedForce(
+                    target_body="missing",
+                    position_local=(0, 0, 0),
+                    force_vector=(0, 0, 1),
+                    label="bemt_station_5",
+                ),
+            )
+        )
         errs, _ = validate_mechanism_structure(m)
         self.assertTrue(any("bemt_station_5" in e for e in errs))
 

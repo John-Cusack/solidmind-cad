@@ -4,6 +4,7 @@ Tools follow the same dispatch pattern as ``tools_motion.py`` and
 ``tools_study.py``.  Phase 1 uses subprocess management directly
 (like ``study_runner.py``).
 """
+
 from __future__ import annotations
 
 import json
@@ -35,6 +36,7 @@ def _error_result(code: str, message: str) -> dict[str, Any]:
 # rl.configure_environment
 # ------------------------------------------------------------------
 
+
 def rl_configure_environment(
     *,
     urdf_path: str,
@@ -58,8 +60,12 @@ def rl_configure_environment(
 
     try:
         from rl_training.env_configurator import generate_env_config
+
         config_path = generate_env_config(
-            analysis, urdf_path, output_path, num_envs=num_envs,
+            analysis,
+            urdf_path,
+            output_path,
+            num_envs=num_envs,
         )
     except Exception as exc:
         return _error_result("ENV_CONFIG_FAILED", f"Failed to generate env config: {exc}")
@@ -76,9 +82,7 @@ def rl_configure_environment(
             "standing_height_m": analysis.standing_height_m,
             "base_link": analysis.base_link,
             "foot_links": list(analysis.foot_links),
-            "joint_limits": {
-                k: list(v) for k, v in analysis.joint_limits.items()
-            },
+            "joint_limits": {k: list(v) for k, v in analysis.joint_limits.items()},
         },
     }
 
@@ -86,6 +90,7 @@ def rl_configure_environment(
 # ------------------------------------------------------------------
 # rl.start_training
 # ------------------------------------------------------------------
+
 
 def rl_start_training(
     *,
@@ -106,9 +111,13 @@ def rl_start_training(
 
     # Build command
     cmd = [
-        sys.executable, "-m", "rl_training.train",
-        "--env-config", env_config,
-        "--output-dir", output_dir,
+        sys.executable,
+        "-m",
+        "rl_training.train",
+        "--env-config",
+        env_config,
+        "--output-dir",
+        output_dir,
     ]
     if max_iterations is not None:
         cmd.extend(["--max-iterations", str(max_iterations)])
@@ -119,7 +128,9 @@ def rl_start_training(
     isaac_python = os.environ.get("ISAAC_PYTHON")
     if not isaac_python:
         # Auto-detect Isaac Sim Python from source build
-        candidate = _PROJECT_ROOT.parent / "isaacsim" / "_build" / "linux-x86_64" / "release" / "python.sh"
+        candidate = (
+            _PROJECT_ROOT.parent / "isaacsim" / "_build" / "linux-x86_64" / "release" / "python.sh"
+        )
         if candidate.is_file():
             isaac_python = str(candidate)
     if isaac_python and os.path.isfile(isaac_python):
@@ -156,6 +167,7 @@ def rl_start_training(
 # ------------------------------------------------------------------
 # rl.monitor_training
 # ------------------------------------------------------------------
+
 
 def rl_monitor_training(*, training_id: str) -> dict[str, Any]:
     """Read training progress from progress.json."""
@@ -196,6 +208,7 @@ def rl_monitor_training(*, training_id: str) -> dict[str, Any]:
 # rl.stop_training
 # ------------------------------------------------------------------
 
+
 def rl_stop_training(*, training_id: str) -> dict[str, Any]:
     """SIGTERM the training subprocess."""
     info = _active_training.pop(training_id, None)
@@ -223,6 +236,7 @@ def rl_stop_training(*, training_id: str) -> dict[str, Any]:
 # ------------------------------------------------------------------
 # rl.deploy_policy
 # ------------------------------------------------------------------
+
 
 def rl_deploy_policy(
     *,
@@ -301,6 +315,7 @@ def rl_deploy_policy(
             env_config_path = tc.get("env_config_path", "")
             if env_config_path and os.path.isfile(env_config_path):
                 from rl_training.residual_env import build_env_config_from_file
+
                 env_cfg = build_env_config_from_file(env_config_path)
                 joint_names = env_cfg.joint_names or []
         except Exception:
@@ -317,8 +332,10 @@ def rl_deploy_policy(
 
     try:
         from rl_training.export_policy import export_policy
+
         result = export_policy(
-            ckpt_dir, out,
+            ckpt_dir,
+            out,
             joint_names=joint_names,
             action_scale=action_scale,
             alpha=alpha,
@@ -333,6 +350,7 @@ def rl_deploy_policy(
 # ------------------------------------------------------------------
 # rl.evaluate_policy
 # ------------------------------------------------------------------
+
 
 def rl_evaluate_policy(
     *,
@@ -357,6 +375,7 @@ def rl_evaluate_policy(
     # Validate policy loads
     try:
         import torch  # type: ignore[import-not-found]
+
         policy = torch.jit.load(policy_path, map_location="cpu")
         policy.eval()
         result["policy_loaded"] = True

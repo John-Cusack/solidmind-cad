@@ -256,13 +256,15 @@ def geometry_propeller_blade(
             elements,
             metadata={"tool": "propeller_blade", "section": i},
         )
-        sections_out.append({
-            "geometry_ref": ref,
-            "station_radius_mm": sec["station_radius_mm"],
-            "chord_mm": sec["chord_mm"],
-            "twist_deg": sec["twist_deg"],
-            "plane_offset_mm": sec["plane_offset_mm"],
-        })
+        sections_out.append(
+            {
+                "geometry_ref": ref,
+                "station_radius_mm": sec["station_radius_mm"],
+                "chord_mm": sec["chord_mm"],
+                "twist_deg": sec["twist_deg"],
+                "plane_offset_mm": sec["plane_offset_mm"],
+            }
+        )
 
     # Store hub elements
     hub = result["hub"]
@@ -890,7 +892,8 @@ def geometry_turned_profile(
     )
     elements = result.pop("elements")
     ref = _store_geometry(
-        elements, metadata={"tool": "turned_profile"},
+        elements,
+        metadata={"tool": "turned_profile"},
     )
     return {
         "ok": True,
@@ -938,7 +941,8 @@ def geometry_press_fit_bore(
     out: dict[str, Any] = {"ok": True}
     if elements:
         ref = _store_geometry(
-            elements, metadata={"tool": "press_fit_bore"},
+            elements,
+            metadata={"tool": "press_fit_bore"},
         )
         out["geometry_ref"] = ref
         out["element_count"] = len(elements)

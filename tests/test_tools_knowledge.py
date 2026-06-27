@@ -1,4 +1,5 @@
 """Tests for server.tools_knowledge — mocked KnowledgeStore."""
+
 from __future__ import annotations
 
 import tempfile
@@ -82,7 +83,10 @@ class TestKnowledgeIngest(unittest.TestCase):
     def test_single_file(self):
         mock = _mock_store()
         mock.ingest_file.return_value = IngestResult(
-            task_id="t-123", filename="test.md", status="complete", chunks=3,
+            task_id="t-123",
+            filename="test.md",
+            status="complete",
+            chunks=3,
         )
         with tempfile.NamedTemporaryFile(suffix=".md") as f:
             f.write(b"# Notes")

@@ -1,4 +1,5 @@
 """Interface freeze — extended ICD validation and purchased-part lock."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -21,19 +22,13 @@ def is_interface_complete_extended(ifc: Interface) -> tuple[bool, list[str]]:
     mating_type = ifc.mating.type
 
     if mating_type == "gear_mesh" and not ifc.backlash:
-        issues.append(
-            f"Interface '{ifc.name}': gear_mesh requires backlash specification"
-        )
+        issues.append(f"Interface '{ifc.name}': gear_mesh requires backlash specification")
 
     if mating_type == "cylindrical_fit" and ifc.runout_or_concentricity is None:
-        issues.append(
-            f"Interface '{ifc.name}': cylindrical_fit requires runout_or_concentricity"
-        )
+        issues.append(f"Interface '{ifc.name}': cylindrical_fit requires runout_or_concentricity")
 
     if mating_type == "bolt_pattern" and not ifc.preload:
-        issues.append(
-            f"Interface '{ifc.name}': bolt_pattern requires preload specification"
-        )
+        issues.append(f"Interface '{ifc.name}': bolt_pattern requires preload specification")
 
     return len(issues) == 0, issues
 
@@ -50,19 +45,13 @@ def validate_purchased_lock(spec: MasterSpec) -> tuple[bool, list[str]]:
     for sub in spec.subsystems:
         if sub.kind == SubsystemKind.CATALOG:
             if not sub.supplier_part:
-                issues.append(
-                    f"CATALOG subsystem '{sub.name}' missing supplier_part"
-                )
+                issues.append(f"CATALOG subsystem '{sub.name}' missing supplier_part")
         elif sub.kind == SubsystemKind.STANDARD:
             if not sub.standard:
-                issues.append(
-                    f"STANDARD subsystem '{sub.name}' missing standard"
-                )
+                issues.append(f"STANDARD subsystem '{sub.name}' missing standard")
 
         if sub.quantity < 1:
-            issues.append(
-                f"Subsystem '{sub.name}' has quantity={sub.quantity} (must be >= 1)"
-            )
+            issues.append(f"Subsystem '{sub.name}' has quantity={sub.quantity} (must be >= 1)")
 
     return len(issues) == 0, issues
 

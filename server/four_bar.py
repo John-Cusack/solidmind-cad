@@ -5,6 +5,7 @@ intersection, traces coupler curves, computes transmission angles and
 mechanical advantage, and detects dead points.  Pure Python — no Rust
 dependency.
 """
+
 from __future__ import annotations
 
 import math
@@ -78,6 +79,7 @@ def _circle_circle_intersection(
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
+
 
 def classify_grashof(
     ground: float,
@@ -401,6 +403,7 @@ def _validate_link_lengths(
 # Main entry point
 # ---------------------------------------------------------------------------
 
+
 def four_bar_analysis(
     ground_length: float,
     input_length: float,
@@ -449,8 +452,12 @@ def four_bar_analysis(
 
     # --- Coupler curve ---------------------------------------------------
     curve = coupler_curve(
-        g, a, b, c,
-        coupler_point_x, coupler_point_y,
+        g,
+        a,
+        b,
+        c,
+        coupler_point_x,
+        coupler_point_y,
         num_points,
         input_angle_start=input_angle_start,
         input_angle_end=input_angle_end,
@@ -483,21 +490,25 @@ def four_bar_analysis(
     for angle in sample_angles:
         try:
             ma = _mechanical_advantage(g, a, b, c, angle)
-            ma_angles.append({
-                "angle_deg": round(angle, 2),
-                "mechanical_advantage": round(ma, 4),
-            })
+            ma_angles.append(
+                {
+                    "angle_deg": round(angle, 2),
+                    "mechanical_advantage": round(ma, 4),
+                }
+            )
         except ValueError:
             continue
 
     # --- Sketch elements (spline for coupler curve) ----------------------
     elements: list[dict[str, Any]] = []
     if len(curve) >= 2:
-        elements.append({
-            "type": "spline",
-            "points": curve,
-            "periodic": grashof in ("double_crank", "change_point"),
-        })
+        elements.append(
+            {
+                "type": "spline",
+                "points": curve,
+                "periodic": grashof in ("double_crank", "change_point"),
+            }
+        )
 
     # --- Build hint ------------------------------------------------------
     if grashof == "double_crank":

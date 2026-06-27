@@ -6,6 +6,7 @@ into boundary conditions suitable for analysis.stress_check.
 This module is the bridge between dynamics simulation (motion.*) and
 structural analysis (analysis.*).
 """
+
 from __future__ import annotations
 
 import logging
@@ -53,10 +54,12 @@ def bcs_from_propagation(
 
     # Fixed support
     if fixed_faces:
-        bcs.append({
-            "bc_type": "fixed",
-            "faces": fixed_faces,
-        })
+        bcs.append(
+            {
+                "bc_type": "fixed",
+                "faces": fixed_faces,
+            }
+        )
 
     # Apply torque as equivalent tangential force
     # For a shaft with radius r: F = T / r
@@ -73,15 +76,17 @@ def bcs_from_propagation(
         force_n = torque_nm * 1000  # N·m → N·mm then /1mm = N at 1mm radius
         # Scale: for a typical gear/shaft, use torque as-is in N
         # The actual force depends on geometry — this provides a conservative estimate
-        bcs.append({
-            "bc_type": "force",
-            "faces": load_faces,
-            "value": {
-                "fx": round(force_n * dx, 4),
-                "fy": round(force_n * dy, 4),
-                "fz": round(force_n * dz, 4),
-            },
-        })
+        bcs.append(
+            {
+                "bc_type": "force",
+                "faces": load_faces,
+                "value": {
+                    "fx": round(force_n * dx, 4),
+                    "fy": round(force_n * dy, 4),
+                    "fz": round(force_n * dz, 4),
+                },
+            }
+        )
 
     return bcs
 
@@ -128,10 +133,12 @@ def bcs_from_simulation(
 
     # Fixed support
     if fixed_faces:
-        bcs.append({
-            "bc_type": "fixed",
-            "faces": fixed_faces,
-        })
+        bcs.append(
+            {
+                "bc_type": "fixed",
+                "faces": fixed_faces,
+            }
+        )
 
     # Try to get peak force from simulation
     summary = simulation_result.get("summary", {})
@@ -178,15 +185,17 @@ def bcs_from_simulation(
         if mag > 0:
             dx, dy, dz = dx / mag, dy / mag, dz / mag
 
-        bcs.append({
-            "bc_type": "force",
-            "faces": load_faces,
-            "value": {
-                "fx": round(force_n * dx, 4),
-                "fy": round(force_n * dy, 4),
-                "fz": round(force_n * dz, 4),
-            },
-        })
+        bcs.append(
+            {
+                "bc_type": "force",
+                "faces": load_faces,
+                "value": {
+                    "fx": round(force_n * dx, 4),
+                    "fy": round(force_n * dy, 4),
+                    "fz": round(force_n * dz, 4),
+                },
+            }
+        )
 
     return bcs
 

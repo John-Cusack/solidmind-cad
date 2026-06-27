@@ -3,6 +3,7 @@
 Tests the coupling between motion simulation results and FEA boundary conditions
 via analysis_sim_coupling.py.
 """
+
 from __future__ import annotations
 
 import json
@@ -23,15 +24,20 @@ def _simulate_via_bridge(port: int, mech: dict, duration: float = 1.0) -> dict:
     sock.settimeout(10.0)
     sock.connect(("127.0.0.1", port))
     try:
-        msg = json.dumps({
-            "cmd": "simulate",
-            "args": {
-                "mechanism": mech,
-                "duration_s": duration,
-                "dt_s": 0.01,
-                "output_interval": 0.1,
-            },
-        }) + "\n"
+        msg = (
+            json.dumps(
+                {
+                    "cmd": "simulate",
+                    "args": {
+                        "mechanism": mech,
+                        "duration_s": duration,
+                        "dt_s": 0.01,
+                        "output_interval": 0.1,
+                    },
+                }
+            )
+            + "\n"
+        )
         sock.sendall(msg.encode())
         data = b""
         while b"\n" not in data:

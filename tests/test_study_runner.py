@@ -1,4 +1,5 @@
 """Tests for server.study_runner."""
+
 from __future__ import annotations
 
 import tempfile
@@ -30,8 +31,11 @@ class TestStudyRunner(unittest.TestCase):
             name="Runner Test",
             variables=[
                 DesignVariable(
-                    name="x", var_type="continuous",
-                    min_val=0, max_val=100, coarse_step=50,
+                    name="x",
+                    var_type="continuous",
+                    min_val=0,
+                    max_val=100,
+                    coarse_step=50,
                 ),
             ],
             solver=SolverConfig(solver_type="mock"),
@@ -92,8 +96,12 @@ class TestStudyRunner(unittest.TestCase):
             id="run002",
             name="Multi-var Test",
             variables=[
-                DesignVariable(name="a", var_type="continuous", min_val=0, max_val=10, coarse_step=10),
-                DesignVariable(name="b", var_type="continuous", min_val=0, max_val=10, coarse_step=10),
+                DesignVariable(
+                    name="a", var_type="continuous", min_val=0, max_val=10, coarse_step=10
+                ),
+                DesignVariable(
+                    name="b", var_type="continuous", min_val=0, max_val=10, coarse_step=10
+                ),
             ],
             solver=SolverConfig(solver_type="mock"),
             objective=ObjectiveConfig(primary_metric="objective", direction="maximize"),
@@ -112,7 +120,9 @@ class TestStudyRunner(unittest.TestCase):
             id="run003",
             name="Constrained Test",
             variables=[
-                DesignVariable(name="x", var_type="continuous", min_val=0, max_val=100, coarse_step=25),
+                DesignVariable(
+                    name="x", var_type="continuous", min_val=0, max_val=100, coarse_step=25
+                ),
             ],
             solver=SolverConfig(solver_type="mock"),
             objective=ObjectiveConfig(
@@ -130,7 +140,8 @@ class TestStudyRunner(unittest.TestCase):
         self.assertEqual(result.status, StudyStatus.COMPLETE)
         # Best variant must have total_param >= 40
         best = next(
-            v for v in result.coarse_variants + result.refined_variants
+            v
+            for v in result.coarse_variants + result.refined_variants
             if v.variant_id == result.best_variant_id
         )
         self.assertGreaterEqual(best.metrics["total_param"], 40.0)

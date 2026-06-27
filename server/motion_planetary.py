@@ -4,6 +4,7 @@ Extracted from ``simulation_spec_builder`` so both the Chrono planner and
 the motion validation / animation pipeline can reuse the same topology
 detection logic.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -14,6 +15,7 @@ from server.motion_models import JointType, Mechanism
 @dataclass
 class PlanetarySet:
     """A detected planetary gear set."""
+
     carrier: str
     sun: str
     ring: str
@@ -33,12 +35,8 @@ def detect_planetary_sets(mechanism: Mechanism) -> list[PlanetarySet]:
     3. Group into PlanetarySet
     """
     part_map = {p.id: p for p in mechanism.parts}
-    gear_meshes = [
-        j for j in mechanism.joints if j.joint_type == JointType.GEAR_MESH
-    ]
-    revolute_joints = [
-        j for j in mechanism.joints if j.joint_type == JointType.REVOLUTE
-    ]
+    gear_meshes = [j for j in mechanism.joints if j.joint_type == JointType.GEAR_MESH]
+    revolute_joints = [j for j in mechanism.joints if j.joint_type == JointType.REVOLUTE]
 
     # carrier → [planet_ids] from revolute joints between non-ground parts
     carrier_planets: dict[str, list[str]] = {}
@@ -103,16 +101,18 @@ def detect_planetary_sets(mechanism: Mechanism) -> list[PlanetarySet]:
 
         if sun_id is not None and ring_id is not None and teeth_ring > 0:
             t0 = -teeth_sun / teeth_ring
-            sets.append(PlanetarySet(
-                carrier=carrier_id,
-                sun=sun_id,
-                ring=ring_id,
-                planets=planet_ids,
-                teeth_sun=teeth_sun,
-                teeth_ring=teeth_ring,
-                teeth_planet=teeth_planet,
-                t0=t0,
-            ))
+            sets.append(
+                PlanetarySet(
+                    carrier=carrier_id,
+                    sun=sun_id,
+                    ring=ring_id,
+                    planets=planet_ids,
+                    teeth_sun=teeth_sun,
+                    teeth_ring=teeth_ring,
+                    teeth_planet=teeth_planet,
+                    t0=t0,
+                )
+            )
             used_carriers.add(carrier_id)
 
     return sets

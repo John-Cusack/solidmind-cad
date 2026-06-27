@@ -5,6 +5,7 @@ The addon expects strict canonical names (``cx``, ``cy``, ``w``, ``h``, etc.)
 but the LLM often produces natural aliases (``center``, ``width``, ``height``).
 This module bridges that gap with a declarative schema + normalize pass.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass

@@ -1,4 +1,5 @@
 """Tests for the built-in material library."""
+
 from __future__ import annotations
 
 import unittest

@@ -4,6 +4,7 @@ Extracts joint topology, morphology classification, mass, and standing
 height from a URDF file.  No Isaac or FreeCAD dependencies — pure
 Python stdlib.
 """
+
 from __future__ import annotations
 
 import math
@@ -47,9 +48,7 @@ def _classify_morphology(
     joint_types: dict[str, str],
 ) -> str:
     """Classify robot morphology from actuated joint count and names."""
-    revolute_joints = [
-        j for j in actuated_joints if joint_types.get(j) == "revolute"
-    ]
+    revolute_joints = [j for j in actuated_joints if joint_types.get(j) == "revolute"]
     n = len(revolute_joints)
 
     # Check for hip naming pattern (hexapod convention)

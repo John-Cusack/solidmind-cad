@@ -1,4 +1,5 @@
 """Tests for TeleopConfig validation and Controller protocol (P0)."""
+
 from __future__ import annotations
 
 import json
@@ -28,9 +29,17 @@ class TestTeleopConfigDefaults(unittest.TestCase):
     def test_from_profile_none(self) -> None:
         cfg = TeleopConfig.from_profile(None)
         self.assertEqual(cfg.controller_type, "hexapod_1dof_tripod")
-        self.assertEqual(cfg.joint_names, (
-            "hip_lf", "hip_lm", "hip_lr", "hip_rf", "hip_rm", "hip_rr",
-        ))
+        self.assertEqual(
+            cfg.joint_names,
+            (
+                "hip_lf",
+                "hip_lm",
+                "hip_lr",
+                "hip_rf",
+                "hip_rm",
+                "hip_rr",
+            ),
+        )
 
     def test_from_profile_empty_dict(self) -> None:
         cfg = TeleopConfig.from_profile({})
@@ -58,21 +67,25 @@ class TestTeleopConfigOverrides(unittest.TestCase):
         self.assertEqual(cfg.controller_type, "wheeled_diff")
 
     def test_override_joint_names_and_tripods(self) -> None:
-        cfg = TeleopConfig.from_profile({
-            "joint_names": ["j1", "j2", "j3", "j4"],
-            "tripod_a": ["j1", "j3"],
-            "tripod_b": ["j2", "j4"],
-        })
+        cfg = TeleopConfig.from_profile(
+            {
+                "joint_names": ["j1", "j2", "j3", "j4"],
+                "tripod_a": ["j1", "j3"],
+                "tripod_b": ["j2", "j4"],
+            }
+        )
         self.assertEqual(cfg.joint_names, ("j1", "j2", "j3", "j4"))
         self.assertEqual(cfg.tripod_a, ("j1", "j3"))
         self.assertEqual(cfg.tripod_b, ("j2", "j4"))
 
     def test_override_slew_rates(self) -> None:
-        cfg = TeleopConfig.from_profile({
-            "slew_vx_mps2": 3.0,
-            "slew_yaw_rps2": 5.0,
-            "slew_height_mps2": 0.1,
-        })
+        cfg = TeleopConfig.from_profile(
+            {
+                "slew_vx_mps2": 3.0,
+                "slew_yaw_rps2": 5.0,
+                "slew_height_mps2": 0.1,
+            }
+        )
         self.assertAlmostEqual(cfg.slew_vx_mps2, 3.0)
         self.assertAlmostEqual(cfg.slew_yaw_rps2, 5.0)
         self.assertAlmostEqual(cfg.slew_height_mps2, 0.1)
@@ -141,38 +154,46 @@ class TestTripodConsistency(unittest.TestCase):
 
     def test_overlapping_tripods(self) -> None:
         with self.assertRaises(TeleopConfigError) as ctx:
-            TeleopConfig.from_profile({
-                "joint_names": ["j1", "j2", "j3", "j4"],
-                "tripod_a": ["j1", "j2"],
-                "tripod_b": ["j2", "j3"],
-            })
+            TeleopConfig.from_profile(
+                {
+                    "joint_names": ["j1", "j2", "j3", "j4"],
+                    "tripod_a": ["j1", "j2"],
+                    "tripod_b": ["j2", "j3"],
+                }
+            )
         self.assertIn("overlap", ctx.exception.message)
 
     def test_tripods_missing_joint(self) -> None:
         with self.assertRaises(TeleopConfigError) as ctx:
-            TeleopConfig.from_profile({
-                "joint_names": ["j1", "j2", "j3", "j4"],
-                "tripod_a": ["j1"],
-                "tripod_b": ["j2"],
-            })
+            TeleopConfig.from_profile(
+                {
+                    "joint_names": ["j1", "j2", "j3", "j4"],
+                    "tripod_a": ["j1"],
+                    "tripod_b": ["j2"],
+                }
+            )
         self.assertIn("missing from tripods", ctx.exception.message)
 
     def test_tripods_extra_joint(self) -> None:
         with self.assertRaises(TeleopConfigError) as ctx:
-            TeleopConfig.from_profile({
-                "joint_names": ["j1", "j2"],
-                "tripod_a": ["j1", "j3"],
-                "tripod_b": ["j2"],
-            })
+            TeleopConfig.from_profile(
+                {
+                    "joint_names": ["j1", "j2"],
+                    "tripod_a": ["j1", "j3"],
+                    "tripod_b": ["j2"],
+                }
+            )
         self.assertIn("not in joint_names", ctx.exception.message)
 
     def test_single_joint_rejected(self) -> None:
         with self.assertRaises(TeleopConfigError) as ctx:
-            TeleopConfig.from_profile({
-                "joint_names": ["j1"],
-                "tripod_a": ["j1"],
-                "tripod_b": [],
-            })
+            TeleopConfig.from_profile(
+                {
+                    "joint_names": ["j1"],
+                    "tripod_a": ["j1"],
+                    "tripod_b": [],
+                }
+            )
         # Empty tripod_b triggers "must not be empty"
         self.assertIn("must not be empty", ctx.exception.message)
 
@@ -281,6 +302,7 @@ class TestBridgeTeleopConfigIntegration(unittest.TestCase):
 
     def setUp(self) -> None:
         from isaac_bridge.bridge_server import BridgeServer
+
         self.server = BridgeServer(host="127.0.0.1", port=0, headless=True)
 
     def _call(self, payload: str) -> dict:
@@ -290,15 +312,21 @@ class TestBridgeTeleopConfigIntegration(unittest.TestCase):
         return {
             "name": "test",
             "parts": [{"id": "frame", "is_ground": True}, {"id": "link"}],
-            "joints": [{"id": "j", "joint_type": "revolute", "parent_part": "frame", "child_part": "link"}],
+            "joints": [
+                {"id": "j", "joint_type": "revolute", "parent_part": "frame", "child_part": "link"}
+            ],
             "drives": [],
         }
 
     def test_teleop_start_default_profile(self) -> None:
-        result = self._call(json.dumps({
-            "cmd": "teleop_start",
-            "args": {"mechanism": self._mechanism()},
-        }))
+        result = self._call(
+            json.dumps(
+                {
+                    "cmd": "teleop_start",
+                    "args": {"mechanism": self._mechanism()},
+                }
+            )
+        )
         self.assertTrue(result["ok"])
         self.assertIn("session_id", result["result"])
         self.assertEqual(result["result"]["controller_type"], "hexapod_1dof_tripod")
@@ -306,64 +334,88 @@ class TestBridgeTeleopConfigIntegration(unittest.TestCase):
         self.assertIn("amplitude_deg", result["result"]["profile_used"])
 
     def test_teleop_start_custom_profile(self) -> None:
-        result = self._call(json.dumps({
-            "cmd": "teleop_start",
-            "args": {
-                "mechanism": self._mechanism(),
-                "profile": {"amplitude_deg": 25.0, "stride_hz": 2.0},
-            },
-        }))
+        result = self._call(
+            json.dumps(
+                {
+                    "cmd": "teleop_start",
+                    "args": {
+                        "mechanism": self._mechanism(),
+                        "profile": {"amplitude_deg": 25.0, "stride_hz": 2.0},
+                    },
+                }
+            )
+        )
         self.assertTrue(result["ok"])
         self.assertAlmostEqual(result["result"]["profile_used"]["amplitude_deg"], 25.0)
         self.assertAlmostEqual(result["result"]["profile_used"]["stride_hz"], 2.0)
 
     def test_teleop_start_invalid_profile_returns_error(self) -> None:
-        result = self._call(json.dumps({
-            "cmd": "teleop_start",
-            "args": {
-                "mechanism": self._mechanism(),
-                "profile": {"amplitude_deg": -5.0},
-            },
-        }))
+        result = self._call(
+            json.dumps(
+                {
+                    "cmd": "teleop_start",
+                    "args": {
+                        "mechanism": self._mechanism(),
+                        "profile": {"amplitude_deg": -5.0},
+                    },
+                }
+            )
+        )
         self.assertFalse(result["ok"])
         self.assertEqual(result["error"]["code"], "INVALID_INPUT")
 
     def test_teleop_start_invalid_tripod_returns_error(self) -> None:
-        result = self._call(json.dumps({
-            "cmd": "teleop_start",
-            "args": {
-                "mechanism": self._mechanism(),
-                "profile": {
-                    "joint_names": ["j1", "j2"],
-                    "tripod_a": ["j1", "j2"],
-                    "tripod_b": ["j1"],
-                },
-            },
-        }))
+        result = self._call(
+            json.dumps(
+                {
+                    "cmd": "teleop_start",
+                    "args": {
+                        "mechanism": self._mechanism(),
+                        "profile": {
+                            "joint_names": ["j1", "j2"],
+                            "tripod_a": ["j1", "j2"],
+                            "tripod_b": ["j1"],
+                        },
+                    },
+                }
+            )
+        )
         self.assertFalse(result["ok"])
         self.assertEqual(result["error"]["code"], "INVALID_INPUT")
 
     def test_teleop_start_old_profile_still_works(self) -> None:
         """Backward compat: old-style profile with arbitrary keys doesn't break."""
-        result = self._call(json.dumps({
-            "cmd": "teleop_start",
-            "args": {
-                "mechanism": self._mechanism(),
-                "profile": {"speed": 1, "custom_key": "value"},
-            },
-        }))
+        result = self._call(
+            json.dumps(
+                {
+                    "cmd": "teleop_start",
+                    "args": {
+                        "mechanism": self._mechanism(),
+                        "profile": {"speed": 1, "custom_key": "value"},
+                    },
+                }
+            )
+        )
         self.assertTrue(result["ok"])
 
     def test_teleop_state_includes_telemetry(self) -> None:
-        started = self._call(json.dumps({
-            "cmd": "teleop_start",
-            "args": {"mechanism": self._mechanism()},
-        }))
+        started = self._call(
+            json.dumps(
+                {
+                    "cmd": "teleop_start",
+                    "args": {"mechanism": self._mechanism()},
+                }
+            )
+        )
         session_id = started["result"]["session_id"]
-        state = self._call(json.dumps({
-            "cmd": "teleop_state",
-            "args": {"session_id": session_id},
-        }))
+        state = self._call(
+            json.dumps(
+                {
+                    "cmd": "teleop_state",
+                    "args": {"session_id": session_id},
+                }
+            )
+        )
         self.assertTrue(state["ok"])
         r = state["result"]
         self.assertIn("state", r)

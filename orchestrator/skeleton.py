@@ -1,4 +1,5 @@
 """Skeleton validation — datums, reserved volumes, keepout zones, and G2 gate."""
+
 from __future__ import annotations
 
 import json
@@ -43,9 +44,7 @@ def validate_reserved_volumes(spec: MasterSpec) -> tuple[bool, list[str]]:
             vol_a = volumes[names[i]]
             vol_b = volumes[names[j]]
             if aabb_overlap(vol_a, vol_b):
-                issues.append(
-                    f"Reserved volumes '{names[i]}' and '{names[j]}' overlap"
-                )
+                issues.append(f"Reserved volumes '{names[i]}' and '{names[j]}' overlap")
 
     return len(issues) == 0, issues
 
@@ -58,9 +57,7 @@ def validate_keepout_zones(spec: MasterSpec) -> tuple[bool, list[str]]:
         for ki, keepout in enumerate(spec.skeleton.keepout_zones):
             kname = keepout.get("name", f"keepout_{ki}")
             if aabb_overlap(vol, keepout):
-                issues.append(
-                    f"Reserved volume '{vol_name}' intersects keepout zone '{kname}'"
-                )
+                issues.append(f"Reserved volume '{vol_name}' intersects keepout zone '{kname}'")
 
     return len(issues) == 0, issues
 
@@ -93,10 +90,7 @@ def build_skeleton_summary(spec: MasterSpec) -> dict[str, Any]:
         "shaft_axes": list(sk.shaft_axes.keys()),
         "bearing_spans": list(sk.bearing_spans.keys()),
         "reserved_volumes": list(sk.reserved_volumes.keys()),
-        "keepout_zones": [
-            kz.get("name", f"keepout_{i}")
-            for i, kz in enumerate(sk.keepout_zones)
-        ],
+        "keepout_zones": [kz.get("name", f"keepout_{i}") for i, kz in enumerate(sk.keepout_zones)],
         "subsystem_count": len(spec.subsystems),
     }
 
@@ -178,9 +172,7 @@ def build_skeleton_section(spec: MasterSpec, subsystem: Subsystem) -> str:
     if subsystem.name in sk.datums:
         datum_refs.add(subsystem.name)
     if datum_refs:
-        relevant_datums = {
-            k: v for k, v in sk.datums.items() if k in datum_refs
-        }
+        relevant_datums = {k: v for k, v in sk.datums.items() if k in datum_refs}
         if relevant_datums:
             lines.append(f"Datums: {json.dumps(relevant_datums)}")
 

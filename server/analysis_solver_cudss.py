@@ -1,4 +1,5 @@
 """cuDSS direct structural solver adapter (GPU)."""
+
 from __future__ import annotations
 
 import logging
@@ -116,7 +117,9 @@ class CuDSSSolver(FieldSolver):
         cache_key = system.factor_cache_key(self.name())
 
         K_gpu = cpx_sparse.csr_matrix(system.K.tocsr())
-        f_gpu = cp.asarray(system.f, dtype=cp.float64 if self._precision == "float64" else cp.float32)
+        f_gpu = cp.asarray(
+            system.f, dtype=cp.float64 if self._precision == "float64" else cp.float32
+        )
 
         solver = self._cache.get(cache_key)
         if solver is None:
@@ -210,4 +213,3 @@ def _estimate_csc_vram_bytes(K_gpu: Any) -> int:
         except Exception:
             continue
     return max(size, 1)
-

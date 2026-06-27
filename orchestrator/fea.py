@@ -1,4 +1,5 @@
 """L2 coarse FEA pipeline: Gmsh meshing + CalculiX linear elastic analysis."""
+
 from __future__ import annotations
 
 import logging
@@ -106,7 +107,7 @@ def mesh_step(
         gmsh.option.setNumber("Mesh.CharacteristicLengthMin", element_size_mm * 0.5)
         gmsh.option.setNumber("Mesh.CharacteristicLengthMax", element_size_mm)
         gmsh.option.setNumber("Mesh.ElementOrder", 2)  # quadratic
-        gmsh.option.setNumber("Mesh.Algorithm3D", 1)   # Delaunay
+        gmsh.option.setNumber("Mesh.Algorithm3D", 1)  # Delaunay
         gmsh.model.mesh.generate(3)
 
         # Get mesh stats
@@ -262,6 +263,7 @@ def parse_frd(frd_path: Path, yield_strength_mpa: float = 0.0) -> FEAResult:
     """
     try:
         import meshio  # noqa: F401  availability probe; ImportError falls back to the text parser
+
         return _parse_frd_meshio(frd_path, yield_strength_mpa)
     except ImportError:
         return _parse_frd_simple(frd_path, yield_strength_mpa)
@@ -298,7 +300,8 @@ def _parse_frd_meshio(frd_path: Path, yield_strength_mpa: float) -> FEAResult:
                     sxz = block_stress[:, 4]
                     syz = block_stress[:, 5]
                     vm = np.sqrt(
-                        0.5 * (
+                        0.5
+                        * (
                             (sxx - syy) ** 2
                             + (syy - szz) ** 2
                             + (szz - sxx) ** 2
@@ -382,7 +385,8 @@ def _parse_frd_simple(frd_path: Path, yield_strength_mpa: float) -> FEAResult:
                     sxz = float(parts[6])
                     syz = float(parts[7]) if len(parts) > 7 else 0.0
                     vm = (
-                        0.5 * (
+                        0.5
+                        * (
                             (sxx - syy) ** 2
                             + (syy - szz) ** 2
                             + (szz - sxx) ** 2
@@ -440,11 +444,13 @@ def detect_singularities(
     flags: list[SingularityFlag] = []
     for i, s in enumerate(stresses):
         if s >= p95_threshold and s > 2.0 * median:
-            flags.append(SingularityFlag(
-                element_id=i,
-                stress_mpa=s,
-                reason="stress > 2x median in top 5%",
-            ))
+            flags.append(
+                SingularityFlag(
+                    element_id=i,
+                    stress_mpa=s,
+                    reason="stress > 2x median in top 5%",
+                )
+            )
 
     return flags
 
@@ -455,9 +461,7 @@ def filter_stress_excluding_singularities(
 ) -> float:
     """Return max stress after excluding flagged singular elements."""
     flagged_ids = {f.element_id for f in flags}
-    filtered = [
-        s for i, s in enumerate(result.stress_per_element) if i not in flagged_ids
-    ]
+    filtered = [s for i, s in enumerate(result.stress_per_element) if i not in flagged_ids]
     return max(filtered) if filtered else result.max_von_mises_mpa
 
 
@@ -536,9 +540,7 @@ def run_l2_fea(
             node_sets[bc.node_set_name] = near
 
     # Coarse run
-    coarse_inp = build_inp(
-        coarse_mesh.path, material, bcs, coarse_dir / "analysis.inp", node_sets
-    )
+    coarse_inp = build_inp(coarse_mesh.path, material, bcs, coarse_dir / "analysis.inp", node_sets)
     coarse_frd = run_ccx(coarse_inp)
     coarse_result = parse_frd(coarse_frd, material.yield_strength_mpa)
     coarse_result.mesh_density = "coarse"

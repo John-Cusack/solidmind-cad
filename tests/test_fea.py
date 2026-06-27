@@ -1,4 +1,5 @@
 """Unit tests for orchestrator.fea — no ccx or gmsh required."""
+
 from __future__ import annotations
 
 import tempfile

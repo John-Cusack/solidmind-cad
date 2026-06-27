@@ -26,6 +26,7 @@ Gating:
 
 When any of these are missing the whole class is skipped.
 """
+
 from __future__ import annotations
 
 import os
@@ -53,7 +54,10 @@ def _gz_world_running(world_name: str, timeout_s: float = 5.0) -> bool:
     try:
         out = subprocess.run(
             ["gz", "service", "-l"],
-            capture_output=True, text=True, timeout=timeout_s, check=False,
+            capture_output=True,
+            text=True,
+            timeout=timeout_s,
+            check=False,
         )
     except (subprocess.SubprocessError, FileNotFoundError):
         return False
@@ -64,9 +68,7 @@ _WORLD = os.environ.get("SOLIDMIND_GAZEBO_WORLD", "empty")
 
 
 @unittest.skipUnless(
-    os.environ.get("SOLIDMIND_RUN_GAZEBO_E2E") == "1"
-    and _has_gz()
-    and _gz_world_running(_WORLD),
+    os.environ.get("SOLIDMIND_RUN_GAZEBO_E2E") == "1" and _has_gz() and _gz_world_running(_WORLD),
     (
         "Set SOLIDMIND_RUN_GAZEBO_E2E=1, install gz CLI, and start a "
         "gz sim world (default name 'empty', override via "
@@ -78,9 +80,9 @@ class TestGazeboMulticopterHover(unittest.TestCase):
 
     # Drone physical parameters (chosen so 4 rotors at ~700 rad/s lift the
     # base mass ~2x — comfortable margin over hover).
-    _BASE_MASS = 0.6      # kg, central body
-    _ROTOR_MASS = 0.05    # kg, each rotor disc
-    _ARM_LEN = 0.20       # m, motor offset from origin
+    _BASE_MASS = 0.6  # kg, central body
+    _ROTOR_MASS = 0.05  # kg, each rotor disc
+    _ARM_LEN = 0.20  # m, motor offset from origin
     _ROTOR_RADIUS = 0.10  # m, visual rotor disc radius
     _MOTOR_CONSTANT = 8.54858e-06  # N*s^2 (matches stock X3 quad)
     _HOVER_RAD_S = 700.0  # rad/s motor speed (full-throttle equivalent)
@@ -91,7 +93,8 @@ class TestGazeboMulticopterHover(unittest.TestCase):
 
         # Bring up the bridge in real mode pointed at the running gz world.
         self.server = GazeboBridgeServer(
-            host="127.0.0.1", port=0,
+            host="127.0.0.1",
+            port=0,
             runtime_mode="real",
             world_name=self.world_name,
             enable_px4=False,
@@ -119,14 +122,22 @@ class TestGazeboMulticopterHover(unittest.TestCase):
         try:
             subprocess.run(
                 [
-                    "gz", "service",
-                    "-s", f"/world/{self.world_name}/remove",
-                    "--reqtype", "gz.msgs.Entity",
-                    "--reptype", "gz.msgs.Boolean",
-                    "--timeout", "1000",
-                    "--req", f"name: '{self.model_name}', type: MODEL",
+                    "gz",
+                    "service",
+                    "-s",
+                    f"/world/{self.world_name}/remove",
+                    "--reqtype",
+                    "gz.msgs.Entity",
+                    "--reptype",
+                    "gz.msgs.Boolean",
+                    "--timeout",
+                    "1000",
+                    "--req",
+                    f"name: '{self.model_name}', type: MODEL",
                 ],
-                capture_output=True, timeout=3, check=False,
+                capture_output=True,
+                timeout=3,
+                check=False,
             )
         except subprocess.SubprocessError:
             pass
@@ -147,7 +158,8 @@ class TestGazeboMulticopterHover(unittest.TestCase):
         # 1. Spawn through the bridge — proves the bridge accepts SDFs that
         #    contain plugin blocks, not just bare links.
         spawned = self.client.spawn_model(
-            sdf_path=self.sdf_path, model_name=self.model_name,
+            sdf_path=self.sdf_path,
+            model_name=self.model_name,
         )
         self.assertTrue(spawned.get("spawned"), f"spawn failed: {spawned}")
 
@@ -179,7 +191,8 @@ class TestGazeboMulticopterHover(unittest.TestCase):
         # (~2.6× the drone's 6.3 N weight). Even with rotor spin-up time, the
         # drone should rise well over 0.3 m in 2.5 s.
         self.assertGreater(
-            delta_z, 0.3,
+            delta_z,
+            0.3,
             (
                 f"drone did not lift under throttle: z went from {z_initial:.3f} "
                 f"to {z_final:.3f} (delta {delta_z:+.3f} m). "
@@ -276,7 +289,7 @@ class TestGazeboMulticopterHover(unittest.TestCase):
       <collision name="collision">
         <geometry><box><size>0.20 0.20 0.05</size></box></geometry>
       </collision>
-    </link>{''.join(rotor_links)}{''.join(rotor_joints)}{''.join(rotor_plugins)}
+    </link>{"".join(rotor_links)}{"".join(rotor_joints)}{"".join(rotor_plugins)}
   </model>
 </sdf>
 """
@@ -301,11 +314,10 @@ class TestGazeboMulticopterHover(unittest.TestCase):
         while not self._publisher_stop.is_set():
             try:
                 subprocess.run(
-                    ["gz", "topic",
-                     "-t", topic,
-                     "-m", "gz.msgs.Actuators",
-                     "-p", velocity_lines],
-                    capture_output=True, timeout=2.0, check=False,
+                    ["gz", "topic", "-t", topic, "-m", "gz.msgs.Actuators", "-p", velocity_lines],
+                    capture_output=True,
+                    timeout=2.0,
+                    check=False,
                 )
             except subprocess.SubprocessError:
                 pass
@@ -326,7 +338,10 @@ class TestGazeboMulticopterHover(unittest.TestCase):
         try:
             out = subprocess.run(
                 ["gz", "topic", "-e", "-t", topic, "-n", "1"],
-                capture_output=True, text=True, timeout=3.0, check=False,
+                capture_output=True,
+                text=True,
+                timeout=3.0,
+                check=False,
             )
         except subprocess.SubprocessError:
             return None

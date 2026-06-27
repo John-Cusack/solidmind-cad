@@ -3,6 +3,7 @@
 Takes a ``URDFAnalysis`` + URDF path and writes an Isaac Lab env config
 Python file that can be imported by the training entry point.
 """
+
 from __future__ import annotations
 
 import textwrap
@@ -79,12 +80,12 @@ def generate_env_config(
         upper_limits.append(hi)
 
     # Extract body dimensions from URDF link geometry if available
-    body_length = getattr(analysis, 'body_length_m', 0.14)
-    body_width = getattr(analysis, 'body_width_m', 0.15)
+    body_length = getattr(analysis, "body_length_m", 0.14)
+    body_width = getattr(analysis, "body_width_m", 0.15)
 
     # Link masses for domain randomization
     link_masses: dict[str, float] = {}
-    if hasattr(analysis, 'link_masses') and analysis.link_masses:
+    if hasattr(analysis, "link_masses") and analysis.link_masses:
         link_masses = dict(analysis.link_masses)
 
     # Default joint positions: IK standing pose for hexapods, zeros otherwise.
@@ -130,8 +131,8 @@ def generate_env_config(
         ACTION_SCALE_PER_JOINT = {action_scale_per_joint!r}
 
         # Actuator parameters
-        ACTUATOR_STIFFNESS = {actuator['stiffness']}
-        ACTUATOR_DAMPING = {actuator['damping']}
+        ACTUATOR_STIFFNESS = {actuator["stiffness"]}
+        ACTUATOR_DAMPING = {actuator["damping"]}
 
         # Robot properties
         TOTAL_MASS_KG = {analysis.total_mass_kg}

@@ -3,6 +3,7 @@
 AS568 dash-number lookup and groove design per Parker O-Ring Handbook.
 Returns sketch elements for groove cross-section profiles.
 """
+
 from __future__ import annotations
 
 import math
@@ -25,64 +26,64 @@ class ORingSpec:
 # ---------------------------------------------------------------------------
 _AS568: dict[int, ORingSpec] = {
     # 0xx series — small cross-sections
-    1:   ORingSpec(id_mm=0.74,  cs_mm=1.02),
-    2:   ORingSpec(id_mm=1.07,  cs_mm=1.27),
-    3:   ORingSpec(id_mm=1.42,  cs_mm=1.52),
-    4:   ORingSpec(id_mm=1.78,  cs_mm=1.78),
-    5:   ORingSpec(id_mm=2.57,  cs_mm=1.78),
-    6:   ORingSpec(id_mm=2.90,  cs_mm=1.78),
-    7:   ORingSpec(id_mm=3.68,  cs_mm=1.78),
-    8:   ORingSpec(id_mm=4.47,  cs_mm=1.78),
-    9:   ORingSpec(id_mm=5.28,  cs_mm=1.78),
-    10:  ORingSpec(id_mm=6.07,  cs_mm=1.78),
-    11:  ORingSpec(id_mm=7.65,  cs_mm=1.78),
-    12:  ORingSpec(id_mm=9.25,  cs_mm=1.78),
-    13:  ORingSpec(id_mm=10.82, cs_mm=1.78),
-    14:  ORingSpec(id_mm=12.42, cs_mm=1.78),
-    15:  ORingSpec(id_mm=14.00, cs_mm=1.78),
-    16:  ORingSpec(id_mm=15.60, cs_mm=1.78),
-    17:  ORingSpec(id_mm=17.17, cs_mm=1.78),
-    18:  ORingSpec(id_mm=18.77, cs_mm=1.78),
-    19:  ORingSpec(id_mm=20.35, cs_mm=1.78),
-    20:  ORingSpec(id_mm=21.95, cs_mm=1.78),
-    21:  ORingSpec(id_mm=23.52, cs_mm=1.78),
-    22:  ORingSpec(id_mm=25.12, cs_mm=1.78),
-    23:  ORingSpec(id_mm=26.70, cs_mm=1.78),
-    24:  ORingSpec(id_mm=28.30, cs_mm=1.78),
-    25:  ORingSpec(id_mm=29.87, cs_mm=1.78),
-    26:  ORingSpec(id_mm=31.47, cs_mm=1.78),
-    27:  ORingSpec(id_mm=33.05, cs_mm=1.78),
-    28:  ORingSpec(id_mm=34.65, cs_mm=1.78),
-    29:  ORingSpec(id_mm=37.82, cs_mm=1.78),
-    30:  ORingSpec(id_mm=40.95, cs_mm=1.78),
-    31:  ORingSpec(id_mm=44.12, cs_mm=1.78),
-    32:  ORingSpec(id_mm=47.29, cs_mm=1.78),
-    33:  ORingSpec(id_mm=50.47, cs_mm=1.78),
-    34:  ORingSpec(id_mm=53.64, cs_mm=1.78),
-    35:  ORingSpec(id_mm=56.82, cs_mm=1.78),
-    36:  ORingSpec(id_mm=59.99, cs_mm=1.78),
-    37:  ORingSpec(id_mm=63.17, cs_mm=1.78),
-    38:  ORingSpec(id_mm=66.34, cs_mm=1.78),
-    39:  ORingSpec(id_mm=69.52, cs_mm=1.78),
-    40:  ORingSpec(id_mm=72.69, cs_mm=1.78),
-    41:  ORingSpec(id_mm=75.87, cs_mm=1.78),
-    42:  ORingSpec(id_mm=82.22, cs_mm=1.78),
-    43:  ORingSpec(id_mm=88.57, cs_mm=1.78),
-    44:  ORingSpec(id_mm=94.92, cs_mm=1.78),
-    45:  ORingSpec(id_mm=101.27, cs_mm=1.78),
-    46:  ORingSpec(id_mm=107.62, cs_mm=1.78),
-    47:  ORingSpec(id_mm=113.97, cs_mm=1.78),
-    48:  ORingSpec(id_mm=120.32, cs_mm=1.78),
-    49:  ORingSpec(id_mm=126.67, cs_mm=1.78),
-    50:  ORingSpec(id_mm=133.02, cs_mm=1.78),
+    1: ORingSpec(id_mm=0.74, cs_mm=1.02),
+    2: ORingSpec(id_mm=1.07, cs_mm=1.27),
+    3: ORingSpec(id_mm=1.42, cs_mm=1.52),
+    4: ORingSpec(id_mm=1.78, cs_mm=1.78),
+    5: ORingSpec(id_mm=2.57, cs_mm=1.78),
+    6: ORingSpec(id_mm=2.90, cs_mm=1.78),
+    7: ORingSpec(id_mm=3.68, cs_mm=1.78),
+    8: ORingSpec(id_mm=4.47, cs_mm=1.78),
+    9: ORingSpec(id_mm=5.28, cs_mm=1.78),
+    10: ORingSpec(id_mm=6.07, cs_mm=1.78),
+    11: ORingSpec(id_mm=7.65, cs_mm=1.78),
+    12: ORingSpec(id_mm=9.25, cs_mm=1.78),
+    13: ORingSpec(id_mm=10.82, cs_mm=1.78),
+    14: ORingSpec(id_mm=12.42, cs_mm=1.78),
+    15: ORingSpec(id_mm=14.00, cs_mm=1.78),
+    16: ORingSpec(id_mm=15.60, cs_mm=1.78),
+    17: ORingSpec(id_mm=17.17, cs_mm=1.78),
+    18: ORingSpec(id_mm=18.77, cs_mm=1.78),
+    19: ORingSpec(id_mm=20.35, cs_mm=1.78),
+    20: ORingSpec(id_mm=21.95, cs_mm=1.78),
+    21: ORingSpec(id_mm=23.52, cs_mm=1.78),
+    22: ORingSpec(id_mm=25.12, cs_mm=1.78),
+    23: ORingSpec(id_mm=26.70, cs_mm=1.78),
+    24: ORingSpec(id_mm=28.30, cs_mm=1.78),
+    25: ORingSpec(id_mm=29.87, cs_mm=1.78),
+    26: ORingSpec(id_mm=31.47, cs_mm=1.78),
+    27: ORingSpec(id_mm=33.05, cs_mm=1.78),
+    28: ORingSpec(id_mm=34.65, cs_mm=1.78),
+    29: ORingSpec(id_mm=37.82, cs_mm=1.78),
+    30: ORingSpec(id_mm=40.95, cs_mm=1.78),
+    31: ORingSpec(id_mm=44.12, cs_mm=1.78),
+    32: ORingSpec(id_mm=47.29, cs_mm=1.78),
+    33: ORingSpec(id_mm=50.47, cs_mm=1.78),
+    34: ORingSpec(id_mm=53.64, cs_mm=1.78),
+    35: ORingSpec(id_mm=56.82, cs_mm=1.78),
+    36: ORingSpec(id_mm=59.99, cs_mm=1.78),
+    37: ORingSpec(id_mm=63.17, cs_mm=1.78),
+    38: ORingSpec(id_mm=66.34, cs_mm=1.78),
+    39: ORingSpec(id_mm=69.52, cs_mm=1.78),
+    40: ORingSpec(id_mm=72.69, cs_mm=1.78),
+    41: ORingSpec(id_mm=75.87, cs_mm=1.78),
+    42: ORingSpec(id_mm=82.22, cs_mm=1.78),
+    43: ORingSpec(id_mm=88.57, cs_mm=1.78),
+    44: ORingSpec(id_mm=94.92, cs_mm=1.78),
+    45: ORingSpec(id_mm=101.27, cs_mm=1.78),
+    46: ORingSpec(id_mm=107.62, cs_mm=1.78),
+    47: ORingSpec(id_mm=113.97, cs_mm=1.78),
+    48: ORingSpec(id_mm=120.32, cs_mm=1.78),
+    49: ORingSpec(id_mm=126.67, cs_mm=1.78),
+    50: ORingSpec(id_mm=133.02, cs_mm=1.78),
     # 1xx series — CS ≈ 1.78 mm
-    102: ORingSpec(id_mm=2.57,  cs_mm=1.78),
-    103: ORingSpec(id_mm=3.63,  cs_mm=1.78),
-    104: ORingSpec(id_mm=4.42,  cs_mm=1.78),
-    105: ORingSpec(id_mm=5.23,  cs_mm=1.78),
-    106: ORingSpec(id_mm=6.02,  cs_mm=1.78),
-    107: ORingSpec(id_mm=7.59,  cs_mm=1.78),
-    108: ORingSpec(id_mm=9.19,  cs_mm=1.78),
+    102: ORingSpec(id_mm=2.57, cs_mm=1.78),
+    103: ORingSpec(id_mm=3.63, cs_mm=1.78),
+    104: ORingSpec(id_mm=4.42, cs_mm=1.78),
+    105: ORingSpec(id_mm=5.23, cs_mm=1.78),
+    106: ORingSpec(id_mm=6.02, cs_mm=1.78),
+    107: ORingSpec(id_mm=7.59, cs_mm=1.78),
+    108: ORingSpec(id_mm=9.19, cs_mm=1.78),
     109: ORingSpec(id_mm=10.77, cs_mm=1.78),
     110: ORingSpec(id_mm=12.37, cs_mm=1.78),
     111: ORingSpec(id_mm=13.94, cs_mm=1.78),
@@ -92,10 +93,10 @@ _AS568: dict[int, ORingSpec] = {
     115: ORingSpec(id_mm=20.29, cs_mm=1.78),
     116: ORingSpec(id_mm=21.89, cs_mm=1.78),
     # 2xx series — CS ≈ 3.53 mm
-    201: ORingSpec(id_mm=4.34,  cs_mm=3.53),
-    202: ORingSpec(id_mm=5.94,  cs_mm=3.53),
-    203: ORingSpec(id_mm=7.52,  cs_mm=3.53),
-    204: ORingSpec(id_mm=9.12,  cs_mm=3.53),
+    201: ORingSpec(id_mm=4.34, cs_mm=3.53),
+    202: ORingSpec(id_mm=5.94, cs_mm=3.53),
+    203: ORingSpec(id_mm=7.52, cs_mm=3.53),
+    204: ORingSpec(id_mm=9.12, cs_mm=3.53),
     205: ORingSpec(id_mm=10.69, cs_mm=3.53),
     206: ORingSpec(id_mm=12.29, cs_mm=3.53),
     207: ORingSpec(id_mm=13.87, cs_mm=3.53),
@@ -121,7 +122,7 @@ _AS568: dict[int, ORingSpec] = {
     227: ORingSpec(id_mm=50.39, cs_mm=3.53),
     228: ORingSpec(id_mm=53.57, cs_mm=3.53),
     # 3xx series — CS ≈ 5.33 mm
-    309: ORingSpec(id_mm=9.19,  cs_mm=5.33),
+    309: ORingSpec(id_mm=9.19, cs_mm=5.33),
     310: ORingSpec(id_mm=10.77, cs_mm=5.33),
     311: ORingSpec(id_mm=12.37, cs_mm=5.33),
     312: ORingSpec(id_mm=13.94, cs_mm=5.33),
@@ -214,15 +215,12 @@ def _resolve_oring(
         spec = _AS568.get(dash_number)
         if spec is None:
             raise ValueError(
-                f"AS568 dash number {dash_number} not in table. "
-                f"Available: {sorted(_AS568.keys())}"
+                f"AS568 dash number {dash_number} not in table. Available: {sorted(_AS568.keys())}"
             )
         return spec
     if oring_id_mm is not None and cross_section_mm is not None:
         return ORingSpec(id_mm=oring_id_mm, cs_mm=cross_section_mm)
-    raise ValueError(
-        "Provide either dash_number or both oring_id_mm and cross_section_mm"
-    )
+    raise ValueError("Provide either dash_number or both oring_id_mm and cross_section_mm")
 
 
 def oring_groove(
@@ -266,9 +264,7 @@ def oring_groove(
     params = _APPLICATION_PARAMS.get(application)
     if params is None:
         valid = ", ".join(sorted(_APPLICATION_PARAMS.keys()))
-        raise ValueError(
-            f"Unknown application '{application}'. Valid: {valid}"
-        )
+        raise ValueError(f"Unknown application '{application}'. Valid: {valid}")
 
     cs = spec.cs_mm
     squeeze_nom = params["squeeze_nom"]
@@ -326,21 +322,16 @@ def oring_groove(
     # Acceptability checks
     warnings: list[str] = []
     if gland_fill_pct > 85.0:
-        warnings.append(
-            f"Gland fill {gland_fill_pct}% exceeds 85% — risk of hydraulic lock"
-        )
+        warnings.append(f"Gland fill {gland_fill_pct}% exceeds 85% — risk of hydraulic lock")
     if gland_fill_pct < 60.0:
-        warnings.append(
-            f"Gland fill {gland_fill_pct}% below 60% — groove may be oversized"
-        )
+        warnings.append(f"Gland fill {gland_fill_pct}% below 60% — groove may be oversized")
     if squeeze_pct < params["squeeze_min"] * 100:
         warnings.append(f"Squeeze {squeeze_pct}% below minimum for {application}")
     if squeeze_pct > params["squeeze_max"] * 100:
         warnings.append(f"Squeeze {squeeze_pct}% above maximum for {application}")
 
     oring_label = (
-        f"AS568-{dash_number}" if dash_number is not None
-        else f"ID {spec.id_mm}×CS {spec.cs_mm} mm"
+        f"AS568-{dash_number}" if dash_number is not None else f"ID {spec.id_mm}×CS {spec.cs_mm} mm"
     )
     analysis = (
         f"O-ring: {oring_label} (ID={spec.id_mm} mm, CS={spec.cs_mm} mm). "

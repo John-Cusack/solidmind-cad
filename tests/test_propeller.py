@@ -1,4 +1,5 @@
 """Tests for geometry.propeller_blade tool."""
+
 from __future__ import annotations
 
 import unittest
@@ -55,7 +56,9 @@ class TestPropellerBladeTool(unittest.TestCase):
         from server.tools_geometry import geometry_propeller_blade
 
         result = geometry_propeller_blade(
-            diameter=254.0, pitch=114.0, hub_diameter=20.0,
+            diameter=254.0,
+            pitch=114.0,
+            hub_diameter=20.0,
         )
         self.assertTrue(result["ok"])
         self.assertEqual(len(result["sections"]), 6)
@@ -77,7 +80,9 @@ class TestPropellerBladeTool(unittest.TestCase):
         from server.tools_geometry import geometry_propeller_blade
 
         result = geometry_propeller_blade(
-            diameter=254.0, pitch=114.0, hub_diameter=20.0,
+            diameter=254.0,
+            pitch=114.0,
+            hub_diameter=20.0,
         )
         hub = result["hub"]
         self.assertIn("geometry_ref", hub)
@@ -93,7 +98,9 @@ class TestPropellerBladeTool(unittest.TestCase):
         from server.tools_geometry import geometry_propeller_blade
 
         result = geometry_propeller_blade(
-            diameter=254.0, pitch=114.0, hub_diameter=20.0,
+            diameter=254.0,
+            pitch=114.0,
+            hub_diameter=20.0,
         )
         bt = result["blade_table"]
         self.assertEqual(len(bt["r_frac"]), 6)
@@ -109,7 +116,9 @@ class TestPropellerBladeTool(unittest.TestCase):
         from server.tools_geometry import geometry_propeller_blade
 
         result = geometry_propeller_blade(
-            diameter=254.0, pitch=114.0, hub_diameter=20.0,
+            diameter=254.0,
+            pitch=114.0,
+            hub_diameter=20.0,
         )
         self.assertIsInstance(result["airfoil_dat"], str)
         self.assertGreater(len(result["airfoil_dat"]), 0)
@@ -123,7 +132,9 @@ class TestPropellerBladeTool(unittest.TestCase):
         from server.tools_geometry import geometry_propeller_blade
 
         result = geometry_propeller_blade(
-            diameter=254.0, pitch=114.0, hub_diameter=20.0,
+            diameter=254.0,
+            pitch=114.0,
+            hub_diameter=20.0,
         )
         self.assertIn("build_hint", result)
         self.assertIn("cad.sketch", result["build_hint"])
@@ -131,30 +142,30 @@ class TestPropellerBladeTool(unittest.TestCase):
     @patch("server.tools_geometry._geom")
     @patch("server.tools_geometry._AVAILABLE", True)
     def test_error_invalid_naca(self, mock_geom: MagicMock) -> None:
-        mock_geom.propeller_blade_py.side_effect = ValueError(
-            "Invalid NACA 4-digit code 'NACA123'"
-        )
+        mock_geom.propeller_blade_py.side_effect = ValueError("Invalid NACA 4-digit code 'NACA123'")
 
         from server.tools_geometry import geometry_propeller_blade
 
         with self.assertRaises(ValueError):
             geometry_propeller_blade(
-                diameter=254.0, pitch=114.0, hub_diameter=20.0,
+                diameter=254.0,
+                pitch=114.0,
+                hub_diameter=20.0,
                 airfoil="NACA123",
             )
 
     @patch("server.tools_geometry._geom")
     @patch("server.tools_geometry._AVAILABLE", True)
     def test_error_hub_larger_than_diameter(self, mock_geom: MagicMock) -> None:
-        mock_geom.propeller_blade_py.side_effect = ValueError(
-            "hub_diameter must be < diameter"
-        )
+        mock_geom.propeller_blade_py.side_effect = ValueError("hub_diameter must be < diameter")
 
         from server.tools_geometry import geometry_propeller_blade
 
         with self.assertRaises(ValueError):
             geometry_propeller_blade(
-                diameter=100.0, pitch=50.0, hub_diameter=120.0,
+                diameter=100.0,
+                pitch=50.0,
+                hub_diameter=120.0,
             )
 
 
@@ -201,10 +212,12 @@ class TestPropellerRustIntegration(unittest.TestCase):
 
     def setUp(self) -> None:
         from server.geometry_store import clear
+
         clear()
 
     def tearDown(self) -> None:
         from server.geometry_store import clear
+
         clear()
 
     def test_real_blade_sections_have_valid_refs(self) -> None:
@@ -213,8 +226,11 @@ class TestPropellerRustIntegration(unittest.TestCase):
         from server.tools_geometry import geometry_propeller_blade
 
         result = geometry_propeller_blade(
-            diameter=254.0, pitch=114.0, hub_diameter=20.0,
-            num_sections=4, num_points=20,
+            diameter=254.0,
+            pitch=114.0,
+            hub_diameter=20.0,
+            num_sections=4,
+            num_points=20,
         )
         self.assertTrue(result["ok"])
         self.assertEqual(len(result["sections"]), 4)
@@ -239,7 +255,9 @@ class TestPropellerRustIntegration(unittest.TestCase):
         from server.tools_geometry import geometry_propeller_blade
 
         result = geometry_propeller_blade(
-            diameter=254.0, pitch=114.0, hub_diameter=20.0,
+            diameter=254.0,
+            pitch=114.0,
+            hub_diameter=20.0,
         )
         twists = result["blade_table"]["twist_deg"]
         for i in range(1, len(twists)):
@@ -250,7 +268,9 @@ class TestPropellerRustIntegration(unittest.TestCase):
         from server.tools_geometry import geometry_propeller_blade
 
         result = geometry_propeller_blade(
-            diameter=254.0, pitch=114.0, hub_diameter=20.0,
+            diameter=254.0,
+            pitch=114.0,
+            hub_diameter=20.0,
         )
         lines = result["airfoil_dat"].strip().split("\n")
         self.assertTrue(lines[0].startswith("NACA"))
@@ -267,7 +287,9 @@ class TestPropellerRustIntegration(unittest.TestCase):
 
         with self.assertRaises(ValueError):
             geometry_propeller_blade(
-                diameter=254.0, pitch=114.0, hub_diameter=20.0,
+                diameter=254.0,
+                pitch=114.0,
+                hub_diameter=20.0,
                 airfoil="NACA123",
             )
 
@@ -276,7 +298,9 @@ class TestPropellerRustIntegration(unittest.TestCase):
 
         with self.assertRaises(ValueError):
             geometry_propeller_blade(
-                diameter=100.0, pitch=50.0, hub_diameter=120.0,
+                diameter=100.0,
+                pitch=50.0,
+                hub_diameter=120.0,
             )
 
 
@@ -296,10 +320,12 @@ class TestPropellerFreeCADBuild(unittest.TestCase):
 
     def setUp(self) -> None:
         from server.geometry_store import clear
+
         clear()
 
     def tearDown(self) -> None:
         from server.geometry_store import clear
+
         clear()
 
     @patch("server.tools_cad.get_client")
@@ -379,8 +405,7 @@ class TestPropellerFreeCADBuild(unittest.TestCase):
         # Each sketch call generates 3 send_command calls; the 2nd has the elements
         # Check the last sketch's populate call
         populate_calls = [
-            c for c in client.send_command.call_args_list
-            if c[0][0] == "sketch_populate"
+            c for c in client.send_command.call_args_list if c[0][0] == "sketch_populate"
         ]
         self.assertGreater(len(populate_calls), 0)
         # The elements kwarg should contain spline data
@@ -444,7 +469,9 @@ class TestPropellerFreeCADBuild(unittest.TestCase):
         from server.tools_geometry import geometry_propeller_blade
 
         blade = geometry_propeller_blade(
-            diameter=254.0, pitch=114.0, hub_diameter=20.0,
+            diameter=254.0,
+            pitch=114.0,
+            hub_diameter=20.0,
         )
         hub_ref = blade["hub"]["geometry_ref"]
 
@@ -467,8 +494,7 @@ class TestPropellerFreeCADBuild(unittest.TestCase):
 
         # Verify circle was sent with correct radius
         populate_call = [
-            c for c in client.send_command.call_args_list
-            if c[0][0] == "sketch_populate"
+            c for c in client.send_command.call_args_list if c[0][0] == "sketch_populate"
         ][0]
         elements_sent = populate_call[1]["elements"]
         self.assertEqual(len(elements_sent), 1)

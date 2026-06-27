@@ -27,6 +27,7 @@ Usage::
     # Auto-start with a URDF (creates minimal mechanism)
     python3 scripts/isaac_keyboard_teleop.py --urdf hexapod_sim_pkg/Hexapod_v2_1DOF.urdf
 """
+
 from __future__ import annotations
 
 import argparse
@@ -41,6 +42,7 @@ import tty
 from typing import Any
 
 # ── TCP helpers ──────────────────────────────────────────────────────
+
 
 class BridgeConnection:
     """Persistent TCP connection to the Isaac bridge."""
@@ -81,6 +83,7 @@ class BridgeConnection:
 
 # ── Terminal raw-mode helpers ────────────────────────────────────────
 
+
 class RawTerminal:
     """Context manager for raw terminal mode (no echo, char-by-char)."""
 
@@ -116,8 +119,8 @@ class RawTerminal:
 
 # ── Key mapping ──────────────────────────────────────────────────────
 
-_VX_STEP = 0.1       # m/s per key press
-_YAW_STEP = 0.2      # rad/s per key press
+_VX_STEP = 0.1  # m/s per key press
+_YAW_STEP = 0.2  # rad/s per key press
 _HEIGHT_STEP = 0.005  # m per key press
 _SEND_HZ = 20
 _SEND_INTERVAL = 1.0 / _SEND_HZ
@@ -155,17 +158,18 @@ def _apply_key(
 
 # ── HUD ──────────────────────────────────────────────────────────────
 
+
 def _draw_hud(vx: float, yaw: float, height: float, tick: int, ok: bool) -> None:
     """Redraw the single-line HUD."""
     status = "OK" if ok else "!!"
     sys.stdout.write(
-        f"\r[{status}] vx={vx:+.2f} m/s  yaw={yaw:+.2f} rad/s  "
-        f"h={height:+.3f} m  tick={tick}    "
+        f"\r[{status}] vx={vx:+.2f} m/s  yaw={yaw:+.2f} rad/s  h={height:+.3f} m  tick={tick}    "
     )
     sys.stdout.flush()
 
 
 # ── Main loop ────────────────────────────────────────────────────────
+
 
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Keyboard teleop for Isaac bridge")
@@ -195,8 +199,10 @@ def main(argv: list[str] | None = None) -> None:
     if not resp.get("ok"):
         print("ERROR: Ping failed")
         sys.exit(1)
-    print("Connected. Isaac available:",
-          resp.get("result", {}).get("capabilities", {}).get("isaac_available"))
+    print(
+        "Connected. Isaac available:",
+        resp.get("result", {}).get("capabilities", {}).get("isaac_available"),
+    )
 
     # Resolve or create session
     session_id = args.session
@@ -267,8 +273,13 @@ def main(argv: list[str] | None = None) -> None:
                 key = RawTerminal.read_key(RawTerminal(), timeout=_SEND_INTERVAL / 2)
                 if key is not None:
                     vx, yaw, height, quit_flag = _apply_key(
-                        key, vx, yaw, height,
-                        args.vx_max, args.yaw_max, args.height_max,
+                        key,
+                        vx,
+                        yaw,
+                        height,
+                        args.vx_max,
+                        args.yaw_max,
+                        args.height_max,
                     )
                     if quit_flag:
                         break
@@ -277,12 +288,15 @@ def main(argv: list[str] | None = None) -> None:
                 if now - last_send >= _SEND_INTERVAL:
                     last_send = now
                     try:
-                        resp = conn.send("teleop_command", {
-                            "session_id": session_id,
-                            "vx_mps": round(vx, 4),
-                            "yaw_rate_rps": round(yaw, 4),
-                            "body_height_m": round(height, 5),
-                        })
+                        resp = conn.send(
+                            "teleop_command",
+                            {
+                                "session_id": session_id,
+                                "vx_mps": round(vx, 4),
+                                "yaw_rate_rps": round(yaw, 4),
+                                "body_height_m": round(height, 5),
+                            },
+                        )
                         last_ok = resp.get("ok", False)
                         if last_ok:
                             tick += 1
@@ -304,8 +318,10 @@ def main(argv: list[str] | None = None) -> None:
                 resp = conn.send("teleop_stop", {"session_id": session_id})
                 if resp.get("ok"):
                     r = resp.get("result", {})
-                    print(f"Stopped. ticks={r.get('tick_count', '?')} "
-                          f"clamps={r.get('limit_clamp_count', '?')}")
+                    print(
+                        f"Stopped. ticks={r.get('tick_count', '?')} "
+                        f"clamps={r.get('limit_clamp_count', '?')}"
+                    )
                 else:
                     print(f"Stop failed: {resp.get('error', {}).get('message', '?')}")
             except Exception as exc:

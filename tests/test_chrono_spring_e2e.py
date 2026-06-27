@@ -9,6 +9,7 @@ Skipped when the daemon binary isn't built. If the daemon is present but was
 built *before* spring support landed, the slider won't move and the test skips
 with a rebuild hint rather than failing.
 """
+
 from __future__ import annotations
 
 import math
@@ -45,11 +46,11 @@ def _wait_for_listening(host: str, port: int, timeout_s: float = 5.0) -> bool:
 
 
 # Test rig parameters
-_K = 300.0          # N/m
-_M = 0.05           # kg
-_Z0 = 0.01          # initial plunger offset along +z (m)
-_REST = 0.04        # spring natural length (m)
-_COMPRESSION = _REST - _Z0          # 0.03 m
+_K = 300.0  # N/m
+_M = 0.05  # kg
+_Z0 = 0.01  # initial plunger offset along +z (m)
+_REST = 0.04  # spring natural length (m)
+_COMPRESSION = _REST - _Z0  # 0.03 m
 _V_EXPECTED = math.sqrt(_K / _M) * _COMPRESSION  # ≈ 2.324 m/s
 
 
@@ -118,7 +119,9 @@ class TestSpringEnergyBalanceE2E(unittest.TestCase):
         try:
             result = client.simulate(
                 simulation_spec=self._spec(),
-                duration_s=0.1, dt_s=1e-5, output_interval=1e-4,
+                duration_s=0.1,
+                dt_s=1e-5,
+                output_interval=1e-4,
             )
         finally:
             client.disconnect()
@@ -131,9 +134,11 @@ class TestSpringEnergyBalanceE2E(unittest.TestCase):
             )
         # 8% tolerance absorbs finite-difference sampling error at the peak.
         self.assertAlmostEqual(
-            peak_v, _V_EXPECTED, delta=0.08 * _V_EXPECTED,
+            peak_v,
+            _V_EXPECTED,
+            delta=0.08 * _V_EXPECTED,
             msg=f"peak slider speed {peak_v:.3f} m/s vs expected "
-                f"{_V_EXPECTED:.3f} m/s (sqrt(k/m)*x)",
+            f"{_V_EXPECTED:.3f} m/s (sqrt(k/m)*x)",
         )
 
 

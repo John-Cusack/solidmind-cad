@@ -5,6 +5,7 @@ Produces a deployment package:
 - ``normalization_params.json`` — observation mean/std
 - ``training_config.json`` — joint order, action scale, alpha
 """
+
 from __future__ import annotations
 
 import json
@@ -52,9 +53,7 @@ def export_policy(
         if candidates:
             ckpt_file = candidates[-1]  # Latest
         else:
-            raise FileNotFoundError(
-                f"No model checkpoint found in {checkpoint_dir}"
-            )
+            raise FileNotFoundError(f"No model checkpoint found in {checkpoint_dir}")
 
     # Copy/trace the policy
     policy_path = output_dir / "policy.pt"
@@ -66,6 +65,7 @@ def export_policy(
 
     try:
         import torch  # type: ignore[import-not-found]
+
         # Load checkpoint and JIT trace
         checkpoint = torch.load(ckpt_file, map_location="cpu", weights_only=False)
 
@@ -77,13 +77,12 @@ def export_policy(
             if "obs_mean" in checkpoint:
                 obs_mean_t = checkpoint["obs_mean"]
                 obs_var_t = checkpoint.get("obs_var", None)
-                if hasattr(obs_mean_t, 'cpu'):
+                if hasattr(obs_mean_t, "cpu"):
                     obs_mean_list = obs_mean_t.cpu().tolist()
                     if obs_var_t is not None:
                         import math
-                        obs_std_list = [
-                            math.sqrt(v + 1e-8) for v in obs_var_t.cpu().tolist()
-                        ]
+
+                        obs_std_list = [math.sqrt(v + 1e-8) for v in obs_var_t.cpu().tolist()]
                     norm_from_checkpoint = True
                     log.info("Extracted normalization stats from checkpoint")
 
@@ -98,6 +97,7 @@ def export_policy(
                 # Our PPOTrainer checkpoint format — try to reconstruct actor
                 try:
                     from rl_training.ppo import ActorCritic, PPOHyperparams
+
                     action_dim = len(joint_names) if joint_names else obs_dim
                     ac = ActorCritic(obs_dim, action_dim, PPOHyperparams(), device="cpu")
                     ac.load_state_dict(checkpoint["actor_critic"])

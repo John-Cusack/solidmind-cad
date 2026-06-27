@@ -4,6 +4,7 @@ Tier 1 tools are purely analytical — no FreeCAD or external dependencies neede
 Tier 3 tools use the Chrono daemon for dynamic simulation (graceful degradation
 if the daemon is not running).
 """
+
 from __future__ import annotations
 
 import logging
@@ -176,18 +177,19 @@ def _backend_unavailable_result(
         },
     ]
     for alt in alternates:
-        choices.append({
-            "action": "retry_with_backend",
-            "backend": alt,
-            "description": f"Retry now with '{alt}'.",
-        })
+        choices.append(
+            {
+                "action": "retry_with_backend",
+                "backend": alt,
+                "description": f"Retry now with '{alt}'.",
+            }
+        )
     return {
         "ok": False,
         "error": {
             "code": "BACKEND_UNAVAILABLE_CHOOSE",
             "message": (
-                f"Requested simulation backend '{requested_backend}' is unavailable. "
-                f"{message}"
+                f"Requested simulation backend '{requested_backend}' is unavailable. {message}"
             ),
         },
         "backend_requested": requested_backend,
@@ -229,16 +231,14 @@ def _is_unknown_session_error(result: dict[str, Any]) -> bool:
         return False
     code = str(err.get("code", "")).strip().upper()
     if code in {
-        "ISAAC_UNKNOWN_SESSION", "ISAAC_SESSION_NOT_FOUND",
-        "GAZEBO_UNKNOWN_SESSION", "GAZEBO_SESSION_NOT_FOUND",
+        "ISAAC_UNKNOWN_SESSION",
+        "ISAAC_SESSION_NOT_FOUND",
+        "GAZEBO_UNKNOWN_SESSION",
+        "GAZEBO_SESSION_NOT_FOUND",
     }:
         return True
     msg = str(err.get("message", "")).strip().lower()
-    return (
-        "unknown session" in msg
-        or "session not found" in msg
-        or "no such session" in msg
-    )
+    return "unknown session" in msg or "session not found" in msg or "no such session" in msg
 
 
 def _has_sim_path(path: str | None) -> bool:
@@ -248,15 +248,13 @@ def _has_sim_path(path: str | None) -> bool:
 def _validate_gazebo_sim_paths(urdf_path: str | None, sdf_path: str | None) -> str | None:
     if _has_sim_path(urdf_path) or _has_sim_path(sdf_path):
         return None
-    return (
-        "Gazebo simulation requires at least one model path: "
-        "provide urdf_path or sdf_path."
-    )
+    return "Gazebo simulation requires at least one model path: provide urdf_path or sdf_path."
 
 
 # ---------------------------------------------------------------------------
 # Tier 0: Mechanism definition
 # ---------------------------------------------------------------------------
+
 
 def motion_define_mechanism(mechanism: dict[str, Any]) -> dict[str, Any]:
     """Parse and store a mechanism definition.  Returns mechanism_id."""
@@ -284,7 +282,10 @@ def motion_define_mechanism(mechanism: dict[str, Any]) -> dict[str, Any]:
     if _TOOL_LOG:
         log.info(
             "OK   motion_define_mechanism %.3fs id=%s parts=%d joints=%d",
-            time.monotonic() - t0, handle, len(mech.parts), len(mech.joints),
+            time.monotonic() - t0,
+            handle,
+            len(mech.parts),
+            len(mech.joints),
         )
 
     return {
@@ -309,6 +310,7 @@ def motion_list_mechanisms() -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 # Tier 1: Analytical validation
 # ---------------------------------------------------------------------------
+
 
 def motion_validate(
     mechanism_id: str,
@@ -336,7 +338,11 @@ def motion_validate(
     if _TOOL_LOG:
         log.info(
             "OK   motion_validate %.3fs pass=%d warn=%d fail=%d note=%d",
-            time.monotonic() - t0, len(passes), len(warnings), len(blockers), len(notes),
+            time.monotonic() - t0,
+            len(passes),
+            len(warnings),
+            len(blockers),
+            len(notes),
         )
 
     return {
@@ -431,6 +437,7 @@ def motion_check_gear_train(mechanism_id: str) -> dict[str, Any]:
 # Tier 2: Kinematic validation (FreeCAD Assembly)
 # ---------------------------------------------------------------------------
 
+
 def motion_create_assembly(
     mechanism_id: str,
     doc: str | None = None,
@@ -458,9 +465,7 @@ def motion_create_assembly(
         # once instead of raising mid-loop on the first one. The "no bodies
         # at all" case falls through to the addon's assembly_add_part, which
         # has its own informative error pointing at cad.new_body etc.
-        referenced_bodies = {
-            part.body_name for part in mech.parts if part.body_name is not None
-        }
+        referenced_bodies = {part.body_name for part in mech.parts if part.body_name is not None}
         if referenced_bodies:
             try:
                 tree_kwargs: dict[str, Any] = {"detail": "bodies"}
@@ -598,13 +603,14 @@ def motion_create_assembly(
         if _TOOL_LOG:
             log.info(
                 "OK   motion_create_assembly %.3fs asm=%s parts=%d joints=%d",
-                time.monotonic() - t0, asm_name, len(link_map), len(joint_names),
+                time.monotonic() - t0,
+                asm_name,
+                len(link_map),
+                len(joint_names),
             )
 
         # Warn if no bodies were linked despite parts having body_name
-        expected_parts = sum(
-            1 for p in mech.parts if p.body_name and not p.is_ground
-        )
+        expected_parts = sum(1 for p in mech.parts if p.body_name and not p.is_ground)
         if expected_parts > 0 and not link_map:
             warnings.append(
                 f"Assembly is empty: {expected_parts} part(s) have body_name "
@@ -686,7 +692,10 @@ def motion_drive_joint(
     if _TOOL_LOG:
         log.info(
             "CALL motion_drive_joint id=%s joint=%s value=%.2f steps=%d",
-            mechanism_id, joint_id, value, steps,
+            mechanism_id,
+            joint_id,
+            value,
+            steps,
         )
     t0 = time.monotonic()
 
@@ -810,6 +819,7 @@ def motion_drive_joint(
         if not link_map:
             try:
                 from server.tools_cad import cad_get_model_tree
+
                 tree_kw: dict[str, Any] = {"detail": "bodies"}
                 if doc is not None:
                     tree_kw["doc"] = doc
@@ -829,8 +839,7 @@ def motion_drive_joint(
         collision_body_names: list[str] = []
         if check_collisions:
             collision_body_names = [
-                p.body_name for p in mech.parts
-                if p.body_name and not p.is_ground
+                p.body_name for p in mech.parts if p.body_name and not p.is_ground
             ]
 
         for i in range(steps + 1):
@@ -943,17 +952,20 @@ def motion_drive_joint(
                     if doc is not None:
                         clr_kwargs["doc"] = doc
                     clr_result = client.send_command(
-                        "check_clearance", **clr_kwargs,
+                        "check_clearance",
+                        **clr_kwargs,
                     )
                     for v in clr_result.get("violations", []):
                         if v.get("intersecting"):
-                            step_collisions.append({
-                                "step": i,
-                                "driven_angle": driven_angle,
-                                "body_a": v["body_a"],
-                                "body_b": v["body_b"],
-                                "distance_mm": v.get("distance_mm", 0.0),
-                            })
+                            step_collisions.append(
+                                {
+                                    "step": i,
+                                    "driven_angle": driven_angle,
+                                    "body_a": v["body_a"],
+                                    "body_b": v["body_b"],
+                                    "distance_mm": v.get("distance_mm", 0.0),
+                                }
+                            )
                 except Exception:
                     pass  # clearance check failure shouldn't abort animation
 
@@ -972,16 +984,20 @@ def motion_drive_joint(
                     spin = -(s_angle - c_angle) * tr
                     all_part_angles[pid] = round(c_angle + spin, 4)
 
-            step_positions.append({
-                "step": i,
-                "driven_angle": driven_angle,
-                "part_angles": all_part_angles,
-            })
+            step_positions.append(
+                {
+                    "step": i,
+                    "driven_angle": driven_angle,
+                    "part_angles": all_part_angles,
+                }
+            )
 
         if _TOOL_LOG:
             log.info(
                 "OK   motion_drive_joint %.3fs steps=%d screenshots=%d",
-                time.monotonic() - t0, steps, len(screenshots),
+                time.monotonic() - t0,
+                steps,
+                len(screenshots),
             )
 
         resp: dict[str, Any] = {
@@ -1051,12 +1067,14 @@ def motion_check_joint_connectivity(
     for jedge in mech.joints:
         parent_body = part_body_map.get(jedge.parent_part, jedge.parent_part)
         child_body = part_body_map.get(jedge.child_part, jedge.child_part)
-        joints_arg.append({
-            "id": jedge.id,
-            "parent_body": parent_body,
-            "child_body": child_body,
-            "origin": list(jedge.origin),
-        })
+        joints_arg.append(
+            {
+                "id": jedge.id,
+                "parent_body": parent_body,
+                "child_body": child_body,
+                "origin": list(jedge.origin),
+            }
+        )
 
     try:
         client = get_client()
@@ -1072,7 +1090,8 @@ def motion_check_joint_connectivity(
         if _TOOL_LOG:
             log.info(
                 "OK   motion_check_joint_connectivity %.3fs all_connected=%s",
-                time.monotonic() - t0, result.get("all_connected"),
+                time.monotonic() - t0,
+                result.get("all_connected"),
             )
 
         return {"ok": True, **result}
@@ -1113,7 +1132,9 @@ def motion_check_interference(
         if _TOOL_LOG:
             log.info(
                 "OK   motion_check_interference %.3fs clear=%s collisions=%d",
-                time.monotonic() - t0, result.get("clear"), len(result.get("collisions", [])),
+                time.monotonic() - t0,
+                result.get("clear"),
+                len(result.get("collisions", [])),
             )
 
         return {"ok": True, **result}
@@ -1127,6 +1148,7 @@ def motion_check_interference(
 # ---------------------------------------------------------------------------
 # Tier 3: Dynamic validation (Chrono or Isaac)
 # ---------------------------------------------------------------------------
+
 
 def _simulate_with_chrono(
     mech: Mechanism,
@@ -1199,7 +1221,12 @@ def _simulate_with_chrono(
             "Check build_warnings for details."
         )
 
-    response: dict[str, Any] = {"ok": True, **result, "backend_used": "chrono", "mode_used": "batch"}
+    response: dict[str, Any] = {
+        "ok": True,
+        **result,
+        "backend_used": "chrono",
+        "mode_used": "batch",
+    }
     if build_warnings:
         response["build_warnings"] = build_warnings
     if diagnostics:
@@ -1234,7 +1261,9 @@ def _simulate_with_gazebo(
     if model_path_error is not None:
         return _error_result("INVALID_INPUT", model_path_error)
 
-    preflight = _run_sdf_preflight(sdf_path) if _has_sim_path(sdf_path) else _run_urdf_preflight(urdf_path)
+    preflight = (
+        _run_sdf_preflight(sdf_path) if _has_sim_path(sdf_path) else _run_urdf_preflight(urdf_path)
+    )
     if preflight and preflight["blockers"]:
         return _error_result(
             "URDF_VALIDATION_FAILED" if not _has_sim_path(sdf_path) else "SDF_VALIDATION_FAILED",
@@ -1544,7 +1573,11 @@ def motion_simulate(
     if _TOOL_LOG:
         log.info(
             "CALL motion_simulate id=%s backend=%s mode=%s duration=%.3f dt=%.4f",
-            mechanism_id, backend, mode, duration_s, dt_s,
+            mechanism_id,
+            backend,
+            mode,
+            duration_s,
+            dt_s,
         )
     t0 = time.monotonic()
 
@@ -1669,6 +1702,7 @@ def motion_verify_sim_package(
     model_tree_bodies: list[dict[str, Any]] | None = None
     try:
         from server.tools_cad import cad_get_model_tree
+
         tree_result = cad_get_model_tree(doc=doc, detail="bodies")
         if tree_result.get("ok"):
             model_tree_bodies = tree_result.get("bodies", [])
@@ -1705,6 +1739,7 @@ def motion_verify_sim_package(
 # ---------------------------------------------------------------------------
 # Auto-profile generation from mechanism
 # ---------------------------------------------------------------------------
+
 
 def _build_profile_from_mechanism(
     mechanism: Mechanism,
@@ -1767,6 +1802,7 @@ def _build_profile_from_mechanism(
 
     # Find the dominant chain length (= dofs_per_leg)
     from collections import Counter
+
     length_counts = Counter(len(c) for c in all_chains)
     dofs_per_leg = length_counts.most_common(1)[0][0]
     chains = [c for c in all_chains if len(c) == dofs_per_leg]
@@ -1790,10 +1826,7 @@ def _build_profile_from_mechanism(
         log.info(
             "_build_profile_from_mechanism: sorted %d chains — order: %s",
             n_legs,
-            ", ".join(
-                f"{c[0].id}(x={c[0].origin[0]:.1f},y={c[0].origin[1]:.1f})"
-                for c in chains
-            ),
+            ", ".join(f"{c[0].id}(x={c[0].origin[0]:.1f},y={c[0].origin[1]:.1f})" for c in chains),
         )
 
     profile["dofs_per_leg"] = dofs_per_leg
@@ -1824,11 +1857,10 @@ def _build_profile_from_mechanism(
         for i in range(min(dofs_per_leg - 1, 3)):
             o1 = ref[i].origin
             o2 = ref[i + 1].origin
-            dist_m = math.sqrt(
-                (o2[0] - o1[0]) ** 2
-                + (o2[1] - o1[1]) ** 2
-                + (o2[2] - o1[2]) ** 2
-            ) / 1000.0
+            dist_m = (
+                math.sqrt((o2[0] - o1[0]) ** 2 + (o2[1] - o1[1]) ** 2 + (o2[2] - o1[2]) ** 2)
+                / 1000.0
+            )
             if i < len(seg_names):
                 profile[seg_names[i]] = dist_m
 
@@ -1887,7 +1919,9 @@ def _build_profile_from_mechanism(
 
     log.info(
         "_build_profile_from_mechanism: n_legs=%d dofs_per_leg=%d controller=%s",
-        n_legs, dofs_per_leg, profile.get("controller_type", "unknown"),
+        n_legs,
+        dofs_per_leg,
+        profile.get("controller_type", "unknown"),
     )
     return profile
 
@@ -1958,9 +1992,10 @@ def motion_teleop_start(
             computed_spawn = abs(stance_h) + margin
             ic = {**ic, "spawn_height": computed_spawn}
             log.info(
-                "motion_teleop_start: auto spawn_height=%.4f "
-                "(|stance_height|=%.4f + margin=%.4f)",
-                computed_spawn, abs(stance_h), margin,
+                "motion_teleop_start: auto spawn_height=%.4f (|stance_height|=%.4f + margin=%.4f)",
+                computed_spawn,
+                abs(stance_h),
+                margin,
             )
             import_config = ic
 
@@ -1973,7 +2008,9 @@ def motion_teleop_start(
         if path_error is not None:
             return _error_result("INVALID_INPUT", path_error)
 
-        controller_type = str(profile_obj.get("controller_type", "multirotor_direct")).strip().lower()
+        controller_type = (
+            str(profile_obj.get("controller_type", "multirotor_direct")).strip().lower()
+        )
         if controller_type not in _GAZEBO_CONTROLLER_TYPES:
             return _error_result(
                 "INVALID_INPUT",
@@ -1983,7 +2020,9 @@ def motion_teleop_start(
                 ),
             )
 
-    preflight = _run_sdf_preflight(sdf_path) if _has_sim_path(sdf_path) else _run_urdf_preflight(urdf_path)
+    preflight = (
+        _run_sdf_preflight(sdf_path) if _has_sim_path(sdf_path) else _run_urdf_preflight(urdf_path)
+    )
     if preflight and preflight["blockers"]:
         return _error_result(
             "URDF_VALIDATION_FAILED" if not _has_sim_path(sdf_path) else "SDF_VALIDATION_FAILED",
@@ -2029,7 +2068,9 @@ def motion_teleop_start(
 
     session_id_val = str(result.get("session_id", "")).strip()
     if not session_id_val:
-        return _error_result(protocol_error_code, f"{selected_backend} teleop response missing session_id")
+        return _error_result(
+            protocol_error_code, f"{selected_backend} teleop response missing session_id"
+        )
 
     _active_sessions[session_id_val] = {
         "mechanism_id": mechanism_id,
@@ -2121,9 +2162,11 @@ def motion_teleop_state(session_id: str) -> dict[str, Any]:
 
     if session_backend == "gazebo":
         from server import gazebo_adapter
+
         result = gazebo_adapter.teleop_state(session_id=session_id)
     elif session_backend == "isaac":
         from server import isaac_adapter
+
         result = isaac_adapter.teleop_state(session_id=session_id)
     else:
         return _error_result("NOT_FOUND", f"Unknown session backend '{session_backend}'")
@@ -2151,9 +2194,11 @@ def motion_teleop_stop(session_id: str) -> dict[str, Any]:
 
     if session_backend == "gazebo":
         from server import gazebo_adapter
+
         result = gazebo_adapter.teleop_stop(session_id=session_id)
     elif session_backend == "isaac":
         from server import isaac_adapter
+
         result = isaac_adapter.teleop_stop(session_id=session_id)
     else:
         return _error_result("NOT_FOUND", f"Unknown session backend '{session_backend}'")
@@ -2169,6 +2214,7 @@ def motion_teleop_stop(session_id: str) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 # Isaac viewport screenshot
 # ---------------------------------------------------------------------------
+
 
 def motion_isaac_screenshot(
     width: int = 1280,

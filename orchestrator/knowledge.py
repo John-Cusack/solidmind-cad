@@ -1,4 +1,5 @@
 """Knowledge volume preparation — distribute knowledge to workers."""
+
 from __future__ import annotations
 
 import logging
@@ -84,7 +85,10 @@ def prepare_all_knowledge(
         for i in range(sub.worker_count):
             key = f"{sub.name}_{i}"
             volumes[key] = prepare_worker_knowledge(
-                spec, sub, run_dir=run_dir, worker_index=i,
+                spec,
+                sub,
+                run_dir=run_dir,
+                worker_index=i,
             )
     return volumes
 

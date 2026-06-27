@@ -3,6 +3,7 @@
 One-call tools: cad.bolt builds a complete bolt, cad.nut builds a complete nut,
 cad.find_holes identifies cylindrical holes and suggests bolt sizes.
 """
+
 from __future__ import annotations
 
 import logging
@@ -35,8 +36,7 @@ def _hex_elements(across_flats: float) -> list[dict[str, Any]]:
     vertices = []
     for i in range(6):
         angle = math.radians(i * 60)
-        vertices.append((round(r * math.cos(angle), 4),
-                         round(r * math.sin(angle), 4)))
+        vertices.append((round(r * math.cos(angle), 4), round(r * math.sin(angle), 4)))
 
     lines: list[dict[str, Any]] = []
     for i in range(6):
@@ -53,9 +53,8 @@ def _placement_kwargs(
     doc: str | None,
 ) -> dict[str, Any] | None:
     """Build set_placement kwargs if any placement is needed."""
-    needs_placement = (
-        position is not None
-        or (rotation_axis is not None and rotation_angle_deg != 0.0)
+    needs_placement = position is not None or (
+        rotation_axis is not None and rotation_angle_deg != 0.0
     )
     if not needs_placement:
         return None
@@ -142,33 +141,44 @@ def cad_bolt(
             if head_type == "hex":
                 head_elements = _hex_elements(spec.head_diameter)
             else:
-                head_elements = [{"type": "circle", "cx": 0, "cy": 0,
-                                  "r": spec.head_diameter / 2}]
+                head_elements = [{"type": "circle", "cx": 0, "cy": 0, "r": spec.head_diameter / 2}]
 
-            sk1 = client.send_command("new_sketch", body=actual_body,
-                                      plane="XY", **({"doc": doc} if doc else {}))
+            sk1 = client.send_command(
+                "new_sketch", body=actual_body, plane="XY", **({"doc": doc} if doc else {})
+            )
             sketch1 = sk1["sketch"]
-            client.send_command("sketch_populate", sketch=sketch1,
-                                elements=head_elements, constraints=[])
+            client.send_command(
+                "sketch_populate", sketch=sketch1, elements=head_elements, constraints=[]
+            )
             client.send_command("close_sketch", sketch=sketch1)
-            client.send_command("pad", sketch=sketch1, length=spec.head_height,
-                                verify=False, **({"doc": doc} if doc else {}))
+            client.send_command(
+                "pad",
+                sketch=sketch1,
+                length=spec.head_height,
+                verify=False,
+                **({"doc": doc} if doc else {}),
+            )
 
         # 3. Build shaft
-        shaft_elements = [{"type": "circle", "cx": 0, "cy": 0,
-                           "r": spec.thread_diameter / 2}]
+        shaft_elements = [{"type": "circle", "cx": 0, "cy": 0, "r": spec.thread_diameter / 2}]
 
-        sk2 = client.send_command("new_sketch", body=actual_body,
-                                  plane="XY", **({"doc": doc} if doc else {}))
+        sk2 = client.send_command(
+            "new_sketch", body=actual_body, plane="XY", **({"doc": doc} if doc else {})
+        )
         sketch2 = sk2["sketch"]
-        client.send_command("sketch_populate", sketch=sketch2,
-                            elements=shaft_elements, constraints=[])
+        client.send_command(
+            "sketch_populate", sketch=sketch2, elements=shaft_elements, constraints=[]
+        )
         client.send_command("close_sketch", sketch=sketch2)
 
         is_last = placement_kw is None
         pad_result = client.send_command(
-            "pad", sketch=sketch2, length=length, reversed=True,
-            verify=verify and is_last, **({"doc": doc} if doc else {}),
+            "pad",
+            sketch=sketch2,
+            length=length,
+            reversed=True,
+            verify=verify and is_last,
+            **({"doc": doc} if doc else {}),
         )
 
         # 4. Position/rotate if needed
@@ -192,8 +202,7 @@ def cad_bolt(
             result["rotation_axis"] = rotation_axis
             result["rotation_angle_deg"] = rotation_angle_deg
         # Forward verification images from last pad
-        for key in ("verification_images", "verification_views",
-                     "face_map", "operation_summary"):
+        for key in ("verification_images", "verification_views", "face_map", "operation_summary"):
             if key in pad_result:
                 result[key] = pad_result[key]
         return result
@@ -263,29 +272,37 @@ def cad_nut(
 
         # 2. Hex prism
         hex_elements = _hex_elements(spec.across_flats)
-        sk1 = client.send_command("new_sketch", body=actual_body,
-                                  plane="XY", **({"doc": doc} if doc else {}))
+        sk1 = client.send_command(
+            "new_sketch", body=actual_body, plane="XY", **({"doc": doc} if doc else {})
+        )
         sketch1 = sk1["sketch"]
-        client.send_command("sketch_populate", sketch=sketch1,
-                            elements=hex_elements, constraints=[])
+        client.send_command(
+            "sketch_populate", sketch=sketch1, elements=hex_elements, constraints=[]
+        )
         client.send_command("close_sketch", sketch=sketch1)
-        client.send_command("pad", sketch=sketch1, length=spec.height,
-                            verify=False, **({"doc": doc} if doc else {}))
+        client.send_command(
+            "pad", sketch=sketch1, length=spec.height, verify=False, **({"doc": doc} if doc else {})
+        )
 
         # 3. Center through-hole (pocket through all)
-        hole_elements = [{"type": "circle", "cx": 0, "cy": 0,
-                          "r": spec.through_hole / 2}]
-        sk2 = client.send_command("new_sketch", body=actual_body,
-                                  plane="XY", **({"doc": doc} if doc else {}))
+        hole_elements = [{"type": "circle", "cx": 0, "cy": 0, "r": spec.through_hole / 2}]
+        sk2 = client.send_command(
+            "new_sketch", body=actual_body, plane="XY", **({"doc": doc} if doc else {})
+        )
         sketch2 = sk2["sketch"]
-        client.send_command("sketch_populate", sketch=sketch2,
-                            elements=hole_elements, constraints=[])
+        client.send_command(
+            "sketch_populate", sketch=sketch2, elements=hole_elements, constraints=[]
+        )
         client.send_command("close_sketch", sketch=sketch2)
 
         is_last = placement_kw is None
         pocket_result = client.send_command(
-            "pocket", sketch=sketch2, length=0, pocket_type="Through",
-            verify=verify and is_last, **({"doc": doc} if doc else {}),
+            "pocket",
+            sketch=sketch2,
+            length=0,
+            pocket_type="Through",
+            verify=verify and is_last,
+            **({"doc": doc} if doc else {}),
         )
 
         # 4. Position/rotate if needed
@@ -309,8 +326,7 @@ def cad_nut(
             result["rotation_axis"] = rotation_axis
             result["rotation_angle_deg"] = rotation_angle_deg
         # Forward verification images from last pocket
-        for key in ("verification_images", "verification_views",
-                     "face_map", "operation_summary"):
+        for key in ("verification_images", "verification_views", "face_map", "operation_summary"):
             if key in pocket_result:
                 result[key] = pocket_result[key]
         return result

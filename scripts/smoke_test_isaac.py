@@ -21,6 +21,7 @@ Usage examples::
     # Send a reload command
     python3 scripts/smoke_test_isaac.py --reload
 """
+
 from __future__ import annotations
 
 import argparse
@@ -85,11 +86,14 @@ def main(argv: list[str] | None = None) -> None:
         description="Smoke-test the Isaac bridge server",
     )
     parser.add_argument(
-        "--host", default="127.0.0.1",
+        "--host",
+        default="127.0.0.1",
         help="Bridge host (default: 127.0.0.1)",
     )
     parser.add_argument(
-        "--port", type=int, default=9878,
+        "--port",
+        type=int,
+        default=9878,
         help="Bridge port (default: 9878)",
     )
     parser.add_argument(
@@ -101,15 +105,19 @@ def main(argv: list[str] | None = None) -> None:
         help="Prim path to diagnose (default: / or imported root)",
     )
     parser.add_argument(
-        "--reload", action="store_true",
+        "--reload",
+        action="store_true",
         help="Send a reload command",
     )
     parser.add_argument(
-        "--screenshot", action="store_true",
+        "--screenshot",
+        action="store_true",
         help="Capture a viewport screenshot and save to isaac_screenshot.png",
     )
     parser.add_argument(
-        "--timeout", type=float, default=120.0,
+        "--timeout",
+        type=float,
+        default=120.0,
         help="Socket timeout in seconds (default: 120)",
     )
     args = parser.parse_args(argv)
@@ -141,7 +149,9 @@ def main(argv: list[str] | None = None) -> None:
         urdf_abs = os.path.abspath(args.urdf)
         print(f"\nImporting URDF: {urdf_abs} (this can take a while)...")
         resp = _send_command(
-            args.host, args.port, "import_urdf",
+            args.host,
+            args.port,
+            "import_urdf",
             {"urdf_path": urdf_abs},
             timeout=args.timeout,
         )
@@ -160,7 +170,9 @@ def main(argv: list[str] | None = None) -> None:
         if diagnose_path:
             diag_args["prim_path"] = diagnose_path
         resp = _send_command(
-            args.host, args.port, "diagnose",
+            args.host,
+            args.port,
+            "diagnose",
             diag_args,
             timeout=args.timeout,
         )
@@ -173,15 +185,23 @@ def main(argv: list[str] | None = None) -> None:
     if args.screenshot:
         print("\nCapturing viewport screenshot...")
         resp = _send_command(
-            args.host, args.port, "screenshot",
+            args.host,
+            args.port,
+            "screenshot",
             {"width": 1280, "height": 720},
             timeout=args.timeout,
         )
-        _print_response("screenshot", {
-            "ok": resp.get("ok"),
-            "result": {k: v for k, v in (resp.get("result") or {}).items() if k != "image_base64"}
-            if resp.get("ok") else resp.get("error"),
-        })
+        _print_response(
+            "screenshot",
+            {
+                "ok": resp.get("ok"),
+                "result": {
+                    k: v for k, v in (resp.get("result") or {}).items() if k != "image_base64"
+                }
+                if resp.get("ok")
+                else resp.get("error"),
+            },
+        )
         if resp.get("ok") and resp.get("result", {}).get("image_base64"):
             out_path = "isaac_screenshot.png"
             png_data = base64.b64decode(resp["result"]["image_base64"])

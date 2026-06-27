@@ -1,4 +1,5 @@
 """Unit tests for Gazebo bridge runtime implementations."""
+
 from __future__ import annotations
 
 import os
@@ -45,38 +46,46 @@ class TestStubRuntime(unittest.TestCase):
             pass
 
     def test_spawn_model_success(self) -> None:
-        result = self.runtime.handle_spawn_model({"sdf_path": self.model_path, "model_name": "drone"})
+        result = self.runtime.handle_spawn_model(
+            {"sdf_path": self.model_path, "model_name": "drone"}
+        )
         self.assertTrue(result["spawned"])
         self.assertEqual(result["model_name"], "drone")
         self.assertEqual(result["entity_id"], 1)
 
     def test_simulate_returns_time_series(self) -> None:
-        result = self.runtime.handle_simulate({
-            "duration_s": 0.2,
-            "dt_s": 0.01,
-            "output_interval": 0.05,
-            "mechanism": {"parts": [{"id": "frame"}]},
-        })
+        result = self.runtime.handle_simulate(
+            {
+                "duration_s": 0.2,
+                "dt_s": 0.01,
+                "output_interval": 0.05,
+                "mechanism": {"parts": [{"id": "frame"}]},
+            }
+        )
         self.assertIn("time_series", result)
         self.assertGreaterEqual(len(result["time_series"]), 2)
         self.assertEqual(result["summary"]["engine_mode"], "stub")
 
     def test_teleop_lifecycle_multirotor(self) -> None:
-        started = self.runtime.handle_teleop_start({
-            "mechanism": {"parts": [{"id": "frame"}]},
-            "profile": {"controller_type": "multirotor_direct"},
-            "sdf_path": self.model_path,
-        })
+        started = self.runtime.handle_teleop_start(
+            {
+                "mechanism": {"parts": [{"id": "frame"}]},
+                "profile": {"controller_type": "multirotor_direct"},
+                "sdf_path": self.model_path,
+            }
+        )
         session_id = started["session_id"]
         self.assertEqual(started["controller_type"], "multirotor_direct")
 
-        cmd = self.runtime.handle_teleop_command({
-            "session_id": session_id,
-            "vx_mps": 0.4,
-            "vy_mps": 0.1,
-            "vz_mps": 0.2,
-            "yaw_rate_rps": 0.3,
-        })
+        cmd = self.runtime.handle_teleop_command(
+            {
+                "session_id": session_id,
+                "vx_mps": 0.4,
+                "vy_mps": 0.1,
+                "vz_mps": 0.2,
+                "yaw_rate_rps": 0.3,
+            }
+        )
         self.assertTrue(cmd["applied"])
         self.assertIn("rotor_setpoints", cmd["state"])
 
@@ -89,11 +98,13 @@ class TestStubRuntime(unittest.TestCase):
 
     def test_invalid_controller_type(self) -> None:
         with self.assertRaises(GazeboRuntimeError) as ctx:
-            self.runtime.handle_teleop_start({
-                "mechanism": {},
-                "profile": {"controller_type": "invalid"},
-                "sdf_path": self.model_path,
-            })
+            self.runtime.handle_teleop_start(
+                {
+                    "mechanism": {},
+                    "profile": {"controller_type": "invalid"},
+                    "sdf_path": self.model_path,
+                }
+            )
         self.assertEqual(ctx.exception.code, "INVALID_INPUT")
 
 
@@ -128,13 +139,15 @@ class TestRealRuntime(unittest.TestCase):
         self.assertTrue(spawned["spawned"])
         self.assertTrue(any("/world/default/create" in " ".join(c) for c in self.calls))
 
-        sim = runtime.handle_simulate({
-            "duration_s": 0.2,
-            "dt_s": 0.02,
-            "output_interval": 0.1,
-            "sdf_path": self.model_path,
-            "mechanism": {"parts": [{"id": "frame"}]},
-        })
+        sim = runtime.handle_simulate(
+            {
+                "duration_s": 0.2,
+                "dt_s": 0.02,
+                "output_interval": 0.1,
+                "sdf_path": self.model_path,
+                "mechanism": {"parts": [{"id": "frame"}]},
+            }
+        )
         self.assertEqual(sim["summary"]["engine_mode"], "gazebo_real")
         self.assertTrue(any("/world/default/control" in " ".join(c) for c in self.calls))
 
@@ -144,4 +157,3 @@ class TestRealRuntime(unittest.TestCase):
         diag = runtime.handle_diagnose({})
         self.assertTrue(diag["connected"])
         self.assertIn("default", diag["worlds"])
-

@@ -6,6 +6,7 @@ Usage:
     python -m pytest tests/test_docker_e2e.py -v
     python -m unittest tests.test_docker_e2e -v
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -26,6 +27,7 @@ def _httpx_available() -> bool:
     """Check if httpx is importable (required by the A2A client)."""
     try:
         import httpx  # noqa: F401
+
         return True
     except ImportError:
         return False
@@ -36,7 +38,8 @@ def _docker_available() -> bool:
     try:
         subprocess.run(
             ["docker", "compose", "version"],
-            capture_output=True, timeout=10,
+            capture_output=True,
+            timeout=10,
         )
         return True
     except (FileNotFoundError, subprocess.TimeoutExpired):
@@ -47,7 +50,10 @@ def _compose(*args: str, timeout: int = 300) -> subprocess.CompletedProcess:
     """Run docker compose with the project compose file."""
     cmd = ["docker", "compose", "-f", str(COMPOSE_FILE), *args]
     return subprocess.run(
-        cmd, capture_output=True, text=True, timeout=timeout,
+        cmd,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
         cwd=str(PROJECT_DIR),
     )
 
@@ -137,9 +143,7 @@ class TestDockerE2E(unittest.TestCase):
                 svc = f"worker-{WORKER_PORTS.index(port) + 1}"
                 logs = _compose("logs", svc, timeout=10)
                 print(f"\n--- Logs for {svc} (port {port}) ---\n{logs.stdout[-2000:]}")
-            raise unittest.SkipTest(
-                f"Workers not ready on ports {not_ready} within timeout"
-            )
+            raise unittest.SkipTest(f"Workers not ready on ports {not_ready} within timeout")
 
         print(f"=== All {len(WORKER_PORTS)} workers ready ===")
 
@@ -173,7 +177,8 @@ class TestDockerE2E(unittest.TestCase):
 
         for port in WORKER_PORTS:
             with urllib.request.urlopen(
-                f"http://localhost:{port}/health", timeout=5,
+                f"http://localhost:{port}/health",
+                timeout=5,
             ) as resp:
                 data = json.loads(resp.read())
                 self.assertEqual(data["status"], "ok")
@@ -213,22 +218,21 @@ class TestDockerE2E(unittest.TestCase):
             "envelope_mm": [20, 20, 10],
             "role": "boss",
         }
-        interfaces = [{
-            "id": "ifc_mate",
-            "name": "Boss-hole fit",
-            "subsystem_a": "boss_cube",
-            "geometry": {"type": "cylinder", "diameter_mm": 10, "depth_mm": 5},
-        }]
+        interfaces = [
+            {
+                "id": "ifc_mate",
+                "name": "Boss-hole fit",
+                "subsystem_a": "boss_cube",
+                "geometry": {"type": "cylinder", "diameter_mm": 10, "depth_mm": 5},
+            }
+        ]
 
         result = asyncio.run(_submit_task(WORKER_PORTS[0], sub_spec, interfaces))
 
         self.assertEqual(result["status"], "completed", f"Error: {result.get('error')}")
 
         # Check metadata artifact has interface actuals
-        metadata_arts = [
-            a for a in result["artifacts"]
-            if a.get("name", "").endswith(".json")
-        ]
+        metadata_arts = [a for a in result["artifacts"] if a.get("name", "").endswith(".json")]
         self.assertGreater(len(metadata_arts), 0, "No metadata artifact")
         meta_data = metadata_arts[0].get("data", {})
         self.assertIn("ifc_mate", meta_data.get("interface_actuals", {}))
@@ -254,7 +258,8 @@ class TestDockerE2E(unittest.TestCase):
         for i, result in enumerate(results):
             with self.subTest(worker=i):
                 self.assertEqual(
-                    result["status"], "completed",
+                    result["status"],
+                    "completed",
                     f"Worker {i} failed: {result.get('error')}",
                 )
                 self.assertGreater(len(result["artifacts"]), 0)
@@ -304,24 +309,31 @@ class TestDockerTaskProtocol(unittest.TestCase):
         port = WORKER_PORTS[0]
 
         # Submit via raw JSON-RPC
-        body = json.dumps({
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "message/send",
-            "params": {
-                "message": {
-                    "role": "user",
-                    "parts": [{
-                        "type": "data",
-                        "mimeType": "application/json",
-                        "data": {
-                            "sub_spec": {"name": "protocol_test", "envelope_mm": [10, 10, 5]},
-                            "interfaces": [],
-                        },
-                    }],
+        body = json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "message/send",
+                "params": {
+                    "message": {
+                        "role": "user",
+                        "parts": [
+                            {
+                                "type": "data",
+                                "mimeType": "application/json",
+                                "data": {
+                                    "sub_spec": {
+                                        "name": "protocol_test",
+                                        "envelope_mm": [10, 10, 5],
+                                    },
+                                    "interfaces": [],
+                                },
+                            }
+                        ],
+                    },
                 },
-            },
-        }).encode()
+            }
+        ).encode()
 
         req = urllib.request.Request(
             f"http://localhost:{port}",
@@ -341,12 +353,14 @@ class TestDockerTaskProtocol(unittest.TestCase):
         status = "submitted"
         while time.monotonic() < deadline and status not in ("completed", "failed"):
             time.sleep(2)
-            poll_body = json.dumps({
-                "jsonrpc": "2.0",
-                "id": 2,
-                "method": "task/get",
-                "params": {"taskId": task_id},
-            }).encode()
+            poll_body = json.dumps(
+                {
+                    "jsonrpc": "2.0",
+                    "id": 2,
+                    "method": "task/get",
+                    "params": {"taskId": task_id},
+                }
+            ).encode()
             poll_req = urllib.request.Request(
                 f"http://localhost:{port}",
                 data=poll_body,
@@ -364,12 +378,14 @@ class TestDockerTaskProtocol(unittest.TestCase):
         import urllib.request
 
         port = WORKER_PORTS[0]
-        body = json.dumps({
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "task/cancel",
-            "params": {"taskId": "nonexistent_task_id"},
-        }).encode()
+        body = json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "task/cancel",
+                "params": {"taskId": "nonexistent_task_id"},
+            }
+        ).encode()
 
         req = urllib.request.Request(
             f"http://localhost:{port}",
@@ -387,12 +403,14 @@ class TestDockerTaskProtocol(unittest.TestCase):
         import urllib.request
 
         port = WORKER_PORTS[0]
-        body = json.dumps({
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "task/bogus",
-            "params": {},
-        }).encode()
+        body = json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "task/bogus",
+                "params": {},
+            }
+        ).encode()
 
         req = urllib.request.Request(
             f"http://localhost:{port}",

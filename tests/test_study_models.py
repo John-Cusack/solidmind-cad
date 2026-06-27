@@ -1,4 +1,5 @@
 """Tests for server.study_models."""
+
 from __future__ import annotations
 
 import unittest
@@ -16,16 +17,22 @@ from server.study_models import (
 class TestDesignVariable(unittest.TestCase):
     def test_expand_coarse_continuous(self) -> None:
         v = DesignVariable(
-            name="angle", var_type="continuous",
-            min_val=0, max_val=10, coarse_step=5,
+            name="angle",
+            var_type="continuous",
+            min_val=0,
+            max_val=10,
+            coarse_step=5,
         )
         vals = v.expand_coarse()
         self.assertEqual(vals, [0, 5, 10])
 
     def test_expand_coarse_with_pinned(self) -> None:
         v = DesignVariable(
-            name="angle", var_type="continuous",
-            min_val=0, max_val=10, coarse_step=5,
+            name="angle",
+            var_type="continuous",
+            min_val=0,
+            max_val=10,
+            coarse_step=5,
             pinned_values=(3.0,),
         )
         vals = v.expand_coarse()
@@ -34,7 +41,8 @@ class TestDesignVariable(unittest.TestCase):
 
     def test_expand_coarse_categorical(self) -> None:
         v = DesignVariable(
-            name="airfoil", var_type="categorical",
+            name="airfoil",
+            var_type="categorical",
             categories=("NACA4412", "NACA2412"),
         )
         vals = v.expand_coarse()
@@ -42,16 +50,22 @@ class TestDesignVariable(unittest.TestCase):
 
     def test_expand_coarse_default_steps(self) -> None:
         v = DesignVariable(
-            name="x", var_type="continuous",
-            min_val=0, max_val=10,
+            name="x",
+            var_type="continuous",
+            min_val=0,
+            max_val=10,
         )
         vals = v.expand_coarse()
         self.assertEqual(len(vals), 6)  # 0, 2, 4, 6, 8, 10
 
     def test_expand_refined(self) -> None:
         v = DesignVariable(
-            name="angle", var_type="continuous",
-            min_val=0, max_val=10, coarse_step=5, fine_step=1,
+            name="angle",
+            var_type="continuous",
+            min_val=0,
+            max_val=10,
+            coarse_step=5,
+            fine_step=1,
         )
         vals = v.expand_refined(5.0, num_steps=5)
         self.assertIn(5.0, vals)
@@ -59,16 +73,24 @@ class TestDesignVariable(unittest.TestCase):
 
     def test_expand_refined_clips_to_bounds(self) -> None:
         v = DesignVariable(
-            name="x", var_type="continuous",
-            min_val=0, max_val=3, coarse_step=1, fine_step=1,
+            name="x",
+            var_type="continuous",
+            min_val=0,
+            max_val=3,
+            coarse_step=1,
+            fine_step=1,
         )
         vals = v.expand_refined(1.0, num_steps=5)
         self.assertTrue(all(0 <= x <= 3 for x in vals))
 
     def test_roundtrip(self) -> None:
         v = DesignVariable(
-            name="angle", var_type="continuous",
-            min_val=0, max_val=45, coarse_step=5, fine_step=1,
+            name="angle",
+            var_type="continuous",
+            min_val=0,
+            max_val=45,
+            coarse_step=5,
+            fine_step=1,
             pinned_values=(12.5,),
         )
         d = v.to_dict()
@@ -121,7 +143,9 @@ class TestStudy(unittest.TestCase):
             id="test123",
             name="Test Study",
             variables=[
-                DesignVariable(name="angle", var_type="continuous", min_val=0, max_val=10, coarse_step=5),
+                DesignVariable(
+                    name="angle", var_type="continuous", min_val=0, max_val=10, coarse_step=5
+                ),
             ],
             solver=SolverConfig(solver_type="mock"),
             objective=ObjectiveConfig(primary_metric="objective"),

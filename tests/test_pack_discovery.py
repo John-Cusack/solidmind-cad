@@ -1,4 +1,5 @@
 """Tests for extension pack discovery (tool packs + knowledge packs)."""
+
 from __future__ import annotations
 
 import json
@@ -24,6 +25,7 @@ class _FakeEntryPoint:
 # Tool pack discovery
 # ---------------------------------------------------------------------------
 
+
 class TestToolPackDiscovery(unittest.TestCase):
     """Verify _discover_tool_packs() loads TOOLS + DISPATCH from entry points."""
 
@@ -43,6 +45,7 @@ class TestToolPackDiscovery(unittest.TestCase):
     def test_loads_tools_and_dispatch(self, mock_eps: MagicMock) -> None:
         def handler(**kw):
             return {"ok": True}
+
         mod = self._make_pack_module(
             tools=[{"name": "geometry.test_tool", "description": "A test"}],
             dispatch={"geometry.test_tool": handler},
@@ -83,8 +86,10 @@ class TestToolPackDiscovery(unittest.TestCase):
     def test_duplicate_tool_warns(self, mock_eps: MagicMock) -> None:
         def handler_a(**kw):
             return "a"
+
         def handler_b(**kw):
             return "b"
+
         mod_a = self._make_pack_module(
             tools=[{"name": "geometry.dup"}],
             dispatch={"geometry.dup": handler_a},
@@ -122,10 +127,13 @@ class TestToolPackDiscovery(unittest.TestCase):
 # Knowledge pack discovery
 # ---------------------------------------------------------------------------
 
-class TestKnowledgePackDiscovery(unittest.TestCase):
 
+class TestKnowledgePackDiscovery(unittest.TestCase):
     def _make_knowledge_module(
-        self, kdir: Path, domain: str = "test", version: str = "1.0.0",
+        self,
+        kdir: Path,
+        domain: str = "test",
+        version: str = "1.0.0",
     ) -> types.ModuleType:
         mod = types.ModuleType("fake_kpack")
         mod.KNOWLEDGE_DIR = kdir  # type: ignore[attr-defined]
@@ -170,8 +178,8 @@ class TestKnowledgePackDiscovery(unittest.TestCase):
 # Local note listing includes knowledge packs
 # ---------------------------------------------------------------------------
 
-class TestLocalNoteListingWithPacks(unittest.TestCase):
 
+class TestLocalNoteListingWithPacks(unittest.TestCase):
     @patch("server.tools_knowledge._discover_knowledge_packs")
     def test_includes_pack_files(self, mock_discover: MagicMock) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -194,8 +202,8 @@ class TestLocalNoteListingWithPacks(unittest.TestCase):
 # ensure_packs_ingested version tracking
 # ---------------------------------------------------------------------------
 
-class TestEnsurePacksIngested(unittest.TestCase):
 
+class TestEnsurePacksIngested(unittest.TestCase):
     @patch("server.knowledge_store._discover_knowledge_packs")
     def test_version_marker_prevents_reingestion(self, mock_discover: MagicMock) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -215,6 +223,7 @@ class TestEnsurePacksIngested(unittest.TestCase):
 
             # Bind the real method
             from server.knowledge_store import KnowledgeStore
+
             store.ensure_packs_ingested = KnowledgeStore.ensure_packs_ingested.__get__(store)
 
             # First call — should ingest
@@ -253,6 +262,7 @@ class TestEnsurePacksIngested(unittest.TestCase):
             store.ingest_file = MagicMock()
 
             from server.knowledge_store import KnowledgeStore
+
             store.ensure_packs_ingested = KnowledgeStore.ensure_packs_ingested.__get__(store)
 
             store.ensure_packs_ingested()

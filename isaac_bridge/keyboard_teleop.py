@@ -4,6 +4,7 @@ This module intentionally has no hard dependency on Isaac/Omniverse imports so
 it can be tested outside Isaac and embedded by bridge processes that do the
 actual event subscription.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass

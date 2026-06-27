@@ -20,6 +20,7 @@ a datum-plane API to the addon is out of scope for this chunk; the
 multi-segment composite + 3 distinct pivot bores already proves the
 pattern handles complex geometry.
 """
+
 from __future__ import annotations
 
 from pathlib import Path

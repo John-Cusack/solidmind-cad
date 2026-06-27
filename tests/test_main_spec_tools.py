@@ -132,7 +132,6 @@ class TestMainSpecTools(unittest.TestCase):
         self.assertIn("checkpoint_summary", out["metadata"])
         self.assertIn("repair_recommendations_present", out["metadata"])
 
-
     def test_motion_simulate_backend_enum_includes_gazebo(self) -> None:
         tool = next(t for t in mcp_main._tool_list() if t.get("name") == "motion.simulate")
         backend_enum = tool["inputSchema"]["properties"]["backend"]["enum"]
@@ -176,57 +175,89 @@ class TestDesignGenerateMechanism(unittest.TestCase):
 
     def setUp(self) -> None:
         from server import design_store, motion_store
+
         design_store.clear()
         motion_store.clear()
 
     def tearDown(self) -> None:
         from server import design_store, motion_store
+
         design_store.clear()
         motion_store.clear()
 
     def _make_drone_brief(self) -> str:
         """Create a drone brief with parts and interfaces, return brief_id."""
-        result = mcp_main._call_tool("design.save_brief", {
-            "name": "Test Drone",
-            "parameters": {
-                "layout": {
-                    "motor_positions": [[77.8, 77.8, 8], [-77.8, 77.8, 8],
-                                        [-77.8, -77.8, 8], [77.8, -77.8, 8]],
+        result = mcp_main._call_tool(
+            "design.save_brief",
+            {
+                "name": "Test Drone",
+                "parameters": {
+                    "layout": {
+                        "motor_positions": [
+                            [77.8, 77.8, 8],
+                            [-77.8, 77.8, 8],
+                            [-77.8, -77.8, 8],
+                            [77.8, -77.8, 8],
+                        ],
+                    },
                 },
+                "status": "layout",
             },
-            "status": "layout",
-        })
+        )
         brief_id = result["brief"]["brief_id"]
 
         # Add parts
-        mcp_main._call_tool("design.add_part", {
-            "brief_id": brief_id, "name": "frame",
-            "specs": {"material": "CF 2mm", "mass_g": 80},
-        })
-        mcp_main._call_tool("design.add_part", {
-            "brief_id": brief_id, "name": "motor_mount",
-            "quantity": 4,
-            "specs": {"mass_g": 5},
-        })
-        mcp_main._call_tool("design.add_part", {
-            "brief_id": brief_id, "name": "motor",
-            "kind": "purchased", "quantity": 4,
-            "specs": {"model": "Emax 2306", "mass_g": 33},
-        })
+        mcp_main._call_tool(
+            "design.add_part",
+            {
+                "brief_id": brief_id,
+                "name": "frame",
+                "specs": {"material": "CF 2mm", "mass_g": 80},
+            },
+        )
+        mcp_main._call_tool(
+            "design.add_part",
+            {
+                "brief_id": brief_id,
+                "name": "motor_mount",
+                "quantity": 4,
+                "specs": {"mass_g": 5},
+            },
+        )
+        mcp_main._call_tool(
+            "design.add_part",
+            {
+                "brief_id": brief_id,
+                "name": "motor",
+                "kind": "purchased",
+                "quantity": 4,
+                "specs": {"model": "Emax 2306", "mass_g": 33},
+            },
+        )
 
         # Add interfaces
-        mcp_main._call_tool("design.add_interface", {
-            "brief_id": brief_id,
-            "part_a": "frame", "port_a": "arm_tip",
-            "part_b": "motor_mount", "port_b": "base",
-            "spec": {"type": "clamp", "tube_od_mm": 10},
-        })
-        mcp_main._call_tool("design.add_interface", {
-            "brief_id": brief_id,
-            "part_a": "motor_mount", "port_a": "top",
-            "part_b": "motor", "port_b": "base",
-            "spec": {"pattern": "M3_16mm_square", "bolt_size": "M3"},
-        })
+        mcp_main._call_tool(
+            "design.add_interface",
+            {
+                "brief_id": brief_id,
+                "part_a": "frame",
+                "port_a": "arm_tip",
+                "part_b": "motor_mount",
+                "port_b": "base",
+                "spec": {"type": "clamp", "tube_od_mm": 10},
+            },
+        )
+        mcp_main._call_tool(
+            "design.add_interface",
+            {
+                "brief_id": brief_id,
+                "part_a": "motor_mount",
+                "port_a": "top",
+                "part_b": "motor",
+                "port_b": "base",
+                "spec": {"pattern": "M3_16mm_square", "bolt_size": "M3"},
+            },
+        )
 
         return brief_id
 
@@ -236,9 +267,12 @@ class TestDesignGenerateMechanism(unittest.TestCase):
 
     def test_generate_mechanism_basic(self) -> None:
         brief_id = self._make_drone_brief()
-        result = mcp_main._call_tool("design.generate_mechanism", {
-            "brief_id": brief_id,
-        })
+        result = mcp_main._call_tool(
+            "design.generate_mechanism",
+            {
+                "brief_id": brief_id,
+            },
+        )
 
         self.assertTrue(result["ok"])
         mech = result["mechanism"]
@@ -260,10 +294,13 @@ class TestDesignGenerateMechanism(unittest.TestCase):
 
     def test_generate_mechanism_ground_part(self) -> None:
         brief_id = self._make_drone_brief()
-        result = mcp_main._call_tool("design.generate_mechanism", {
-            "brief_id": brief_id,
-            "ground_part": "motor_mount",
-        })
+        result = mcp_main._call_tool(
+            "design.generate_mechanism",
+            {
+                "brief_id": brief_id,
+                "ground_part": "motor_mount",
+            },
+        )
 
         self.assertTrue(result["ok"])
         parts = result["mechanism"]["parts"]
@@ -273,28 +310,47 @@ class TestDesignGenerateMechanism(unittest.TestCase):
 
     def test_generate_mechanism_revolute_joint(self) -> None:
         """Bearing/shaft interfaces should produce revolute joints."""
-        result = mcp_main._call_tool("design.save_brief", {
-            "name": "Hinge Test",
-            "parameters": {},
-        })
+        result = mcp_main._call_tool(
+            "design.save_brief",
+            {
+                "name": "Hinge Test",
+                "parameters": {},
+            },
+        )
         brief_id = result["brief"]["brief_id"]
 
-        mcp_main._call_tool("design.add_part", {
-            "brief_id": brief_id, "name": "bracket",
-        })
-        mcp_main._call_tool("design.add_part", {
-            "brief_id": brief_id, "name": "door",
-        })
-        mcp_main._call_tool("design.add_interface", {
-            "brief_id": brief_id,
-            "part_a": "bracket", "port_a": "hinge_pin",
-            "part_b": "door", "port_b": "hinge_knuckle",
-            "spec": {"type": "hinge", "pin_diameter_mm": 6},
-        })
+        mcp_main._call_tool(
+            "design.add_part",
+            {
+                "brief_id": brief_id,
+                "name": "bracket",
+            },
+        )
+        mcp_main._call_tool(
+            "design.add_part",
+            {
+                "brief_id": brief_id,
+                "name": "door",
+            },
+        )
+        mcp_main._call_tool(
+            "design.add_interface",
+            {
+                "brief_id": brief_id,
+                "part_a": "bracket",
+                "port_a": "hinge_pin",
+                "part_b": "door",
+                "port_b": "hinge_knuckle",
+                "spec": {"type": "hinge", "pin_diameter_mm": 6},
+            },
+        )
 
-        result = mcp_main._call_tool("design.generate_mechanism", {
-            "brief_id": brief_id,
-        })
+        result = mcp_main._call_tool(
+            "design.generate_mechanism",
+            {
+                "brief_id": brief_id,
+            },
+        )
         self.assertTrue(result["ok"])
         joints = result["mechanism"]["joints"]
         self.assertEqual(len(joints), 1)
@@ -302,71 +358,114 @@ class TestDesignGenerateMechanism(unittest.TestCase):
 
     def test_generate_mechanism_prismatic_joint(self) -> None:
         """Slider/rail interfaces should produce prismatic joints."""
-        result = mcp_main._call_tool("design.save_brief", {
-            "name": "Slider Test",
-            "parameters": {},
-        })
+        result = mcp_main._call_tool(
+            "design.save_brief",
+            {
+                "name": "Slider Test",
+                "parameters": {},
+            },
+        )
         brief_id = result["brief"]["brief_id"]
 
-        mcp_main._call_tool("design.add_part", {
-            "brief_id": brief_id, "name": "base",
-        })
-        mcp_main._call_tool("design.add_part", {
-            "brief_id": brief_id, "name": "carriage",
-        })
-        mcp_main._call_tool("design.add_interface", {
-            "brief_id": brief_id,
-            "part_a": "base", "port_a": "rail",
-            "part_b": "carriage", "port_b": "slider",
-            "spec": {"type": "linear_rail", "rail_width_mm": 12},
-        })
+        mcp_main._call_tool(
+            "design.add_part",
+            {
+                "brief_id": brief_id,
+                "name": "base",
+            },
+        )
+        mcp_main._call_tool(
+            "design.add_part",
+            {
+                "brief_id": brief_id,
+                "name": "carriage",
+            },
+        )
+        mcp_main._call_tool(
+            "design.add_interface",
+            {
+                "brief_id": brief_id,
+                "part_a": "base",
+                "port_a": "rail",
+                "part_b": "carriage",
+                "port_b": "slider",
+                "spec": {"type": "linear_rail", "rail_width_mm": 12},
+            },
+        )
 
-        result = mcp_main._call_tool("design.generate_mechanism", {
-            "brief_id": brief_id,
-        })
+        result = mcp_main._call_tool(
+            "design.generate_mechanism",
+            {
+                "brief_id": brief_id,
+            },
+        )
         self.assertTrue(result["ok"])
         joints = result["mechanism"]["joints"]
         self.assertEqual(len(joints), 1)
         self.assertEqual(joints[0]["joint_type"], "prismatic")
 
     def test_generate_mechanism_no_parts(self) -> None:
-        result = mcp_main._call_tool("design.save_brief", {
-            "name": "Empty", "parameters": {},
-        })
+        result = mcp_main._call_tool(
+            "design.save_brief",
+            {
+                "name": "Empty",
+                "parameters": {},
+            },
+        )
         brief_id = result["brief"]["brief_id"]
-        result = mcp_main._call_tool("design.generate_mechanism", {
-            "brief_id": brief_id,
-        })
+        result = mcp_main._call_tool(
+            "design.generate_mechanism",
+            {
+                "brief_id": brief_id,
+            },
+        )
         self.assertFalse(result["ok"])
         self.assertEqual(result["error"]["code"], "NO_PARTS")
 
     def test_generate_mechanism_no_interfaces(self) -> None:
-        result = mcp_main._call_tool("design.save_brief", {
-            "name": "Parts Only", "parameters": {},
-        })
+        result = mcp_main._call_tool(
+            "design.save_brief",
+            {
+                "name": "Parts Only",
+                "parameters": {},
+            },
+        )
         brief_id = result["brief"]["brief_id"]
-        mcp_main._call_tool("design.add_part", {
-            "brief_id": brief_id, "name": "plate",
-        })
-        result = mcp_main._call_tool("design.generate_mechanism", {
-            "brief_id": brief_id,
-        })
+        mcp_main._call_tool(
+            "design.add_part",
+            {
+                "brief_id": brief_id,
+                "name": "plate",
+            },
+        )
+        result = mcp_main._call_tool(
+            "design.generate_mechanism",
+            {
+                "brief_id": brief_id,
+            },
+        )
         self.assertFalse(result["ok"])
         self.assertEqual(result["error"]["code"], "NO_INTERFACES")
 
     def test_generate_mechanism_brief_not_found(self) -> None:
-        result = mcp_main._call_tool("design.generate_mechanism", {
-            "brief_id": "brief_nonexistent",
-        })
+        result = mcp_main._call_tool(
+            "design.generate_mechanism",
+            {
+                "brief_id": "brief_nonexistent",
+            },
+        )
         self.assertFalse(result["ok"])
         self.assertEqual(result["error"]["code"], "BRIEF_NOT_FOUND")
 
     def test_generate_mechanism_motor_position_origin(self) -> None:
         """Joint origin should use layout motor_positions for motor-related parts."""
         brief_id = self._make_drone_brief()
-        result = mcp_main._call_tool("design.generate_mechanism", {
-            "brief_id": brief_id,
-        })
+        result = mcp_main._call_tool(
+            "design.generate_mechanism",
+            {
+                "brief_id": brief_id,
+            },
+        )
         self.assertTrue(result["ok"])
 
         # The motor_mount→motor joint should pick up motor_positions
@@ -392,8 +491,10 @@ class TestDesignGenerateMechanism(unittest.TestCase):
             ),
             joints=(
                 JointEdge(
-                    id="j1", joint_type=JointType.FIXED,
-                    parent_part="frame", child_part="motor_mount",
+                    id="j1",
+                    joint_type=JointType.FIXED,
+                    parent_part="frame",
+                    child_part="motor_mount",
                 ),
             ),
             drives=(),
@@ -402,20 +503,27 @@ class TestDesignGenerateMechanism(unittest.TestCase):
 
         # verify_build requires FreeCAD model tree — mock it
         import server.tools_cad as tc
+
         original = tc.cad_get_model_tree
 
         def mock_tree(doc=None, detail="bodies"):
-            return {"ok": True, "bodies": [
-                {"label": "frame", "name": "Body", "size": [100, 100, 2]},
-                {"label": "motor_mount", "name": "Body001", "size": [20, 20, 5]},
-            ]}
+            return {
+                "ok": True,
+                "bodies": [
+                    {"label": "frame", "name": "Body", "size": [100, 100, 2]},
+                    {"label": "motor_mount", "name": "Body001", "size": [20, 20, 5]},
+                ],
+            }
 
         tc.cad_get_model_tree = mock_tree
         try:
-            result = mcp_main._call_tool("design.verify_build", {
-                "brief_id": brief_id,
-                "mechanism_id": mech_id,
-            })
+            result = mcp_main._call_tool(
+                "design.verify_build",
+                {
+                    "brief_id": brief_id,
+                    "mechanism_id": mech_id,
+                },
+            )
         finally:
             tc.cad_get_model_tree = original
 
@@ -432,19 +540,26 @@ class TestDesignGenerateMechanism(unittest.TestCase):
         brief_id = self._make_drone_brief()
 
         import server.tools_cad as tc
+
         original = tc.cad_get_model_tree
 
         def mock_tree(doc=None, detail="bodies"):
-            return {"ok": True, "bodies": [
-                {"label": "frame", "name": "Body", "size": [100, 100, 2]},
-                {"label": "motor_mount", "name": "Body001", "size": [20, 20, 5]},
-            ]}
+            return {
+                "ok": True,
+                "bodies": [
+                    {"label": "frame", "name": "Body", "size": [100, 100, 2]},
+                    {"label": "motor_mount", "name": "Body001", "size": [20, 20, 5]},
+                ],
+            }
 
         tc.cad_get_model_tree = mock_tree
         try:
-            result = mcp_main._call_tool("design.verify_build", {
-                "brief_id": brief_id,
-            })
+            result = mcp_main._call_tool(
+                "design.verify_build",
+                {
+                    "brief_id": brief_id,
+                },
+            )
         finally:
             tc.cad_get_model_tree = original
 
@@ -468,12 +583,16 @@ class TestDesignGenerateMechanism(unittest.TestCase):
             ),
             joints=(
                 JointEdge(
-                    id="j1", joint_type=JointType.FIXED,
-                    parent_part="frame", child_part="motor_mount",
+                    id="j1",
+                    joint_type=JointType.FIXED,
+                    parent_part="frame",
+                    child_part="motor_mount",
                 ),
                 JointEdge(
-                    id="j2", joint_type=JointType.FIXED,
-                    parent_part="motor_mount", child_part="motor",
+                    id="j2",
+                    joint_type=JointType.FIXED,
+                    parent_part="motor_mount",
+                    child_part="motor",
                 ),
             ),
             drives=(),
@@ -481,20 +600,27 @@ class TestDesignGenerateMechanism(unittest.TestCase):
         mech_id = motion_store.store(mech)
 
         import server.tools_cad as tc
+
         original = tc.cad_get_model_tree
 
         def mock_tree(doc=None, detail="bodies"):
-            return {"ok": True, "bodies": [
-                {"label": "frame", "name": "Body", "size": [100, 100, 2]},
-                {"label": "motor_mount", "name": "Body001", "size": [20, 20, 5]},
-            ]}
+            return {
+                "ok": True,
+                "bodies": [
+                    {"label": "frame", "name": "Body", "size": [100, 100, 2]},
+                    {"label": "motor_mount", "name": "Body001", "size": [20, 20, 5]},
+                ],
+            }
 
         tc.cad_get_model_tree = mock_tree
         try:
-            result = mcp_main._call_tool("design.verify_build", {
-                "brief_id": brief_id,
-                "mechanism_id": mech_id,
-            })
+            result = mcp_main._call_tool(
+                "design.verify_build",
+                {
+                    "brief_id": brief_id,
+                    "mechanism_id": mech_id,
+                },
+            )
         finally:
             tc.cad_get_model_tree = original
 
@@ -502,15 +628,15 @@ class TestDesignGenerateMechanism(unittest.TestCase):
         self.assertNotIn("interface_warnings", result)
 
     def test_verify_build_schema_has_mechanism_id(self) -> None:
-        tool = next(t for t in mcp_main._tool_list()
-                    if t.get("name") == "design.verify_build")
+        tool = next(t for t in mcp_main._tool_list() if t.get("name") == "design.verify_build")
         props = tool["inputSchema"]["properties"]
         self.assertIn("mechanism_id", props)
         self.assertEqual(props["mechanism_id"]["type"], "string")
 
     def test_generate_mechanism_schema(self) -> None:
-        tool = next(t for t in mcp_main._tool_list()
-                    if t.get("name") == "design.generate_mechanism")
+        tool = next(
+            t for t in mcp_main._tool_list() if t.get("name") == "design.generate_mechanism"
+        )
         props = tool["inputSchema"]["properties"]
         self.assertIn("brief_id", props)
         self.assertIn("ground_part", props)

@@ -8,6 +8,7 @@ The server runs in a background thread so it does not block FreeCAD's GUI
 event loop.  Commands are dispatched to the **main thread** via a QTimer
 because FreeCAD's Python API is not thread-safe.
 """
+
 from __future__ import annotations
 
 import inspect
@@ -33,6 +34,7 @@ def _fc_log(msg: str, *, error: bool = False) -> None:
     """Log to both Python logging and FreeCAD console."""
     try:
         import FreeCAD
+
         if error:
             FreeCAD.Console.PrintError(f"[SolidMind] {msg}\n")
         else:
@@ -54,9 +56,7 @@ def _filter_kwargs(handler: Callable[..., Any], args: dict[str, Any]) -> dict[st
     """
     sig = inspect.signature(handler)
     # If the handler accepts **kwargs, pass everything through.
-    if any(
-        p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
-    ):
+    if any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()):
         return args
     accepted = {
         name
@@ -144,7 +144,9 @@ class AddonSocketServer:
         self._server_socket.listen(1)
 
         self._running = True
-        self._thread = threading.Thread(target=self._accept_loop, daemon=True, name="solidmind-server")
+        self._thread = threading.Thread(
+            target=self._accept_loop, daemon=True, name="solidmind-server"
+        )
         self._thread.start()
 
         # Start a QTimer on the main thread to poll the job queue.
@@ -155,6 +157,7 @@ class AddonSocketServer:
     def _start_main_thread_timer(self) -> None:
         """Set up a QTimer to process jobs on the main GUI thread."""
         import os
+
         if os.environ.get("SOLIDMIND_HEADLESS", "").lower() in ("1", "true", "yes"):
             _fc_log(
                 "SOLIDMIND_HEADLESS=1 — commands will run on background thread",

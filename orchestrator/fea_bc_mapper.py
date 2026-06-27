@@ -1,4 +1,5 @@
 """Map frozen interface loads + coordinate frames to CalculiX boundary conditions."""
+
 from __future__ import annotations
 
 import math
@@ -23,6 +24,7 @@ def extract_mesh_nodes(inp_path: str | object) -> dict[int, tuple[float, float, 
     Returns {node_id: (x, y, z)}.
     """
     from pathlib import Path
+
     path = Path(inp_path)
     nodes: dict[int, tuple[float, float, float]] = {}
     in_node_section = False
@@ -111,11 +113,13 @@ def map_interface_bcs(
 
         if total_load < 1e-9:
             # No loads — fixed support
-            bcs.append(FEABoundaryCondition(
-                node_set_name=set_name,
-                bc_type="fixed",
-                values=[0.0, 0.0, 0.0],
-            ))
+            bcs.append(
+                FEABoundaryCondition(
+                    node_set_name=set_name,
+                    bc_type="fixed",
+                    values=[0.0, 0.0, 0.0],
+                )
+            )
         else:
             # Apply loads from each load case
             for lc in ifc.loads:
@@ -129,28 +133,32 @@ def map_interface_bcs(
                 # Axial force along frame Z
                 if abs(lc.axial_force_n) > 1e-9:
                     f_per_node = lc.axial_force_n / n_nodes
-                    bcs.append(FEABoundaryCondition(
-                        node_set_name=set_name,
-                        bc_type="force",
-                        values=[
-                            az[0] * f_per_node,
-                            az[1] * f_per_node,
-                            az[2] * f_per_node,
-                        ],
-                    ))
+                    bcs.append(
+                        FEABoundaryCondition(
+                            node_set_name=set_name,
+                            bc_type="force",
+                            values=[
+                                az[0] * f_per_node,
+                                az[1] * f_per_node,
+                                az[2] * f_per_node,
+                            ],
+                        )
+                    )
 
                 # Radial force along frame X
                 if abs(lc.radial_force_n) > 1e-9:
                     f_per_node = lc.radial_force_n / n_nodes
-                    bcs.append(FEABoundaryCondition(
-                        node_set_name=set_name,
-                        bc_type="force",
-                        values=[
-                            ax[0] * f_per_node,
-                            ax[1] * f_per_node,
-                            ax[2] * f_per_node,
-                        ],
-                    ))
+                    bcs.append(
+                        FEABoundaryCondition(
+                            node_set_name=set_name,
+                            bc_type="force",
+                            values=[
+                                ax[0] * f_per_node,
+                                ax[1] * f_per_node,
+                                ax[2] * f_per_node,
+                            ],
+                        )
+                    )
 
                 # Torque: tangential force at radius from axis
                 if abs(lc.torque_nm) > 1e-9:
@@ -168,15 +176,17 @@ def map_interface_bcs(
                     # F = T / r, applied along frame Y (tangential)
                     f_tangential = (lc.torque_nm * 1000) / avg_r  # Nm -> N*mm
                     f_per_node = f_tangential / n_nodes
-                    bcs.append(FEABoundaryCondition(
-                        node_set_name=set_name,
-                        bc_type="force",
-                        values=[
-                            ay[0] * f_per_node,
-                            ay[1] * f_per_node,
-                            ay[2] * f_per_node,
-                        ],
-                    ))
+                    bcs.append(
+                        FEABoundaryCondition(
+                            node_set_name=set_name,
+                            bc_type="force",
+                            values=[
+                                ay[0] * f_per_node,
+                                ay[1] * f_per_node,
+                                ay[2] * f_per_node,
+                            ],
+                        )
+                    )
 
                 # Bending moment: couple forces along frame Y
                 if abs(lc.bending_moment_nm) > 1e-9:
@@ -191,15 +201,17 @@ def map_interface_bcs(
                     avg_r = sum(radii) / len(radii) if radii else 1.0
                     f_couple = (lc.bending_moment_nm * 1000) / avg_r
                     f_per_node = f_couple / n_nodes
-                    bcs.append(FEABoundaryCondition(
-                        node_set_name=set_name,
-                        bc_type="force",
-                        values=[
-                            ax[0] * f_per_node,
-                            ax[1] * f_per_node,
-                            ax[2] * f_per_node,
-                        ],
-                    ))
+                    bcs.append(
+                        FEABoundaryCondition(
+                            node_set_name=set_name,
+                            bc_type="force",
+                            values=[
+                                ax[0] * f_per_node,
+                                ax[1] * f_per_node,
+                                ax[2] * f_per_node,
+                            ],
+                        )
+                    )
 
     # Cantilever heuristic: if only one interface with loads and no fixed BC,
     # warn but don't auto-fix

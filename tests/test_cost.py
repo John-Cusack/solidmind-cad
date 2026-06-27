@@ -1,4 +1,5 @@
 """Tests for orchestrator.cost."""
+
 from __future__ import annotations
 
 import tempfile
@@ -70,11 +71,16 @@ class TestCostTracker(unittest.TestCase):
     def test_json_round_trip(self) -> None:
         policy = CostPolicy(max_run_cost_usd=50.0)
         tracker = CostTracker(policy=policy)
-        tracker.record(CostEntry(
-            stage="council", subsystem="gear",
-            provider="anthropic", cost_usd=2.5,
-            prompt_tokens=1000, completion_tokens=500,
-        ))
+        tracker.record(
+            CostEntry(
+                stage="council",
+                subsystem="gear",
+                provider="anthropic",
+                cost_usd=2.5,
+                prompt_tokens=1000,
+                completion_tokens=500,
+            )
+        )
         with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as f:
             path = Path(f.name)
         try:

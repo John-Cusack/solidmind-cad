@@ -1,4 +1,5 @@
 """Tests for server.tools_study MCP tool wrappers."""
+
 from __future__ import annotations
 
 import tempfile
@@ -30,7 +31,10 @@ class TestStudyCreate(unittest.TestCase):
         self._tmpdir = tempfile.TemporaryDirectory()
         self.root = Path(self._tmpdir.name)
         # Patch the default root so tests don't write to real studies/
-        self._patcher = patch("server.tools_study._error_result", side_effect=lambda c, m: {"ok": False, "error": {"code": c, "message": m}})
+        self._patcher = patch(
+            "server.tools_study._error_result",
+            side_effect=lambda c, m: {"ok": False, "error": {"code": c, "message": m}},
+        )
 
     def tearDown(self) -> None:
         self._tmpdir.cleanup()
@@ -41,7 +45,13 @@ class TestStudyCreate(unittest.TestCase):
             result = study_create(
                 name="Test Study",
                 variables=[
-                    {"name": "x", "var_type": "continuous", "min_val": 0, "max_val": 10, "coarse_step": 5},
+                    {
+                        "name": "x",
+                        "var_type": "continuous",
+                        "min_val": 0,
+                        "max_val": 10,
+                        "coarse_step": 5,
+                    },
                 ],
                 solver={"solver_type": "mock"},
                 objective={"primary_metric": "objective"},
@@ -92,9 +102,14 @@ class TestStudyToolsWithStore(unittest.TestCase):
         self.root = Path(self._tmpdir.name)
         # Patch the default root for all store operations
         self._patchers = [
-            patch("server.tools_study.save_study", side_effect=lambda s, **kw: save_study(s, root=self.root)),
+            patch(
+                "server.tools_study.save_study",
+                side_effect=lambda s, **kw: save_study(s, root=self.root),
+            ),
             patch("server.tools_study.load_study", side_effect=lambda sid, **kw: self._load(sid)),
-            patch("server.tools_study.study_exists", side_effect=lambda sid, **kw: self._exists(sid)),
+            patch(
+                "server.tools_study.study_exists", side_effect=lambda sid, **kw: self._exists(sid)
+            ),
             patch("server.tools_study.list_studies", side_effect=lambda **kw: self._list()),
         ]
         for p in self._patchers:
@@ -107,14 +122,17 @@ class TestStudyToolsWithStore(unittest.TestCase):
 
     def _load(self, study_id: str) -> Study:
         from server.study_store import load_study as _real_load
+
         return _real_load(study_id, root=self.root)
 
     def _exists(self, study_id: str) -> bool:
         from server.study_store import study_exists as _real_exists
+
         return _real_exists(study_id, root=self.root)
 
     def _list(self) -> list:
         from server.study_store import list_studies as _real_list
+
         return _real_list(root=self.root)
 
     def _create_study(self, study_id: str = "test01") -> Study:
@@ -122,14 +140,28 @@ class TestStudyToolsWithStore(unittest.TestCase):
             id=study_id,
             name="Test Study",
             variables=[
-                DesignVariable(name="x", var_type="continuous", min_val=0, max_val=10, coarse_step=5),
+                DesignVariable(
+                    name="x", var_type="continuous", min_val=0, max_val=10, coarse_step=5
+                ),
             ],
             solver=SolverConfig(solver_type="mock"),
             objective=ObjectiveConfig(primary_metric="objective"),
             status=StudyStatus.COMPLETE,
             coarse_variants=[
-                Variant(variant_id="c0000", params={"x": 0}, phase="coarse", status="done", metrics={"objective": 100}),
-                Variant(variant_id="c0001", params={"x": 5}, phase="coarse", status="done", metrics={"objective": 200}),
+                Variant(
+                    variant_id="c0000",
+                    params={"x": 0},
+                    phase="coarse",
+                    status="done",
+                    metrics={"objective": 100},
+                ),
+                Variant(
+                    variant_id="c0001",
+                    params={"x": 5},
+                    phase="coarse",
+                    status="done",
+                    metrics={"objective": 200},
+                ),
             ],
             best_variant_id="c0001",
         )
@@ -145,6 +177,7 @@ class TestStudyToolsWithStore(unittest.TestCase):
 
     def test_study_status_with_timing(self) -> None:
         import time
+
         study = self._create_study()
         study.started_at = time.time() - 60  # started 60s ago
         study.finished_at = time.time()

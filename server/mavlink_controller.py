@@ -27,6 +27,7 @@ installed) ``import server.mavlink_controller`` still succeeds; the
 ImportError is deferred to ``connect()`` so unit tests that never
 connect can still import the module.
 """
+
 from __future__ import annotations
 
 import logging
@@ -147,7 +148,9 @@ class MavlinkController:
         if self._connect_factory is None:
             mavutil, _ = _import_mavutil()
             factory = lambda url, ss, sc: mavutil.mavlink_connection(  # noqa: E731
-                url, source_system=ss, source_component=sc,
+                url,
+                source_system=ss,
+                source_component=sc,
             )
         else:
             factory = self._connect_factory
@@ -168,12 +171,15 @@ class MavlinkController:
 
         logger.info(
             "MAVLink heartbeat received (sys=%s comp=%s)",
-            self._target_system, self._target_component,
+            self._target_system,
+            self._target_component,
         )
 
         self._stop_evt.clear()
         self._rx_thread = threading.Thread(
-            target=self._rx_loop, name="mavlink-rx", daemon=True,
+            target=self._rx_loop,
+            name="mavlink-rx",
+            daemon=True,
         )
         self._rx_thread.start()
 
@@ -226,7 +232,7 @@ class MavlinkController:
         """
         self._send_command_long_and_wait(
             command=400,  # MAV_CMD_COMPONENT_ARM_DISARM
-            param1=1.0,   # arm
+            param1=1.0,  # arm
             param2=21196.0 if force else 0.0,
             timeout_s=timeout_s,
             description="arm",
@@ -250,9 +256,9 @@ class MavlinkController:
         """
         self._send_command_long_and_wait(
             command=176,  # MAV_CMD_DO_SET_MODE
-            param1=1.0,   # MAV_MODE_FLAG_CUSTOM_MODE_ENABLED
-            param2=4.0,   # PX4_CUSTOM_MAIN_MODE_AUTO
-            param3=2.0,   # PX4_CUSTOM_SUB_MODE_AUTO_TAKEOFF
+            param1=1.0,  # MAV_MODE_FLAG_CUSTOM_MODE_ENABLED
+            param2=4.0,  # PX4_CUSTOM_MAIN_MODE_AUTO
+            param3=2.0,  # PX4_CUSTOM_SUB_MODE_AUTO_TAKEOFF
             timeout_s=timeout_s,
             description="set AUTO_TAKEOFF mode",
         )
@@ -262,8 +268,8 @@ class MavlinkController:
         self._send_command_long_and_wait(
             command=176,  # MAV_CMD_DO_SET_MODE
             param1=1.0,
-            param2=4.0,   # AUTO main mode
-            param3=6.0,   # AUTO_LAND sub mode
+            param2=4.0,  # AUTO main mode
+            param3=6.0,  # AUTO_LAND sub mode
             timeout_s=timeout_s,
             description="set AUTO_LAND mode",
         )
@@ -271,7 +277,7 @@ class MavlinkController:
     def takeoff(self, alt_m: float, timeout_s: float = 5.0) -> None:
         """Send MAV_CMD_NAV_TAKEOFF with the requested altitude."""
         self._send_command_long_and_wait(
-            command=22,   # MAV_CMD_NAV_TAKEOFF
+            command=22,  # MAV_CMD_NAV_TAKEOFF
             param7=float(alt_m),
             timeout_s=timeout_s,
             description=f"takeoff to {alt_m}m",
@@ -279,7 +285,7 @@ class MavlinkController:
 
     def land(self, timeout_s: float = 5.0) -> None:
         self._send_command_long_and_wait(
-            command=21,   # MAV_CMD_NAV_LAND
+            command=21,  # MAV_CMD_NAV_LAND
             timeout_s=timeout_s,
             description="land",
         )
@@ -296,15 +302,19 @@ class MavlinkController:
         custom_mode = 6 << 24
         self._send_command_long_and_wait(
             command=176,  # MAV_CMD_DO_SET_MODE
-            param1=1.0,   # MAV_MODE_FLAG_CUSTOM_MODE_ENABLED
+            param1=1.0,  # MAV_MODE_FLAG_CUSTOM_MODE_ENABLED
             param2=float(custom_mode >> 16),  # PX4 main mode
-            param3=0.0,   # PX4 sub mode
+            param3=0.0,  # PX4 sub mode
             timeout_s=timeout_s,
             description="set OFFBOARD mode",
         )
 
     def set_velocity(
-        self, vx_mps: float, vy_mps: float, vz_mps: float, yaw_rate_rps: float,
+        self,
+        vx_mps: float,
+        vy_mps: float,
+        vz_mps: float,
+        yaw_rate_rps: float,
     ) -> None:
         """Update the streaming setpoint.
 
@@ -331,7 +341,9 @@ class MavlinkController:
                 code="NOT_CONNECTED",
             )
         self._tx_thread = threading.Thread(
-            target=self._tx_loop, name="mavlink-tx", daemon=True,
+            target=self._tx_loop,
+            name="mavlink-tx",
+            daemon=True,
         )
         self._tx_thread.start()
 
@@ -372,10 +384,14 @@ class MavlinkController:
         if msg_type == "LOCAL_POSITION_NED":
             with self._telemetry_lock:
                 self._telemetry.local_position = (
-                    float(msg.x), float(msg.y), float(msg.z),
+                    float(msg.x),
+                    float(msg.y),
+                    float(msg.z),
                 )
                 self._telemetry.local_velocity = (
-                    float(msg.vx), float(msg.vy), float(msg.vz),
+                    float(msg.vx),
+                    float(msg.vy),
+                    float(msg.vz),
                 )
             return
 
@@ -409,10 +425,14 @@ class MavlinkController:
         # Bits set = ignored. We zero the velocity bits (1,2,4) and the
         # yaw-rate bit (2048), and set everything else.
         type_mask = (
-            (1 << 0) | (1 << 1) | (1 << 2)  # ignore position x/y/z
+            (1 << 0)
+            | (1 << 1)
+            | (1 << 2)  # ignore position x/y/z
             # bits 3,4,5 = velocity x/y/z (0 = use)
-            | (1 << 6) | (1 << 7) | (1 << 8)  # ignore acceleration
-            | (1 << 10)                       # ignore yaw
+            | (1 << 6)
+            | (1 << 7)
+            | (1 << 8)  # ignore acceleration
+            | (1 << 10)  # ignore yaw
             # bit 11 = yaw_rate (0 = use)
         )
         # MAV_FRAME_LOCAL_NED == 1
@@ -430,15 +450,21 @@ class MavlinkController:
                     )
                 with self._mav_lock:
                     self._conn.mav.set_position_target_local_ned_send(
-                        0,                         # time_boot_ms
+                        0,  # time_boot_ms
                         self._target_system,
                         self._target_component,
                         frame,
                         type_mask,
-                        0.0, 0.0, 0.0,             # x, y, z (ignored)
-                        sp.vx_mps, sp.vy_mps, sp.vz_mps,
-                        0.0, 0.0, 0.0,             # afx, afy, afz (ignored)
-                        0.0,                       # yaw (ignored)
+                        0.0,
+                        0.0,
+                        0.0,  # x, y, z (ignored)
+                        sp.vx_mps,
+                        sp.vy_mps,
+                        sp.vz_mps,
+                        0.0,
+                        0.0,
+                        0.0,  # afx, afy, afz (ignored)
+                        0.0,  # yaw (ignored)
                         sp.yaw_rate_rps,
                     )
             except Exception as exc:  # noqa: BLE001
@@ -477,9 +503,17 @@ class MavlinkController:
         try:
             with self._mav_lock:
                 self._conn.mav.command_long_send(
-                    self._target_system, self._target_component,
-                    command, 0,
-                    param1, param2, param3, param4, param5, param6, param7,
+                    self._target_system,
+                    self._target_component,
+                    command,
+                    0,
+                    param1,
+                    param2,
+                    param3,
+                    param4,
+                    param5,
+                    param6,
+                    param7,
                 )
             if not event.wait(timeout=timeout_s):
                 raise MavlinkError(

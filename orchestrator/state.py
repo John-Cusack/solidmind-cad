@@ -1,4 +1,5 @@
 """Orchestrator state machine — deterministic transitions with reason codes."""
+
 from __future__ import annotations
 
 import logging
@@ -17,43 +18,68 @@ log = logging.getLogger(__name__)
 
 # Valid transitions: current_state → set of allowed next states
 _TRANSITIONS: dict[SpecStatus, set[SpecStatus]] = {
-    SpecStatus.DRAFT:                {SpecStatus.NORMALIZING, SpecStatus.FAILED},
-    SpecStatus.NORMALIZING:          {SpecStatus.COUNCIL_REVIEW, SpecStatus.FAILED},
-    SpecStatus.COUNCIL_REVIEW:       {SpecStatus.LAYOUT_FROZEN, SpecStatus.DRAFT, SpecStatus.FAILED},
-    SpecStatus.LAYOUT_FROZEN:        {SpecStatus.INTERFACES_FROZEN, SpecStatus.COUNCIL_REVIEW, SpecStatus.FAILED},
-    SpecStatus.INTERFACES_FROZEN:    {SpecStatus.BUILDING, SpecStatus.LAYOUT_FROZEN, SpecStatus.FAILED},
-    SpecStatus.BUILDING:             {SpecStatus.GEOMETRY_VALIDATING, SpecStatus.BUILDING, SpecStatus.FAILED},
-    SpecStatus.GEOMETRY_VALIDATING:  {SpecStatus.SCORING, SpecStatus.BUILDING, SpecStatus.COUNCIL_REVIEW, SpecStatus.FAILED},
-    SpecStatus.SCORING:              {SpecStatus.RELEASE_PACKAGING, SpecStatus.COUNCIL_REVIEW, SpecStatus.BUILDING, SpecStatus.FAILED},
-    SpecStatus.RELEASE_PACKAGING:    {SpecStatus.AWAITING_HUMAN, SpecStatus.INTERFACES_FROZEN, SpecStatus.GEOMETRY_VALIDATING, SpecStatus.SCORING, SpecStatus.FAILED},
-    SpecStatus.AWAITING_HUMAN:       {SpecStatus.DONE, SpecStatus.COUNCIL_REVIEW, SpecStatus.FAILED},
-    SpecStatus.DONE:                 set(),
-    SpecStatus.FAILED:               set(),
+    SpecStatus.DRAFT: {SpecStatus.NORMALIZING, SpecStatus.FAILED},
+    SpecStatus.NORMALIZING: {SpecStatus.COUNCIL_REVIEW, SpecStatus.FAILED},
+    SpecStatus.COUNCIL_REVIEW: {SpecStatus.LAYOUT_FROZEN, SpecStatus.DRAFT, SpecStatus.FAILED},
+    SpecStatus.LAYOUT_FROZEN: {
+        SpecStatus.INTERFACES_FROZEN,
+        SpecStatus.COUNCIL_REVIEW,
+        SpecStatus.FAILED,
+    },
+    SpecStatus.INTERFACES_FROZEN: {
+        SpecStatus.BUILDING,
+        SpecStatus.LAYOUT_FROZEN,
+        SpecStatus.FAILED,
+    },
+    SpecStatus.BUILDING: {SpecStatus.GEOMETRY_VALIDATING, SpecStatus.BUILDING, SpecStatus.FAILED},
+    SpecStatus.GEOMETRY_VALIDATING: {
+        SpecStatus.SCORING,
+        SpecStatus.BUILDING,
+        SpecStatus.COUNCIL_REVIEW,
+        SpecStatus.FAILED,
+    },
+    SpecStatus.SCORING: {
+        SpecStatus.RELEASE_PACKAGING,
+        SpecStatus.COUNCIL_REVIEW,
+        SpecStatus.BUILDING,
+        SpecStatus.FAILED,
+    },
+    SpecStatus.RELEASE_PACKAGING: {
+        SpecStatus.AWAITING_HUMAN,
+        SpecStatus.INTERFACES_FROZEN,
+        SpecStatus.GEOMETRY_VALIDATING,
+        SpecStatus.SCORING,
+        SpecStatus.FAILED,
+    },
+    SpecStatus.AWAITING_HUMAN: {SpecStatus.DONE, SpecStatus.COUNCIL_REVIEW, SpecStatus.FAILED},
+    SpecStatus.DONE: set(),
+    SpecStatus.FAILED: set(),
 }
 
 # Where each failure code routes to for retry
 _FAILURE_RETRY_TARGET: dict[FailureCode, SpecStatus] = {
-    FailureCode.WORKER_TIMEOUT:         SpecStatus.BUILDING,
-    FailureCode.WORKER_TOOL_ERROR:      SpecStatus.BUILDING,
-    FailureCode.MISSING_ARTIFACT:       SpecStatus.BUILDING,
+    FailureCode.WORKER_TIMEOUT: SpecStatus.BUILDING,
+    FailureCode.WORKER_TOOL_ERROR: SpecStatus.BUILDING,
+    FailureCode.MISSING_ARTIFACT: SpecStatus.BUILDING,
     FailureCode.MANIFEST_HASH_MISMATCH: SpecStatus.BUILDING,
     FailureCode.INTERFACE_DIM_MISMATCH: SpecStatus.BUILDING,
-    FailureCode.MEASUREMENT_DRIFT:      SpecStatus.BUILDING,
-    FailureCode.CLEARANCE_COLLISION:    SpecStatus.BUILDING,
-    FailureCode.MASS_OVER_BUDGET:       SpecStatus.BUILDING,
-    FailureCode.ENVELOPE_VIOLATION:     SpecStatus.COUNCIL_REVIEW,
-    FailureCode.ME_CHECK_FAIL:          SpecStatus.BUILDING,
-    FailureCode.OBJECTIVE_THRESHOLD:    SpecStatus.COUNCIL_REVIEW,
-    FailureCode.BUDGET_EXCEEDED:        SpecStatus.FAILED,
-    FailureCode.SKELETON_CONFLICT:      SpecStatus.LAYOUT_FROZEN,
-    FailureCode.ICD_INCOMPLETE:         SpecStatus.INTERFACES_FROZEN,
-    FailureCode.ASSEMBLY_ACCESS_FAIL:   SpecStatus.LAYOUT_FROZEN,
+    FailureCode.MEASUREMENT_DRIFT: SpecStatus.BUILDING,
+    FailureCode.CLEARANCE_COLLISION: SpecStatus.BUILDING,
+    FailureCode.MASS_OVER_BUDGET: SpecStatus.BUILDING,
+    FailureCode.ENVELOPE_VIOLATION: SpecStatus.COUNCIL_REVIEW,
+    FailureCode.ME_CHECK_FAIL: SpecStatus.BUILDING,
+    FailureCode.OBJECTIVE_THRESHOLD: SpecStatus.COUNCIL_REVIEW,
+    FailureCode.BUDGET_EXCEEDED: SpecStatus.FAILED,
+    FailureCode.SKELETON_CONFLICT: SpecStatus.LAYOUT_FROZEN,
+    FailureCode.ICD_INCOMPLETE: SpecStatus.INTERFACES_FROZEN,
+    FailureCode.ASSEMBLY_ACCESS_FAIL: SpecStatus.LAYOUT_FROZEN,
 }
 
 
 # ---------------------------------------------------------------------------
 # Event log
 # ---------------------------------------------------------------------------
+
 
 @dataclass(slots=True)
 class StateEvent:
@@ -70,6 +96,7 @@ class StateEvent:
 # ---------------------------------------------------------------------------
 # State machine
 # ---------------------------------------------------------------------------
+
 
 @dataclass(slots=True)
 class StateMachine:
@@ -106,7 +133,10 @@ class StateMachine:
         self.history.append(event)
         log.info(
             "State: %s → %s (reason=%s, code=%s)",
-            self.current.value, to.value, reason, failure_code,
+            self.current.value,
+            to.value,
+            reason,
+            failure_code,
         )
         self.current = to
 
@@ -142,7 +172,9 @@ class StateMachine:
         if count > max_retries:
             log.warning(
                 "Retry budget exhausted for %s (%d/%d). Failing.",
-                key, count, max_retries,
+                key,
+                count,
+                max_retries,
             )
             self.transition(
                 SpecStatus.FAILED,

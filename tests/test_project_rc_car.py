@@ -6,6 +6,7 @@ rear solid axle, brushless motor + ESC bay, LiPo tray.
 Always-run: design pipeline, Tier 1 analytical, Gazebo stub, FEA coupling.
 Conditionally-run: Elmer thermal (skip if Elmer/Gmsh unavailable).
 """
+
 from __future__ import annotations
 
 import json
@@ -29,12 +30,11 @@ from server.tools_design import (
 )
 from tests.conftest import GazeboStubBridge, mechanism_factory, unused_tcp_port
 
-_ELMER_AVAILABLE = bool(
-    shutil.which("ElmerSolver") and shutil.which("ElmerGrid")
-)
+_ELMER_AVAILABLE = bool(shutil.which("ElmerSolver") and shutil.which("ElmerGrid"))
 _GMSH_AVAILABLE = False
 try:
     import gmsh as _gmsh  # noqa: F401
+
     _GMSH_AVAILABLE = True
 except ImportError:
     pass
@@ -93,7 +93,12 @@ class TestRCCarDesignPipeline(unittest.TestCase):
         # Phase 2: Sizing
         design_update_brief(bid, status="sizing")
         parts = [
-            ("chassis_plate", "custom", 1, {"material": "CF 4mm", "length_mm": 400, "width_mm": 180}),
+            (
+                "chassis_plate",
+                "custom",
+                1,
+                {"material": "CF 4mm", "length_mm": 400, "width_mm": 180},
+            ),
             ("upper_wishbone_l", "custom", 1, {"material": "aluminum", "length_mm": 80}),
             ("upper_wishbone_r", "custom", 1, {"material": "aluminum", "length_mm": 80}),
             ("lower_wishbone_l", "custom", 1, {"material": "aluminum", "length_mm": 90}),
@@ -130,25 +135,30 @@ class TestRCCarDesignPipeline(unittest.TestCase):
             ("chassis_plate", "motor_bay", "motor_mount", "base", {"pattern": "M3_bolt_4"}),
         ]
         for pa, porta, pb, portb, spec in interfaces:
-            r = design_add_interface(bid, part_a=pa, port_a=porta, part_b=pb, port_b=portb, spec=spec)
+            r = design_add_interface(
+                bid, part_a=pa, port_a=porta, part_b=pb, port_b=portb, spec=spec
+            )
             self.assertTrue(r["ok"], f"Failed to add interface {pa}-{pb}: {r}")
 
         # Layout positions
-        design_update_brief(bid, parameters={
-            "intent": "1/10 scale RC car",
-            "constraints": {"wheelbase_mm": 400, "track_mm": 250},
-            "layout": {
-                "positions": {
-                    "chassis_plate": [0, 0, 0],
-                    "upper_wishbone_l": [-125, 160, 15],
-                    "upper_wishbone_r": [125, 160, 15],
-                    "lower_wishbone_l": [-125, 160, -5],
-                    "lower_wishbone_r": [125, 160, -5],
-                    "rear_axle_housing": [0, -200, -10],
-                    "motor_mount": [0, -150, 10],
+        design_update_brief(
+            bid,
+            parameters={
+                "intent": "1/10 scale RC car",
+                "constraints": {"wheelbase_mm": 400, "track_mm": 250},
+                "layout": {
+                    "positions": {
+                        "chassis_plate": [0, 0, 0],
+                        "upper_wishbone_l": [-125, 160, 15],
+                        "upper_wishbone_r": [125, 160, 15],
+                        "lower_wishbone_l": [-125, 160, -5],
+                        "lower_wishbone_r": [125, 160, -5],
+                        "rear_axle_housing": [0, -200, -10],
+                        "motor_mount": [0, -150, 10],
+                    },
                 },
             },
-        })
+        )
 
         # Approve
         design_update_brief(bid, status="approved")
@@ -198,13 +208,16 @@ class TestRCCarMechanism(unittest.TestCase):
         states = self._propagation["states"]
         self.assertIn("rear_axle", states)
         self.assertAlmostEqual(
-            abs(states["rear_axle"]["rpm"]), 300.0, delta=1.0,
+            abs(states["rear_axle"]["rpm"]),
+            300.0,
+            delta=1.0,
         )
 
     def test_03_suspension_dof(self) -> None:
         """Suspension has multiple DOF (wishbones + steering + axle)."""
         # The mechanism has 16 joints — should not be over-constrained
         from server.tools_motion import motion_validate
+
         val = motion_validate(self._mech_id)
         self.assertTrue(val["ok"])
 
@@ -217,12 +230,17 @@ class TestRCCarGazeboSim(unittest.TestCase):
         port = unused_tcp_port()
         mech = mechanism_factory("rc_car_suspension")
         with GazeboStubBridge(port) as bridge:
-            resp = _send_command(bridge.host, bridge.port, "simulate", {
-                "mechanism": mech,
-                "duration_s": 1.0,
-                "dt_s": 0.01,
-                "output_interval": 0.1,
-            })
+            resp = _send_command(
+                bridge.host,
+                bridge.port,
+                "simulate",
+                {
+                    "mechanism": mech,
+                    "duration_s": 1.0,
+                    "dt_s": 0.01,
+                    "output_interval": 0.1,
+                },
+            )
         self.assertTrue(resp["ok"], resp)
         result = resp["result"]
         self.assertIn("time_series", result)
@@ -233,12 +251,17 @@ class TestRCCarGazeboSim(unittest.TestCase):
         port = unused_tcp_port()
         mech = mechanism_factory("rc_car_suspension")
         with GazeboStubBridge(port) as bridge:
-            resp = _send_command(bridge.host, bridge.port, "simulate", {
-                "mechanism": mech,
-                "duration_s": 1.0,
-                "dt_s": 0.01,
-                "output_interval": 0.1,
-            })
+            resp = _send_command(
+                bridge.host,
+                bridge.port,
+                "simulate",
+                {
+                    "mechanism": mech,
+                    "duration_s": 1.0,
+                    "dt_s": 0.01,
+                    "output_interval": 0.1,
+                },
+            )
         self.assertTrue(resp["ok"])
 
         bcs = bcs_from_simulation(
@@ -360,14 +383,17 @@ class TestRCCarFEACoupling(unittest.TestCase):
             bid = r["brief"]["brief_id"]
 
             # Lower battery tray from -5mm to -15mm to reduce body roll
-            design_update_brief(bid, parameters={
-                "layout": {
-                    "positions": {
-                        "chassis_plate": [0, 0, 0],
-                        "battery_tray": [0, 0, -15],
+            design_update_brief(
+                bid,
+                parameters={
+                    "layout": {
+                        "positions": {
+                            "chassis_plate": [0, 0, 0],
+                            "battery_tray": [0, 0, -15],
+                        },
                     },
                 },
-            })
+            )
 
             brief = design_get_brief(bid)["brief"]
             bat_z = brief["parameters"]["layout"]["positions"]["battery_tray"][2]
@@ -522,8 +548,11 @@ class TestRCCarWishboneGeometry(unittest.TestCase):
             camber_per_mm_rad = 1.0 / ic_height
             camber_per_20mm_deg = math.degrees(camber_per_mm_rad * 20)
             # Should be < 10° for 20mm travel — indicates functional suspension
-            self.assertLess(abs(camber_per_20mm_deg), 10.0,
-                            "Camber change should be moderate for double wishbone")
+            self.assertLess(
+                abs(camber_per_20mm_deg),
+                10.0,
+                "Camber change should be moderate for double wishbone",
+            )
 
     def test_02_track_width_update(self) -> None:
         """If body roll > 5° → widen track → update layout."""
@@ -545,15 +574,18 @@ class TestRCCarWishboneGeometry(unittest.TestCase):
             bid = r["brief"]["brief_id"]
 
             # Widen track from 250mm to 280mm
-            design_update_brief(bid, parameters={
-                "constraints": {"track_mm": 280},
-                "layout": {
-                    "positions": {
-                        "wheel_hub_fl": [-140, 160, 0],
-                        "wheel_hub_fr": [140, 160, 0],
+            design_update_brief(
+                bid,
+                parameters={
+                    "constraints": {"track_mm": 280},
+                    "layout": {
+                        "positions": {
+                            "wheel_hub_fl": [-140, 160, 0],
+                            "wheel_hub_fr": [140, 160, 0],
+                        },
                     },
                 },
-            })
+            )
 
             brief = design_get_brief(bid)["brief"]
             track = brief["parameters"]["constraints"]["track_mm"]

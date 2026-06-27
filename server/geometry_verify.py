@@ -126,9 +126,7 @@ class VerificationEngine:
             )
 
         # Determine overall pass/fail
-        all_passed = all(
-            r.passed or r.severity not in ("error", "critical") for r in results
-        )
+        all_passed = all(r.passed or r.severity not in ("error", "critical") for r in results)
         if self._strict:
             all_passed = all(r.passed for r in results if r.severity == "error")
 
@@ -475,7 +473,11 @@ class VerificationEngine:
             width = pocket.get("width", {})
             depth_val = depth.get("value") if isinstance(depth, dict) else depth
             width_val = width.get("value") if isinstance(width, dict) else width
-            if isinstance(depth_val, (int, float)) and isinstance(width_val, (int, float)) and width_val > 0:
+            if (
+                isinstance(depth_val, (int, float))
+                and isinstance(width_val, (int, float))
+                and width_val > 0
+            ):
                 ratio = float(depth_val) / float(width_val)
                 worst_ratio = ratio if worst_ratio is None else max(worst_ratio, ratio)
 
@@ -646,7 +648,8 @@ class VerificationEngine:
         gir_count = len(gir.features)
         # Count meaningful operations (exclude validate)
         exec_count = sum(
-            1 for s in execution_trace.steps
+            1
+            for s in execution_trace.steps
             if s.status == "completed" and s.op.op_type not in ("validate", "cad.get_dimensions")
         )
 
@@ -685,12 +688,14 @@ def _compute_report_hash(report: VerificationReport) -> str:
     """Compute deterministic hash of verification report."""
     results_data = []
     for r in report.results:
-        results_data.append({
-            "check_id": r.check_id,
-            "check_type": r.check_type,
-            "passed": r.passed,
-            "severity": r.severity,
-        })
+        results_data.append(
+            {
+                "check_id": r.check_id,
+                "check_type": r.check_type,
+                "passed": r.passed,
+                "severity": r.severity,
+            }
+        )
 
     canonical = {
         "results": results_data,

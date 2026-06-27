@@ -6,6 +6,7 @@ Usage:
     python scripts/ingest_knowledge.py ~/nasa-reports/
     python scripts/ingest_knowledge.py ~/docs/turbine-handbook.pdf
 """
+
 from __future__ import annotations
 
 import argparse

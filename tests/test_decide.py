@@ -1,4 +1,5 @@
 """TICKET-D: decide.from_failure + interpret_compare_to_expectations."""
+
 from __future__ import annotations
 
 import unittest
@@ -71,8 +72,9 @@ def _result(*, mode, max_vm, check_face="tooth_root") -> FieldResult:
         safety_factor=0.8,
         max_von_mises_mpa=max_vm,
         max_displacement_mm=0.2,
-        checks=(AnalysisCheck(name="c", status=CheckStatus.FAIL,
-                              message="m", face_group=check_face),),
+        checks=(
+            AnalysisCheck(name="c", status=CheckStatus.FAIL, message="m", face_group=check_face),
+        ),
         scalar_fields=(),
         failure_mode=mode,
     )
@@ -127,8 +129,11 @@ class TestInterpret(unittest.TestCase):
 class TestFromFailureSuggestion(unittest.TestCase):
     def test_uses_check_suggestion_when_present(self) -> None:
         chk = AnalysisCheck(
-            name="latch", status=CheckStatus.FAIL, message="m",
-            face_group="root", failure_mode=FailureMode.STRESS_CONCENTRATION,
+            name="latch",
+            status=CheckStatus.FAIL,
+            message="m",
+            face_group="root",
+            failure_mode=FailureMode.STRESS_CONCENTRATION,
             suggestion="add a 0.5 mm root fillet (from screen)",
         )
         fix = from_failure(chk)
@@ -142,9 +147,13 @@ class TestFromFailureSuggestion(unittest.TestCase):
 class TestFailureModeLoadTolerance(unittest.TestCase):
     def test_unknown_failure_mode_does_not_crash_from_dict(self) -> None:
         d = FieldResult(
-            analysis_id="a", status=CheckStatus.FAIL, safety_factor=0.5,
-            max_von_mises_mpa=10.0, max_displacement_mm=0.0,
-            checks=(), scalar_fields=(),
+            analysis_id="a",
+            status=CheckStatus.FAIL,
+            safety_factor=0.5,
+            max_von_mises_mpa=10.0,
+            max_displacement_mm=0.0,
+            checks=(),
+            scalar_fields=(),
         ).to_dict()
         d["failure_mode"] = "some_future_mode"  # not in the enum
         restored = FieldResult.from_dict(d)  # must not raise

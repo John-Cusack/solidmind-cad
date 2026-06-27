@@ -20,7 +20,13 @@ def _make_trace(ops_status: list[tuple[str, str]] | None = None) -> ExecutionTra
     steps = []
     for i, (op_type, status) in enumerate(ops_status):
         op = CompiledOp(id=f"OP{i}", op_type=op_type, inputs={})
-        steps.append(ExecutionStep(op=op, status=status, output={"status": "success"} if status == "completed" else {"status": "error"}))
+        steps.append(
+            ExecutionStep(
+                op=op,
+                status=status,
+                output={"status": "success"} if status == "completed" else {"status": "error"},
+            )
+        )
 
     return ExecutionTrace(steps=steps)
 
@@ -29,14 +35,18 @@ def _make_gir(holes: list[float] | None = None, fillets: list[float] | None = No
     """Create a GIR with optional holes and fillets."""
     builder = GIRBuilder()
     builder.add_global_frame()
-    builder.add_primitive("box", {
-        "length": Quantity(100.0, "mm"),
-        "width": Quantity(50.0, "mm"),
-        "height": Quantity(20.0, "mm"),
-    })
+    builder.add_primitive(
+        "box",
+        {
+            "length": Quantity(100.0, "mm"),
+            "width": Quantity(50.0, "mm"),
+            "height": Quantity(20.0, "mm"),
+        },
+    )
 
     if holes:
         from server.geometry_ir import Point3D
+
         for d in holes:
             builder.add_hole_intent(
                 diameter=Quantity(d, "mm"),

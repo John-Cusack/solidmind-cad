@@ -1,4 +1,5 @@
 """JSON-file persistence for field analyses in analyses/<analysis_id>/."""
+
 from __future__ import annotations
 
 import json
@@ -49,13 +50,15 @@ def list_analyses(*, root: Path | None = None) -> list[dict[str, Any]]:
         if fp.is_file():
             try:
                 data = json.loads(fp.read_text())
-                summaries.append({
-                    "id": data.get("analysis_id", entry.name),
-                    "status": data.get("status", "unknown"),
-                    "safety_factor": data.get("safety_factor", 0),
-                    "max_von_mises_mpa": data.get("max_von_mises_mpa", 0),
-                    "solver_name": data.get("solver_name", ""),
-                })
+                summaries.append(
+                    {
+                        "id": data.get("analysis_id", entry.name),
+                        "status": data.get("status", "unknown"),
+                        "safety_factor": data.get("safety_factor", 0),
+                        "max_von_mises_mpa": data.get("max_von_mises_mpa", 0),
+                        "solver_name": data.get("solver_name", ""),
+                    }
+                )
             except (json.JSONDecodeError, KeyError):
                 continue
     return summaries

@@ -1,4 +1,5 @@
 """Tests for the manufacturing readiness MCP tools."""
+
 from __future__ import annotations
 
 import unittest
@@ -13,11 +14,13 @@ class TestMfgSetProperty(unittest.TestCase):
         client = MagicMock()
         mock_get.return_value = client
 
-        result = mfg_set_property(properties={
-            "process": "cnc",
-            "material_family": "aluminum",
-            "material_grade": "6061-T6",
-        })
+        result = mfg_set_property(
+            properties={
+                "process": "cnc",
+                "material_family": "aluminum",
+                "material_grade": "6061-T6",
+            }
+        )
         self.assertTrue(result["ok"])
         self.assertIn("process", result["properties_set"])
         self.assertIn("material_family", result["properties_set"])
@@ -85,13 +88,15 @@ class TestMfgReadinessCheck(unittest.TestCase):
 
 class TestMfgExportRfq(unittest.TestCase):
     def test_generates_markdown(self) -> None:
-        result = mfg_export_rfq(properties={
-            "process": "cnc",
-            "material_family": "aluminum",
-            "material_grade": "6061-T6",
-            "quantity": 10,
-            "tolerance_general": "ISO 2768-m",
-        })
+        result = mfg_export_rfq(
+            properties={
+                "process": "cnc",
+                "material_family": "aluminum",
+                "material_grade": "6061-T6",
+                "quantity": 10,
+                "tolerance_general": "ISO 2768-m",
+            }
+        )
         self.assertTrue(result["ok"])
         md = result["rfq_markdown"]
         self.assertIn("Request for Quote", md)

@@ -10,6 +10,7 @@ Storage lives at ``me_knowledge/lancedb/`` (git-ignorable).
 Module-level singleton via ``get_knowledge_store()`` / ``reset_knowledge_store()``,
 matching the pattern used by ``freecad_client.py``.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -24,15 +25,14 @@ from typing import Any
 # Load .env from project root if present (python-dotenv is a transitive dep)
 try:
     from dotenv import load_dotenv
+
     load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 except ImportError:
     pass
 
 logger = logging.getLogger("solidmind.knowledge_store")
 
-_DEFAULT_DB_PATH = str(
-    Path(__file__).resolve().parent.parent / "me_knowledge" / "lancedb"
-)
+_DEFAULT_DB_PATH = str(Path(__file__).resolve().parent.parent / "me_knowledge" / "lancedb")
 _TABLE_NAME = "documents"
 
 # Chunking defaults
@@ -44,9 +44,11 @@ _CHUNK_OVERLAP = 50
 # Result dataclasses
 # ---------------------------------------------------------------------------
 
+
 @dataclass(frozen=True, slots=True)
 class SearchResult:
     """A single search hit from the knowledge base."""
+
     content: str
     source: str
     score: float
@@ -56,6 +58,7 @@ class SearchResult:
 @dataclass(frozen=True, slots=True)
 class ExtractResult:
     """Parsed content returned from document extraction."""
+
     text: str
     filename: str
     pages: int
@@ -65,6 +68,7 @@ class ExtractResult:
 @dataclass(frozen=True, slots=True)
 class IngestResult:
     """Result from ingesting a file (synchronous)."""
+
     task_id: str
     filename: str
     status: str  # "complete" or "failed"
@@ -74,6 +78,7 @@ class IngestResult:
 # ---------------------------------------------------------------------------
 # Embedding helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_embedding_fn() -> Any:
     """Pick embedding function based on environment.
@@ -92,14 +97,20 @@ def _make_embedding_fn() -> Any:
     if ollama_url:
         model_name = os.environ.get("EMBEDDING_MODEL", "nomic-embed-text")
         try:
-            ollama = get_registry().get("ollama").create(
-                name=model_name,
-                host=ollama_url,
+            ollama = (
+                get_registry()
+                .get("ollama")
+                .create(
+                    name=model_name,
+                    host=ollama_url,
+                )
             )
             logger.info("Using Ollama embeddings (%s) at %s", model_name, ollama_url)
             return ollama
         except Exception as e:
-            logger.warning("Ollama embeddings failed (%s), falling back to sentence-transformers", e)
+            logger.warning(
+                "Ollama embeddings failed (%s), falling back to sentence-transformers", e
+            )
 
     # Fallback: sentence-transformers (GPU if available, else CPU)
     model_name = os.environ.get("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
@@ -107,14 +118,19 @@ def _make_embedding_fn() -> Any:
     if not device:
         try:
             import torch
+
             device = "cuda" if torch.cuda.is_available() else "cpu"
         except ImportError:
             device = "cpu"
     try:
-        st = get_registry().get("sentence-transformers").create(
-            name=model_name,
-            device=device,
-            trust_remote_code=True,
+        st = (
+            get_registry()
+            .get("sentence-transformers")
+            .create(
+                name=model_name,
+                device=device,
+                trust_remote_code=True,
+            )
         )
         logger.info("Using sentence-transformers embeddings (%s) on %s", model_name, device)
         return st
@@ -160,13 +176,15 @@ def _chunk_text(text: str, source: str) -> list[dict[str, Any]]:
 
     for part in parts:
         if len(part) <= max_chars:
-            chunks.append({
-                "id": f"{source}:{chunk_idx}",
-                "text": part,
-                "source": source,
-                "chunk_index": chunk_idx,
-                "metadata": "{}",
-            })
+            chunks.append(
+                {
+                    "id": f"{source}:{chunk_idx}",
+                    "text": part,
+                    "source": source,
+                    "chunk_index": chunk_idx,
+                    "metadata": "{}",
+                }
+            )
             chunk_idx += 1
         else:
             # Split by paragraphs first, then by size
@@ -174,13 +192,15 @@ def _chunk_text(text: str, source: str) -> list[dict[str, Any]]:
             current = ""
             for para in paragraphs:
                 if len(current) + len(para) > max_chars and current:
-                    chunks.append({
-                        "id": f"{source}:{chunk_idx}",
-                        "text": current.strip(),
-                        "source": source,
-                        "chunk_index": chunk_idx,
-                        "metadata": "{}",
-                    })
+                    chunks.append(
+                        {
+                            "id": f"{source}:{chunk_idx}",
+                            "text": current.strip(),
+                            "source": source,
+                            "chunk_index": chunk_idx,
+                            "metadata": "{}",
+                        }
+                    )
                     chunk_idx += 1
                     # Keep overlap
                     current = current[-overlap_chars:] + "\n\n" + para if overlap_chars else para
@@ -188,13 +208,15 @@ def _chunk_text(text: str, source: str) -> list[dict[str, Any]]:
                     current = current + "\n\n" + para if current else para
 
             if current.strip():
-                chunks.append({
-                    "id": f"{source}:{chunk_idx}",
-                    "text": current.strip(),
-                    "source": source,
-                    "chunk_index": chunk_idx,
-                    "metadata": "{}",
-                })
+                chunks.append(
+                    {
+                        "id": f"{source}:{chunk_idx}",
+                        "text": current.strip(),
+                        "source": source,
+                        "chunk_index": chunk_idx,
+                        "metadata": "{}",
+                    }
+                )
                 chunk_idx += 1
 
     return chunks
@@ -203,6 +225,7 @@ def _chunk_text(text: str, source: str) -> list[dict[str, Any]]:
 # ---------------------------------------------------------------------------
 # Docling extraction
 # ---------------------------------------------------------------------------
+
 
 def _extract_with_docling(file_path: Path) -> ExtractResult:
     """Extract text from a file using Docling (in-process)."""
@@ -233,6 +256,7 @@ def _extract_with_docling(file_path: Path) -> ExtractResult:
 # ---------------------------------------------------------------------------
 # Knowledge pack discovery
 # ---------------------------------------------------------------------------
+
 
 def _discover_knowledge_packs() -> list[tuple[str, str, Path]]:
     """Return (domain, version, knowledge_dir) for installed knowledge packs."""
@@ -270,14 +294,16 @@ class KnowledgeStore:
         existing = self._db.table_names()
         if _TABLE_NAME not in existing:
             # Create empty table with schema
-            schema = pa.schema([
-                pa.field("id", pa.string()),
-                pa.field("text", pa.string()),
-                pa.field("source", pa.string()),
-                pa.field("chunk_index", pa.int32()),
-                pa.field("metadata", pa.string()),
-                pa.field("vector", pa.list_(pa.float32(), self._get_ndims())),
-            ])
+            schema = pa.schema(
+                [
+                    pa.field("id", pa.string()),
+                    pa.field("text", pa.string()),
+                    pa.field("source", pa.string()),
+                    pa.field("chunk_index", pa.int32()),
+                    pa.field("metadata", pa.string()),
+                    pa.field("vector", pa.list_(pa.float32(), self._get_ndims())),
+                ]
+            )
             self._db.create_table(_TABLE_NAME, schema=schema)
             logger.info("Created documents table at %s", self._db_path)
 
@@ -431,11 +457,7 @@ class KnowledgeStore:
         results: list[dict[str, Any]] = []
         try:
             # Try FTS first (keyword search — fast and relevant)
-            results = (
-                table.search(query, query_type="fts")
-                .limit(top_k)
-                .to_list()
-            )
+            results = table.search(query, query_type="fts").limit(top_k).to_list()
         except Exception:
             pass
 
@@ -443,11 +465,7 @@ class KnowledgeStore:
             try:
                 # Fall back to pure vector search
                 query_vec = self._embed_query(query)
-                results = (
-                    table.search(query_vec)
-                    .limit(top_k)
-                    .to_list()
-                )
+                results = table.search(query_vec).limit(top_k).to_list()
             except Exception:
                 return []
 
@@ -456,11 +474,7 @@ class KnowledgeStore:
         if results and self._embedding_fn is not None:
             try:
                 query_vec = self._embed_query(query)
-                vec_results = (
-                    table.search(query_vec)
-                    .limit(top_k)
-                    .to_list()
-                )
+                vec_results = table.search(query_vec).limit(top_k).to_list()
                 # Add vector results not already in FTS results
                 seen_ids = {r.get("id") for r in results}
                 for vr in vec_results:
@@ -490,9 +504,16 @@ class KnowledgeStore:
             table = self._db.open_table(_TABLE_NAME)
             row_count = table.count_rows()
             # Count unique sources using Arrow (no pandas needed)
-            sources = len(set(
-                r["source"] for r in table.search().select(["source"]).limit(10000).to_list()
-            )) if row_count > 0 else 0
+            sources = (
+                len(
+                    set(
+                        r["source"]
+                        for r in table.search().select(["source"]).limit(10000).to_list()
+                    )
+                )
+                if row_count > 0
+                else 0
+            )
             return {
                 "available": True,
                 "db_path": self._db_path,
@@ -516,6 +537,7 @@ class KnowledgeStore:
                 return []
             # Group by source
             from collections import Counter
+
             source_counts = Counter(r["source"] for r in rows)
             return [
                 {"source": src, "chunk_count": count}

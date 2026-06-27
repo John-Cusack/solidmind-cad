@@ -1,4 +1,5 @@
 """Data models for the Isaac bridge runtime."""
+
 from __future__ import annotations
 
 import math
@@ -7,19 +8,21 @@ from typing import Any, Protocol, runtime_checkable
 
 SUPPORTED_JOINT_TYPES = frozenset({"revolute", "prismatic", "fixed"})
 
-_URDF_IMPORT_FIELDS: frozenset[str] = frozenset({
-    "merge_fixed_joints",
-    "convex_decomp",
-    "import_inertia_tensor",
-    "fix_base",
-    "distance_scale",
-    "default_drive_type",
-    "default_drive_stiffness",
-    "default_drive_damping",
-    "robot_type",
-    "initial_joint_positions",
-    "spawn_height",
-})
+_URDF_IMPORT_FIELDS: frozenset[str] = frozenset(
+    {
+        "merge_fixed_joints",
+        "convex_decomp",
+        "import_inertia_tensor",
+        "fix_base",
+        "distance_scale",
+        "default_drive_type",
+        "default_drive_stiffness",
+        "default_drive_damping",
+        "robot_type",
+        "initial_joint_positions",
+        "spawn_height",
+    }
+)
 
 # Defaults applied when robot_type == "mobile" and the field is not
 # explicitly provided by the caller.  Stiffness/damping tuned for
@@ -53,7 +56,9 @@ class URDFImportConfig:
     default_drive_damping: float = 100.0
     robot_type: str = "manipulator"
     initial_joint_positions: dict[str, float] = field(default_factory=dict)
-    spawn_height: float = 0.0  # z-offset for root prim (metres); set to ground clearance for mobile robots
+    spawn_height: float = (
+        0.0  # z-offset for root prim (metres); set to ground clearance for mobile robots
+    )
 
     @classmethod
     def from_dict(cls, d: dict[str, Any] | None) -> URDFImportConfig:
@@ -80,7 +85,12 @@ class URDFImportConfig:
 
 # Default joint names for the 6-leg hexapod (1-DOF hip per leg).
 _DEFAULT_JOINT_NAMES: tuple[str, ...] = (
-    "hip_lf", "hip_lm", "hip_lr", "hip_rf", "hip_rm", "hip_rr",
+    "hip_lf",
+    "hip_lm",
+    "hip_lr",
+    "hip_rf",
+    "hip_rm",
+    "hip_rr",
 )
 _DEFAULT_TRIPOD_A: tuple[str, ...] = ("hip_rf", "hip_rr", "hip_lm")
 _DEFAULT_TRIPOD_B: tuple[str, ...] = ("hip_rm", "hip_lr", "hip_lf")
@@ -171,12 +181,24 @@ class TeleopConfig:
     # Per-leg joint names: flat tuple, groups of dofs_per_leg
     # Order: LF, LM, LR, RF, RM, RR (matching leg_phase_offsets)
     leg_joint_names: tuple[str, ...] = (
-        "coxa_lf", "femur_lf", "tibia_lf",
-        "coxa_lm", "femur_lm", "tibia_lm",
-        "coxa_lr", "femur_lr", "tibia_lr",
-        "coxa_rf", "femur_rf", "tibia_rf",
-        "coxa_rm", "femur_rm", "tibia_rm",
-        "coxa_rr", "femur_rr", "tibia_rr",
+        "coxa_lf",
+        "femur_lf",
+        "tibia_lf",
+        "coxa_lm",
+        "femur_lm",
+        "tibia_lm",
+        "coxa_lr",
+        "femur_lr",
+        "tibia_lr",
+        "coxa_rf",
+        "femur_rf",
+        "tibia_rf",
+        "coxa_rm",
+        "femur_rm",
+        "tibia_rm",
+        "coxa_rr",
+        "femur_rr",
+        "tibia_rr",
     )
 
     # Tripod phase offsets [0,1) per leg: LF, LM, LR, RF, RM, RR
@@ -253,9 +275,13 @@ class TeleopConfig:
 
         # 3-DOF leg geometry and gait fields
         _3DOF_POSITIVE: list[str] = [
-            "l_coxa", "l_femur", "l_tibia",
-            "body_length", "body_width",
-            "step_height", "stride_length",
+            "l_coxa",
+            "l_femur",
+            "l_tibia",
+            "body_length",
+            "body_width",
+            "step_height",
+            "stride_length",
         ]
         for key in _3DOF_POSITIVE:
             val = profile.get(key)
@@ -302,9 +328,7 @@ class TeleopConfig:
             parsed_mounts: list[tuple[float, float, float]] = []
             for i, m in enumerate(hm):
                 if not isinstance(m, (list, tuple)) or len(m) != 3:
-                    raise TeleopConfigError(
-                        f"hip_mounts[{i}] must be [x, y, angle_rad], got {m!r}"
-                    )
+                    raise TeleopConfigError(f"hip_mounts[{i}] must be [x, y, angle_rad], got {m!r}")
                 parsed_mounts.append((float(m[0]), float(m[1]), float(m[2])))
             kwargs["hip_mounts"] = tuple(parsed_mounts)
 
@@ -411,9 +435,7 @@ def _validate_tripod_consistency(config: TeleopConfig) -> None:
     # tripod_a and tripod_b must not overlap
     overlap = tripod_a & tripod_b
     if overlap:
-        raise TeleopConfigError(
-            f"tripod_a and tripod_b overlap: {sorted(overlap)}"
-        )
+        raise TeleopConfigError(f"tripod_a and tripod_b overlap: {sorted(overlap)}")
 
     # tripod_a ∪ tripod_b must equal joint_names
     union = tripod_a | tripod_b
@@ -425,9 +447,7 @@ def _validate_tripod_consistency(config: TeleopConfig) -> None:
             parts.append(f"missing from tripods: {sorted(missing)}")
         if extra:
             parts.append(f"not in joint_names: {sorted(extra)}")
-        raise TeleopConfigError(
-            f"tripod_a ∪ tripod_b must equal joint_names; {'; '.join(parts)}"
-        )
+        raise TeleopConfigError(f"tripod_a ∪ tripod_b must equal joint_names; {'; '.join(parts)}")
 
     # Joint count must be even (tripod gait needs paired groups)
     if len(config.joint_names) < 2:
@@ -439,6 +459,7 @@ def _validate_tripod_consistency(config: TeleopConfig) -> None:
 # ──────────────────────────────────────────────────────────────────────
 # Controller protocol (early extraction — P7 brought forward)
 # ──────────────────────────────────────────────────────────────────────
+
 
 @runtime_checkable
 class Controller(Protocol):
@@ -522,7 +543,9 @@ class SimulationSession:
     filtered_yaw: float = 0.0  # Slew-filtered yaw rate
     filtered_height: float = 0.0  # Slew-filtered body height
     dof_index_map: dict[str, int] = field(default_factory=dict)  # joint_name → DOF index
-    joint_limits: dict[str, tuple[float, float]] = field(default_factory=dict)  # joint_name → (lo, hi) rad
+    joint_limits: dict[str, tuple[float, float]] = field(
+        default_factory=dict
+    )  # joint_name → (lo, hi) rad
     last_joint_targets_rad: dict[str, float] = field(default_factory=dict)
     limit_clamp_count: int = 0
     tick_count: int = 0

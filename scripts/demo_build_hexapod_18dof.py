@@ -21,6 +21,7 @@ Usage::
     # Export URDF sim package after building
     python3 scripts/demo_build_hexapod_18dof.py --export
 """
+
 from __future__ import annotations
 
 import argparse
@@ -36,12 +37,12 @@ PORT = 9876
 
 # ── Geometry constants ───────────────────────────────────────────────
 
-CHASSIS_RADIUS = 75.0       # mm
-CHASSIS_THICKNESS = 5.0     # mm
-SERVO_POCKET_W = 24.0       # mm (along radial)
-SERVO_POCKET_H = 22.0       # mm (along tangential)
-SERVO_POCKET_DEPTH = 3.0    # mm
-FILLET_RADIUS = 1.5         # mm
+CHASSIS_RADIUS = 75.0  # mm
+CHASSIS_THICKNESS = 5.0  # mm
+SERVO_POCKET_W = 24.0  # mm (along radial)
+SERVO_POCKET_H = 22.0  # mm (along tangential)
+SERVO_POCKET_DEPTH = 3.0  # mm
+FILLET_RADIUS = 1.5  # mm
 
 # Segment lengths (mm) — from add_hexapod_servos.py
 COXA_LEN = 52.0
@@ -49,34 +50,34 @@ FEMUR_LEN = 66.0
 TIBIA_LEN = 133.0
 
 # Standing pose angles
-FEMUR_PITCH = math.radians(30)   # 30° below horizontal
-TIBIA_PITCH = math.radians(70)   # 70° below horizontal
+FEMUR_PITCH = math.radians(30)  # 30° below horizontal
+TIBIA_PITCH = math.radians(70)  # 70° below horizontal
 
 # Chassis height so feet touch ground (z = 0)
 TOTAL_DROP = FEMUR_LEN * math.sin(FEMUR_PITCH) + TIBIA_LEN * math.sin(TIBIA_PITCH)
 CHASSIS_Z = TOTAL_DROP  # ~158 mm
 
 # Servo block dimensions (AX-12A proportional)
-SERVO_W = 32.0   # mm along shaft axis
-SERVO_H = 24.0   # mm width
-SERVO_D = 24.0   # mm depth
+SERVO_W = 32.0  # mm along shaft axis
+SERVO_H = 24.0  # mm width
+SERVO_D = 24.0  # mm depth
 
 # Link cross-sections
-COXA_W = 20.0    # mm
-COXA_D = 12.0    # mm
-FEMUR_W = 16.0   # mm
-FEMUR_D = 10.0   # mm
-TIBIA_W = 12.0   # mm
-TIBIA_D = 8.0    # mm
+COXA_W = 20.0  # mm
+COXA_D = 12.0  # mm
+FEMUR_W = 16.0  # mm
+FEMUR_D = 10.0  # mm
+TIBIA_W = 12.0  # mm
+TIBIA_D = 8.0  # mm
 
 # 6 leg attachment positions on chassis (x, y) at R=60mm, 60° intervals
 LEGS: dict[str, tuple[float, float]] = {
-    "L1": (52.0, 30.0),     # front-left   (30°)
-    "L2": (0.0, 60.0),      # mid-left     (90°)
-    "L3": (-52.0, 30.0),    # rear-left    (150°)
-    "R1": (52.0, -30.0),    # front-right  (330°)
-    "R2": (0.0, -60.0),     # mid-right    (270°)
-    "R3": (-52.0, -30.0),   # rear-right   (210°)
+    "L1": (52.0, 30.0),  # front-left   (30°)
+    "L2": (0.0, 60.0),  # mid-left     (90°)
+    "L3": (-52.0, 30.0),  # rear-left    (150°)
+    "R1": (52.0, -30.0),  # front-right  (330°)
+    "R2": (0.0, -60.0),  # mid-right    (270°)
+    "R3": (-52.0, -30.0),  # rear-right   (210°)
 }
 
 # ── ANSI colors ──────────────────────────────────────────────────────
@@ -145,10 +146,10 @@ def _compose_yaw_pitch(yaw_rad: float, pitch_rad: float) -> tuple[list[float], f
     qy = (cp2, 0.0, sp2, 0.0)
 
     # Multiply: q = qz * qy
-    w = qz[0]*qy[0] - qz[1]*qy[1] - qz[2]*qy[2] - qz[3]*qy[3]
-    x = qz[0]*qy[1] + qz[1]*qy[0] + qz[2]*qy[3] - qz[3]*qy[2]
-    y = qz[0]*qy[2] - qz[1]*qy[3] + qz[2]*qy[0] + qz[3]*qy[1]
-    z = qz[0]*qy[3] + qz[1]*qy[2] - qz[2]*qy[1] + qz[3]*qy[0]
+    w = qz[0] * qy[0] - qz[1] * qy[1] - qz[2] * qy[2] - qz[3] * qy[3]
+    x = qz[0] * qy[1] + qz[1] * qy[0] + qz[2] * qy[3] - qz[3] * qy[2]
+    y = qz[0] * qy[2] - qz[1] * qy[3] + qz[2] * qy[0] + qz[3] * qy[1]
+    z = qz[0] * qy[3] + qz[1] * qy[2] - qz[2] * qy[1] + qz[3] * qy[0]
 
     # Convert quaternion to axis-angle
     angle = 2 * math.acos(max(-1.0, min(1.0, w)))
@@ -160,7 +161,9 @@ def _compose_yaw_pitch(yaw_rad: float, pitch_rad: float) -> tuple[list[float], f
 
 
 def compute_leg_geometry(
-    leg_id: str, ax: float, ay: float,
+    leg_id: str,
+    ax: float,
+    ay: float,
 ) -> dict[str, Any]:
     """Compute all positions/orientations for one leg.
 
@@ -301,10 +304,12 @@ def build_chassis_disc(verify: bool = True) -> str:
     result = _send("new_sketch", body="Body_Chassis", plane="XY")
     sketch_name = result["sketch"]
 
-    _send("sketch_populate",
-          sketch=sketch_name,
-          elements=[{"type": "circle", "cx": 0, "cy": 0, "r": CHASSIS_RADIUS}],
-          constraints=[])
+    _send(
+        "sketch_populate",
+        sketch=sketch_name,
+        elements=[{"type": "circle", "cx": 0, "cy": 0, "r": CHASSIS_RADIUS}],
+        constraints=[],
+    )
     _send("close_sketch", sketch=sketch_name)
 
     _send("pad", sketch=sketch_name, length=CHASSIS_THICKNESS, verify=verify)
@@ -324,20 +329,24 @@ def build_servo_pocket(verify: bool = True) -> str:
     result = _send("new_sketch", body="Body_Chassis", plane="XY")
     sketch_name = result["sketch"]
 
-    _send("sketch_populate",
-          sketch=sketch_name,
-          elements=[{"type": "rect",
-                     "x": pocket_x, "y": pocket_y,
-                     "w": SERVO_POCKET_W, "h": SERVO_POCKET_H}],
-          constraints=[])
+    _send(
+        "sketch_populate",
+        sketch=sketch_name,
+        elements=[
+            {"type": "rect", "x": pocket_x, "y": pocket_y, "w": SERVO_POCKET_W, "h": SERVO_POCKET_H}
+        ],
+        constraints=[],
+    )
     _send("close_sketch", sketch=sketch_name)
 
-    result = _send("pocket",
-                   sketch=sketch_name,
-                   length=SERVO_POCKET_DEPTH,
-                   pocket_type="Dimension",
-                   reversed="auto",
-                   verify=verify)
+    result = _send(
+        "pocket",
+        sketch=sketch_name,
+        length=SERVO_POCKET_DEPTH,
+        pocket_type="Dimension",
+        reversed="auto",
+        verify=verify,
+    )
     _done(t0)
     return result.get("pocket", result.get("name", "Pocket"))
 
@@ -345,12 +354,14 @@ def build_servo_pocket(verify: bool = True) -> str:
 def build_polar_pattern(pocket_name: str, verify: bool = True) -> None:
     """Step 4: Polar pattern — 6 copies of the pocket around Z axis."""
     t0 = _step(4, "Polar pattern (6x servo pockets)")
-    _send("polar_pattern",
-          features=[pocket_name],
-          axis="Base_Z",
-          occurrences=6,
-          angle=360.0,
-          verify=verify)
+    _send(
+        "polar_pattern",
+        features=[pocket_name],
+        axis="Base_Z",
+        occurrences=6,
+        angle=360.0,
+        verify=verify,
+    )
     _done(t0)
 
 
@@ -358,25 +369,18 @@ def build_fillets(verify: bool = True) -> None:
     """Step 5: Fillet the top circular edge for a polished look."""
     t0 = _step(5, "Filleting top edges")
 
-    result = _send("find_edges",
-                   body="Body_Chassis",
-                   curve_type="Circle",
-                   convexity="convex")
+    result = _send("find_edges", body="Body_Chassis", curve_type="Circle", convexity="convex")
     edges = result.get("edges", [])
     edge_names = [e["edge"] for e in edges]
 
     if edge_names:
-        _send("fillet",
-              edges=edge_names[:2],
-              radius=FILLET_RADIUS,
-              body="Body_Chassis",
-              verify=verify)
+        _send(
+            "fillet", edges=edge_names[:2], radius=FILLET_RADIUS, body="Body_Chassis", verify=verify
+        )
 
     # Move chassis up to standing height so it physically connects to the legs.
     # Legs are placed at z=CHASSIS_Z; chassis must be there too.
-    _send("set_placement",
-          object_name="Body_Chassis",
-          position=[0.0, 0.0, CHASSIS_Z])
+    _send("set_placement", object_name="Body_Chassis", position=[0.0, 0.0, CHASSIS_Z])
     _done(t0)
 
 
@@ -457,9 +461,7 @@ def export_sim_package() -> str | None:
     """Step 13: Export URDF sim package."""
     t0 = _step(13, "Exporting sim package (URDF + STLs)")
     try:
-        result = _send("export_sim_package",
-                       format="stl",
-                       timeout=120)
+        result = _send("export_sim_package", format="stl", timeout=120)
         path = result.get("output_dir", result.get("urdf_path", "?"))
         _done(t0, path)
         return path
@@ -491,11 +493,13 @@ def build_mechanism_dict() -> dict[str, Any]:
     joints: list[dict[str, Any]] = []
 
     # Chassis (ground part)
-    parts.append({
-        "id": "Body_Chassis",
-        "body_name": "Body_Chassis",
-        "is_ground": True,
-    })
+    parts.append(
+        {
+            "id": "Body_Chassis",
+            "body_name": "Body_Chassis",
+            "is_ground": True,
+        }
+    )
 
     leg_order = ["L1", "L2", "L3", "R1", "R2", "R3"]
 
@@ -517,96 +521,107 @@ def build_mechanism_dict() -> dict[str, Any]:
 
         # ── Parts: coxa, femur, tibia + 3 servos ──
         for segment in ("Coxa", "Femur", "Tibia"):
-            parts.append({
-                "id": f"{segment}_{leg_id}",
-                "body_name": f"{segment}_{leg_id}",
-                "is_ground": False,
-            })
+            parts.append(
+                {
+                    "id": f"{segment}_{leg_id}",
+                    "body_name": f"{segment}_{leg_id}",
+                    "is_ground": False,
+                }
+            )
         for servo in ("Servo_hip_yaw", "Servo_hip_pitch", "Servo_knee"):
-            parts.append({
-                "id": f"{servo}_{leg_id}",
-                "body_name": f"{servo}_{leg_id}",
-                "is_ground": False,
-            })
+            parts.append(
+                {
+                    "id": f"{servo}_{leg_id}",
+                    "body_name": f"{servo}_{leg_id}",
+                    "is_ground": False,
+                }
+            )
 
         # ── Joints ──
         # Hip yaw: chassis → coxa (revolute around Z)
-        joints.append({
-            "id": f"hip_yaw_{leg_id}",
-            "joint_type": "revolute",
-            "parent_part": "Body_Chassis",
-            "child_part": f"Coxa_{leg_id}",
-            "axis": [0.0, 0.0, 1.0],
-            "origin": [ax, ay, CHASSIS_Z],
-            "min_angle_deg": -45,
-            "max_angle_deg": 45,
-        })
+        joints.append(
+            {
+                "id": f"hip_yaw_{leg_id}",
+                "joint_type": "revolute",
+                "parent_part": "Body_Chassis",
+                "child_part": f"Coxa_{leg_id}",
+                "axis": [0.0, 0.0, 1.0],
+                "origin": [ax, ay, CHASSIS_Z],
+                "min_angle_deg": -45,
+                "max_angle_deg": 45,
+            }
+        )
 
         # Hip yaw servo fixed to chassis
-        joints.append({
-            "id": f"servo_hip_yaw_fixed_{leg_id}",
-            "joint_type": "fixed",
-            "parent_part": "Body_Chassis",
-            "child_part": f"Servo_hip_yaw_{leg_id}",
-            "origin": [ax, ay, CHASSIS_Z],
-        })
+        joints.append(
+            {
+                "id": f"servo_hip_yaw_fixed_{leg_id}",
+                "joint_type": "fixed",
+                "parent_part": "Body_Chassis",
+                "child_part": f"Servo_hip_yaw_{leg_id}",
+                "origin": [ax, ay, CHASSIS_Z],
+            }
+        )
 
         # Hip pitch: coxa → femur (revolute around local Y)
-        joints.append({
-            "id": f"hip_pitch_{leg_id}",
-            "joint_type": "revolute",
-            "parent_part": f"Coxa_{leg_id}",
-            "child_part": f"Femur_{leg_id}",
-            "axis": [0.0, 1.0, 0.0],
-            "origin": [hp_x, hp_y, CHASSIS_Z],
-            "min_angle_deg": -90,
-            "max_angle_deg": 45,
-        })
+        joints.append(
+            {
+                "id": f"hip_pitch_{leg_id}",
+                "joint_type": "revolute",
+                "parent_part": f"Coxa_{leg_id}",
+                "child_part": f"Femur_{leg_id}",
+                "axis": [0.0, 1.0, 0.0],
+                "origin": [hp_x, hp_y, CHASSIS_Z],
+                "min_angle_deg": -90,
+                "max_angle_deg": 45,
+            }
+        )
 
         # Hip pitch servo fixed to coxa
-        joints.append({
-            "id": f"servo_hip_pitch_fixed_{leg_id}",
-            "joint_type": "fixed",
-            "parent_part": f"Coxa_{leg_id}",
-            "child_part": f"Servo_hip_pitch_{leg_id}",
-            "origin": [hp_x, hp_y, CHASSIS_Z],
-        })
+        joints.append(
+            {
+                "id": f"servo_hip_pitch_fixed_{leg_id}",
+                "joint_type": "fixed",
+                "parent_part": f"Coxa_{leg_id}",
+                "child_part": f"Servo_hip_pitch_{leg_id}",
+                "origin": [hp_x, hp_y, CHASSIS_Z],
+            }
+        )
 
         # Knee: femur → tibia (revolute around local Y)
-        joints.append({
-            "id": f"knee_{leg_id}",
-            "joint_type": "revolute",
-            "parent_part": f"Femur_{leg_id}",
-            "child_part": f"Tibia_{leg_id}",
-            "axis": [0.0, 1.0, 0.0],
-            "origin": [kp_x, kp_y, kp_z],
-            "min_angle_deg": -120,
-            "max_angle_deg": 0,
-        })
+        joints.append(
+            {
+                "id": f"knee_{leg_id}",
+                "joint_type": "revolute",
+                "parent_part": f"Femur_{leg_id}",
+                "child_part": f"Tibia_{leg_id}",
+                "axis": [0.0, 1.0, 0.0],
+                "origin": [kp_x, kp_y, kp_z],
+                "min_angle_deg": -120,
+                "max_angle_deg": 0,
+            }
+        )
 
         # Knee servo fixed to femur
-        joints.append({
-            "id": f"servo_knee_fixed_{leg_id}",
-            "joint_type": "fixed",
-            "parent_part": f"Femur_{leg_id}",
-            "child_part": f"Servo_knee_{leg_id}",
-            "origin": [kp_x, kp_y, kp_z],
-        })
+        joints.append(
+            {
+                "id": f"servo_knee_fixed_{leg_id}",
+                "joint_type": "fixed",
+                "parent_part": f"Femur_{leg_id}",
+                "child_part": f"Servo_knee_{leg_id}",
+                "origin": [kp_x, kp_y, kp_z],
+            }
+        )
 
     return {
         "name": "Hexapod_18DOF",
         "parts": parts,
         "joints": joints,
         "drives": [
-            {"joint_id": f"hip_yaw_{lid}", "speed_rpm": 60, "torque_nm": 1.5}
-            for lid in leg_order
-        ] + [
-            {"joint_id": f"hip_pitch_{lid}", "speed_rpm": 60, "torque_nm": 1.5}
-            for lid in leg_order
-        ] + [
-            {"joint_id": f"knee_{lid}", "speed_rpm": 60, "torque_nm": 1.5}
-            for lid in leg_order
-        ],
+            {"joint_id": f"hip_yaw_{lid}", "speed_rpm": 60, "torque_nm": 1.5} for lid in leg_order
+        ]
+        + [{"joint_id": f"hip_pitch_{lid}", "speed_rpm": 60, "torque_nm": 1.5} for lid in leg_order]
+        + [{"joint_id": f"knee_{lid}", "speed_rpm": 60, "torque_nm": 1.5} for lid in leg_order],
         "expected_outputs": {
             "dof": 18,
         },
@@ -638,8 +653,8 @@ def build_teleop_profile() -> dict[str, Any]:
         "l_femur": FEMUR_LEN / 1000.0,
         "l_tibia": TIBIA_LEN / 1000.0,
         # Body dimensions (meters) — bounding box of hip mount positions
-        "body_length": 0.104,   # ~2 * 52mm
-        "body_width": 0.060,    # ~2 * 30mm (min Y offset to edge)
+        "body_length": 0.104,  # ~2 * 52mm
+        "body_width": 0.060,  # ~2 * 30mm (min Y offset to edge)
         # Gait parameters
         "stride_hz": 1.0,
         "stride_length": 0.06,
@@ -662,14 +677,16 @@ def build_teleop_profile() -> dict[str, Any]:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Build 18-DOF hexapod in FreeCAD")
-    parser.add_argument("--fast", action="store_true",
-                        help="Skip verification screenshots")
-    parser.add_argument("--export", action="store_true",
-                        help="Export URDF sim package after building")
-    parser.add_argument("--print-mechanism", action="store_true",
-                        help="Print mechanism JSON to stdout and exit")
-    parser.add_argument("--print-profile", action="store_true",
-                        help="Print teleop profile JSON to stdout and exit")
+    parser.add_argument("--fast", action="store_true", help="Skip verification screenshots")
+    parser.add_argument(
+        "--export", action="store_true", help="Export URDF sim package after building"
+    )
+    parser.add_argument(
+        "--print-mechanism", action="store_true", help="Print mechanism JSON to stdout and exit"
+    )
+    parser.add_argument(
+        "--print-profile", action="store_true", help="Print teleop profile JSON to stdout and exit"
+    )
     args = parser.parse_args()
 
     if args.print_mechanism:
@@ -685,7 +702,9 @@ def main() -> None:
     print(f"\n{BOLD}{CYAN}═══ SolidMind CAD — 18-DOF Hexapod Demo Build ═══{RESET}\n")
     print(f"  Chassis: r={CHASSIS_RADIUS}mm, h={CHASSIS_THICKNESS}mm at z={CHASSIS_Z:.0f}mm")
     print(f"  Segments: coxa={COXA_LEN}mm, femur={FEMUR_LEN}mm, tibia={TIBIA_LEN}mm")
-    print(f"  Pose: femur {math.degrees(FEMUR_PITCH):.0f}° down, tibia {math.degrees(TIBIA_PITCH):.0f}° down")
+    print(
+        f"  Pose: femur {math.degrees(FEMUR_PITCH):.0f}° down, tibia {math.degrees(TIBIA_PITCH):.0f}° down"
+    )
     print("  Expected bodies: 1 chassis + 6×(3 links + 3 servos) = 37")
     print()
 

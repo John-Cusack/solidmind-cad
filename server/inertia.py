@@ -9,6 +9,7 @@ that need an inertia tensor — SDF/URDF emission, PX4 airframe generation,
 multi-body chassis aggregation — should call into here rather than
 re-deriving formulas inline.
 """
+
 from __future__ import annotations
 
 from collections.abc import Iterable
@@ -59,11 +60,12 @@ def box_inertia(mass_kg: float, dx_m: float, dy_m: float, dz_m: float) -> Inerti
         return Inertia6(0, 0, 0, 0, 0, 0)
     factor = mass_kg / 12.0
     return Inertia6(
-        ixx=factor * (dy_m ** 2 + dz_m ** 2),
-        ixy=0.0, ixz=0.0,
-        iyy=factor * (dx_m ** 2 + dz_m ** 2),
+        ixx=factor * (dy_m**2 + dz_m**2),
+        ixy=0.0,
+        ixz=0.0,
+        iyy=factor * (dx_m**2 + dz_m**2),
         iyz=0.0,
-        izz=factor * (dx_m ** 2 + dy_m ** 2),
+        izz=factor * (dx_m**2 + dy_m**2),
     )
 
 
@@ -86,8 +88,8 @@ def thin_disk_inertia(
     """
     if mass_kg <= 0.0 or radius_m <= 0.0:
         return Inertia6(0, 0, 0, 0, 0, 0)
-    spin = 0.5 * mass_kg * radius_m ** 2
-    equatorial = 0.25 * mass_kg * radius_m ** 2 + (mass_kg * thickness_m ** 2) / 12.0
+    spin = 0.5 * mass_kg * radius_m**2
+    equatorial = 0.25 * mass_kg * radius_m**2 + (mass_kg * thickness_m**2) / 12.0
     if axis == "z":
         return Inertia6(equatorial, 0.0, 0.0, equatorial, 0.0, spin)
     if axis == "y":
@@ -110,8 +112,8 @@ def cylinder_inertia(
     """
     if mass_kg <= 0.0 or radius_m <= 0.0:
         return Inertia6(0, 0, 0, 0, 0, 0)
-    spin = 0.5 * mass_kg * radius_m ** 2
-    equatorial = mass_kg / 12.0 * (3.0 * radius_m ** 2 + length_m ** 2)
+    spin = 0.5 * mass_kg * radius_m**2
+    equatorial = mass_kg / 12.0 * (3.0 * radius_m**2 + length_m**2)
     if axis == "z":
         return Inertia6(equatorial, 0.0, 0.0, equatorial, 0.0, spin)
     if axis == "y":
@@ -126,8 +128,8 @@ class InertiaContribution:
     """One body's mass + inertia + offset for parallel-axis aggregation."""
 
     mass_kg: float
-    com_offset_m: tuple[float, float, float]   # offset from aggregation origin
-    body_local: Inertia6                        # inertia about this body's own COM
+    com_offset_m: tuple[float, float, float]  # offset from aggregation origin
+    body_local: Inertia6  # inertia about this body's own COM
 
 
 def _parallel_axis_shift(

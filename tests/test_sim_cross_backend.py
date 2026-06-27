@@ -2,6 +2,7 @@
 
 Verify all backends produce responses matching canonical schemas.
 """
+
 from __future__ import annotations
 
 import json
@@ -43,12 +44,17 @@ class TestSimulateResponseShapeGazeboStub(unittest.TestCase):
         port = unused_tcp_port()
         mech = mechanism_factory("gear_pair")
         with GazeboStubBridge(port) as bridge:
-            resp = _send_command(bridge.host, bridge.port, "simulate", {
-                "mechanism": mech,
-                "duration_s": 1.0,
-                "dt_s": 0.01,
-                "output_interval": 0.1,
-            })
+            resp = _send_command(
+                bridge.host,
+                bridge.port,
+                "simulate",
+                {
+                    "mechanism": mech,
+                    "duration_s": 1.0,
+                    "dt_s": 0.01,
+                    "output_interval": 0.1,
+                },
+            )
         self.assertTrue(resp["ok"], resp)
         result = resp["result"]
         for key in SIMULATE_RESULT_REQUIRED_KEYS:
@@ -66,12 +72,17 @@ class TestTimeSeriesEntriesHaveT(unittest.TestCase):
         port = unused_tcp_port()
         mech = mechanism_factory("four_bar")
         with GazeboStubBridge(port) as bridge:
-            resp = _send_command(bridge.host, bridge.port, "simulate", {
-                "mechanism": mech,
-                "duration_s": 0.5,
-                "dt_s": 0.01,
-                "output_interval": 0.05,
-            })
+            resp = _send_command(
+                bridge.host,
+                bridge.port,
+                "simulate",
+                {
+                    "mechanism": mech,
+                    "duration_s": 0.5,
+                    "dt_s": 0.01,
+                    "output_interval": 0.05,
+                },
+            )
         self.assertTrue(resp["ok"], resp)
         ts = resp["result"]["time_series"]
         self.assertGreater(len(ts), 0)
@@ -92,12 +103,17 @@ class TestSummaryHasSimulationTime(unittest.TestCase):
         port = unused_tcp_port()
         mech = mechanism_factory("gear_pair")
         with GazeboStubBridge(port) as bridge:
-            resp = _send_command(bridge.host, bridge.port, "simulate", {
-                "mechanism": mech,
-                "duration_s": 2.0,
-                "dt_s": 0.01,
-                "output_interval": 0.1,
-            })
+            resp = _send_command(
+                bridge.host,
+                bridge.port,
+                "simulate",
+                {
+                    "mechanism": mech,
+                    "duration_s": 2.0,
+                    "dt_s": 0.01,
+                    "output_interval": 0.1,
+                },
+            )
         self.assertTrue(resp["ok"], resp)
         sim_time = resp["result"]["summary"]["simulation_time_s"]
         self.assertIsInstance(sim_time, (int, float))
@@ -110,9 +126,14 @@ class TestTeleopStartShape(unittest.TestCase):
     def test_teleop_start_shape(self):
         port = unused_tcp_port()
         with GazeboStubBridge(port) as bridge:
-            resp = _send_command(bridge.host, bridge.port, "teleop_start", {
-                "profile": {"controller_type": "multirotor_direct"},
-            })
+            resp = _send_command(
+                bridge.host,
+                bridge.port,
+                "teleop_start",
+                {
+                    "profile": {"controller_type": "multirotor_direct"},
+                },
+            )
         self.assertTrue(resp["ok"], resp)
         result = resp["result"]
         for key in TELEOP_START_REQUIRED_KEYS:
@@ -129,12 +150,17 @@ class TestPeakJointForcesWhenJointsExist(unittest.TestCase):
         port = unused_tcp_port()
         mech = mechanism_factory("gear_pair")
         with GazeboStubBridge(port) as bridge:
-            resp = _send_command(bridge.host, bridge.port, "simulate", {
-                "mechanism": mech,
-                "duration_s": 1.0,
-                "dt_s": 0.01,
-                "output_interval": 0.1,
-            })
+            resp = _send_command(
+                bridge.host,
+                bridge.port,
+                "simulate",
+                {
+                    "mechanism": mech,
+                    "duration_s": 1.0,
+                    "dt_s": 0.01,
+                    "output_interval": 0.1,
+                },
+            )
         self.assertTrue(resp["ok"], resp)
         summary = resp["result"]["summary"]
         self.assertIn("peak_joint_forces", summary)
@@ -155,12 +181,17 @@ class TestSimulateWithDifferentMechanisms(unittest.TestCase):
         port = unused_tcp_port()
         mech = mechanism_factory(kind)
         with GazeboStubBridge(port) as bridge:
-            resp = _send_command(bridge.host, bridge.port, "simulate", {
-                "mechanism": mech,
-                "duration_s": 0.2,
-                "dt_s": 0.01,
-                "output_interval": 0.05,
-            })
+            resp = _send_command(
+                bridge.host,
+                bridge.port,
+                "simulate",
+                {
+                    "mechanism": mech,
+                    "duration_s": 0.2,
+                    "dt_s": 0.01,
+                    "output_interval": 0.05,
+                },
+            )
         self.assertTrue(resp["ok"], resp)
         return resp["result"]
 

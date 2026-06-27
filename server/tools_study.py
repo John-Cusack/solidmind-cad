@@ -1,4 +1,5 @@
 """MCP tool implementations for parametric design optimization studies."""
+
 from __future__ import annotations
 
 import itertools
@@ -49,7 +50,12 @@ def study_create(
     exports STL to sys.argv[2]. The script is stored with the study.
     """
     if _TOOL_LOG:
-        log.info("CALL study_create name=%r solver=%s vars=%d", name, solver.get("solver_type"), len(variables))
+        log.info(
+            "CALL study_create name=%r solver=%s vars=%d",
+            name,
+            solver.get("solver_type"),
+            len(variables),
+        )
     t0 = time.monotonic()
 
     if not name:
@@ -102,6 +108,7 @@ def study_create(
     # Store geometry script with the study if provided
     if geometry_script:
         from server.study_store import _root  # noqa: PLC0415
+
         script_path = _root() / study.id / "geometry.py"
         script_path.write_text(geometry_script)
         # Update solver config to point to the stored script
@@ -134,7 +141,9 @@ def study_create(
     save_study(study)
 
     if _TOOL_LOG:
-        log.info("OK   study_create %.3fs id=%s coarse=%d", time.monotonic() - t0, study.id, coarse_count)
+        log.info(
+            "OK   study_create %.3fs id=%s coarse=%d", time.monotonic() - t0, study.id, coarse_count
+        )
 
     return {
         "ok": True,
@@ -248,7 +257,8 @@ def study_status(study_id: str) -> dict[str, Any]:
 
         # Compute avg time per variant and ETA from completed variants
         done_variants = [
-            v for v in study.coarse_variants + study.refined_variants
+            v
+            for v in study.coarse_variants + study.refined_variants
             if v.status == "done" and v.solver_time_s > 0
         ]
         if done_variants:

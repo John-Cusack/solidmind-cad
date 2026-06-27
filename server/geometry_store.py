@@ -4,6 +4,7 @@ Geometry tools store bulk element arrays here and return lightweight handles.
 ``cad.sketch`` resolves handles back to elements without the LLM ever seeing
 the raw data.  Session-scoped (dies with the MCP server process).
 """
+
 from __future__ import annotations
 
 import secrets

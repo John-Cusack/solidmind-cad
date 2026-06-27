@@ -9,6 +9,7 @@ input between diagnosis and re-screen.
 It rides entirely on the analytical Screen tier (Ticket B) + Decide/Interpret
 (Ticket D), so it needs no FreeCAD / CalculiX / Chrono and runs in CI.
 """
+
 from __future__ import annotations
 
 import sys
@@ -68,10 +69,14 @@ class TestFoamDartLoopClosure(unittest.TestCase):
         # 6. INTERPRET — typed failure mode, compared to expectations.
         self.assertEqual(v1.failure_mode, FailureMode.STRESS_CONCENTRATION)
         fr = FieldResult(
-            analysis_id="latch_v1", status=v1.status,
+            analysis_id="latch_v1",
+            status=v1.status,
             safety_factor=mat.yield_strength_mpa / v1.measured,
-            max_von_mises_mpa=v1.measured, max_displacement_mm=0.0,
-            checks=(v1,), scalar_fields=(), failure_mode=v1.failure_mode,
+            max_von_mises_mpa=v1.measured,
+            max_displacement_mm=0.0,
+            checks=(v1,),
+            scalar_fields=(),
+            failure_mode=v1.failure_mode,
         )
         comparison = interpret_compare_to_expectations(fr, expectations)
         self.assertTrue(comparison.hotspot_matches_expectation)

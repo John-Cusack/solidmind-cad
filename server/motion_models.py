@@ -4,6 +4,7 @@ Defines the mechanism graph: parts (nodes), joints (edges), drive conditions,
 and the top-level Mechanism container.  All dataclasses are frozen with
 __slots__ for consistency with the rest of the codebase.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -26,6 +27,7 @@ class JointType(str, Enum):
 @dataclass(frozen=True, slots=True)
 class PartNode:
     """A rigid body in the mechanism graph."""
+
     id: str
     body_name: str | None = None
     mesh_path: str | None = None
@@ -60,6 +62,7 @@ class PartNode:
 @dataclass(frozen=True, slots=True)
 class JointEdge:
     """A kinematic constraint between two parts."""
+
     id: str
     joint_type: JointType
     parent_part: str
@@ -82,14 +85,14 @@ class JointEdge:
     # Actuator parameters (for URDF export)
     damping: float | None = None
     friction: float | None = None
-    effort_nm: float | None = None       # max torque (Nm) or force (N)
+    effort_nm: float | None = None  # max torque (Nm) or force (N)
     velocity_rad_s: float | None = None  # max velocity (rad/s or m/s)
     # Spring parameters (prismatic only): a linear spring acting between the two
     # bodies along the joint axis. A non-None ``spring_k_n_per_m`` enables it.
-    spring_k_n_per_m: float | None = None    # stiffness (N/m)
+    spring_k_n_per_m: float | None = None  # stiffness (N/m)
     spring_rest_length_m: float | None = None  # natural length; None = initial separation
-    spring_preload_n: float = 0.0            # force at rest length (N, +ve extends)
-    spring_damping_n_s_per_m: float = 0.0    # linear damping coefficient (N·s/m)
+    spring_preload_n: float = 0.0  # force at rest length (N, +ve extends)
+    spring_damping_n_s_per_m: float = 0.0  # linear damping coefficient (N·s/m)
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {
@@ -172,6 +175,7 @@ class JointEdge:
 @dataclass(frozen=True, slots=True)
 class DriveCondition:
     """Input motion/load applied to a joint."""
+
     joint_id: str
     speed_rpm: float | None = None
     torque_nm: float | None = None
@@ -214,6 +218,7 @@ class AppliedForce:
     - ``frame`` is "body" (force vector follows body rotation) or "world"
       (force vector is constant in world frame).
     """
+
     target_body: str
     position_local: tuple[float, float, float]
     force_vector: tuple[float, float, float]
@@ -245,6 +250,7 @@ class AppliedForce:
 @dataclass(frozen=True, slots=True)
 class Mechanism:
     """Top-level mechanism definition: a graph of parts + joints + drives."""
+
     name: str
     parts: tuple[PartNode, ...]
     joints: tuple[JointEdge, ...]
@@ -270,9 +276,7 @@ class Mechanism:
             joints=tuple(JointEdge.from_dict(j) for j in d.get("joints", [])),
             drives=tuple(DriveCondition.from_dict(dc) for dc in d.get("drives", [])),
             expected_outputs=d.get("expected_outputs", {}),
-            applied_forces=tuple(
-                AppliedForce.from_dict(f) for f in d.get("applied_forces", [])
-            ),
+            applied_forces=tuple(AppliedForce.from_dict(f) for f in d.get("applied_forces", [])),
         )
 
     def get_part(self, part_id: str) -> PartNode | None:
@@ -294,7 +298,4 @@ class Mechanism:
         return [p for p in self.parts if not p.is_ground]
 
     def joints_for_part(self, part_id: str) -> list[JointEdge]:
-        return [
-            j for j in self.joints
-            if j.parent_part == part_id or j.child_part == part_id
-        ]
+        return [j for j in self.joints if j.parent_part == part_id or j.child_part == part_id]

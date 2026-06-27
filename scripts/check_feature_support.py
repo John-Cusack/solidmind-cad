@@ -49,14 +49,8 @@ def _matrix_alignment(
 ) -> tuple[int, int, int, list[str]]:
     matrix_rows = parse_matrix(matrix_path)
 
-    matrix_index = {
-        _row_key(row["platform"], row["feature"]): row
-        for row in matrix_rows
-    }
-    result_index = {
-        _row_key(result.platform, result.feature): result
-        for result in results
-    }
+    matrix_index = {_row_key(row["platform"], row["feature"]): row for row in matrix_rows}
+    result_index = {_row_key(result.platform, result.feature): result for result in results}
 
     problems: list[str] = []
 

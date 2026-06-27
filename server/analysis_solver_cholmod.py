@@ -1,4 +1,5 @@
 """CHOLMOD direct structural solver adapter."""
+
 from __future__ import annotations
 
 import logging
@@ -66,6 +67,7 @@ class CHOLMODSolver(FieldSolver):
     def available(self) -> tuple[bool, str]:
         try:
             import sksparse.cholmod  # noqa: F401
+
             return True, "scikit-sparse CHOLMOD available"
         except Exception as exc:
             return (
@@ -131,4 +133,3 @@ class CHOLMODSolver(FieldSolver):
 
     def parse_results(self, work_dir: Path, spec: AnalysisSpec) -> FieldResult:
         raise RuntimeError("CHOLMOD solver uses in-process direct solve path")
-

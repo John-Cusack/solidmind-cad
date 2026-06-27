@@ -1,4 +1,5 @@
 """Tests for orchestrator.release."""
+
 from __future__ import annotations
 
 import tempfile
@@ -31,24 +32,41 @@ def _make_spec() -> MasterSpec:
         name="Test Assembly",
         objectives=[Objective(name="mass", direction="minimize", unit="kg")],
     )
-    spec.subsystems.append(Subsystem(
-        name="gear", kind=SubsystemKind.GENERATED,
-        material="steel", quantity=1, mass_budget_kg=0.05,
-    ))
-    spec.subsystems.append(Subsystem(
-        name="bearing", kind=SubsystemKind.CATALOG,
-        supplier_part="SKF 6201", quantity=2,
-    ))
-    spec.subsystems.append(Subsystem(
-        name="bolt", kind=SubsystemKind.STANDARD,
-        standard="ISO 4762 M5x20", quantity=4,
-    ))
-    spec.interfaces.append(Interface(
-        id="ifc1", name="shaft_bore",
-        subsystem_a="gear", subsystem_b="shaft",
-        mating=MatingSemantic(type="cylindrical_fit"),
-        geometry={"diameter_mm": 8.0},
-    ))
+    spec.subsystems.append(
+        Subsystem(
+            name="gear",
+            kind=SubsystemKind.GENERATED,
+            material="steel",
+            quantity=1,
+            mass_budget_kg=0.05,
+        )
+    )
+    spec.subsystems.append(
+        Subsystem(
+            name="bearing",
+            kind=SubsystemKind.CATALOG,
+            supplier_part="SKF 6201",
+            quantity=2,
+        )
+    )
+    spec.subsystems.append(
+        Subsystem(
+            name="bolt",
+            kind=SubsystemKind.STANDARD,
+            standard="ISO 4762 M5x20",
+            quantity=4,
+        )
+    )
+    spec.interfaces.append(
+        Interface(
+            id="ifc1",
+            name="shaft_bore",
+            subsystem_a="gear",
+            subsystem_b="shaft",
+            mating=MatingSemantic(type="cylindrical_fit"),
+            geometry={"diameter_mm": 8.0},
+        )
+    )
     return spec
 
 
@@ -127,8 +145,10 @@ class TestBomUsesMeasuredMass(unittest.TestCase):
         spec = _make_spec()
         reports = [
             ValidationReport(
-                subsystem_name="gear", worker_id="gear_0",
-                mass_kg=0.042, overall_pass=True,
+                subsystem_name="gear",
+                worker_id="gear_0",
+                mass_kg=0.042,
+                overall_pass=True,
             ),
         ]
         bom = generate_bom(spec, validation_reports=reports)

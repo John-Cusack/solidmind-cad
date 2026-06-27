@@ -1,4 +1,5 @@
 """PX4 process lifecycle manager for Gazebo bridge phase-3 integration."""
+
 from __future__ import annotations
 
 import os
@@ -178,4 +179,3 @@ class Px4Manager:
         attaching to a px4_offboard teleop session.
         """
         return self._system_address
-

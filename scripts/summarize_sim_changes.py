@@ -17,7 +17,7 @@ SUMMARIZE_PROMPT = (
     "Also suggest a topic category from this list: "
     "Isaac Sim & Simulation Runtime, URDF & Articulation, Reinforcement Learning, "
     "Locomotion & Gait Control, FEA & Structural Validation, Mechanical Design & Materials. "
-    "Output JSON: {\"category\": \"...\", \"title\": \"...\", \"bullets\": [\"...\", ...]}"
+    'Output JSON: {"category": "...", "title": "...", "bullets": ["...", ...]}'
 )
 
 COMBINE_PROMPT = (
@@ -33,6 +33,7 @@ COMBINE_PROMPT = (
 def _claude_env() -> dict[str, str]:
     """Return a copy of os.environ without CLAUDECODE so nested calls work."""
     import os
+
     env = os.environ.copy()
     env.pop("CLAUDECODE", None)
     return env

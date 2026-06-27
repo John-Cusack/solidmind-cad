@@ -1,4 +1,5 @@
 """Tests for the Hexapod3DOFController (3-DOF IK-based gait)."""
+
 from __future__ import annotations
 
 import math
@@ -69,8 +70,9 @@ class TestZeroCommand(unittest.TestCase):
         t1, _ = ctrl.compute_targets(_state(), 0.01, cfg, 0.0)
         t2, _ = ctrl.compute_targets(_state(), 0.01, cfg, 0.0)
         for name in t1:
-            self.assertAlmostEqual(t1[name], t2[name], places=8,
-                                   msg=f"{name} inconsistent at neutral")
+            self.assertAlmostEqual(
+                t1[name], t2[name], places=8, msg=f"{name} inconsistent at neutral"
+            )
 
 
 class TestForwardCommand(unittest.TestCase):
@@ -123,8 +125,7 @@ class TestTripodPhaseGroups(unittest.TestCase):
         # They should generally differ (one group in swing, other in stance)
         # unless we happen to be at a transition point
         if abs(avg_a) > 0.01 or abs(avg_b) > 0.01:
-            self.assertNotAlmostEqual(avg_a, avg_b, places=2,
-                                      msg="Tripod groups should differ")
+            self.assertNotAlmostEqual(avg_a, avg_b, places=2, msg="Tripod groups should differ")
 
 
 class TestYawDifferential(unittest.TestCase):
@@ -160,13 +161,14 @@ class TestHeightCommand(unittest.TestCase):
         phase = 0.0
         for _ in range(200):
             t_up, phase = ctrl_up.compute_targets(
-                _state(height=cfg.height_max_m), 0.01, cfg, phase,
+                _state(height=cfg.height_max_m),
+                0.01,
+                cfg,
+                phase,
             )
 
         # At least one joint should differ
-        changed = any(
-            abs(t_flat[n] - t_up[n]) > 0.001 for n in t_flat
-        )
+        changed = any(abs(t_flat[n] - t_up[n]) > 0.001 for n in t_flat)
         self.assertTrue(changed, "Height command should change joint targets")
 
 
@@ -242,7 +244,8 @@ class TestFKConsistency(unittest.TestCase):
             px, py, pz = forward_kinematics(angles, geom)
             dist = math.sqrt(px * px + py * py + pz * pz)
             self.assertLessEqual(
-                dist, max_reach + 1e-6,
+                dist,
+                max_reach + 1e-6,
                 f"Leg {leg_idx} foot at distance {dist:.4f} exceeds max reach {max_reach:.4f}",
             )
 
@@ -271,7 +274,8 @@ class TestBodyFrameFootTrajectory(unittest.TestCase):
 
         # Max inter-tick change should be < 10 degrees (no wild jumps)
         self.assertLess(
-            max_jump, math.radians(10),
+            max_jump,
+            math.radians(10),
             f"Max inter-tick joint jump is {math.degrees(max_jump):.1f}° — too large",
         )
 
@@ -296,7 +300,8 @@ class TestBodyFrameFootTrajectory(unittest.TestCase):
 
         coxa_range = coxa_max - coxa_min
         self.assertGreater(
-            coxa_range, math.radians(2),
+            coxa_range,
+            math.radians(2),
             f"Coxa range is only {math.degrees(coxa_range):.1f}° — gait not producing motion",
         )
 
@@ -320,10 +325,10 @@ class TestBodyFrameFootTrajectory(unittest.TestCase):
 
         # No joint should exceed ±45° from neutral (which is 0 after bias subtraction)
         for j, (lo, hi) in ranges.items():
-            self.assertGreater(lo, math.radians(-45),
-                               f"{j} goes below -45° ({math.degrees(lo):.1f}°)")
-            self.assertLess(hi, math.radians(45),
-                            f"{j} goes above 45° ({math.degrees(hi):.1f}°)")
+            self.assertGreater(
+                lo, math.radians(-45), f"{j} goes below -45° ({math.degrees(lo):.1f}°)"
+            )
+            self.assertLess(hi, math.radians(45), f"{j} goes above 45° ({math.degrees(hi):.1f}°)")
 
 
 class TestStaticStability(unittest.TestCase):
@@ -338,7 +343,7 @@ class TestStaticStability(unittest.TestCase):
         # Just check the phase math — no controller internals needed
         min_stance = 6
         for _tick in range(500):
-            phase_norm = (phase / (2.0 * math.pi))
+            phase_norm = phase / (2.0 * math.pi)
             stance_count = 0
             for leg_idx in range(6):
                 offset = cfg.leg_phase_offsets[leg_idx]
@@ -350,7 +355,8 @@ class TestStaticStability(unittest.TestCase):
             phase = (phase + cfg.stride_hz * 2.0 * math.pi * 1.0 * 0.01) % (2.0 * math.pi)
 
         self.assertGreaterEqual(
-            min_stance, 3,
+            min_stance,
+            3,
             f"Minimum stance feet was {min_stance} — need at least 3 for stability",
         )
 
@@ -398,8 +404,7 @@ class TestBodyWidthYawGain(unittest.TestCase):
 
         # Wider body should produce different yaw-affected targets
         diff = sum(abs(t_narrow[n] - t_wide[n]) for n in t_narrow)
-        self.assertGreater(diff, 0.001,
-                           "Different body_width should change yaw behavior")
+        self.assertGreater(diff, 0.001, "Different body_width should change yaw behavior")
 
 
 if __name__ == "__main__":

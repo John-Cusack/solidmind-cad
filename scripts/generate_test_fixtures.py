@@ -7,18 +7,24 @@ Creates minimal box meshes for the simple_2body test fixture:
 
 Run once, commit outputs.  The STLs are ~684 bytes each (12 triangles).
 """
+
 from __future__ import annotations
 
 import struct
 from pathlib import Path
 
 
-def _write_binary_stl(path: Path, triangles: list[tuple[
-    tuple[float, float, float],  # normal
-    tuple[float, float, float],  # v1
-    tuple[float, float, float],  # v2
-    tuple[float, float, float],  # v3
-]]) -> None:
+def _write_binary_stl(
+    path: Path,
+    triangles: list[
+        tuple[
+            tuple[float, float, float],  # normal
+            tuple[float, float, float],  # v1
+            tuple[float, float, float],  # v2
+            tuple[float, float, float],  # v3
+        ]
+    ],
+) -> None:
     """Write a binary STL file from a list of triangles."""
     with open(path, "wb") as f:
         # 80-byte header (zeroed)
@@ -37,13 +43,17 @@ def _write_binary_stl(path: Path, triangles: list[tuple[
 
 
 def _box_triangles(
-    dx: float, dy: float, dz: float,
-) -> list[tuple[
-    tuple[float, float, float],
-    tuple[float, float, float],
-    tuple[float, float, float],
-    tuple[float, float, float],
-]]:
+    dx: float,
+    dy: float,
+    dz: float,
+) -> list[
+    tuple[
+        tuple[float, float, float],
+        tuple[float, float, float],
+        tuple[float, float, float],
+        tuple[float, float, float],
+    ]
+]:
     """Generate 12 triangles for an axis-aligned box centered at origin.
 
     Box spans [-dx/2, dx/2] × [-dy/2, dy/2] × [-dz/2, dz/2].
@@ -52,13 +62,13 @@ def _box_triangles(
     # 8 corners
     c = [
         (-hx, -hy, -hz),  # 0
-        ( hx, -hy, -hz),  # 1
-        ( hx,  hy, -hz),  # 2
-        (-hx,  hy, -hz),  # 3
-        (-hx, -hy,  hz),  # 4
-        ( hx, -hy,  hz),  # 5
-        ( hx,  hy,  hz),  # 6
-        (-hx,  hy,  hz),  # 7
+        (hx, -hy, -hz),  # 1
+        (hx, hy, -hz),  # 2
+        (-hx, hy, -hz),  # 3
+        (-hx, -hy, hz),  # 4
+        (hx, -hy, hz),  # 5
+        (hx, hy, hz),  # 6
+        (-hx, hy, hz),  # 7
     ]
     # 6 faces, 2 triangles each (outward normals)
     faces = [
@@ -92,7 +102,9 @@ def main() -> None:
     chassis_tris = _box_triangles(60.0, 40.0, 10.0)
     chassis_path = fixture_dir / "Chassis.stl"
     _write_binary_stl(chassis_path, chassis_tris)
-    print(f"Wrote {chassis_path} ({chassis_path.stat().st_size} bytes, {len(chassis_tris)} triangles)")
+    print(
+        f"Wrote {chassis_path} ({chassis_path.stat().st_size} bytes, {len(chassis_tris)} triangles)"
+    )
 
     # Arm: 80×20×10mm box centered at origin
     arm_tris = _box_triangles(80.0, 20.0, 10.0)
