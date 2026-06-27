@@ -1,9 +1,9 @@
 """cuDSS direct structural solver adapter (GPU)."""
 from __future__ import annotations
 
-from collections import OrderedDict
 import logging
 import time
+from collections import OrderedDict
 from pathlib import Path
 from typing import Any
 

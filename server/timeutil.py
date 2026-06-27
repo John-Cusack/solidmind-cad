@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 
 def _parse_iso8601_z(ts: str) -> datetime:
@@ -11,7 +11,7 @@ def _parse_iso8601_z(ts: str) -> datetime:
 
 
 def _format_iso8601_z(dt: datetime) -> str:
-    dt = dt.astimezone(timezone.utc).replace(microsecond=0)
+    dt = dt.astimezone(UTC).replace(microsecond=0)
     return dt.isoformat().replace("+00:00", "Z")
 
 

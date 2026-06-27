@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 import unittest
 
-from server.press_fit import press_fit_bore, _range_index, _it_value
+from server.press_fit import _it_value, _range_index, press_fit_bore
 
 
 class TestISOLookup(unittest.TestCase):

@@ -10,7 +10,6 @@ from __future__ import annotations
 import math
 from typing import Any
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -182,7 +181,7 @@ def solve_position(
     theta2 = _RAD(input_angle_deg)
 
     # Fixed pivots
-    o2x, o2y = 0.0, 0.0
+    _o2x, _o2y = 0.0, 0.0
     o4x, o4y = ground, 0.0
 
     # Input crank end

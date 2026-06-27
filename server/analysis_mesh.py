@@ -7,8 +7,6 @@ from __future__ import annotations
 
 import logging
 import tempfile
-from pathlib import Path
-from typing import Any
 
 from server.analysis_models import MeshInfo
 
@@ -207,7 +205,7 @@ def mesh_step_to_cht_msh(
     gmsh.option.setNumber("General.Verbosity", 1)
     try:
         # Step 1: Import solid
-        solid_shapes = gmsh.model.occ.importShapes(step_path)
+        gmsh.model.occ.importShapes(step_path)
         gmsh.model.occ.synchronize()
 
         # Get solid volume tags
@@ -217,7 +215,7 @@ def mesh_step_to_cht_msh(
 
         # Record solid surface count before boolean
         solid_surfaces_before = gmsh.model.getEntities(dim=2)
-        num_solid_surfaces = len(solid_surfaces_before)
+        len(solid_surfaces_before)
 
         # Step 2: Compute bounding box → fluid domain
         x_min, y_min, z_min, x_max, y_max, z_max = gmsh.model.occ.getBoundingBox(
@@ -259,15 +257,15 @@ def mesh_step_to_cht_msh(
         solid_vol_tags: list[int] = []
         fluid_vol_tags: list[int] = []
 
-        solid_cx = (x_min + x_max) / 2
-        solid_cy = (y_min + y_max) / 2
-        solid_cz = (z_min + z_max) / 2
+        (x_min + x_max) / 2
+        (y_min + y_max) / 2
+        (z_min + z_max) / 2
 
         for dim, tag in all_vols:
             bx0, by0, bz0, bx1, by1, bz1 = gmsh.model.occ.getBoundingBox(dim, tag)
-            cx = (bx0 + bx1) / 2
-            cy = (by0 + by1) / 2
-            cz = (bz0 + bz1) / 2
+            (bx0 + bx1) / 2
+            (by0 + by1) / 2
+            (bz0 + bz1) / 2
             vol_dx = bx1 - bx0
             vol_dy = by1 - by0
             vol_dz = bz1 - bz0
@@ -342,12 +340,12 @@ def mesh_step_to_cht_msh(
         outlet_candidates: list[int] = []
         wall_candidates: list[int] = []
 
-        box_x_min = x_min - pad_x
-        box_x_max = x_min - pad_x + dx + 2 * pad_x
+        x_min - pad_x
+        x_min - pad_x + dx + 2 * pad_x
         box_y_min = y_min - pad_y
         box_y_max = y_min - pad_y + dy + 2 * pad_y
-        box_z_min = z_min - pad_z
-        box_z_max = z_min - pad_z + dz + 2 * pad_z
+        z_min - pad_z
+        z_min - pad_z + dz + 2 * pad_z
 
         for _dim, surf_tag in all_surfaces:
             if surf_tag in interface_tags:
@@ -359,9 +357,9 @@ def mesh_step_to_cht_msh(
                     continue
                 # It's a fluid-only surface — classify by position
                 sb = gmsh.model.occ.getBoundingBox(2, surf_tag)
-                scx = (sb[0] + sb[3]) / 2
+                (sb[0] + sb[3]) / 2
                 scy = (sb[1] + sb[4]) / 2
-                scz = (sb[2] + sb[5]) / 2
+                (sb[2] + sb[5]) / 2
                 # Check if it's on a box face (within tolerance)
                 tol = max(dx, dy, dz) * 0.01
                 if abs(scy - box_y_min) < tol:

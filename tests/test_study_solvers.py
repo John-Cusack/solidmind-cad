@@ -14,9 +14,8 @@ from server.study_solvers import (
     BEMTXfoilSolver,
     MockSolver,
     OpenFOAMSolver,
-    _BEMTResult,
-    _XfoilCache,
     _bemt_solve,
+    _BEMTResult,
     _blade_geometry,
     _compute_domain,
     _compute_forces_from_fields,
@@ -36,9 +35,9 @@ from server.study_solvers import (
     _run_xfoil,
     _scale_stl_to_meters,
     _write_openfoam_case,
+    _XfoilCache,
     get_solver,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers to create minimal binary STL data

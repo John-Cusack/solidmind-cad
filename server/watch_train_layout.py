@@ -222,7 +222,7 @@ def watch_gear_train_layout(
             ]
             combos = [best_s1s2[0], best_s1s2[1], best_stage3]
 
-            for i, ((wheel, pinion), name) in enumerate(zip(combos, stage_names)):
+            for _, ((wheel, pinion), name) in enumerate(zip(combos, stage_names, strict=False)):
                 ratio = wheel / pinion
                 pd_wheel = module_mid * wheel
                 pd_pinion = module_mid * pinion
@@ -276,7 +276,7 @@ def watch_gear_train_layout(
     # Suggest bore positions (simple linear layout along movement diameter)
     bore_positions = []
     if stages:
-        spacing = movement_diameter * 0.3 / len(stages)
+        movement_diameter * 0.3 / len(stages)
         # Center wheel at origin
         x = 0.0
         bore_positions.append({"name": "center_wheel", "x": 0.0, "y": 0.0})
@@ -291,7 +291,7 @@ def watch_gear_train_layout(
 
     # Interference check
     interference_ok = True
-    for i, s in enumerate(stages):
+    for _, s in enumerate(stages):
         if s["wheel_pitch_d"] > movement_diameter * 0.8:
             interference_ok = False
 

@@ -7,6 +7,7 @@ Otherwise, a deterministic analytical fallback is used for local/CI execution.
 from __future__ import annotations
 
 import base64
+import importlib
 import logging
 import math
 import os
@@ -17,8 +18,6 @@ import time
 import uuid
 from dataclasses import dataclass
 from typing import Any
-
-import importlib
 
 from isaac_bridge.controllers import clamp_targets, create_controller
 from isaac_bridge.models import (
@@ -207,8 +206,8 @@ class _IsaacWorldEngine:
         self._world = self._world_type(**world_kwargs)
 
         try:
-            from pxr import UsdPhysics, Gf, UsdLux  # type: ignore[import-not-found]
             import omni.usd  # type: ignore[import-not-found]
+            from pxr import Gf, UsdLux, UsdPhysics  # type: ignore[import-not-found]
 
             stage = omni.usd.get_context().get_stage()
 
@@ -248,7 +247,7 @@ class _IsaacWorldEngine:
             # Ground plane physics material with friction.  Non-fatal if
             # UsdShade or PhysxSchema are unavailable.
             try:
-                from pxr import UsdShade, PhysxSchema  # type: ignore[import-not-found]
+                from pxr import PhysxSchema, UsdShade  # type: ignore[import-not-found]
 
                 mat_path = "/World/GroundMaterial"
                 if not stage.GetPrimAtPath(mat_path).IsValid():
@@ -296,7 +295,7 @@ class _IsaacWorldEngine:
 
             # Ground plane visual material (grey so robot is visible against it)
             try:
-                from pxr import UsdShade, Sdf, Vt  # type: ignore[import-not-found]
+                from pxr import Sdf, UsdShade  # type: ignore[import-not-found]
                 ground_vis_mat_path = "/World/GroundVisualMaterial"
                 if not stage.GetPrimAtPath(ground_vis_mat_path).IsValid():
                     gvm = stage.DefinePrim(ground_vis_mat_path, "Material")
@@ -341,7 +340,6 @@ class _IsaacWorldEngine:
 
         def _do_load() -> str:
             import omni.usd  # type: ignore[import-not-found]
-            from pxr import Sdf, UsdGeom  # type: ignore[import-not-found]
 
             stage = omni.usd.get_context().get_stage()
             env_path = "/Environment"
@@ -514,7 +512,7 @@ class _IsaacWorldEngine:
         """
         try:
             import omni.usd  # type: ignore[import-not-found]
-            from pxr import UsdGeom, UsdShade, Gf, Sdf, Vt  # type: ignore[import-not-found]
+            from pxr import Gf, Sdf, UsdGeom, UsdShade, Vt  # type: ignore[import-not-found]
 
             stage = omni.usd.get_context().get_stage()
             root = stage.GetPrimAtPath(prim_path)
@@ -567,7 +565,7 @@ class _IsaacWorldEngine:
         """
         try:
             import omni.usd  # type: ignore[import-not-found]
-            from pxr import UsdGeom, Gf  # type: ignore[import-not-found]
+            from pxr import Gf, UsdGeom  # type: ignore[import-not-found]
 
             stage = omni.usd.get_context().get_stage()
             prim = stage.GetPrimAtPath(prim_path)
@@ -593,7 +591,9 @@ class _IsaacWorldEngine:
             eye = center + Gf.Vec3d(dist * 0.577, dist * 0.577, dist * 0.577)
             target = center
 
-            from omni.kit.viewport.utility import get_active_viewport  # type: ignore[import-not-found]
+            from omni.kit.viewport.utility import (
+                get_active_viewport,  # type: ignore[import-not-found]
+            )
             viewport = get_active_viewport()
             if viewport is not None:
                 _reposition_camera(
@@ -680,7 +680,7 @@ class _IsaacWorldEngine:
         """
         try:
             import omni.usd  # type: ignore[import-not-found]
-            from pxr import Usd, UsdGeom, UsdPhysics, Gf  # type: ignore[import-not-found]
+            from pxr import Gf, Usd, UsdGeom, UsdPhysics  # type: ignore[import-not-found]
 
             stage = omni.usd.get_context().get_stage()
             root_prim = stage.GetPrimAtPath(prim_path)
@@ -845,7 +845,7 @@ class _IsaacWorldEngine:
             return 0
 
         import omni.usd  # type: ignore[import-not-found]
-        from pxr import Usd, UsdPhysics, PhysxSchema  # type: ignore[import-not-found]
+        from pxr import PhysxSchema, Usd, UsdPhysics  # type: ignore[import-not-found]
 
         stage = omni.usd.get_context().get_stage()
         root_prim = stage.GetPrimAtPath(prim_path)
@@ -1008,7 +1008,7 @@ class _IsaacWorldEngine:
             return warnings
 
         import omni.usd  # type: ignore[import-not-found]
-        from pxr import Usd, UsdPhysics, Gf  # type: ignore[import-not-found]
+        from pxr import Usd, UsdPhysics  # type: ignore[import-not-found]
 
         stage = omni.usd.get_context().get_stage()
         joint_by_id: dict[str, dict[str, Any]] = {}
@@ -1080,7 +1080,7 @@ class _IsaacWorldEngine:
             if getattr(config, 'spawn_height', 0) and abs(config.spawn_height) > 1e-6:
                 try:
                     import omni.usd  # type: ignore[import-not-found]
-                    from pxr import UsdGeom, Gf  # type: ignore[import-not-found]
+                    from pxr import Gf, UsdGeom  # type: ignore[import-not-found]
                     stage = omni.usd.get_context().get_stage()
                     root_prim = stage.GetPrimAtPath(pp)
                     logger.info("[engine] start_simulation: root_prim valid=%s path=%s", root_prim.IsValid(), pp)
@@ -1345,8 +1345,8 @@ def _reposition_camera(
     # Strategy 1: isaacsim.core.utils.viewports.set_camera_view
     # ------------------------------------------------------------------
     try:
-        from isaacsim.core.utils.viewports import set_camera_view  # type: ignore[import-not-found]
         import numpy as np  # type: ignore[import-not-found]
+        from isaacsim.core.utils.viewports import set_camera_view  # type: ignore[import-not-found]
 
         cam_path = str(viewport.get_active_camera())
         set_camera_view(
@@ -1374,8 +1374,8 @@ def _reposition_camera(
     # Strategy 2: USD SetLookAt on existing viewport camera prim
     # ------------------------------------------------------------------
     try:
-        from pxr import Gf, Sdf, UsdGeom  # type: ignore[import-not-found]
         import omni.usd  # type: ignore[import-not-found]
+        from pxr import Gf, Sdf, UsdGeom  # type: ignore[import-not-found]
 
         stage = omni.usd.get_context().get_stage()
         cam_path = str(viewport.get_active_camera())
@@ -1438,7 +1438,7 @@ def _parse_urdf_collision_extents(
         """Read an STL file (binary or ASCII) and return (min_xyz, max_xyz)."""
         try:
             with open(stl_path, "rb") as f:
-                header = f.read(80)
+                f.read(80)
                 num_tri_bytes = f.read(4)
                 if len(num_tri_bytes) < 4:
                     return None
@@ -1459,8 +1459,12 @@ def _parse_urdf_collision_extents(
                         verts = struct.unpack("<12x9f2x", data)
                         for vi in range(3):
                             x, y, z = verts[vi * 3], verts[vi * 3 + 1], verts[vi * 3 + 2]
-                            mn[0] = min(mn[0], x); mn[1] = min(mn[1], y); mn[2] = min(mn[2], z)
-                            mx[0] = max(mx[0], x); mx[1] = max(mx[1], y); mx[2] = max(mx[2], z)
+                            mn[0] = min(mn[0], x)
+                            mn[1] = min(mn[1], y)
+                            mn[2] = min(mn[2], z)
+                            mx[0] = max(mx[0], x)
+                            mx[1] = max(mx[1], y)
+                            mx[2] = max(mx[2], z)
                     if mn[0] == float("inf"):
                         return None
                     return tuple(mn), tuple(mx)
@@ -1473,8 +1477,12 @@ def _parse_urdf_collision_extents(
                     import re
                     for m in re.finditer(r"vertex\s+([-\d.eE+]+)\s+([-\d.eE+]+)\s+([-\d.eE+]+)", text):
                         x, y, z = float(m.group(1)), float(m.group(2)), float(m.group(3))
-                        mn[0] = min(mn[0], x); mn[1] = min(mn[1], y); mn[2] = min(mn[2], z)
-                        mx[0] = max(mx[0], x); mx[1] = max(mx[1], y); mx[2] = max(mx[2], z)
+                        mn[0] = min(mn[0], x)
+                        mn[1] = min(mn[1], y)
+                        mn[2] = min(mn[2], z)
+                        mx[0] = max(mx[0], x)
+                        mx[1] = max(mx[1], y)
+                        mx[2] = max(mx[2], z)
                     if mn[0] == float("inf"):
                         return None
                     return tuple(mn), tuple(mx)
@@ -1556,11 +1564,6 @@ class IsaacRuntime:
         self._lock = threading.RLock()
         self._engine = _IsaacWorldEngine(headless=headless)
         self._environment_loaded = False
-
-    def load_environment(self) -> None:
-        """Load the configured environment via dispatcher (call from worker thread)."""
-        if self._environment and not self._environment_loaded:
-            self._load_environment(self._environment)
 
     def load_environment_direct(self) -> None:
         """Load the configured environment directly (call from main thread only)."""
@@ -1702,7 +1705,7 @@ class IsaacRuntime:
                     return str(val)
 
             import omni.usd  # type: ignore[import-not-found]
-            from pxr import Usd, UsdPhysics  # type: ignore[import-not-found]
+            from pxr import Usd  # type: ignore[import-not-found]
 
             stage = omni.usd.get_context().get_stage()
             root = stage.GetPrimAtPath(prim_path)
@@ -1791,7 +1794,6 @@ class IsaacRuntime:
             # Try to get articulation DOF info from the world if available
             if articulation_info and self._engine.world is not None:
                 try:
-                    from isaacsim.core.prims import SingleArticulation  # type: ignore[import-not-found]
                     art_path = articulation_info["prim_path"]
                     # Check if there's an articulation in the scene
                     art = self._engine.world.scene.get_object(
@@ -2250,7 +2252,7 @@ class IsaacRuntime:
         # Build backward-compatible response
         samples = stop_result.get("samples", [])
         speeds = start_result.get("steady_state_speeds", {})
-        part_ids = list(speeds.keys())
+        list(speeds.keys())
 
         # If samples already have 't' key, use them directly as time_series
         if samples and "t" in samples[0]:
@@ -2315,7 +2317,7 @@ class IsaacRuntime:
                     kds = np.full(num_dof, 100.0, dtype=np.float32)
 
                 configured = 0
-                for joint_name, idx in dof_index_map.items():
+                for _joint_name, idx in dof_index_map.items():
                     if 0 <= idx < num_dof:
                         kps[idx] = 0.0
                         kds[idx] = 1e4
@@ -2366,7 +2368,7 @@ class IsaacRuntime:
             raise IsaacRuntimeError(
                 "INVALID_INPUT",
                 f"Invalid teleop profile: {exc.message}",
-            )
+            ) from exc
 
         # Validate URDF path if provided
         if urdf_path is not None and not os.path.isfile(urdf_path):
@@ -2854,15 +2856,14 @@ class IsaacRuntime:
         Mirrors the FreeCAD pattern: low-res screenshots from multiple angles
         returned as part of the tool result for the LLM to inspect.
         """
-        views: list[dict[str, Any]] = []
 
         def _do_capture() -> list[dict[str, Any]]:
+            import omni.usd  # type: ignore[import-not-found]
             from omni.kit.viewport.utility import (  # type: ignore[import-not-found]
                 capture_viewport_to_file,
                 get_active_viewport,
             )
-            from pxr import UsdGeom, Gf  # type: ignore[import-not-found]
-            import omni.usd  # type: ignore[import-not-found]
+            from pxr import Gf, UsdGeom  # type: ignore[import-not-found]
 
             viewport = get_active_viewport()
             if viewport is None:
@@ -2919,7 +2920,7 @@ class IsaacRuntime:
                     tempfile.gettempdir(),
                     f"isaac_verify_{label}_{uuid.uuid4().hex[:8]}.png",
                 )
-                cap = capture_viewport_to_file(viewport, tmp_path)
+                capture_viewport_to_file(viewport, tmp_path)
                 # Wait for async capture
                 for _ in range(120):
                     if app is not None:

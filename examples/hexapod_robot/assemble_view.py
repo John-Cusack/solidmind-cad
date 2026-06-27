@@ -74,8 +74,8 @@ def main() -> int:
               file=sys.stderr)
         return 1
 
-    from server import tools_cad as cad
     from orchestrator.worker_builds import common
+    from server import tools_cad as cad
     if not common.freecad_ready():
         print(f"ERROR: FreeCAD addon not reachable at "
               f"{common.fc_host()}:{common.fc_port()}.", file=sys.stderr)
@@ -151,7 +151,7 @@ def main() -> int:
           "central bore + 6 mount holes)")
     print(f"  - 6 legs at z={CHASSIS_THICKNESS_MM} mm, evenly spaced at "
           f"{LEG_ANGLES_DEG} degrees on PCD={LEG_MOUNT_PCD_MM} mm")
-    print(f"  - each leg: 251 mm long, 3 distinct pivot bores per leg")
+    print("  - each leg: 251 mm long, 3 distinct pivot bores per leg")
     print(f"  - total: {1 + 6} bodies, 18 revolute pivot points")
     return 0
 

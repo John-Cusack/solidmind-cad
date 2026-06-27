@@ -8,16 +8,15 @@ import hashlib
 import json
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from orchestrator.scorer import ScoringReport, _extract_variant_index
 from orchestrator.spec import (
     MasterSpec,
     SubsystemKind,
-    WorkerResult,
 )
-from orchestrator.scorer import ScoringReport, _extract_variant_index
 from orchestrator.validator import ValidationReport
 
 log = logging.getLogger(__name__)
@@ -196,7 +195,7 @@ def generate_provenance_manifest(
     return {
         "run_id": run_dir.name,
         "spec_hash": f"sha256:{spec_hash}",
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
         "git_hash": git_hash,
         "python_version": platform.python_version(),
         "artifacts": artifacts,
@@ -228,7 +227,7 @@ def generate_decision_report(
         f"# Decision Report: {spec.name}",
         "",
         f"**Status:** {spec.status.value}",
-        f"**Date:** {datetime.now(timezone.utc).strftime('%Y-%m-%d')}",
+        f"**Date:** {datetime.now(UTC).strftime('%Y-%m-%d')}",
         "",
         "## Objectives",
         "",

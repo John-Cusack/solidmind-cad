@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import hashlib
-from pathlib import Path
 from typing import Any, Literal
 
 from server.constants import (
@@ -13,13 +12,15 @@ from server.constants import (
     SUPPORTED_SPEC_MAJOR,
 )
 from server.jcs import JcsError, canonicalize
-from server.json_pointer import JsonPointerError, get as jp_get, remove_value as jp_remove, set_value as jp_set
+from server.json_pointer import JsonPointerError
+from server.json_pointer import get as jp_get
+from server.json_pointer import remove_value as jp_remove
+from server.json_pointer import set_value as jp_set
 from server.models import ConversationSignals, ToolError
 from server.question_bank import Question, load_question_bank
 from server.spec_draft import deep_copy_spec_draft, ensure_defaults, strip_internal_fields
 from server.timeutil import next_deterministic_ts
 from server.validation import _parse_semver_major, run_rules, validate_all
-
 
 _ApplyOp = Literal["set", "append", "remove"]
 _Source = Literal["user", "llm_proposal", "default", "import", "user_skip"]
@@ -507,7 +508,7 @@ def spec_finalize(*, spec_draft: dict) -> dict[str, Any]:
     try:
         canonical = canonicalize(cleaned).encode("utf-8")
         digest = hashlib.sha256(canonical).hexdigest()
-    except JcsError as e:
+    except JcsError:
         # Fall back to a stable-but-non-JCS hash if canonicalization fails.
         digest = hashlib.sha256(repr(cleaned).encode("utf-8")).hexdigest()
 
@@ -774,10 +775,10 @@ def spec_generate_cad(
         reasons = list(design_gate.get("reason_codes", []))
         reason_text = f" reason_codes={','.join(reasons)}" if reasons else ""
         precondition_warnings.append(
-            (
+
                 f"Coverage {coverage:.0%} is below {maturity} threshold {threshold:.0%}; "
                 f"proceeding in notify-only mode on design_path={mode}.{reason_text}"
-            )
+
         )
 
     # Precondition 3: optional hash verification
@@ -815,10 +816,10 @@ def _generate_cad_generic_v1(
     options: dict[str, Any],
 ) -> dict[str, Any]:
     """Generate CAD using the generic_v1 geometry engine pipeline."""
-    from server.geometry_repair import recommend_repairs
-    from server.geometry_planning import plan_geometry
     from server.geometry_compiler_freecad import FreeCADCompiler
     from server.geometry_executor import Executor, compute_execution_trace_hash
+    from server.geometry_planning import plan_geometry
+    from server.geometry_repair import recommend_repairs
     from server.geometry_verify import VerificationEngine
 
     errors: list[dict[str, Any]] = []
@@ -852,7 +853,7 @@ def _generate_cad_generic_v1(
     policy_key = plan_result.get("policy_key")
 
     # Step 2: Compile EIR operations via FreeCAD compiler
-    from server.geometry_ir import Invariant, EIRBuilder
+    from server.geometry_ir import EIRBuilder, Invariant
     eir_builder = EIRBuilder()
     for op_data in eir_dict.get("operations", []):
         invariants = [

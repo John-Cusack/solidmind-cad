@@ -14,7 +14,6 @@ import logging
 import os
 import shutil
 import subprocess
-import tempfile
 import time
 from abc import ABC, abstractmethod
 from pathlib import Path
@@ -213,11 +212,11 @@ class CalculiXSolver(FieldSolver):
 
             if bc.bc_type == "fixed":
                 lines.append(f"** BC {i}: fixed")
-                lines.append(f"*BOUNDARY")
+                lines.append("*BOUNDARY")
                 lines.append(f"{nset_name}, 1, 3, 0.0")
             elif bc.bc_type == "force":
                 lines.append(f"** BC {i}: force")
-                lines.append(f"*CLOAD")
+                lines.append("*CLOAD")
                 # Load contract: force values are total force on the face set.
                 # CalculiX CLOAD on an NSET applies value per node, so we divide.
                 node_count = max(nset_node_counts.get(nset_name, 0), 1)
@@ -234,7 +233,7 @@ class CalculiXSolver(FieldSolver):
                 p = bc.value.get("pressure_mpa", 0.0)
                 elset = bc_face_groups[group_name]
                 lines.append(f"** BC {i}: pressure")
-                lines.append(f"*DLOAD")
+                lines.append("*DLOAD")
                 lines.append(f"{elset}, P, {p}")
             lines.append("")
 
@@ -280,7 +279,6 @@ class CalculiXSolver(FieldSolver):
         Only includes volume elements (tetra) and all nodes.
         Uses free-format with proper spacing that CalculiX can parse.
         """
-        import numpy as np
 
         lines: list[str] = []
         lines.append("** CalculiX mesh written by SolidMind CAD")
@@ -294,11 +292,10 @@ class CalculiXSolver(FieldSolver):
             lines.append(f"{nid}, {x:.10g}, {y:.10g}, {z:.10g}")
 
         # Elements — only volume (tetra4)
-        tet_cells = []
         elem_id = 1
         for cell_block in mesh.cells:
             if cell_block.type == "tetra":
-                lines.append(f"*ELEMENT, TYPE=C3D4, ELSET=volume")
+                lines.append("*ELEMENT, TYPE=C3D4, ELSET=volume")
                 for conn in cell_block.data:
                     nodes = ", ".join(str(int(n) + 1) for n in conn)  # 1-based
                     lines.append(f"{elem_id}, {nodes}")
@@ -750,8 +747,8 @@ except Exception:
     log.debug("Elmer solver not available", exc_info=True)
 
 # Aerodynamic solvers
-from server.analysis_solver_su2 import SU2Solver  # noqa: E402
 from server.analysis_solver_dust import DUSTSolver, MockDUSTSolver  # noqa: E402
+from server.analysis_solver_su2 import SU2Solver  # noqa: E402
 
 register_solver(SU2Solver())
 register_solver(DUSTSolver())

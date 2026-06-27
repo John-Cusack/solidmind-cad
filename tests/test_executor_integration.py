@@ -3,9 +3,8 @@ from __future__ import annotations
 import unittest
 from typing import Any
 
-from server.geometry_ir import CompiledOp, Invariant
 from server.geometry_executor import Executor, compute_execution_trace_hash
-from server.geometry_references import ReferenceResolver
+from server.geometry_ir import CompiledOp, Invariant
 
 
 class MockFreeCADClient:
@@ -80,7 +79,7 @@ class TestExecutorFreeCADClient(unittest.TestCase):
             ),
         ]
         executor = Executor(client=client)
-        trace = executor.execute_plan(ops, backend="freecad")
+        executor.execute_plan(ops, backend="freecad")
 
         self.assertEqual(len(client.commands_sent), 1)
         cmd, args = client.commands_sent[0]
@@ -116,7 +115,7 @@ class TestExecutorFreeCADClient(unittest.TestCase):
             ),
         ]
         executor = Executor(client=client)
-        trace = executor.execute_plan(ops, backend="freecad")
+        executor.execute_plan(ops, backend="freecad")
 
         # The face should have been resolved from ref to Face6
         _, sent_args = client.commands_sent[0]

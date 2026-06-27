@@ -5,7 +5,6 @@ import json
 import socket
 import threading
 import unittest
-from typing import Any
 
 from server.freecad_client import FreeCADClient, FreeCADCommandError, FreeCADConnectionError
 
@@ -42,7 +41,7 @@ def _make_echo_server(host: str, port: int) -> tuple[socket.socket, threading.Ev
                         resp = {"ok": True, "result": {"echo": cmd}}
                     conn.sendall((json.dumps(resp) + "\n").encode())
             conn.close()
-        except (socket.timeout, OSError):
+        except (TimeoutError, OSError):
             pass
         finally:
             srv.close()

@@ -3,7 +3,8 @@ from __future__ import annotations
 
 import math
 import uuid
-from dataclasses import dataclass, field as dc_field
+from dataclasses import dataclass
+from dataclasses import field as dc_field
 from enum import Enum
 from typing import Any, Literal
 

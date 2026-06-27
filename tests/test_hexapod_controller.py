@@ -187,7 +187,7 @@ class TestYawDifferential(unittest.TestCase):
         cfg = _default_config()
         state = _default_state(vx=0.0, yaw=0.0)
         targets, _ = ctrl.compute_targets(state, 0.01, cfg, 0.0)
-        neutral = cfg.neutral_deg * _DEG2RAD
+        cfg.neutral_deg * _DEG2RAD
         left_avg = sum(targets[n] for n in cfg.left_legs) / len(cfg.left_legs)
         right_avg = sum(targets[n] for n in cfg.right_legs) / len(cfg.right_legs)
         self.assertAlmostEqual(left_avg, right_avg, places=6)

@@ -21,7 +21,7 @@ from orchestrator.sbce import (
     pareto_frontier,
     rank_candidates,
 )
-from orchestrator.spec import MasterSpec, Objective
+from orchestrator.spec import MasterSpec
 from orchestrator.validator import ValidationReport
 
 log = logging.getLogger(__name__)

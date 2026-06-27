@@ -1,8 +1,8 @@
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
-from server.geometry_ir import EIRBuilder, CompiledOp, Invariant
-from server.geometry_executor import Executor, ExecutionStep, ExecutionTrace
+from server.geometry_executor import ExecutionStep, Executor
+from server.geometry_ir import CompiledOp, EIRBuilder, Invariant
 
 
 class TestExecutorBehavior(unittest.TestCase):
@@ -27,7 +27,7 @@ class TestExecutorBehavior(unittest.TestCase):
 
     def test_execute_plan_preserves_order(self) -> None:
         builder = EIRBuilder()
-        for i in range(3):
+        for _i in range(3):
             builder.add_operation("pad", {})
         eir = builder.build()
 

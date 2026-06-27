@@ -4,7 +4,7 @@ from __future__ import annotations
 import unittest
 
 from orchestrator.spec import FailureCode, SpecStatus
-from orchestrator.state import StateMachine, _FAILURE_RETRY_TARGET, _TRANSITIONS
+from orchestrator.state import _FAILURE_RETRY_TARGET, _TRANSITIONS, StateMachine
 
 
 class TestTransitionTable(unittest.TestCase):

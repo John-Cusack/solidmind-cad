@@ -19,11 +19,8 @@ import isaaclab.envs.mdp as mdp  # type: ignore[import-not-found]
 import isaaclab.sim as sim_utils  # type: ignore[import-not-found]
 from isaaclab.actuators import ImplicitActuatorCfg  # type: ignore[import-not-found]
 from isaaclab.assets import ArticulationCfg, AssetBaseCfg  # type: ignore[import-not-found]
-from isaaclab.sim.converters.urdf_converter_cfg import UrdfConverterCfg  # type: ignore[import-not-found]
-from isaaclab.sim.spawners import UrdfFileCfg  # type: ignore[import-not-found]
 from isaaclab.envs import ManagerBasedRLEnvCfg  # type: ignore[import-not-found]
 from isaaclab.managers import (  # type: ignore[import-not-found]
-    CurriculumTermCfg,
     EventTermCfg,
     ObservationGroupCfg,
     ObservationTermCfg,
@@ -34,10 +31,13 @@ from isaaclab.managers import (  # type: ignore[import-not-found]
 from isaaclab.scene import InteractiveSceneCfg  # type: ignore[import-not-found]
 from isaaclab.sensors import ContactSensorCfg  # type: ignore[import-not-found]
 from isaaclab.sim import PhysxCfg, SimulationCfg  # type: ignore[import-not-found]
+from isaaclab.sim.converters.urdf_converter_cfg import (
+    UrdfConverterCfg,  # type: ignore[import-not-found]
+)
+from isaaclab.sim.spawners import UrdfFileCfg  # type: ignore[import-not-found]
 from isaaclab.terrains import TerrainImporterCfg  # type: ignore[import-not-found]
 from isaaclab.utils import configclass  # type: ignore[import-not-found]
 from isaaclab.utils.noise import AdditiveUniformNoiseCfg as Unoise  # type: ignore[import-not-found]
-
 
 # ---------------------------------------------------------------------------
 # Scene

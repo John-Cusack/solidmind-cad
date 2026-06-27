@@ -6,6 +6,7 @@ iteration-loop test depends on.
 """
 from __future__ import annotations
 
+import dataclasses
 import unittest
 
 from server.analysis_models import (
@@ -56,7 +57,7 @@ class TestReflectExpectations(unittest.TestCase):
     def test_frozen_and_hashable(self) -> None:
         exp = self._sample()
         self.assertEqual(len({exp, exp}), 1)  # hashable
-        with self.assertRaises(Exception):
+        with self.assertRaises(dataclasses.FrozenInstanceError):
             exp.part_class = "other"  # type: ignore[misc]
 
     def test_dict_round_trip(self) -> None:

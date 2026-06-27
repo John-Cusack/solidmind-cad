@@ -11,7 +11,6 @@ from server.analysis_assembly import (
 )
 from server.analysis_models import BoundaryCondition, Material
 
-
 try:
     import scipy  # noqa: F401
     HAS_SCIPY = True

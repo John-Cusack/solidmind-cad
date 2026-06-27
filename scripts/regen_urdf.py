@@ -6,7 +6,6 @@ Run standalone — does NOT need the MCP server running.
 """
 from __future__ import annotations
 
-import json
 import math
 import sys
 from pathlib import Path
@@ -14,7 +13,7 @@ from pathlib import Path
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from server.motion_models import JointType, Mechanism, PartNode, JointEdge
+from server.motion_models import JointEdge, JointType, Mechanism, PartNode
 from server.sim_export import build_sim_model, write_urdf
 
 # ── Geometry constants (must match add_hexapod_servos.py) ────────────
@@ -173,7 +172,7 @@ LEG_SUFFIXES = ["lf", "lm", "lr", "rf", "rm", "rr"]
 parts = [PartNode(id="chassis", body_name="Body_Chassis", is_ground=True)]
 joints = []
 
-for leg_id, suffix in zip(LEG_IDS, LEG_SUFFIXES):
+for leg_id, suffix in zip(LEG_IDS, LEG_SUFFIXES, strict=False):
     parts.append(PartNode(id=f"coxa_{suffix}", body_name=f"Coxa_{leg_id}"))
     parts.append(PartNode(id=f"femur_{suffix}", body_name=f"Femur_{leg_id}"))
     parts.append(PartNode(id=f"tibia_{suffix}", body_name=f"Tibia_{leg_id}"))

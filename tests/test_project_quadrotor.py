@@ -14,11 +14,9 @@ import math
 import socket
 import unittest
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
-from tests.conftest import GazeboStubBridge, mechanism_factory, unused_tcp_port
-
-from server.analysis_models import CheckStatus, MeshInfo
+from server.analysis_models import MeshInfo
 from server.analysis_sim_coupling import bcs_from_simulation, summarize_sim_forces
 from server.design_store import clear as clear_briefs
 from server.tools_design import (
@@ -28,9 +26,8 @@ from server.tools_design import (
     design_get_part,
     design_save_brief,
     design_update_brief,
-    design_update_part,
-    design_verify_build,
 )
+from tests.conftest import GazeboStubBridge, mechanism_factory, unused_tcp_port
 
 
 def _send_command(host: str, port: int, cmd: str, args: dict | None = None) -> dict:

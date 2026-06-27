@@ -127,7 +127,7 @@ class ElmerSolver(FieldSolver):
         if "solid" in tags:
             return tags["solid"]
         # Return first tag found, or fallback to 1
-        for name, tag in tags.items():
+        for _name, tag in tags.items():
             return tag
         return 1
 

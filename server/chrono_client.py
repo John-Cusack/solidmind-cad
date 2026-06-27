@@ -11,7 +11,8 @@ import socket
 import time
 from typing import Any
 
-from server.jsonutil import dumps as json_dumps, loads as json_loads
+from server.jsonutil import dumps as json_dumps
+from server.jsonutil import loads as json_loads
 
 logger = logging.getLogger("solidmind.chrono_client")
 
@@ -213,7 +214,7 @@ class ChronoClient:
         while b"\n" not in self._buffer:
             try:
                 data = self._sock.recv(65536)  # Larger buffer for simulation results
-            except socket.timeout as e:
+            except TimeoutError as e:
                 raise ChronoConnectionError(
                     f"Timed out waiting for Chrono response ({timeout}s)"
                 ) from e

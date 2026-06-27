@@ -165,9 +165,8 @@ def run_isaaclab_training(args: argparse.Namespace, mod: ModuleType) -> int:
     torch.backends.cudnn.benchmark = True
 
     from isaaclab.envs import ManagerBasedRLEnv  # type: ignore[import-not-found]
-    from rsl_rl.runners import OnPolicyRunner  # type: ignore[import-not-found]
-
     from isaaclab_rl.rsl_rl import RslRlVecEnvWrapper  # type: ignore[import-not-found]
+    from rsl_rl.runners import OnPolicyRunner  # type: ignore[import-not-found]
 
     from rl_training.isaaclab_cfg import make_hexapod_flat_env_cfg
     from rl_training.rsl_rl_cfg import HexapodPPORunnerCfg

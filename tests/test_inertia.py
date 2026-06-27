@@ -9,11 +9,9 @@ Covers the bugs that motivated extracting this module:
 """
 from __future__ import annotations
 
-import math
 import unittest
 
 from server.inertia import (
-    Inertia6,
     InertiaContribution,
     aggregate,
     box_inertia,

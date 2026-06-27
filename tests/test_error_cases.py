@@ -1,12 +1,11 @@
 import unittest
-from unittest.mock import MagicMock, patch
 
-from server.geometry_ir import GIRBuilder, GIR, EIRBuilder, Quantity, compute_gir_hash
-from server.geometry_compiler_freecad import FreeCADCompiler, CompilerStatus
-from server.geometry_executor import Executor, ExecutionStep
-from server.geometry_constraints import ConstraintGraphBuilder
-from server.geometry_planner import StrategyPlanner
 from server.feature_support import load_geometry_capabilities
+from server.geometry_compiler_freecad import CompilerStatus, FreeCADCompiler
+from server.geometry_constraints import ConstraintGraphBuilder
+from server.geometry_executor import Executor
+from server.geometry_ir import GIR, EIRBuilder, compute_gir_hash
+from server.geometry_planner import StrategyPlanner
 
 
 class TestErrorCases(unittest.TestCase):

@@ -2,13 +2,12 @@
 from __future__ import annotations
 
 import json
-import os
 import socket
 import threading
 import time
 import unittest
 
-from tests.conftest import GazeboStubBridge, mechanism_factory, unused_tcp_port
+from tests.conftest import GazeboStubBridge, unused_tcp_port
 
 
 class _BadTcpServer:
@@ -45,7 +44,7 @@ class _BadTcpServer:
         while not self._stop.is_set():
             try:
                 conn, _ = self._srv.accept()
-            except (socket.timeout, OSError):
+            except (TimeoutError, OSError):
                 continue
             try:
                 if self.behavior == "accept_never_respond":
@@ -123,7 +122,7 @@ class TestTruncatedJsonResponse(unittest.TestCase):
                         if not chunk:
                             break
                         data += chunk
-                except socket.timeout:
+                except TimeoutError:
                     pass
                 # Either we get incomplete data or empty — both are ok as long as no hang
                 if data.strip():
@@ -153,12 +152,12 @@ class TestConnectionClosedMidResponse(unittest.TestCase):
                         if not chunk:
                             break
                         data += chunk
-                except socket.timeout:
+                except TimeoutError:
                     pass
                 # Should get incomplete data, not a valid JSON response
                 if data.strip():
                     try:
-                        parsed = json.loads(data.decode().strip())
+                        json.loads(data.decode().strip())
                         # If it somehow parsed, it shouldn't have complete result
                     except (json.JSONDecodeError, UnicodeDecodeError):
                         pass  # Expected

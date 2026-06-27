@@ -18,7 +18,11 @@ _project_root = Path(__file__).resolve().parent.parent
 if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
-from server.knowledge_store import KnowledgeStore, _make_embedding_fn, _DEFAULT_DB_PATH  # noqa: E402
+from server.knowledge_store import (  # noqa: E402
+    _DEFAULT_DB_PATH,
+    KnowledgeStore,
+    _make_embedding_fn,
+)
 
 
 def main(argv: list[str] | None = None) -> int:

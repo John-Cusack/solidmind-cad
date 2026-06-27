@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from server.urdf_analyzer import URDFAnalysis, analyze_urdf
+from server.urdf_analyzer import analyze_urdf
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 _HEXAPOD_URDF = _PROJECT_ROOT / "hexapod_sim_pkg" / "Hexapod_v2_1DOF.urdf"

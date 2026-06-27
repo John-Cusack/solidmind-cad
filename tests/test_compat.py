@@ -5,7 +5,6 @@ All tests mock FreeCAD modules since the test environment doesn't have FreeCAD.
 from __future__ import annotations
 
 import sys
-import types
 import unittest
 from unittest.mock import MagicMock, patch
 

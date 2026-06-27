@@ -7,12 +7,10 @@ dependency.
 """
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass
 from typing import Any
 
 from server.geometry_helpers import _line
-
 
 # ---------------------------------------------------------------------------
 # ISO 286 tolerance data
@@ -30,7 +28,7 @@ def _range_index(d: float) -> int:
     """Return the index into _RANGES for nominal diameter *d*."""
     if d <= 0:
         raise ValueError(f"nominal diameter must be positive, got {d}")
-    for i, (lo, hi) in enumerate(_RANGES):
+    for i, (_lo, hi) in enumerate(_RANGES):
         if d <= hi:
             return i
     raise ValueError(f"nominal diameter {d} mm exceeds 400 mm limit")

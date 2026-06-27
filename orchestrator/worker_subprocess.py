@@ -11,19 +11,14 @@ import asyncio
 import json
 import logging
 import shutil
-import subprocess
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
 from orchestrator.spec import (
-    ComplexityClass,
     Interface,
     MasterSpec,
-    RuntimePolicy,
     Subsystem,
-    WorkerResult,
 )
 
 log = logging.getLogger(__name__)
@@ -93,6 +88,7 @@ def build_worker_prompt(
 ) -> str:
     """Construct the prompt for a worker's Claude Code session."""
     import yaml
+
     from orchestrator.skeleton import build_skeleton_section
 
     specs_yaml = yaml.dump(subsystem.specs, default_flow_style=False) if subsystem.specs else "(none)"
@@ -206,7 +202,7 @@ async def launch_worker(
             timeout=policy.timeout_sec,
         )
         returncode = proc.returncode or 0
-    except asyncio.TimeoutError:
+    except TimeoutError:
         log.warning("Worker %s_%d timed out after %ds", subsystem.name, worker_index, policy.timeout_sec)
         proc.kill()
         stdout_bytes, stderr_bytes = await proc.communicate()

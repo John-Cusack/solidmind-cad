@@ -2,18 +2,17 @@ from __future__ import annotations
 
 import argparse
 import sys
+from pathlib import Path
 from typing import Any
 
 import yaml
-
-from pathlib import Path
 
 # Ensure repo root is on sys.path when running as a script.
 _ROOT = Path(__file__).resolve().parents[1]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from server.tools import (
+from server.tools import (  # noqa: E402  must follow the sys.path bootstrap above
     spec_apply_answer,
     spec_assess_design_path,
     spec_export_brief,
@@ -23,7 +22,6 @@ from server.tools import (
     spec_select_schema,
     spec_validate,
 )
-
 
 TOOL_CALLS = {
     "spec.select_schema": spec_select_schema,
@@ -65,7 +63,7 @@ def _subset_ok(expected: Any, actual: Any, path: str) -> None:
 
 
 def replay(transcript_path: str) -> None:
-    raw = yaml.safe_load(open(transcript_path, "r", encoding="utf-8"))
+    raw = yaml.safe_load(open(transcript_path, encoding="utf-8"))
     if not isinstance(raw, dict):
         raise TranscriptError("Transcript must be a mapping")
 
@@ -121,7 +119,7 @@ def main(argv: list[str] | None = None) -> None:
         replay(args.transcript)
     except TranscriptError as e:
         print(f"Transcript failed: {e}", file=sys.stderr)
-        raise SystemExit(1)
+        raise SystemExit(1) from e
 
 
 if __name__ == "__main__":

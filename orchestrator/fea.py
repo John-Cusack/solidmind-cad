@@ -14,8 +14,8 @@ from orchestrator.fea_bc_mapper import (
     find_nodes_near_frame,
     map_interface_bcs,
 )
-from orchestrator.materials import Material, resolve_material
-from orchestrator.spec import Interface, MasterSpec, Subsystem
+from orchestrator.materials import Material
+from orchestrator.spec import Interface, Subsystem
 
 log = logging.getLogger(__name__)
 
@@ -182,7 +182,7 @@ def build_inp(
     # Boundary conditions
     for bc in bcs:
         if bc.bc_type == "fixed":
-            lines.append(f"*BOUNDARY")
+            lines.append("*BOUNDARY")
             lines.append(f"{bc.node_set_name}, 1, 6")
 
     # Step
@@ -261,7 +261,7 @@ def parse_frd(frd_path: Path, yield_strength_mpa: float = 0.0) -> FEAResult:
     Uses meshio if available, falls back to simple .frd text parsing.
     """
     try:
-        import meshio
+        import meshio  # noqa: F401  availability probe; ImportError falls back to the text parser
         return _parse_frd_meshio(frd_path, yield_strength_mpa)
     except ImportError:
         return _parse_frd_simple(frd_path, yield_strength_mpa)
@@ -286,7 +286,6 @@ def _parse_frd_meshio(frd_path: Path, yield_strength_mpa: float) -> FEAResult:
     # Extract von Mises stress
     max_vm = 0.0
     stress_per_element: list[float] = []
-    found_stress = False
     for key in ("stress", "S", "STRESS"):
         if key in mesh.cell_data:
             for block_stress in mesh.cell_data[key]:
@@ -312,14 +311,12 @@ def _parse_frd_meshio(frd_path: Path, yield_strength_mpa: float) -> FEAResult:
                     # Scalar von Mises directly
                     stress_per_element.extend(float(v) for v in block_stress)
                     max_vm = max(max_vm, float(np.max(block_stress)))
-            found_stress = True
             break
         if key in mesh.point_data:
             pdata = mesh.point_data[key]
             if pdata.ndim == 1:
                 max_vm = float(np.max(pdata))
                 stress_per_element = [float(v) for v in pdata]
-            found_stress = True
             break
 
     sf = yield_strength_mpa / max_vm if max_vm > 0 else float("inf")

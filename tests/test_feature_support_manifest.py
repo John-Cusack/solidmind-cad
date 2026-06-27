@@ -5,7 +5,6 @@ from pathlib import Path
 
 from server.feature_support import evaluate_manifest, load_manifest, parse_matrix, summarize
 
-
 REPO_ROOT = Path(__file__).resolve().parent.parent
 MANIFEST_PATH = REPO_ROOT / "feature_support" / "manifest.yml"
 MATRIX_PATH = REPO_ROOT / "FREECAD_CADQUERY_FEATURE_SUPPORT_MATRIX.md"
@@ -60,11 +59,11 @@ class TestFeatureSupportManifest(unittest.TestCase):
         for result in results:
             if result.computed_status != result.baseline_status:
                 mismatches.append(
-                    (
+
                         f"{result.platform} / {result.feature}: "
                         f"baseline={result.baseline_status}, computed={result.computed_status}, "
                         f"checks={result.passed_checks}/{result.total_checks}"
-                    )
+
                 )
         self.assertEqual([], mismatches, "\n".join(mismatches))
 

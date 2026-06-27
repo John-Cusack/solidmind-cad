@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import json
 import math
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
 from typing import Any
 
 
@@ -320,14 +320,14 @@ def main():
     print("items = [")
     for seg in calc.segments:
         d = seg.to_dict()
-        print(f"    {{")
+        print("    {")
         print(f'        "name": "{d["name"]}", ')
         print(f'        "shape": "{d["shape"]}", ')
         print(f'        "dimensions": {d["dimensions"]}, ')
         print(f'        "position": {d["position"]}, ')
         print(f'        "rotation_angle_deg": {d["rotation_angle_deg"]}, ')
         print(f'        "rotation_axis": {d["rotation_axis"]}, ')
-        print(f"    }},")
+        print("    },")
     print("]")
 
     # Print a summary table

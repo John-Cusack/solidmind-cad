@@ -7,10 +7,10 @@ from __future__ import annotations
 
 import math
 import unittest
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 
-from server.fastener_data import NutSpec, match_bolt_size, nut_lookup, SUPPORTED_NUT_TYPES
-from server.tools_fastener_build import cad_bolt, cad_find_holes, cad_nut, _hex_elements
+from server.fastener_data import match_bolt_size, nut_lookup
+from server.tools_fastener_build import _hex_elements, cad_bolt, cad_find_holes, cad_nut
 
 
 def _mock_client() -> MagicMock:
@@ -41,7 +41,7 @@ class TestHexElements(unittest.TestCase):
         af = 13.0
         lines = _hex_elements(af)
         # Collect all vertices
-        verts = [(l["x1"], l["y1"]) for l in lines]
+        verts = [(line["x1"], line["y1"]) for line in lines]
         r = math.sqrt(verts[0][0] ** 2 + verts[0][1] ** 2)
         # across_corners = 2*r, across_flats = across_corners * cos(30)
         computed_af = 2 * r * math.cos(math.radians(30))

@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import logging
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 logger = logging.getLogger("solidmind")
@@ -49,7 +49,7 @@ def _setup_session_logging() -> Path:
     directory path.
     """
     log_root = Path(os.environ.get("SOLIDMIND_LOG_DIR", Path.home() / ".solidmind" / "logs"))
-    session_dir = log_root / datetime.now(tz=timezone.utc).strftime("%Y%m%d-%H%M%S")
+    session_dir = log_root / datetime.now(tz=UTC).strftime("%Y%m%d-%H%M%S")
     session_dir.mkdir(parents=True, exist_ok=True)
 
     log_file = session_dir / "session.log"

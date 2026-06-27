@@ -1,14 +1,10 @@
 """Shared test fixtures for simulation engine integration tests."""
 from __future__ import annotations
 
-import os
 import socket
-import subprocess
 import threading
 import time
-from typing import Any, Generator
-
-import unittest
+from typing import Any
 
 
 def unused_tcp_port() -> int:

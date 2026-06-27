@@ -129,7 +129,10 @@ def _build_3blade_props(document_name: str) -> list[str]:
     the polar_pattern-on-PartDesign-Body Tip-update bug.
     """
     from server.tools_cad import (
-        cad_new_body, cad_pad, cad_set_placement, cad_sketch,
+        cad_new_body,
+        cad_pad,
+        cad_set_placement,
+        cad_sketch,
     )
 
     rotor_bodies: list[str] = []
@@ -151,7 +154,7 @@ def _build_3blade_props(document_name: str) -> list[str]:
             theta = math.radians(i * 360 / PROP_BLADE_COUNT)
             ct, st = math.cos(theta), math.sin(theta)
 
-            def rot(x: float, y: float) -> tuple[float, float]:
+            def rot(x: float, y: float, ct: float = ct, st: float = st) -> tuple[float, float]:
                 return (x * ct - y * st, x * st + y * ct)
 
             # Blade as 4 lines forming a trapezoid: hub-side wider,
@@ -198,7 +201,6 @@ def build_drone_geometry(document_name: str) -> dict[str, Any]:
         cad_new_body,
         cad_new_document,
         cad_pad,
-        cad_set_placement,
         cad_sketch,
     )
 

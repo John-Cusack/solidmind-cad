@@ -15,7 +15,6 @@ from orchestrator.release import (
     generate_provenance_manifest,
     generate_purchased_parts_list,
 )
-from orchestrator.validator import ValidationReport
 from orchestrator.spec import (
     Interface,
     MasterSpec,
@@ -24,6 +23,7 @@ from orchestrator.spec import (
     Subsystem,
     SubsystemKind,
 )
+from orchestrator.validator import ValidationReport
 
 
 def _make_spec() -> MasterSpec:
@@ -132,14 +132,14 @@ class TestBomUsesMeasuredMass(unittest.TestCase):
             ),
         ]
         bom = generate_bom(spec, validation_reports=reports)
-        gear_line = next(l for l in bom if l.name == "gear")
+        gear_line = next(line for line in bom if line.name == "gear")
         self.assertAlmostEqual(gear_line.mass_kg, 0.042)
         self.assertIn("measured", gear_line.notes)
 
     def test_budget_fallback(self) -> None:
         spec = _make_spec()
         bom = generate_bom(spec)  # no validation_reports
-        gear_line = next(l for l in bom if l.name == "gear")
+        gear_line = next(line for line in bom if line.name == "gear")
         self.assertAlmostEqual(gear_line.mass_kg, 0.05)
         self.assertIn("budget", gear_line.notes)
 

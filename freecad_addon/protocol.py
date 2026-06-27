@@ -7,7 +7,8 @@ Each message is a single line terminated by ``\\n``.
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, dataclass, field as dc_field
+from dataclasses import dataclass
+from dataclasses import field as dc_field
 from typing import Any
 
 

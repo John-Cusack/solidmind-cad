@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 
 from server.geometry_ir import ReferenceToken
-from server.geometry_references import ReferenceResolver, ResolvedReference, _parse_ref_string
+from server.geometry_references import ReferenceResolver, _parse_ref_string
 
 
 class TestParseRefString(unittest.TestCase):

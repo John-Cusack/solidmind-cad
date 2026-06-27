@@ -1,6 +1,7 @@
 """Integration tests for L2 FEA pipeline — requires ccx and gmsh."""
 from __future__ import annotations
 
+import importlib.util
 import shutil
 import tempfile
 import unittest
@@ -10,19 +11,11 @@ _FIXTURE_STEP = Path(__file__).parent / "fixtures" / "simple_cylinder.step"
 
 
 def _has_gmsh() -> bool:
-    try:
-        import gmsh
-        return True
-    except ImportError:
-        return False
+    return importlib.util.find_spec("gmsh") is not None
 
 
 def _has_meshio() -> bool:
-    try:
-        import meshio
-        return True
-    except ImportError:
-        return False
+    return importlib.util.find_spec("meshio") is not None
 
 
 def _create_cylinder_step(dest: Path) -> None:

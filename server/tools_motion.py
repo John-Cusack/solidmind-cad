@@ -10,20 +10,17 @@ import logging
 import math
 import os
 import time
-from typing import Literal
-from typing import Any
+from typing import Any, Literal
 
 from server.motion_models import (
-    DriveCondition,
     JointEdge,
     JointType,
     Mechanism,
-    PartNode,
 )
+from server.motion_planetary import PlanetarySet, detect_planetary_sets
 from server.motion_store import get as store_get
 from server.motion_store import list_all as store_list_all
 from server.motion_store import store as store_put
-from server.motion_planetary import PlanetarySet, detect_planetary_sets
 from server.motion_validators import (
     analyze_gear_train,
     compute_gear_animation_ratios,
@@ -1331,8 +1328,8 @@ def _run_urdf_preflight(urdf_path: str | None) -> dict[str, Any] | None:
         return None
 
     try:
-        from server.sim_export import validate_urdf
         from server.models import Severity
+        from server.sim_export import validate_urdf
     except ImportError:
         log.debug("sim_export.validate_urdf not available, skipping preflight")
         return None
@@ -1682,7 +1679,6 @@ def motion_verify_sim_package(
     isaac_diagnose: dict[str, Any] | None = None
     if check_isaac:
         try:
-            from server import isaac_adapter
             from server.isaac_client import get_client as get_isaac_client
 
             client = get_isaac_client()

@@ -6,9 +6,7 @@ from __future__ import annotations
 
 import json
 import subprocess
-import sys
 from pathlib import Path
-
 
 SIM_CHANGES_DIR = Path(__file__).resolve().parent.parent / "me_knowledge" / "sim_changes"
 OUTPUT_FILE = SIM_CHANGES_DIR.parent / "sim_changes_summary.md"
@@ -72,7 +70,7 @@ def summarize_file(filepath: Path) -> dict:
             continue
 
     # Fallback: use raw text as a single bullet
-    print(f"    WARN: could not parse JSON, using raw text")
+    print("    WARN: could not parse JSON, using raw text")
     return {
         "filename": filepath.name,
         "category": "Other",

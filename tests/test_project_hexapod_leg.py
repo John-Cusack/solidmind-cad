@@ -9,16 +9,14 @@ Conditionally-run: Isaac bridge (skip if unavailable).
 """
 from __future__ import annotations
 
-import math
 import unittest
 from typing import Any
 from unittest.mock import patch
 
-from tests.conftest import mechanism_factory
-
 from server import motion_store
-from server.analysis_models import CheckStatus, MeshInfo
+from server.analysis_models import MeshInfo
 from server.analysis_sim_coupling import bcs_from_propagation, bcs_from_simulation
+from tests.conftest import mechanism_factory
 
 
 class TestHexapodLegMechanism(unittest.TestCase):

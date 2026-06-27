@@ -7,7 +7,6 @@ from __future__ import annotations
 import math
 import unittest
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
 
 
 class FakeBoundBox:

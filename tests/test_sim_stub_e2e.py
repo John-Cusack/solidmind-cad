@@ -6,8 +6,6 @@ from __future__ import annotations
 
 import json
 import socket
-import threading
-import time
 import unittest
 
 from tests.conftest import GazeboStubBridge, mechanism_factory, unused_tcp_port
@@ -121,8 +119,8 @@ class TestSpawnModel(unittest.TestCase):
     """spawn_model with dummy path through stub."""
 
     def test_spawn_model_with_existing_path(self):
-        import tempfile
         import os
+        import tempfile
 
         port = unused_tcp_port()
         # Create a temp SDF file

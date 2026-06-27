@@ -11,7 +11,6 @@ from typing import Any
 
 from server.urdf_analyzer import URDFAnalysis
 
-
 # Default actuator parameters when URDF <dynamics> tags are missing.
 _DEFAULT_STIFFNESS = 10.0
 _DEFAULT_DAMPING = 1.0

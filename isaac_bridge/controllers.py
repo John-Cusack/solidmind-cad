@@ -28,9 +28,12 @@ import json
 import logging
 import math
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from isaac_bridge.models import Controller, TeleopConfig, TeleopState
+
+if TYPE_CHECKING:
+    from isaac_bridge.hexapod_ik import HipMount
 
 logger = logging.getLogger("solidmind.controllers")
 
@@ -268,7 +271,7 @@ class Hexapod2DOFController:
 
         # Use explicit left_legs set from config (same as 1-DOF controller).
         left_set = set(config.left_legs)
-        tripod_a_set = set(config.tripod_a)
+        set(config.tripod_a)
 
         targets: dict[str, float] = {}
         for leg_idx in range(n_legs):
@@ -355,8 +358,11 @@ class Hexapod3DOFController:
     def _init_geometry(self, config: TeleopConfig) -> None:
         """Build hip mounts and default foot positions from config."""
         from isaac_bridge.hexapod_ik import (
-            HipMount, LegGeometry, body_to_hip_frame,
-            default_foot_position, inverse_kinematics,
+            HipMount,
+            LegGeometry,
+            body_to_hip_frame,
+            default_foot_position,
+            inverse_kinematics,
         )
 
         # Validate leg_joint_names length matches n_legs * dofs_per_leg

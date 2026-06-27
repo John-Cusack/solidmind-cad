@@ -4,7 +4,7 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 from server.analysis_models import (
     AnalysisSpec,
@@ -15,14 +15,14 @@ from server.analysis_models import (
     MeshInfo,
 )
 from server.analysis_solvers import (
-    CalculiXSolver,
     FIELD_SOLVERS,
+    CalculiXSolver,
     FieldSolver,
     MockFieldSolver,
+    _discover_solver_packs,
     get_solver,
     list_solvers,
     register_solver,
-    _discover_solver_packs,
 )
 
 

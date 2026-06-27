@@ -14,7 +14,6 @@ from typing import Any
 
 from orchestrator.spec import (
     FailureCode,
-    Interface,
     MasterSpec,
     Subsystem,
     WorkerResult,
@@ -159,7 +158,7 @@ def validate_envelope(
     actual_sorted = sorted(actual_bbox_mm)
     check.passed = all(
         a <= s * 1.001  # 0.1% tolerance for floating point
-        for a, s in zip(actual_sorted, spec_sorted)
+        for a, s in zip(actual_sorted, spec_sorted, strict=False)
     )
     if not check.passed:
         check.error = (
@@ -304,7 +303,7 @@ def validate_skeleton_constraints(
     actual_bbox_mm: list[float] | None,
 ) -> list[SkeletonCheck]:
     """Check part bbox fits within reserved volume and avoids keepout zones."""
-    from orchestrator.skeleton import aabb_overlap, aabb_bounds
+    from orchestrator.skeleton import aabb_bounds, aabb_overlap
 
     checks: list[SkeletonCheck] = []
     sk = spec.skeleton
@@ -319,7 +318,7 @@ def validate_skeleton_constraints(
             rv_sorted = sorted(rv_size)
             fits = all(
                 a <= r * 1.001
-                for a, r in zip(actual_sorted, rv_sorted)
+                for a, r in zip(actual_sorted, rv_sorted, strict=False)
             )
             checks.append(SkeletonCheck(
                 check="reserved_volume",

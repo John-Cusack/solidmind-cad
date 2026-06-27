@@ -4,7 +4,7 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 from server.analysis_models import (
     AeroReference,
@@ -19,7 +19,6 @@ from server.analysis_models import (
     RotorSpec,
 )
 from server.analysis_solvers import FIELD_SOLVERS, get_solver
-
 
 # ---------------------------------------------------------------------------
 # Model tests

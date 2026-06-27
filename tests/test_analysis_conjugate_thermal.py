@@ -2,9 +2,9 @@
 from __future__ import annotations
 
 import unittest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
-from server.analysis_models import AnalysisType, CheckStatus, MeshInfo
+from server.analysis_models import AnalysisType, MeshInfo
 
 
 class TestConjugateThermalCheck(unittest.TestCase):

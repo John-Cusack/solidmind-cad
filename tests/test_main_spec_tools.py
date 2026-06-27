@@ -273,7 +273,6 @@ class TestDesignGenerateMechanism(unittest.TestCase):
 
     def test_generate_mechanism_revolute_joint(self) -> None:
         """Bearing/shaft interfaces should produce revolute joints."""
-        from server import design_store
         result = mcp_main._call_tool("design.save_brief", {
             "name": "Hinge Test",
             "parameters": {},
@@ -378,7 +377,7 @@ class TestDesignGenerateMechanism(unittest.TestCase):
     def test_verify_build_with_mechanism_missing_joint(self) -> None:
         """verify_build with mechanism_id should flag unconnected interfaces."""
         from server import motion_store
-        from server.motion_models import Mechanism, PartNode, JointEdge, JointType
+        from server.motion_models import JointEdge, JointType, Mechanism, PartNode
 
         brief_id = self._make_drone_brief()
 
@@ -455,7 +454,7 @@ class TestDesignGenerateMechanism(unittest.TestCase):
     def test_verify_build_all_joints_covered(self) -> None:
         """verify_build with all joints covered should have no warnings."""
         from server import motion_store
-        from server.motion_models import Mechanism, PartNode, JointEdge, JointType
+        from server.motion_models import JointEdge, JointType, Mechanism, PartNode
 
         brief_id = self._make_drone_brief()
 

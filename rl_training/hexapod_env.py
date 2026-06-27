@@ -184,11 +184,9 @@ class HexapodLocomotionEnv:
         Must be called after Isaac Sim app is initialized.
         """
         import torch
-        from omni.isaac.core import World
-        from omni.isaac.core.utils.stage import add_reference_to_stage
         from omni.isaac.cloner import GridCloner
+        from omni.isaac.core import World
         from omni.isaac.core.articulations import ArticulationView
-        from omni.isaac.core.prims import RigidPrimView
         from omni.isaac.core.utils.prims import define_prim
 
         log.info("Initializing HexapodLocomotionEnv with %d envs", self.cfg.num_envs)
@@ -592,7 +590,10 @@ class HexapodLocomotionEnv:
         joint_torques = self._articulation_view.get_applied_joint_efforts()
 
         # Feet air time reward — compute from foot contact forces
-        from rl_training.rewards_vectorized import compute_feet_air_time_reward, compute_locomotion_reward
+        from rl_training.rewards_vectorized import (
+            compute_feet_air_time_reward,
+            compute_locomotion_reward,
+        )
 
         feet_air_reward = None
         try:
@@ -716,7 +717,7 @@ def _quat_rotate_inverse(q: Any, v: Any) -> Any:
     import torch
 
     # Extract components (Isaac uses wxyz convention)
-    w, x, y, z = q[:, 0:1], q[:, 1:2], q[:, 2:3], q[:, 3:4]
+    w, _x, _y, _z = q[:, 0:1], q[:, 1:2], q[:, 2:3], q[:, 3:4]
 
     # Conjugate rotation: q* v q
     # Using the formula: v' = v + 2w(u x v) + 2(u x (u x v))

@@ -24,14 +24,14 @@ When fixed-wing comes online, fill in:
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 
-from server.airframes import SensorPack, ShapeSpec, StructuralBody
+from server.airframes import SensorPack, StructuralBody
 
 if TYPE_CHECKING:
-    from server.sim_export import SimModel
     from server.px4_airframe_generator import AirframeParams
+    from server.sim_export import SimModel
 
 
 @dataclass(frozen=True, slots=True)
@@ -84,13 +84,13 @@ class FixedWingAirframe:
     def total_mass_kg(self) -> float:
         return self.chassis.mass_kg + sum(b.mass_kg for b in self.structural_bodies)
 
-    def to_sim_model(self) -> "SimModel":
+    def to_sim_model(self) -> SimModel:
         raise NotImplementedError(
             "FixedWingAirframe.to_sim_model is a stub. Implement when "
             "fixed-wing SITL is on the roadmap."
         )
 
-    def to_px4_airframe_params(self) -> "AirframeParams":
+    def to_px4_airframe_params(self) -> AirframeParams:
         raise NotImplementedError(
             "FixedWingAirframe.to_px4_airframe_params is a stub. Will "
             "use CA_AIRFRAME=3 (Plane) and FW_*RATE_P gains."

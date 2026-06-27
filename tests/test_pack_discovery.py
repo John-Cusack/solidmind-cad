@@ -41,7 +41,8 @@ class TestToolPackDiscovery(unittest.TestCase):
 
     @patch("importlib.metadata.entry_points")
     def test_loads_tools_and_dispatch(self, mock_eps: MagicMock) -> None:
-        handler = lambda **kw: {"ok": True}
+        def handler(**kw):
+            return {"ok": True}
         mod = self._make_pack_module(
             tools=[{"name": "geometry.test_tool", "description": "A test"}],
             dispatch={"geometry.test_tool": handler},
@@ -80,8 +81,10 @@ class TestToolPackDiscovery(unittest.TestCase):
 
     @patch("importlib.metadata.entry_points")
     def test_duplicate_tool_warns(self, mock_eps: MagicMock) -> None:
-        handler_a = lambda **kw: "a"
-        handler_b = lambda **kw: "b"
+        def handler_a(**kw):
+            return "a"
+        def handler_b(**kw):
+            return "b"
         mod_a = self._make_pack_module(
             tools=[{"name": "geometry.dup"}],
             dispatch={"geometry.dup": handler_a},

@@ -42,7 +42,7 @@ def _build_coarse_variants(study: Study) -> list[Variant]:
 
     variants: list[Variant] = []
     for combo in itertools.product(*value_lists):
-        params = dict(zip(names, combo))
+        params = dict(zip(names, combo, strict=False))
         vid = Variant(
             variant_id=f"c{len(variants):04d}",
             params=params,
@@ -66,7 +66,7 @@ def _build_refined_variants(study: Study, center_params: dict[str, Any]) -> list
 
     variants: list[Variant] = []
     for combo in itertools.product(*value_lists):
-        params = dict(zip(names, combo))
+        params = dict(zip(names, combo, strict=False))
         vid = Variant(
             variant_id=f"r{len(variants):04d}",
             params=params,

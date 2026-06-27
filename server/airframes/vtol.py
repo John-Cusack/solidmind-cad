@@ -17,7 +17,7 @@ type-check against it.  When VTOL comes online, fill in:
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from server.airframes import SensorPack, StructuralBody
@@ -25,8 +25,8 @@ from server.airframes.fixed_wing import ControlSurface, Motor, Wing
 from server.airframes.multicopter import Rotor
 
 if TYPE_CHECKING:
-    from server.sim_export import SimModel
     from server.px4_airframe_generator import AirframeParams
+    from server.sim_export import SimModel
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,14 +50,14 @@ class VTOLAirframe:
             + sum(r.mass_kg for r in self.rotors)
         )
 
-    def to_sim_model(self) -> "SimModel":
+    def to_sim_model(self) -> SimModel:
         raise NotImplementedError(
             "VTOLAirframe.to_sim_model is a stub. Will combine "
             "multicopter rotors with fixed-wing motor + control "
             "surfaces under one chassis."
         )
 
-    def to_px4_airframe_params(self) -> "AirframeParams":
+    def to_px4_airframe_params(self) -> AirframeParams:
         raise NotImplementedError(
             "VTOLAirframe.to_px4_airframe_params is a stub. CA_AIRFRAME "
             "depends on geometry: 10=tailsitter, 11=standard VTOL, "

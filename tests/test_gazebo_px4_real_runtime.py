@@ -64,7 +64,7 @@ def _px4_reachable(timeout_s: float = 0.5) -> bool:
         try:
             data, _ = sock.recvfrom(2048)
             return len(data) > 0
-        except (TimeoutError, socket.timeout, OSError):
+        except (TimeoutError, OSError):
             return False
         finally:
             sock.close()

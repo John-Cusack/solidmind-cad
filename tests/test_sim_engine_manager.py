@@ -10,15 +10,15 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 from server.sim_engine_manager import (
+    VALID_BACKENDS,
     EngineState,
     EngineStatus,
-    VALID_BACKENDS,
+    _engines,
     _error,
     _get_host,
     _get_port,
     _health_check,
     _lock,
-    _engines,
     _tcp_ping,
     engine_status,
     shutdown_all,

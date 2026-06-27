@@ -1,9 +1,8 @@
 """Tests for geometry.propeller_blade tool."""
 from __future__ import annotations
 
-import math
 import unittest
-from unittest.mock import patch, MagicMock, call
+from unittest.mock import MagicMock, patch
 
 
 class TestPropellerBladeTool(unittest.TestCase):
@@ -258,7 +257,7 @@ class TestPropellerRustIntegration(unittest.TestCase):
         for line in lines[1:]:
             parts = line.split()
             self.assertEqual(len(parts), 2)
-            x, y = float(parts[0]), float(parts[1])
+            x, _y = float(parts[0]), float(parts[1])
             # x should be in [0, 1+epsilon] for normalized airfoil
             self.assertGreaterEqual(x, -0.01)
             self.assertLessEqual(x, 1.01)

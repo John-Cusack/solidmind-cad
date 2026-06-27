@@ -5,7 +5,6 @@ import math
 from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
 
-
 SUPPORTED_JOINT_TYPES = frozenset({"revolute", "prismatic", "fixed"})
 
 _URDF_IMPORT_FIELDS: frozenset[str] = frozenset({
@@ -207,7 +206,7 @@ class TeleopConfig:
             kwargs["controller_type"] = ct.strip()
 
         # Joint name lists
-        for list_key, default in (
+        for list_key, _default in (
             ("joint_names", _DEFAULT_JOINT_NAMES),
             ("tripod_a", _DEFAULT_TRIPOD_A),
             ("tripod_b", _DEFAULT_TRIPOD_B),

@@ -111,8 +111,6 @@ def _new_run(args: argparse.Namespace) -> int:
 def _resume_from_spec(args: argparse.Namespace) -> int:
     """Resume from an existing spec YAML — run gates and dispatch."""
     from orchestrator.runner import (
-        build_worker_prompts,
-        collect_worker_results,
         dry_run,
         load_run,
     )
@@ -172,7 +170,7 @@ def _resume_from_spec(args: argparse.Namespace) -> int:
 
 async def _dispatch_headless(run: OrchestratorRun, max_parallel: int) -> int:
     """Run workers in headless mode using claude --print."""
-    from orchestrator.worker import dispatch_all, plan_tasks, assess_results
+    from orchestrator.worker import assess_results, dispatch_all, plan_tasks
 
     transition(run, SpecStatus.BUILDING, reason="dispatching workers")
 
@@ -209,8 +207,8 @@ async def _dispatch_headless(run: OrchestratorRun, max_parallel: int) -> int:
         return 1
 
     # --- Stage 5: Geometry + Assembly Validation ---
-    from orchestrator.runner import validate_results, score_results, build_release
-    from orchestrator.validator import save_validation_report
+    from orchestrator.runner import build_release, score_results, validate_results
+    from orchestrator.validator import check_gate_g5, save_validation_report
 
     print("\n--- Stage 5: Validation ---")
     validation_reports = validate_results(run)
@@ -231,7 +229,7 @@ async def _dispatch_headless(run: OrchestratorRun, max_parallel: int) -> int:
     transition(run, SpecStatus.SCORING, reason="validation passed")
 
     # --- Stage 6: Scoring + SBCE ---
-    from orchestrator.scorer import save_scoring_report
+    from orchestrator.scorer import check_gate_g6, save_scoring_report
 
     print("\n--- Stage 6: Scoring ---")
     scoring_report = score_results(run, validation_reports)

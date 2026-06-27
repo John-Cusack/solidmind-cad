@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import json
 import socket
-import sys
 import time
 from pathlib import Path
 
@@ -198,7 +197,7 @@ def main() -> int:
         all_near_zero = all(abs(v) < 0.01 for v in vals) if vals else True
         some_nonzero = any(abs(v) > 0.05 for v in vals) if vals else False
 
-        print(f"\n  Final joint targets:")
+        print("\n  Final joint targets:")
         for name, val in list(targets.items())[:6]:
             print(f"    {name}: {val:.4f} rad")
         if len(targets) > 6:

@@ -9,13 +9,12 @@ import json
 import socket
 import unittest
 
-from tests.conftest import GazeboStubBridge, mechanism_factory, unused_tcp_port
-
 from server.analysis_sim_coupling import (
     bcs_from_propagation,
     bcs_from_simulation,
     summarize_sim_forces,
 )
+from tests.conftest import GazeboStubBridge, mechanism_factory, unused_tcp_port
 
 
 def _simulate_via_bridge(port: int, mech: dict, duration: float = 1.0) -> dict:

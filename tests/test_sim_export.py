@@ -2196,7 +2196,6 @@ def _make_hexapod_mechanism() -> tuple[
     # Segment lengths (mm along radial direction from joint)
     coxa_len = 26.0   # half of 52mm bbox
     femur_len = 33.0   # half of 66mm bbox
-    tibia_len = 66.5   # half of 133mm bbox
 
     parts: list[PartNode] = [
         PartNode(id="chassis", body_name="Body_Chassis", is_ground=True, mass_kg=0.5),
@@ -2696,7 +2695,7 @@ class TestURDFGenerationPipeline(unittest.TestCase):
                 self.assertIsNotNone(gen_origin, f"Joint '{jname}' missing <origin>")
                 fix_xyz = [float(v) for v in fix_origin.attrib.get("xyz", "0 0 0").split()]
                 gen_xyz = [float(v) for v in gen_origin.attrib.get("xyz", "0 0 0").split()]
-                for i, (fv, gv) in enumerate(zip(fix_xyz, gen_xyz)):
+                for i, (fv, gv) in enumerate(zip(fix_xyz, gen_xyz, strict=False)):
                     self.assertAlmostEqual(
                         gv, fv, delta=TOL,
                         msg=f"Joint '{jname}' origin xyz[{i}]: {gv} != {fv}",
@@ -2705,7 +2704,7 @@ class TestURDFGenerationPipeline(unittest.TestCase):
                 # origin rpy
                 fix_rpy = [float(v) for v in fix_origin.attrib.get("rpy", "0 0 0").split()]
                 gen_rpy = [float(v) for v in gen_origin.attrib.get("rpy", "0 0 0").split()]
-                for i, (fv, gv) in enumerate(zip(fix_rpy, gen_rpy)):
+                for i, (fv, gv) in enumerate(zip(fix_rpy, gen_rpy, strict=False)):
                     self.assertAlmostEqual(
                         gv, fv, delta=TOL,
                         msg=f"Joint '{jname}' origin rpy[{i}]: {gv} != {fv}",
@@ -2718,7 +2717,7 @@ class TestURDFGenerationPipeline(unittest.TestCase):
                 self.assertIsNotNone(gen_axis, f"Joint '{jname}' missing <axis>")
                 fix_ax = [float(v) for v in fix_axis.attrib.get("xyz", "0 0 1").split()]
                 gen_ax = [float(v) for v in gen_axis.attrib.get("xyz", "0 0 1").split()]
-                for i, (fv, gv) in enumerate(zip(fix_ax, gen_ax)):
+                for i, (fv, gv) in enumerate(zip(fix_ax, gen_ax, strict=False)):
                     self.assertAlmostEqual(
                         gv, fv, delta=TOL,
                         msg=f"Joint '{jname}' axis xyz[{i}]: {gv} != {fv}",

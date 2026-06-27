@@ -12,7 +12,6 @@ Verifies that:
 from __future__ import annotations
 
 import json
-import sys
 import tempfile
 import time
 from pathlib import Path
@@ -76,7 +75,7 @@ def make_mock_env(num_envs: int = 64, num_joints: int = 18):
 
 def test_rewards():
     """Test that vectorized reward computation works."""
-    from rl_training.rewards_vectorized import compute_locomotion_reward, RewardWeights
+    from rl_training.rewards_vectorized import compute_locomotion_reward
 
     n = 64
     nj = 18
@@ -167,7 +166,7 @@ def test_checkpoint(trainer, env):
         assert size > 1000, f"Checkpoint too small: {size} bytes"
 
         # Load and verify
-        from rl_training.ppo import PPOTrainer, PPOHyperparams
+        from rl_training.ppo import PPOTrainer
         trainer2 = PPOTrainer(env, device="cuda:0")
         trainer2.load_checkpoint(ckpt_path)
         print(f"  Checkpoint loaded, iteration={trainer2.current_iteration}")
@@ -224,7 +223,7 @@ def main():
     # Test 2: PPO training (50 iterations)
     print("[2/4] Testing PPO training (50 iterations)...")
     trainer, env, rewards = test_ppo_training(num_iterations=50)
-    print(f"  → PASS\n")
+    print("  → PASS\n")
 
     # Test 3: Checkpoint
     print("[3/4] Testing checkpoint save/load...")

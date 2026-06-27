@@ -119,7 +119,7 @@ class BridgeServer:
             while not self._stop_event.is_set():
                 try:
                     conn, addr = srv.accept()
-                except socket.timeout:
+                except TimeoutError:
                     continue
                 except OSError:
                     break
@@ -150,7 +150,7 @@ class BridgeServer:
             while not self._stop_event.is_set():
                 try:
                     data = conn.recv(65536)
-                except socket.timeout:
+                except TimeoutError:
                     continue
                 except OSError:
                     break

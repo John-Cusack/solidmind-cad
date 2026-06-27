@@ -9,7 +9,7 @@ from __future__ import annotations
 import unittest
 
 from server.airframes import Box, StructuralBody
-from server.airframes.fixed_wing import ControlSurface, Motor, Wing
+from server.airframes.fixed_wing import Motor, Wing
 from server.airframes.multicopter import Rotor
 from server.airframes.vtol import VTOLAirframe
 

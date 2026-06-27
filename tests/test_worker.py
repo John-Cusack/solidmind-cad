@@ -6,18 +6,15 @@ import unittest
 from pathlib import Path
 
 from orchestrator.spec import (
-    Interface,
     MasterSpec,
     Subsystem,
     SubsystemKind,
-    WorkerMode,
+    WorkerResult,
 )
 from orchestrator.worker import (
-    WorkerTask,
     assess_results,
     plan_tasks,
 )
-from orchestrator.spec import WorkerResult
 
 
 def _make_spec() -> MasterSpec:

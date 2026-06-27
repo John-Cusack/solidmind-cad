@@ -143,7 +143,7 @@ class TestPeakJointForcesWhenJointsExist(unittest.TestCase):
         # Should have entries for the joints
         self.assertGreater(len(pjf), 0)
         # All values should be numeric
-        for k, v in pjf.items():
+        for _k, v in pjf.items():
             self.assertIsInstance(v, (int, float))
             self.assertGreaterEqual(v, 0.0)
 

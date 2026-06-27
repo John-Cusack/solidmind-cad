@@ -398,6 +398,7 @@ class TestAssemblyJointMapping(TestMotionToolsBase):
     def test_drive_joint_analytical_with_mock(self):
         """Verify analytical drive computes correct angles and sends placements."""
         from unittest.mock import patch
+
         from server.tools_motion import _assembly_link_maps
 
         mid = self._make_analytical_mechanism()
@@ -442,6 +443,7 @@ class TestAssemblyJointMapping(TestMotionToolsBase):
         """drive_joint re-derives the link map via assembly_get_links
         when _assembly_link_maps has no entry for this mechanism."""
         from unittest.mock import patch
+
         from server.tools_motion import _assembly_link_maps
 
         mid = self._make_analytical_mechanism()
@@ -599,6 +601,7 @@ class TestDriveJointPlanetaryCompound(TestMotionToolsBase):
     def test_drive_joint_planetary_compound_motion(self):
         """Verify compound placements are sent with 'position' key for planets."""
         from unittest.mock import MagicMock, patch
+
         from server.tools_motion import _assembly_link_maps
 
         mid = self._make_planetary_mechanism()
@@ -2135,7 +2138,8 @@ class TestDriveJointCheckCollisions(TestMotionToolsBase):
 
     def test_check_collisions_no_collisions(self):
         """check_collisions=True reports collision_free when clearance is ok."""
-        from unittest.mock import patch, MagicMock
+        from unittest.mock import MagicMock, patch
+
         from server.tools_motion import _assembly_link_maps
 
         mid = self._make_gear_pair()
@@ -2164,7 +2168,8 @@ class TestDriveJointCheckCollisions(TestMotionToolsBase):
 
     def test_check_collisions_with_intersections(self):
         """check_collisions=True reports collisions when bodies intersect."""
-        from unittest.mock import patch, MagicMock
+        from unittest.mock import MagicMock, patch
+
         from server.tools_motion import _assembly_link_maps
 
         mid = self._make_gear_pair()
@@ -2207,7 +2212,8 @@ class TestDriveJointCheckCollisions(TestMotionToolsBase):
 
     def test_check_collisions_false_omits_fields(self):
         """When check_collisions=False (default), no collision fields in response."""
-        from unittest.mock import patch, MagicMock
+        from unittest.mock import MagicMock, patch
+
         from server.tools_motion import _assembly_link_maps
 
         mid = self._make_gear_pair()
@@ -2229,7 +2235,8 @@ class TestDriveJointCheckCollisions(TestMotionToolsBase):
 
     def test_check_collisions_clearance_error_does_not_abort(self):
         """If check_clearance raises, animation continues without crashing."""
-        from unittest.mock import patch, MagicMock
+        from unittest.mock import MagicMock, patch
+
         from server.tools_motion import _assembly_link_maps
 
         mid = self._make_gear_pair()
@@ -2261,7 +2268,7 @@ class TestCreateAssemblyEmptyWarning(TestMotionToolsBase):
 
     def test_no_warning_when_parts_lack_body_name(self):
         """Parts without body_name → link_map empty but no warning (expected_parts=0)."""
-        from unittest.mock import patch, MagicMock
+        from unittest.mock import MagicMock, patch
 
         result = motion_define_mechanism({
             "name": "no_bodies",
@@ -2301,7 +2308,7 @@ class TestCreateAssemblyEmptyWarning(TestMotionToolsBase):
         Actually: ground parts are not counted by expected_parts (is_ground filter).
         Non-ground parts without body_name → expected_parts=0 → no warning.
         """
-        from unittest.mock import patch, MagicMock
+        from unittest.mock import MagicMock, patch
 
         result = motion_define_mechanism({
             "name": "ground_only",
@@ -2337,7 +2344,7 @@ class TestCreateAssemblyEmptyWarning(TestMotionToolsBase):
 
     def test_successful_link_no_warning(self):
         """Parts successfully linked → no empty assembly warning."""
-        from unittest.mock import patch, MagicMock
+        from unittest.mock import MagicMock, patch
 
         result = motion_define_mechanism({
             "name": "linked_ok",
@@ -2440,7 +2447,8 @@ class TestGearAnimationRatiosWithGround(TestMotionToolsBase):
     def test_drive_joint_uses_revolute_origin_not_mesh(self):
         """Rotation center for gear_32t must be its revolute origin (24,0,0),
         not the gear mesh contact point (13.5,0,0)."""
-        from unittest.mock import patch, MagicMock
+        from unittest.mock import MagicMock, patch
+
         from server.motion_validators import compute_gear_animation_ratios, compute_gear_mesh_phases
 
         mid = self._make_16_32_mech()
@@ -2482,7 +2490,7 @@ class TestGearAnimationRatiosWithGround(TestMotionToolsBase):
         at (24,0,0), the position must stay constant at (24,0,0) while
         only the rotation angle changes.
         """
-        from unittest.mock import patch, MagicMock
+        from unittest.mock import MagicMock, patch
 
         # Use a mechanism WITHOUT mesh phases for cleaner math:
         # single revolute, single part, no gear_mesh
@@ -2547,7 +2555,7 @@ class TestGearAnimationRatiosWithGround(TestMotionToolsBase):
         Offset = (6,0,0), rotated 90° about Z → (0,6,0).
         New position = center + rotated_offset = (24,6,0).
         """
-        from unittest.mock import patch, MagicMock
+        from unittest.mock import MagicMock, patch
 
         result = motion_define_mechanism({
             "name": "offset_orbit_test",

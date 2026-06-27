@@ -17,7 +17,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from server.urdf_analyzer import URDFAnalysis, analyze_urdf
+from server.urdf_analyzer import analyze_urdf
 
 log = logging.getLogger("solidmind.tools_rl")
 

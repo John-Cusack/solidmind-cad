@@ -6,13 +6,11 @@ afternoon.
 """
 from __future__ import annotations
 
-import math
-import re
 import tempfile
 import unittest
 import xml.etree.ElementTree as ET
 
-from server.airframes import Box, SensorPack, StructuralBody
+from server.airframes import Box, StructuralBody
 from server.airframes.multicopter import MulticopterAirframe, Rotor
 from server.airframes.presets import cinema_drone, x500_like
 
@@ -142,7 +140,7 @@ class TestSimModelEmission(unittest.TestCase):
     def test_chassis_collision_is_primitive_box(self) -> None:
         af = x500_like()
         sm = af.to_sim_model()
-        chassis = next(l for l in sm.links if l.name == "base_link")
+        chassis = next(link for link in sm.links if link.name == "base_link")
         self.assertIsNotNone(chassis.collision_shape)
         self.assertEqual(chassis.collision_shape.kind, "box")
 

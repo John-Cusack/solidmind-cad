@@ -31,21 +31,24 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from orchestrator.interface_freeze import freeze_interfaces as check_gate_g3
-from orchestrator.release import check_gate_g7
-from orchestrator.scorer import check_gate_g6
-from orchestrator.skeleton import check_gate_g2
+# Re-exported as the public gate API: callers use `runner.check_gate_gN`
+# (see orchestrator-protocol.md, __main__.py, tests). Gates g0/g1/g4 are
+# defined in this module; g2/g3/g5/g6/g7 are re-exported from their owners.
+from orchestrator.interface_freeze import freeze_interfaces as check_gate_g3  # noqa: F401
+from orchestrator.release import check_gate_g7  # noqa: F401
+from orchestrator.scorer import check_gate_g6  # noqa: F401
+from orchestrator.skeleton import check_gate_g2  # noqa: F401
 from orchestrator.spec import (
     MasterSpec,
     SpecStatus,
     SubsystemKind,
 )
 from orchestrator.state import StateMachine
-from orchestrator.validator import check_gate_g5
+from orchestrator.validator import check_gate_g5  # noqa: F401
 
 log = logging.getLogger(__name__)
 
@@ -85,7 +88,7 @@ def init_run(
     description: str = "",
 ) -> OrchestratorRun:
     """Create a new orchestration run directory and return the run context."""
-    run_id = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    run_id = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
     if run_dir is None:
         run_dir = Path(f"runs/{run_id}")
     run_dir = Path(run_dir)
@@ -299,7 +302,7 @@ def validate_results(
            (trust mode — labelled ``measurement_source="claimed"``)
     """
     from orchestrator.spec import FailureCode, WorkerResult
-    from orchestrator.validator import validate_worker_result, ValidationReport
+    from orchestrator.validator import ValidationReport, validate_worker_result
 
     reports: list[ValidationReport] = []
     results_data = collect_worker_results(run)

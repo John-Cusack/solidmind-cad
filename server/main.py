@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import argparse
 import logging
-import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -98,6 +97,7 @@ def switch_document_log(doc_name: str) -> Path:
 from server.jsonutil import dumps as json_dumps
 from server.jsonutil import dumps_str as json_dumps_str
 from server.jsonutil import loads as json_loads
+from server.preflight import preflight_check
 from server.prompts import get_prompt, list_prompts
 from server.tools import (
     spec_apply_answer,
@@ -111,14 +111,28 @@ from server.tools import (
     spec_select_schema,
     spec_validate,
 )
+from server.tools_analysis import (
+    analysis_aero_check,
+    analysis_conjugate_thermal_check,
+    analysis_list_materials,
+    analysis_list_solvers,
+    analysis_screen_stress,
+    analysis_stress_check,
+    analysis_stress_from_simulation,
+    analysis_thermal_check,
+    analysis_torque_sweep,
+)
 from server.tools_cad import (
     cad_animate,
     cad_animate_stop,
     cad_assembly_audit,
     cad_chamfer,
+    cad_check_clearance,
+    cad_check_swept_clearance,
+    cad_cleanup_orphans,
+    cad_clear_placement_plan,
     cad_create_primitive,
     cad_create_primitives,
-    cad_cleanup_orphans,
     cad_define_selection,
     cad_delete_objects,
     cad_delete_selection,
@@ -128,8 +142,6 @@ from server.tools_cad import (
     cad_export_sim_package,
     cad_fillet,
     cad_find_edges,
-    cad_register_placement_plan,
-    cad_clear_placement_plan,
     cad_freecad_info,
     cad_get_body_topology,
     cad_get_camera,
@@ -141,18 +153,17 @@ from server.tools_cad import (
     cad_linear_pattern,
     cad_list_selections,
     cad_loft,
-    cad_check_clearance,
-    cad_check_swept_clearance,
     cad_measure_between,
     cad_mirror,
     cad_new_body,
     cad_new_document,
-    cad_save,
     cad_pad,
     cad_pocket,
     cad_polar_pattern,
+    cad_register_placement_plan,
     cad_resolve_selection,
     cad_revolution,
+    cad_save,
     cad_screenshot,
     cad_set_camera,
     cad_set_placement,
@@ -162,18 +173,24 @@ from server.tools_cad import (
     cad_thickness,
     cad_undo,
 )
-from server.tools_mfg import (
-    mfg_export_rfq,
-    mfg_readiness_check,
-    mfg_set_property,
+from server.tools_decide import (
+    decide_from_failure,
+    decide_interpret,
 )
-from server.tools_knowledge import (
-    knowledge_extract,
-    knowledge_ingest,
-    knowledge_ingest_status,
-    knowledge_search,
-    knowledge_status,
+from server.tools_design import (
+    design_add_interface,
+    design_add_part,
+    design_generate_mechanism,
+    design_get_brief,
+    design_get_part,
+    design_list_briefs,
+    design_save_brief,
+    design_update_brief,
+    design_update_part,
+    design_verify_build,
 )
+from server.tools_fastener import cad_fastener_spec
+from server.tools_fastener_build import cad_bolt, cad_find_holes, cad_nut
 from server.tools_geometry import (
     geometry_belt_drive,
     geometry_bevel_gear,
@@ -187,6 +204,7 @@ from server.tools_geometry import (
     geometry_keyway_profile,
     geometry_oring_groove,
     geometry_planetary_layout,
+    geometry_press_fit_bore,
     geometry_propeller_blade,
     geometry_ratchet_tooth,
     geometry_section_properties,
@@ -196,8 +214,14 @@ from server.tools_geometry import (
     geometry_thread_profile,
     geometry_tooth_slot,
     geometry_turned_profile,
-    geometry_press_fit_bore,
     geometry_worm_gear,
+)
+from server.tools_knowledge import (
+    knowledge_extract,
+    knowledge_ingest,
+    knowledge_ingest_status,
+    knowledge_search,
+    knowledge_status,
 )
 from server.tools_me import (
     me_apply_risk_gates,
@@ -206,14 +230,10 @@ from server.tools_me import (
     me_list_validators,
     me_validate_constraints,
 )
-from server.tools_study import (
-    study_cancel,
-    study_create,
-    study_get_variant,
-    study_list,
-    study_results,
-    study_run,
-    study_status,
+from server.tools_mfg import (
+    mfg_export_rfq,
+    mfg_readiness_check,
+    mfg_set_property,
 )
 from server.tools_motion import (
     motion_check_gear_train,
@@ -243,40 +263,19 @@ from server.tools_rl import (
     rl_start_training,
     rl_stop_training,
 )
-from server.tools_design import (
-    design_add_interface,
-    design_add_part,
-    design_generate_mechanism,
-    design_get_brief,
-    design_get_part,
-    design_list_briefs,
-    design_save_brief,
-    design_update_brief,
-    design_update_part,
-    design_verify_build,
-)
-from server.preflight import preflight_check
-from server.tools_fastener import cad_fastener_spec
-from server.tools_fastener_build import cad_bolt, cad_find_holes, cad_nut
-from server.tools_analysis import (
-    analysis_aero_check,
-    analysis_conjugate_thermal_check,
-    analysis_list_materials,
-    analysis_list_solvers,
-    analysis_screen_stress,
-    analysis_stress_check,
-    analysis_stress_from_simulation,
-    analysis_thermal_check,
-    analysis_torque_sweep,
-)
-from server.tools_decide import (
-    decide_from_failure,
-    decide_interpret,
-)
 from server.tools_sim import (
     sim_engine_status,
     sim_start_engine,
     sim_stop_engine,
+)
+from server.tools_study import (
+    study_cancel,
+    study_create,
+    study_get_variant,
+    study_list,
+    study_results,
+    study_run,
+    study_status,
 )
 
 
@@ -4719,7 +4718,7 @@ def serve() -> int:
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="SolidMind CAD MCP server over stdio.")
     parser.add_argument("--serve", action="store_true", help="Run the stdio server (default).")
-    args = parser.parse_args(argv)
+    parser.parse_args(argv)
 
     raise SystemExit(serve())
 

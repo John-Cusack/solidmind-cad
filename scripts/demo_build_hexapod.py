@@ -22,7 +22,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import math
 import socket
 import sys
 import time
@@ -247,7 +246,7 @@ def build_legs(verify: bool = True) -> None:
 def take_screenshot() -> None:
     """Step 8: Capture iso screenshot."""
     t0 = _step(8, TOTAL_STEPS, "Capturing screenshot")
-    result = _send("screenshot", target="iso", width=1024, height=1024)
+    _send("screenshot", target="iso", width=1024, height=1024)
     _done(t0)
 
 
@@ -280,7 +279,7 @@ def export_sim_package() -> str | None:
 
 def verify_model() -> None:
     """Step 11: Print model tree summary."""
-    t0 = _step(11, TOTAL_STEPS, "Verifying model tree")
+    _step(11, TOTAL_STEPS, "Verifying model tree")
     result = _send("get_model_tree", detail="bodies")
     bodies = result.get("bodies", [])
     print(f"  {GREEN}✓{RESET}  {DIM}{len(bodies)} bodies{RESET}")
@@ -306,9 +305,9 @@ def main() -> None:
     # Check connection
     try:
         _send("ping")
-    except (ConnectionRefusedError, OSError) as e:
+    except (ConnectionRefusedError, OSError):
         print(f"  {RED}Cannot connect to FreeCAD addon on {HOST}:{PORT}{RESET}")
-        print(f"  Start FreeCAD and run: import freecad_addon; freecad_addon.start()")
+        print("  Start FreeCAD and run: import freecad_addon; freecad_addon.start()")
         sys.exit(1)
 
     # Phase 1: Chassis plate (rich PartDesign features)

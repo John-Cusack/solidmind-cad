@@ -7,10 +7,9 @@ from typing import Any
 
 import yaml
 
-from server.geometry_ir import GIR, Notice
 from server.geometry_executor import ExecutionTrace
+from server.geometry_ir import GIR, Notice
 from server.jcs import canonicalize as jcs_canonicalize
-
 
 _POLICY_PATH = Path(__file__).parent.parent / "feature_support" / "verification_policy.yml"
 

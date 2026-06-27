@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from typing import Any
 
 from server.constants import DEFAULT_PROCESS, MATURITY_LEVELS
 

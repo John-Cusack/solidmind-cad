@@ -18,7 +18,6 @@ from typing import Any
 from server.models import Finding, Severity
 from server.motion_models import JointType, Mechanism
 
-
 # ── Stage 1: Mechanism vs FreeCAD model tree ──────────────────────
 
 def verify_mechanism_vs_tree(
@@ -345,11 +344,11 @@ def verify_urdf_vs_isaac(
         return findings
 
     root = tree.getroot()
-    urdf_links = [el.get("name", "") for el in root.findall("link") if el.get("name")]
+    [el.get("name", "") for el in root.findall("link") if el.get("name")]
     urdf_joints_el = root.findall("joint")
     urdf_revolute = sum(1 for j in urdf_joints_el if j.get("type") == "revolute")
     urdf_prismatic = sum(1 for j in urdf_joints_el if j.get("type") == "prismatic")
-    urdf_fixed = sum(1 for j in urdf_joints_el if j.get("type") == "fixed")
+    sum(1 for j in urdf_joints_el if j.get("type") == "fixed")
     urdf_continuous = sum(1 for j in urdf_joints_el if j.get("type") == "continuous")
     urdf_total_joints = len(urdf_joints_el)
 
@@ -357,7 +356,7 @@ def verify_urdf_vs_isaac(
     type_counts = isaac_diagnose.get("type_counts", {})
     isaac_revolute = type_counts.get("PhysicsRevoluteJoint", 0)
     isaac_prismatic = type_counts.get("PhysicsPrismaticJoint", 0)
-    isaac_fixed = type_counts.get("PhysicsFixedJoint", 0)
+    type_counts.get("PhysicsFixedJoint", 0)
     isaac_total_joints = sum(
         type_counts.get(t, 0) for t in (
             "PhysicsRevoluteJoint", "PhysicsPrismaticJoint",

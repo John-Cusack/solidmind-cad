@@ -1,7 +1,6 @@
 """LLM provider abstraction — Anthropic, Cerebras, or any OpenAI-compatible API."""
 from __future__ import annotations
 
-import json
 import os
 from dataclasses import dataclass, field
 from enum import Enum
@@ -30,7 +29,7 @@ class ProviderConfig:
     def api_key(self) -> str:
         val = os.environ.get(self.api_key_env, "")
         if not val:
-            raise EnvironmentError(
+            raise OSError(
                 f"Missing API key: set ${self.api_key_env}"
             )
         return val

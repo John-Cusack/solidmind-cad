@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import shutil
 import subprocess
 import time
 import unittest
@@ -55,8 +54,8 @@ def _compose(*args: str, timeout: int = 300) -> subprocess.CompletedProcess:
 
 def _wait_for_workers(ports: list[int], timeout: float = 180.0) -> dict[int, bool]:
     """Poll worker health endpoints until all are ready or timeout."""
-    import urllib.request
     import urllib.error
+    import urllib.request
 
     deadline = time.monotonic() + timeout
     ready = {p: False for p in ports}
@@ -246,7 +245,7 @@ class TestDockerE2E(unittest.TestCase):
         async def _run_parallel() -> list[dict[str, Any]]:
             tasks = [
                 _submit_task(port, spec, [])
-                for port, spec in zip(WORKER_PORTS, specs)
+                for port, spec in zip(WORKER_PORTS, specs, strict=False)
             ]
             return await asyncio.gather(*tasks)
 
@@ -270,7 +269,7 @@ class TestDockerE2E(unittest.TestCase):
         async def _run() -> list[dict[str, Any]]:
             tasks = [
                 _submit_task(port, spec, [])
-                for port, spec in zip(WORKER_PORTS, specs)
+                for port, spec in zip(WORKER_PORTS, specs, strict=False)
             ]
             return await asyncio.gather(*tasks)
 

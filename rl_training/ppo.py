@@ -67,8 +67,6 @@ class _NormalizedActor:
     """
 
     def __new__(cls, actor: Any, obs_mean: Any, obs_var: Any) -> Any:
-        import torch
-        import torch.nn as nn
 
         module = _NormalizedActorImpl(actor, obs_mean, obs_var)
         return module
@@ -699,8 +697,9 @@ class PPOTrainer:
         Returns the path to the exported policy.pt file.
         """
         import json
-        import torch
         from pathlib import Path
+
+        import torch
 
         out = Path(output_dir)
         out.mkdir(parents=True, exist_ok=True)

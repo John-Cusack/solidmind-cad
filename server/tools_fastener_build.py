@@ -5,8 +5,8 @@ cad.find_holes identifies cylindrical holes and suggests bolt sizes.
 """
 from __future__ import annotations
 
-import math
 import logging
+import math
 from typing import Any
 
 from server.fastener_data import (

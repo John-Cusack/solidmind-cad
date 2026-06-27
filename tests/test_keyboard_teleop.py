@@ -9,7 +9,6 @@ import unittest
 
 from scripts.isaac_keyboard_teleop import _apply_key
 
-
 _VX_MAX = 0.5
 _YAW_MAX = 1.0
 _HEIGHT_MAX = 0.03

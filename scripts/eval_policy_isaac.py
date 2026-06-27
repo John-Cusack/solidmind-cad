@@ -108,7 +108,8 @@ def main() -> int:
         print(f"Environment created: {args.num_envs} envs", flush=True)
     except Exception as exc:
         print(f"FATAL: env creation failed: {exc}", flush=True)
-        import traceback; traceback.print_exc()
+        import traceback
+        traceback.print_exc()
         simulation_app.close()
         return 1
 
@@ -126,10 +127,12 @@ def main() -> int:
             import omni.kit.viewport.utility as vp_util  # type: ignore[import-not-found]
             viewport = vp_util.get_active_viewport()
             if viewport is not None:
-                from pxr import Gf  # type: ignore[import-not-found]
-                import omni.kit.commands  # type: ignore[import-not-found]
+
                 # Create a camera prim and set it as active
-                from omni.kit.viewport.utility.camera_state import ViewportCameraState  # type: ignore[import-not-found]
+                from omni.kit.viewport.utility.camera_state import (
+                    ViewportCameraState,  # type: ignore[import-not-found]
+                )
+                from pxr import Gf  # type: ignore[import-not-found]
                 cam_state = ViewportCameraState(viewport)
                 cam_state.set_position_world(Gf.Vec3d(1.5, 1.5, 1.0), True)
                 cam_state.set_target_world(Gf.Vec3d(0.0, 0.0, 0.15), True)

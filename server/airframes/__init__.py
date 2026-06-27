@@ -48,15 +48,15 @@ hexapod, planetary gearbox, and any non-drone use of
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Literal, Protocol, Union, runtime_checkable
+from typing import TYPE_CHECKING, Literal, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
     # Avoid import cycle: sim_export imports from airframes/multicopter.py
     # only at runtime, not at module load.
-    from server.sim_export import SimModel
     from server.px4_airframe_generator import AirframeParams
+    from server.sim_export import SimModel
 
 
 # ---------------------------------------------------------------------------
@@ -93,7 +93,7 @@ class CustomMesh:
     mesh_path: str
 
 
-ShapeSpec = Union[Box, Cylinder, Disk, CustomMesh]
+ShapeSpec = Box | Cylinder | Disk | CustomMesh
 
 
 # ---------------------------------------------------------------------------
@@ -163,11 +163,11 @@ class AirframeSpec(Protocol):
         """Sum of chassis + every structural body + every actuated link."""
         ...
 
-    def to_sim_model(self) -> "SimModel":
+    def to_sim_model(self) -> SimModel:
         """Build the format-agnostic kinematic + inertial description."""
         ...
 
-    def to_px4_airframe_params(self) -> "AirframeParams":
+    def to_px4_airframe_params(self) -> AirframeParams:
         """Build the PX4 airframe init script parameters."""
         ...
 

@@ -171,7 +171,7 @@ def _freecad_addon_reachable(host: str = "127.0.0.1", port: int = 9876) -> bool:
     try:
         with socket.create_connection((host, port), timeout=1):
             return True
-    except (OSError, socket.timeout):
+    except (TimeoutError, OSError):
         return False
 
 

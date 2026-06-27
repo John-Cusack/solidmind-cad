@@ -4,9 +4,9 @@ from __future__ import annotations
 import unittest
 
 from server.analysis_face_map import (
+    _parse_face_index,
     map_face_refs_to_gmsh,
     match_faces_geometric,
-    _parse_face_index,
 )
 
 

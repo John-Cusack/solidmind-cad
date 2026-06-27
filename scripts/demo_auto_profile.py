@@ -134,10 +134,10 @@ def main(argv: list[str] | None = None) -> int:
     # ── Step 2: Generate auto-profile ─────────────────────────────
     auto_profile = _build_profile_from_mechanism(mech)
 
-    print(f"\n--- Auto-generated profile ---")
+    print("\n--- Auto-generated profile ---")
     print(json.dumps(auto_profile, indent=2))
 
-    print(f"\nSummary:")
+    print("\nSummary:")
     print(f"  Controller type: {auto_profile.get('controller_type')}")
     print(f"  DOFs per leg:    {auto_profile.get('dofs_per_leg')}")
     print(f"  Legs found:      {len(auto_profile.get('hip_mounts', []))}")
@@ -181,10 +181,9 @@ def main(argv: list[str] | None = None) -> int:
             print(f"\nError: URDF not found: {args.urdf}", file=sys.stderr)
             return 1
 
-        from server import motion_store
         from server.tools_motion import motion_define_mechanism, motion_teleop_start
 
-        print(f"\n--- Live teleop (Isaac bridge) ---")
+        print("\n--- Live teleop (Isaac bridge) ---")
         print(f"  URDF: {args.urdf}")
 
         # Define mechanism
@@ -208,7 +207,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  Controller: {result.get('controller_type')}")
             if "profile_used" in result:
                 print(f"  Profile used: {json.dumps(result['profile_used'], indent=4)}")
-            print(f"\n  Teleop started! Use keyboard_teleop.py or motion.teleop_command.")
+            print("\n  Teleop started! Use keyboard_teleop.py or motion.teleop_command.")
         else:
             err = result.get("error", {})
             print(f"  Teleop failed: [{err.get('code')}] {err.get('message')}", file=sys.stderr)

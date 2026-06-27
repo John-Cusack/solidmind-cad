@@ -8,8 +8,10 @@ import math
 
 from isaac_bridge.controllers import Hexapod3DOFController
 from isaac_bridge.hexapod_ik import (
-    HipMount, LegGeometry, body_to_hip_frame,
-    default_foot_position, forward_kinematics, inverse_kinematics, LegAngles,
+    LegGeometry,
+    body_to_hip_frame,
+    forward_kinematics,
+    inverse_kinematics,
 )
 from isaac_bridge.models import TeleopConfig, TeleopState
 
@@ -112,7 +114,7 @@ for i, name in enumerate(LEG_NAMES):
     base = i * 3
     jnames = config.leg_joint_names[base:base+3]
     print(f"  {name}:")
-    for j, label in zip(jnames, ["coxa", "femur", "tibia"]):
+    for j, label in zip(jnames, ["coxa", "femur", "tibia"], strict=False):
         range_deg = DEG(maxs[j]) - DEG(mins[j])
         print(f"    {label:6s}: {DEG(mins[j]):+7.2f}° to {DEG(maxs[j]):+7.2f}°  (range: {range_deg:.2f}°)")
 
@@ -132,7 +134,7 @@ ctrl3 = Hexapod3DOFController()
 state_still = TeleopState(vx_mps=0.0)
 targets_still, _ = ctrl3.compute_targets(state_still, DT, config, 0.0)
 max_dev = 0.0
-for j, v in targets_still.items():
+for _, v in targets_still.items():
     max_dev = max(max_dev, abs(v))
 print(f"  Max deviation from zero: {DEG(max_dev):.4f}°")
 if max_dev < 0.001:

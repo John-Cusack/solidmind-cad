@@ -15,15 +15,9 @@ from pathlib import Path
 from server.px4_airframe_generator import (
     _AUTOSTART_BASE,
     _AUTOSTART_RANGE,
-    _DEFAULT_MAX_ROT_VELOCITY,
-    _DEFAULT_MOTOR_CONSTANT,
-    _GRAVITY_MS2,
     _X500_ARM_LENGTH_M,
-    _X500_HOVER_THROTTLE,
     _X500_MC_ROLLRATE_P,
     AirframeGeneratorError,
-    AirframeParams,
-    RotorParams,
     airframe_filename,
     compute_arm_length,
     compute_hover_throttle,
@@ -35,7 +29,6 @@ from server.px4_airframe_generator import (
     register_airframe,
     seed_pid_gains,
 )
-
 
 # ----------------------------------------------------------------------
 # Fixtures

@@ -8,12 +8,7 @@ import signal
 import subprocess
 import sys
 import time
-from pathlib import Path
 from typing import Any
-
-log = logging.getLogger("solidmind.tools_study")
-
-_TOOL_LOG = bool(os.environ.get("SOLIDMIND_TOOL_LOG", ""))
 
 from server.study_models import (
     DesignVariable,
@@ -24,12 +19,15 @@ from server.study_models import (
 )
 from server.study_solvers import get_solver
 from server.study_store import (
-    delete_study,
     list_studies,
     load_study,
     save_study,
     study_exists,
 )
+
+log = logging.getLogger("solidmind.tools_study")
+
+_TOOL_LOG = bool(os.environ.get("SOLIDMIND_TOOL_LOG", ""))
 
 
 def _error_result(code: str, message: str) -> dict[str, Any]:

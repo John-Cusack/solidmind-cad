@@ -12,9 +12,7 @@ from __future__ import annotations
 
 import argparse
 import importlib.util
-import sys
 import time
-from pathlib import Path
 from types import ModuleType
 
 
@@ -64,7 +62,8 @@ def main() -> int:
         print(f"Environment created with URDF: {getattr(mod, 'URDF_PATH', '?')}", flush=True)
     except Exception as exc:
         print(f"FATAL: env creation failed: {exc}", flush=True)
-        import traceback; traceback.print_exc()
+        import traceback
+        traceback.print_exc()
         simulation_app.close()
         return 1
 
@@ -73,7 +72,8 @@ def main() -> int:
         obs_dict, _ = env.reset()
     except Exception as exc:
         print(f"FATAL: env.reset() failed: {exc}", flush=True)
-        import traceback; traceback.print_exc()
+        import traceback
+        traceback.print_exc()
         env.close()
         simulation_app.close()
         return 1

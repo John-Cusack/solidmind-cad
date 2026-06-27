@@ -9,7 +9,6 @@ from typing import Any
 
 from server.fastener_data import (
     SUPPORTED_HEAD_TYPES,
-    SUPPORTED_NUT_TYPES,
     SUPPORTED_SIZES,
     lookup,
     nut_lookup,

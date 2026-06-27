@@ -19,7 +19,7 @@ Naming convention:
 """
 from __future__ import annotations
 
-from server.airframes import Box, Disk, SensorPack, StructuralBody
+from server.airframes import Box, SensorPack, StructuralBody
 from server.airframes.multicopter import MulticopterAirframe, Rotor
 
 

@@ -10,17 +10,14 @@ from __future__ import annotations
 
 import json
 import math
-import os
 import shutil
 import socket
 import unittest
 from typing import Any
 from unittest.mock import patch
 
-from tests.conftest import GazeboStubBridge, mechanism_factory, unused_tcp_port
-
 from server import motion_store
-from server.analysis_models import CheckStatus, MeshInfo
+from server.analysis_models import MeshInfo
 from server.analysis_sim_coupling import bcs_from_simulation
 from server.design_store import clear as clear_briefs
 from server.tools_design import (
@@ -29,10 +26,8 @@ from server.tools_design import (
     design_get_brief,
     design_save_brief,
     design_update_brief,
-    design_update_part,
-    design_verify_build,
 )
-
+from tests.conftest import GazeboStubBridge, mechanism_factory, unused_tcp_port
 
 _ELMER_AVAILABLE = bool(
     shutil.which("ElmerSolver") and shutil.which("ElmerGrid")

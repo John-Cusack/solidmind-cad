@@ -11,7 +11,9 @@ import socket
 import time
 from typing import Any
 
-from server.jsonutil import dumps as json_dumps, dumps_str as json_dumps_str, loads as json_loads
+from server.jsonutil import dumps as json_dumps
+from server.jsonutil import dumps_str as json_dumps_str
+from server.jsonutil import loads as json_loads
 
 logger = logging.getLogger("solidmind.isaac_client")
 
@@ -372,7 +374,7 @@ class IsaacClient:
         while b"\n" not in self._buffer:
             try:
                 data = self._sock.recv(65536)
-            except socket.timeout as exc:
+            except TimeoutError as exc:
                 raise IsaacConnectionError(
                     f"Timed out waiting for Isaac bridge response ({timeout}s)"
                 ) from exc

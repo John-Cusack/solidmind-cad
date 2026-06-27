@@ -1211,11 +1211,6 @@ def mirror(
             sk = sk[0]
         mirror_obj.MirrorPlane = (sk, [f"{plane}_Axis"])
     else:
-        plane_map = {
-            "Base_X": ("YZ_Plane", "XY_Plane"),  # mirror across YZ plane (X symmetry)
-            "Base_Y": ("XZ_Plane", "XZ_Plane"),  # mirror across XZ plane (Y symmetry)
-            "Base_Z": ("XY_Plane", "XY_Plane"),  # mirror across XY plane (Z symmetry)
-        }
         # FreeCAD PartDesign::Mirrored uses origin planes as mirror planes
         fc_plane_map = {
             "Base_X": "YZ_Plane",
@@ -1697,14 +1692,14 @@ def get_body_topology(
         body_obj = _resolve_body(d, body)
         tip = _get_tip(body_obj)
         shape = tip.Shape
-    except (ValueError, AttributeError):
+    except (ValueError, AttributeError) as exc:
         if body is None:
             raise
         obj = d.getObject(body)
         if obj is None:
-            raise ValueError(f"Object '{body}' not found in document '{d.Name}'")
+            raise ValueError(f"Object '{body}' not found in document '{d.Name}'") from exc
         if not hasattr(obj, "Shape") or obj.Shape is None:
-            raise ValueError(f"Object '{body}' has no Shape attribute")
+            raise ValueError(f"Object '{body}' has no Shape attribute") from exc
         shape = obj.Shape
 
     faces: list[dict[str, Any]] = []
@@ -1748,7 +1743,7 @@ def get_body_topology(
         edges.append(edge_info)
 
     # Build face→edge adjacency
-    for face_info, face in zip(faces, shape.Faces):
+    for face_info, face in zip(faces, shape.Faces, strict=False):
         adjacent_edge_names: list[str] = []
         for face_edge in face.Edges:
             for j, body_edge in enumerate(shape.Edges):
@@ -1964,8 +1959,8 @@ def find_edges(
     if on_face is not None:
         try:
             face_shape = shape.getElement(on_face)
-        except Exception:
-            raise ValueError(f"Face '{on_face}' not found on shape")
+        except Exception as exc:
+            raise ValueError(f"Face '{on_face}' not found on shape") from exc
         face_edge_set = set()
         for fe in face_shape.Edges:
             for j, body_edge in enumerate(shape.Edges):
@@ -2288,8 +2283,8 @@ def _resolve_target(
         shape = tip.Shape
         try:
             face = shape.getElement(target)
-        except Exception:
-            raise ValueError(f"Face '{target}' not found on shape")
+        except Exception as exc:
+            raise ValueError(f"Face '{target}' not found on shape") from exc
         center = _vec_to_list(face.CenterOfMass)
         normal = None
         if hasattr(face, "Surface") and hasattr(face.Surface, "Axis"):
@@ -2452,7 +2447,7 @@ def get_camera(doc: str | None = None) -> dict[str, Any]:
             "far_clip": far_d,
         }
     except Exception as e:
-        raise RuntimeError(f"Failed to read camera: {e}")
+        raise RuntimeError(f"Failed to read camera: {e}") from e
 
 
 # ---------------------------------------------------------------------------
@@ -3350,6 +3345,7 @@ def assembly_animate(
     resolved directly by name (no assembly required).
     """
     import time
+
     from freecad_addon.qt_compat import QTimer
 
     global _active_animation
@@ -4193,7 +4189,7 @@ def _check_placement_against_plan(
     if exp_pos is not None and len(exp_pos) >= 3:
         actual_pos = [p.Base.x, p.Base.y, p.Base.z]
         drift = math.sqrt(sum(
-            (a - e) ** 2 for a, e in zip(actual_pos, exp_pos)
+            (a - e) ** 2 for a, e in zip(actual_pos, exp_pos, strict=False)
         ))
         tol = plan_entry.get("tolerance_mm", _placement_plan_default_tolerance_mm)
         plan_check["drift_mm"] = round(drift, 3)
@@ -4226,7 +4222,7 @@ def _check_placement_against_plan(
                 max_dim = max(max(actual_size), max(expected_sorted), 1e-9)
                 size_tol = max(max_dim * 0.10, 1.0)
                 mismatches = [
-                    abs(a - e) for a, e in zip(actual_size, expected_sorted)
+                    abs(a - e) for a, e in zip(actual_size, expected_sorted, strict=False)
                 ]
                 max_mismatch = max(mismatches)
                 plan_check["actual_size"] = [round(s, 2) for s in actual_size]
@@ -4583,8 +4579,8 @@ def _resolve_measure_ref(doc: Any, ref: Any) -> Any:
         shape = tip.Shape
         try:
             return shape.getElement(sub_name)
-        except Exception:
-            raise ValueError(f"Sub-shape '{sub_name}' not found on body '{body_name}'")
+        except Exception as exc:
+            raise ValueError(f"Sub-shape '{sub_name}' not found on body '{body_name}'") from exc
 
     # Plain body name
     body = doc.getObject(ref)
@@ -4658,14 +4654,14 @@ def find_holes(
         tip = _get_tip(body_obj)
         shape = tip.Shape
         resolved_name = body_obj.Name
-    except (ValueError, AttributeError):
+    except (ValueError, AttributeError) as exc:
         if body is None:
             raise
         obj = d.getObject(body)
         if obj is None:
-            raise ValueError(f"Object '{body}' not found in document '{d.Name}'")
+            raise ValueError(f"Object '{body}' not found in document '{d.Name}'") from exc
         if not hasattr(obj, "Shape") or obj.Shape is None:
-            raise ValueError(f"Object '{body}' has no Shape attribute")
+            raise ValueError(f"Object '{body}' has no Shape attribute") from exc
         shape = obj.Shape
         resolved_name = obj.Name
 
@@ -4978,7 +4974,7 @@ def assembly_audit(
 
     # Helper: Euclidean distance between two 3D points
     def _dist(a: list[float], b: list[float]) -> float:
-        return math.sqrt(sum((ai - bi) ** 2 for ai, bi in zip(a, b)))
+        return math.sqrt(sum((ai - bi) ** 2 for ai, bi in zip(a, b, strict=False)))
 
     # Helper: bounding box overlap fraction (intersection volume / smaller volume)
     def _bbox_overlap(a: dict[str, Any], b: dict[str, Any]) -> float:

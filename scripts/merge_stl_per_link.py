@@ -11,7 +11,6 @@ Usage::
 """
 from __future__ import annotations
 
-import copy
 import math
 import struct
 import sys
@@ -40,7 +39,7 @@ def _rpy_to_matrix(rpy: np.ndarray) -> np.ndarray:
 def read_stl_binary(path: str) -> tuple[np.ndarray, np.ndarray]:
     """Read binary STL, return (normals [N,3], vertices [N,3,3])."""
     with open(path, "rb") as f:
-        header = f.read(80)
+        f.read(80)
         n_tri = struct.unpack("<I", f.read(4))[0]
         normals = np.zeros((n_tri, 3), dtype=np.float32)
         vertices = np.zeros((n_tri, 3, 3), dtype=np.float32)
