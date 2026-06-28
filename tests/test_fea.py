@@ -222,9 +222,17 @@ class TestBuildInp(unittest.TestCase):
         self.assertIn("*ELASTIC", content)
         self.assertIn("200000", content)
         self.assertIn("*BOUNDARY", content)
-        self.assertIn("FIXED, 1, 6", content)
+        # Solid C3D10 nodes have 3 translational DOF — fixing 1-6 segfaults ccx.
+        self.assertIn("FIXED, 1, 3", content)
+        self.assertNotIn("FIXED, 1, 6", content)
         self.assertIn("*CLOAD", content)
-        self.assertIn("LOAD, 3, -100.0", content)
+        # Load value is bounded-width formatted (-100.0 -> -100) so it fits ccx's
+        # fixed-width card field.
+        self.assertIn("LOAD, 3, -100", content)
+        # EALL is an explicit element list, not GENERATE-to-huge (which referenced
+        # phantom element ids and segfaulted the solver).
+        self.assertIn("*ELSET, ELSET=EALL", content)
+        self.assertNotIn("GENERATE", content)
         self.assertIn("*STEP", content)
         self.assertIn("*END STEP", content)
         self.assertIn("*NSET, NSET=FIXED", content)
