@@ -56,9 +56,9 @@ The lossless head-to-head validates the energy core of physics_model against the
 | Spring seat | > 2.0 | PASS | PASS |
 | Plunger rod (buckling) | > 2.0 | PASS | PASS |
 
-## Screen vs FEA (latch tooth)
+## FEA mesh convergence (latch tooth)
 
-_FEA SKIPPED_ — no CalculiX/FreeCAD this run. The analytical screen above stands on its own; run with the addon + `ccx`/`gmsh` to confirm it against a real solve (agreement target ±25%).
+_FEA SKIPPED_ — no CalculiX/FreeCAD this run. The analytical screen above stands on its own; run with the addon + `ccx`/`gmsh` to solve each root at two mesh densities and confirm convergence.
 
 ## Kinematic checks (plunger in guide)
 

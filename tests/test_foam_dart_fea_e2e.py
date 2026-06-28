@@ -97,6 +97,23 @@ class TestScreenVsFea(unittest.TestCase):
         self.assertEqual(launcher_run.screen_vs_fea(60.0, None), (None, None))
 
 
+class TestFeaConvergence(unittest.TestCase):
+    """Mesh-refinement trend: small change => converged; large => singular."""
+
+    def test_stable_peak_converges(self) -> None:
+        converged, rel = launcher_run.fea_convergence(6.2, 6.6)  # ~6% change
+        self.assertTrue(converged)
+        self.assertLess(rel, launcher_run.FEA_CONVERGENCE_TOL)
+
+    def test_climbing_peak_diverges(self) -> None:
+        converged, rel = launcher_run.fea_convergence(20.2, 23.9)  # ~16% change
+        self.assertFalse(converged)
+        self.assertGreater(rel, launcher_run.FEA_CONVERGENCE_TOL)
+
+    def test_missing_fine_is_none(self) -> None:
+        self.assertEqual(launcher_run.fea_convergence(6.2, None), (None, None))
+
+
 class TestFeaSmokeGuard(unittest.TestCase):
     """Smoke mode must not emit any real FEA numbers — only SKIPPED/banner."""
 
@@ -108,16 +125,23 @@ class TestFeaSmokeGuard(unittest.TestCase):
             report = (out / "validation_report.md").read_text()
         self.assertIn("PHYSICS NOT VALIDATED", report)
         self.assertIn("FEA SKIPPED", report)
-        # No real solver output leaked into the smoke report.
-        self.assertNotIn("FEA peak σ", report.split("| Variant |")[0])
-        self.assertNotIn("real CalculiX run", report)
+        # The convergence section must degrade to SKIPPED — no solved σ table,
+        # no convergence verdict leaked from a real solve.
+        self.assertIn("_FEA SKIPPED_", report)
+        self.assertNotIn("Δ on refine", report)
+        self.assertNotIn("converges — confirms screen", report)
+        self.assertNotIn("DIVERGING", report)
 
 
 @unittest.skipUnless(_solvers_ready(), "needs FreeCAD addon + ccx + gmsh")
 class TestFeaReal(unittest.TestCase):
-    """Real CalculiX run on the enriched V2 latch confirms the screen."""
+    """Real CalculiX mesh-convergence study on the enriched latch.
 
-    def test_v2_latch_fea_confirms_screen(self) -> None:
+    The filleted root (V2) must converge and confirm the analytical screen; the
+    sharp root (V1) must diverge (a singularity FEA cannot resolve).
+    """
+
+    def test_v2_converges_and_confirms_screen(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp) / "run"
             (out / "step").mkdir(parents=True)
@@ -125,16 +149,47 @@ class TestFeaReal(unittest.TestCase):
             log = launcher_run.StepLog(lines=[])
             variants = launcher_run.build_latch_variants(out, log)
             self.assertIsNotNone(variants, "latch variants should build with the addon up")
-            res = launcher_run.fea_latch(
+            v2 = launcher_run.fea_latch(
                 variant=variants["v2"],
                 material="pla",
                 hold_force_n=9.0,
                 log=log,
                 tag="V2 test",
             )
-            self.assertIsNotNone(res, "FEA should return a FieldResult")
-            self.assertGreater(res["max_von_mises_mpa"], 0.0)
-            self.assertIn("failure_mode", res)
+            self.assertIsNotNone(v2, "FEA should return a convergence result")
+            # Converges at the fillet, and the converged value matches the screen.
+            self.assertTrue(v2["converged"], f"V2 should converge, Δ={v2['convergence_delta']}")
+            self.assertGreater(v2["peak_fine_mpa"], 0.0)
+            mat = launcher_run.resolve_material("pla")
+            v2_screen = launcher_run.screen_parts(
+                hold_force_n=9.0,
+                yield_mpa=mat.yield_strength_mpa,
+                youngs_mpa=mat.youngs_modulus_mpa,
+                latch_root_mm=launcher_run.LATCH_V2["root_mm"],
+                latch_fillet_ratio=launcher_run.LATCH_V2["fillet_ratio"],
+            )["latch_sear"].measured
+            within, _ = launcher_run.screen_vs_fea(v2_screen, v2["peak_fine_mpa"])
+            self.assertTrue(within, "converged V2 FEA should agree with the screen ±25%")
+
+    def test_v1_diverges(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "run"
+            (out / "step").mkdir(parents=True)
+            (out / "stl").mkdir(parents=True)
+            log = launcher_run.StepLog(lines=[])
+            variants = launcher_run.build_latch_variants(out, log)
+            self.assertIsNotNone(variants)
+            v1 = launcher_run.fea_latch(
+                variant=variants["v1"],
+                material="pla",
+                hold_force_n=9.0,
+                log=log,
+                tag="V1 test",
+            )
+            self.assertIsNotNone(v1)
+            # Sharp root: peak climbs under refinement → not converged (singular).
+            self.assertFalse(v1["converged"], f"V1 should diverge, Δ={v1['convergence_delta']}")
+            self.assertGreater(v1["peak_fine_mpa"], v1["peak_coarse_mpa"])
 
 
 if __name__ == "__main__":

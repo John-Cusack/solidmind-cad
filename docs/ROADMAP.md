@@ -50,6 +50,16 @@ are string labels); and the regression-recovery + cross-session-memory tests
 (bar items 2 and 3). Inner-loop status moves **✗ → ◐: closed on one part class,
 generalization to more classes pending.**
 
+**Addendum — 2026-06-27 (foam-dart FEA hardening):** the example's Simulate
+rung now drives a real CalculiX **mesh-convergence study** on the enriched
+latch — V2 (filleted) converges and confirms the analytical screen (±25%); V1
+(sharp) diverges (a singularity) and is rejected by the screen. This replaced a
+misleading "FEA reproduces the SCF" claim. Running the real solver also exposed
+that the project has **two duplicated FEA cores**, one of which
+(`orchestrator.fea.run_l2_fea`) is broken against CalculiX 2.21. New **Move 4**
+in the priority stack tracks unifying them on one convergence-aware core, a
+real-backend CI lane, the clamp-singularity sub-model, and the latch load case.
+
 ## Where the loop model comes from
 
 The iteration loop below is a **nine-step model**. Six of the nine steps map
@@ -954,6 +964,71 @@ bracket (or any of the four part classes already in
 `tests/test_project_*.py`). Take its build sequence, wrap it as a
 worker, plumb it through `orchestrator.runner.dispatch_all`, and
 assert that the resulting STEP file passes `validator.validate_worker_result`.
+
+### Move 4 — Unify the two FEA pipelines on one convergence-aware core ✗ planned
+
+**Why.** Surfaced while hardening the foam-dart example (2026-06-27). There are
+**two** structural-FEA implementations, and they duplicate the same engine
+(mesh → CalculiX deck → solve → parse):
+
+- `analysis.stress_check` (`server/tools_analysis.py`) — the modern Tier-3 tool
+  the inner loop and the foam-dart example stand on. Takes a *live FreeCAD body*
+  (`cad_export_body`), single mesh, single solve. **Correct** against CalculiX
+  2.21.
+- `orchestrator.fea.run_l2_fea` (`orchestrator/fea.py`) — the outer-loop worker
+  scorer's FEA (`orchestrator/scorer.py`). Takes a *STEP file* (headless/batch),
+  does a **dual-density mesh + convergence + singularity detection**. Its
+  CalculiX deck is **malformed for ccx 2.21** (`*ERROR reading *DENSITY`,
+  `gen3delem: first thickness`) — latent because the tests only run when `ccx`
+  is installed, which nothing in CI did until now.
+
+They are **not redundant** — one is addon-coupled/interactive, the other
+file-coupled/batch with convergence rigor. The liability is the *duplicated
+core*: the unused copy silently rotted. And the rigor (convergence/singularity
+detection) lives in the path the example *doesn't* use, while the clean
+interface lives in the path that *lacks* the rigor.
+
+**What to do.** Extract one shared engine — `mesh → deck → solve → parse →
+FieldResult`, convergence-aware (the two-density study the foam-dart latch now
+does inline belongs here) — and make both entry points thin adapters over it:
+
+- adapter A: live body → STEP (`analysis.stress_check`),
+- adapter B: STEP file + batch convergence loop (`run_l2_fea` / scorer).
+
+One deck-builder to keep correct (the ccx-2.21 `*DENSITY`/element-card bug
+disappears with the duplicate), one result type, two front doors. The
+foam-dart example's `fea_latch` convergence logic is the reference behaviour to
+fold into the shared core.
+
+**Sub-tasks (the #2–#4 from the 2026-06-27 review):**
+
+1. **Unify the core + fix the `run_l2_fea` ccx-2.21 deck bug.** Land the shared
+   engine; delete the duplicated deck-gen. (#2)
+2. **Real-backend CI lane.** The rot hid because no environment ran the real
+   solver — every `skipUnless(ccx)` test skipped forever. Add a lane (or
+   scheduled job) with `calculix-ccx` + `gmsh` + a headless FreeCAD addon so the
+   guarded FEA/kinematic e2e tests (`tests/test_fea_integration.py`,
+   `tests/test_foam_dart_fea_e2e.py::TestFeaReal`,
+   `tests/test_foam_dart_kinematics_e2e.py::TestKinematicGeometric`) actually
+   execute. Without it, Move 4 itself will re-rot. (#3)
+3. **Clamp-singularity sub-model.** The foam-dart convergence study trusts the
+   FEA only at the fillet-resolving mesh; refining further re-exposes the
+   *idealized fixed-face clamp edge*, which is itself singular. Add a sub-model
+   (or de-singularized BC: filleted clamp / bonded region) so the root stress is
+   exact rather than capped at an engineering mesh. This is the rigorous way to
+   make the "converged" claim hold in the limit. (surfaced by #1)
+4. **Revisit the latch load case.** A sear's governing load is the force at the
+   instant of *catch* (full spring force, possibly with impact), not the 9 N
+   static hold. V2's FoS ≈ 9 is a hint the static case is too gentle to be
+   design-driving. Confirm the controlling load case and set the BC accordingly.
+   Small ME task, independent of the refactor. (#4)
+
+**Done already (#1, 2026-06-27):** the example's FEA rung was reframed from a
+misleading "FEA reproduces the screen's SCF" (it didn't — a 358% gap) to an
+honest mesh-convergence study: V2 (filleted) converges and confirms the screen
+(±25%); V1 (sharp) diverges (singular) and is rejected by the analytical screen.
+See `examples/foam_dart_spring_launcher/run.py` (`fea_latch`, `fea_convergence`)
+and `tests/test_foam_dart_fea_e2e.py`.
 
 ### Parallelizability
 

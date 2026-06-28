@@ -71,6 +71,51 @@ class TestKinematicReportRows(unittest.TestCase):
         self.assertIn("SKIPPED", kin_section)
 
 
+class TestKinematicRobustness(unittest.TestCase):
+    """Degradation + no-fabricated-PASS guarantees that run without a backend."""
+
+    def test_missing_brief_keys_degrade_not_crash(self) -> None:
+        # A brief missing parameters/constraints/parts must not raise — it falls
+        # back to defaults and still produces a clearance row (mirrors the
+        # SKIPPED-not-crash discipline of the FEA/Chrono steps).
+        log = launcher_run.StepLog(lines=[])
+        with tempfile.TemporaryDirectory() as tmp:
+            kin = launcher_run.kinematic_tier2(brief={}, out=Path(tmp), smoke=True, log=log)
+        self.assertIn("clearance", kin)
+        self.assertAlmostEqual(kin["clearance"]["target_mm"], 0.4, places=6)
+
+    def test_error_shaped_validation_is_not_a_pass(self) -> None:
+        # motion_validate's error path returns {ok: False} with no 'blockers' key;
+        # travel must read FAIL, never a fabricated PASS.
+        from unittest import mock
+
+        log = launcher_run.StepLog(lines=[])
+        with (
+            mock.patch(
+                "server.tools_motion.motion_validate",
+                return_value={"ok": False, "error": {"code": "NOT_FOUND"}},
+            ),
+            tempfile.TemporaryDirectory() as tmp,
+        ):
+            kin = launcher_run.kinematic_tier2(brief=_BRIEF, out=Path(tmp), smoke=False, log=log)
+        self.assertEqual(kin["travel"]["status"], "FAIL")
+
+    def test_geometric_interference_downgrades_binding(self) -> None:
+        # A geometric clear=False must override the analytical PASS, not hide.
+        from unittest import mock
+
+        log = launcher_run.StepLog(lines=[])
+        with (
+            mock.patch.object(
+                launcher_run, "_geometric_interference", return_value={"clear": False}
+            ),
+            tempfile.TemporaryDirectory() as tmp,
+        ):
+            kin = launcher_run.kinematic_tier2(brief=_BRIEF, out=Path(tmp), smoke=False, log=log)
+        self.assertEqual(kin["binding"]["status"], "FAIL")
+        self.assertFalse(kin["binding"]["geometric_clear"])
+
+
 @unittest.skipUnless(common.freecad_ready(), "needs a live FreeCAD addon")
 class TestKinematicGeometric(unittest.TestCase):
     """Best-effort geometric interference confirmation when the addon is up."""
