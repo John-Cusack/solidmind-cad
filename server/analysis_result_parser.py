@@ -71,6 +71,7 @@ def parse_frd(frd_path: Path, spec: AnalysisSpec) -> FieldResult:
     if not stresses:
         min_vm = 0.0
     mean_vm = vm_sum / len(stresses) if stresses else 0.0
+    filtered_peak = _filtered_peak_von_mises(list(stresses.values()), max_vm)
 
     # Build checks
     yield_mpa = spec.material.yield_strength_mpa
@@ -168,7 +169,29 @@ def parse_frd(frd_path: Path, spec: AnalysisSpec) -> FieldResult:
         checks=tuple(checks),
         scalar_fields=tuple(fields),
         solver_name="calculix",
+        filtered_peak_von_mises_mpa=round(filtered_peak, 2),
     )
+
+
+def _filtered_peak_von_mises(values: list[float], max_vm: float) -> float:
+    """Peak von Mises with likely mesh singularities excluded.
+
+    Flags the nodes in the top 5% that *also* exceed 2× the median (the signature
+    of a stress spike at a sharp re-entrant corner — a mesh artifact, not a real
+    stress) and returns the max of what remains. This is the batch scorer's basis
+    for a safety factor that an incidental singularity can't tank. Falls back to
+    ``max_vm`` when the sample is too small or degenerate.
+    """
+    n = len(values)
+    if n == 0:
+        return max_vm
+    ordered = sorted(values)
+    median = ordered[n // 2]
+    if median < 1e-9:
+        return max_vm
+    p95 = ordered[max(0, int(n * 0.95) - 1)]
+    kept = [v for v in values if not (v >= p95 and v > 2.0 * median)]
+    return max(kept) if kept else max_vm
 
 
 # ---------------------------------------------------------------------------

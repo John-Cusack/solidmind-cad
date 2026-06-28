@@ -965,7 +965,7 @@ bracket (or any of the four part classes already in
 worker, plumb it through `orchestrator.runner.dispatch_all`, and
 assert that the resulting STEP file passes `validator.validate_worker_result`.
 
-### Move 4 — Unify the two FEA pipelines on one convergence-aware core ✗ planned
+### Move 4 — Unify the two FEA pipelines on one convergence-aware core ✓ done
 
 **Why.** Surfaced while hardening the foam-dart example (2026-06-27). There are
 **two** structural-FEA implementations, and they duplicate the same engine
@@ -1029,6 +1029,71 @@ honest mesh-convergence study: V2 (filleted) converges and confirms the screen
 (±25%); V1 (sharp) diverges (singular) and is rejected by the analytical screen.
 See `examples/foam_dart_spring_launcher/run.py` (`fea_latch`, `fea_convergence`)
 and `tests/test_foam_dart_fea_e2e.py`.
+
+**Landed (the unification, 2026-06-28).**
+
+- **#2 real-backend CI lane** was the *first* sub-task to land (commits
+  `3ec3124`/`c737fad`), and `run_l2_fea`'s ccx-2.21 deck bug was fixed in
+  `277e352` — so by the time of the unification both were already green; the
+  deck bug then *disappeared* with the duplicate rather than needing a second fix.
+- **Shared engine.** `server/tools_analysis.solve_structural_from_step` is the one
+  `mesh → deck → solve → parse → FieldResult` path (solver fallback chain +
+  failure-mode inference included); `server/analysis_convergence.run_convergence_study`
+  wraps it for the two-density study (`ConvergenceReport`). Both front doors are now
+  thin adapters: `analysis.stress_check` (live body → STEP → engine) and
+  `orchestrator.fea.run_l2_fea` (STEP → engine), and the example's `fea_latch` calls
+  the shared study directly so the reference and the core can't diverge.
+- **Duplicated core deleted.** `orchestrator/fea.py` lost `build_inp`, `run_ccx`,
+  `parse_frd`, `mesh_step`, and the singularity helpers; the surviving deck-builder
+  (`CalculiXSolver._write_ccx_native`) is immune to the mixed-element crash *by
+  construction* (it emits only C3D4 from the meshio object) — locked in by the
+  rewritten `tests/test_fea_deck.py`.
+- **Singularity handling (split by path).** The foam-dart example/live path judges
+  on the *raw* converged peak (there a sharp root *should* diverge and be rejected
+  — that's the demo). The **batch scorer** re-uses a top-5% **filtered** peak
+  (`FieldResult.filtered_peak_von_mises_mpa`, computed in the `.frd` parser) for its
+  SF and convergence verdict, so an incidental sharp corner on an otherwise-sound
+  variant doesn't tank the whole sweep. Convergence-only-for-batch was tried and
+  reverted: without filtering, the singular peak both fails to converge and drives
+  SF < 1.0, so "warn don't reject" was inert.
+- **Mesh order.** `solve_structural_from_step` takes a `mesh_order` (default 1,
+  linear tet4 — what the foam-dart reference and the direct solvers stand on). The
+  **batch scoring path passes `mesh_order=2`** (quadratic tet10), since linear tets
+  are over-stiff and would bias the safety gate optimistic; `CalculiXSolver._write_ccx_native`
+  emits both C3D4 and C3D10. Because the in-process direct solvers (CHOLMOD/cuDSS)
+  are tet4-only, `mesh_order >= 2` **forces the CalculiX backend** (clear error if
+  CalculiX is absent) rather than letting DOF-based auto-selection pick a solver
+  that rejects the mesh.
+- **Batch safety gate (review fix).** Feasibility is gated on yield (SF < 1.0)
+  only; non-convergence is *flagged, not auto-rejected* — real CAD variants have
+  incidental sharp corners that never fully converge, and rejecting on that alone
+  would empty a sweep. A load that can't be placed on a face (or an empty STEP
+  enumeration) fails closed (`FEAError`) rather than masquerading as a pass; an
+  under-constrained all-loaded model is left to fail closed too (no load is
+  silently dropped to fabricate an anchor).
+- **BC bridge.** The batch path located BCs by frame-proximity *node sets*; the
+  engine applies BCs to *named faces*. New `orchestrator/fea_bc_mapper.surface_geometry`
+  + `map_frame_to_face` map each interface frame to its nearest STEP face, so the
+  batch path now uses the same proven face-tagged BC application as the live path.
+- **#4 latch load case.** The sear is now sized for the *catch* event, not the
+  static hold: `LATCH_IMPACT_FACTOR = 2.0` (suddenly-applied dynamic load) applied
+  to both the latch screen and the FEA BC.
+- **#3 de-singularized clamp.** `latch_profile` was generalised to a rectilinear
+  corner-filleter (output-identical for the existing root cases) and V2 now relieves
+  the two fixed-clamp foot corners (`clamp_fillet_mm`). *Remaining:* a fully
+  de-singularized clamp would also model the support as compliant/bonded rather than
+  rigidly fixed — solver-side follow-up; verify the convex-arc geometry on the
+  real-backend lane.
+- **CI / deck fix.** The unified live deck-builder (`CalculiXSolver._extract_nset_from_elset`)
+  dropped meshio's float-formatted `*ELSET` ids (`1.0,2.0,…`) via `tok.isdigit()`, leaving
+  the BC node sets empty → ccx `Nbc0 not defined`. Surfaced only by running the real solver
+  locally (gmsh+meshio+ccx); fixed with a float-tolerant `_parse_id` + a regression test that
+  runs in the no-gmsh lane. The `fea-backend` CI lane now installs FEA deps via
+  `pip install -e ".[fea,schemas]"` so gmsh/meshio versions come from pyproject. **Coverage
+  gap (by choice):** the FreeCAD-addon e2e tests (`TestFeaReal`, `TestKinematicGeometric`)
+  have no CI lane — no FreeCAD is installed — so the V2 screen-vs-FEA ±25% check, the impact
+  factor, and the convex clamp-arc build are validated by running the addon locally before
+  merge, not in CI.
 
 ### Parallelizability
 

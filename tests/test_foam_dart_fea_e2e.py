@@ -152,7 +152,7 @@ class TestFeaReal(unittest.TestCase):
             v2 = launcher_run.fea_latch(
                 variant=variants["v2"],
                 material="pla",
-                hold_force_n=9.0,
+                latch_force_n=9.0,
                 log=log,
                 tag="V2 test",
             )
@@ -182,7 +182,7 @@ class TestFeaReal(unittest.TestCase):
             v1 = launcher_run.fea_latch(
                 variant=variants["v1"],
                 material="pla",
-                hold_force_n=9.0,
+                latch_force_n=9.0,
                 log=log,
                 tag="V1 test",
             )

@@ -8,6 +8,7 @@ import logging
 import tempfile
 import time
 import uuid
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -165,6 +166,155 @@ def _solve_structural_with_fallback(
     raise RuntimeError("; ".join(attempts))
 
 
+class StructuralSolveError(Exception):
+    """Raised when the shared structural pipeline fails at a known stage.
+
+    Carries a stable ``code`` so the MCP tool boundary can surface the same
+    ``{ok: false, error: {code, message}}`` contract it always has, while batch
+    callers (the orchestrator adapter) get a typed exception to translate into
+    their own error type.
+    """
+
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(message)
+        self.code = code
+        self.message = message
+
+
+def _resolve_requested_solver(solver: str) -> FieldSolver | None:
+    """Resolve an explicit structural solver name, or None if none was requested.
+
+    Raises ``StructuralSolveError`` (stable ``code``) when a named solver is
+    unknown or unavailable, so both the MCP tool (fast-fail before the STEP
+    export) and the shared engine reject a bad solver the same way.
+    """
+    name = solver.strip()
+    if not name:
+        return None
+    found = get_solver(name, AnalysisType.STRUCTURAL)
+    if found is None:
+        available = list_solvers()
+        if not any(s["available"] for s in available):
+            raise StructuralSolveError(
+                "NO_SOLVER",
+                "No structural solver available. Install CalculiX: apt install calculix-ccx",
+            )
+        raise StructuralSolveError(
+            "SOLVER_NOT_FOUND",
+            f"Solver {solver!r} not found. Available: {[s['name'] for s in available]}",
+        )
+    ok, diag = found.available()
+    if not ok:
+        raise StructuralSolveError("SOLVER_UNAVAILABLE", diag)
+    return found
+
+
+def solve_structural_from_step(
+    *,
+    step_path: str,
+    material: Material,
+    boundary_conditions: Sequence[BoundaryCondition],
+    mesh_size: float = 0.0,
+    solver: str = "",
+    body_label: str = "",
+    analysis_id: str = "",
+    persist: bool = True,
+    mesh_order: int = 1,
+) -> FieldResult:
+    """Mesh a STEP file, solve a static structural step, return a ``FieldResult``.
+
+    This is the shared engine behind both structural front doors:
+    ``analysis_stress_check`` (live FreeCAD body → STEP, then this) and the
+    orchestrator's batch ``run_l2_fea`` (STEP file → this, run twice for a mesh
+    convergence study). Solver selection, the cuDSS→CHOLMOD→CalculiX fallback
+    chain, failure-mode inference, and persistence all live here so neither
+    caller re-implements them.
+
+    ``mesh_order`` defaults to 1 (linear tet4 — what the validated foam-dart
+    reference and the direct in-process solvers stand on); the batch scoring path
+    passes ``mesh_order=2`` for quadratic tet10 accuracy. Raises
+    ``StructuralSolveError`` (with a stable ``code``) on solver/mesh failure.
+    """
+    if not analysis_id:
+        analysis_id = f"analysis_{uuid.uuid4().hex[:8]}"
+
+    requested_solver_name = solver.strip()
+    explicit_solver = _resolve_requested_solver(solver)
+
+    # Mesh — one face group per BC, named to match the BC's index/type.
+    face_groups: dict[str, list[str]] = {}
+    for i, bc in enumerate(boundary_conditions):
+        face_groups[f"bc_{i}_{bc.bc_type}"] = list(bc.faces)
+    try:
+        mesh_info = mesh_step_to_msh(
+            step_path=step_path,
+            face_groups=face_groups,
+            mesh_size=mesh_size,
+            order=mesh_order,
+        )
+    except Exception as exc:
+        raise StructuralSolveError("MESH_FAILED", f"Meshing failed: {exc}") from exc
+
+    dof_count = int(mesh_info.num_nodes) * 3
+    field_solver = explicit_solver
+    if field_solver is None:
+        if mesh_order >= 2:
+            # Quadratic tet10 is only supported by CalculiX — the in-process direct
+            # solvers (CHOLMOD/cuDSS) are tet4-only — so don't let DOF-based
+            # auto-selection hand the mesh to a solver that will reject it.
+            field_solver = get_solver("calculix", AnalysisType.STRUCTURAL)
+            if field_solver is None or not field_solver.available()[0]:
+                raise StructuralSolveError(
+                    "NO_TET10_SOLVER",
+                    "Quadratic (tet10) FEA requires CalculiX; install calculix-ccx "
+                    "(the in-process direct solvers are tet4-only).",
+                )
+        else:
+            field_solver = get_solver("", AnalysisType.STRUCTURAL, dof_count=dof_count)
+            if field_solver is None:
+                raise StructuralSolveError(
+                    "NO_SOLVER",
+                    "No structural solver available. Install CalculiX: apt install calculix-ccx",
+                )
+
+    try:
+        used_solver, result, solve_time = _solve_structural_with_fallback(
+            analysis_id=analysis_id,
+            body=body_label or Path(step_path).stem,
+            material=material,
+            boundary_conditions=tuple(boundary_conditions),
+            mesh_size=mesh_size,
+            mesh_info=mesh_info,
+            primary_solver=field_solver,
+            allow_fallback=not bool(requested_solver_name),
+        )
+    except Exception as exc:
+        raise StructuralSolveError("SOLVE_FAILED", f"Solver failed: {exc}") from exc
+
+    # Patch in the analysis_id and the real solver name/time, preserving every
+    # other field the solver computed (filtered peak, failure_mode, candidates).
+    result = dataclasses.replace(
+        result,
+        analysis_id=analysis_id,
+        solver_name=used_solver.name(),
+        solve_time_s=solve_time,
+    )
+
+    # Tag a typed failure mode inferred from the result's own signals, so the
+    # Interpret/Decide steps have a real value to dispatch on.
+    inferred = _infer_failure_mode(result)
+    if inferred is not None:
+        result = dataclasses.replace(result, failure_mode=inferred)
+
+    if persist:
+        try:
+            save_result(result)
+        except Exception:
+            log.warning("Failed to persist analysis result", exc_info=True)
+
+    return result
+
+
 def analysis_stress_check(
     *,
     body: str,
@@ -209,39 +359,12 @@ def analysis_stress_check(
             },
         }
 
-    requested_solver_name = solver.strip()
-    explicit_solver: FieldSolver | None = None
-    if requested_solver_name:
-        explicit_solver = get_solver(requested_solver_name, AnalysisType.STRUCTURAL)
-        if explicit_solver is None:
-            available = list_solvers()
-            if not any(s["available"] for s in available):
-                return {
-                    "ok": False,
-                    "error": {
-                        "code": "NO_SOLVER",
-                        "message": "No structural solver available. Install CalculiX: apt install calculix-ccx",
-                    },
-                }
-            return {
-                "ok": False,
-                "error": {
-                    "code": "SOLVER_NOT_FOUND",
-                    "message": f"Solver {solver!r} not found. Available: {[s['name'] for s in available]}",
-                },
-            }
-
-        ok, diag = explicit_solver.available()
-        if not ok:
-            return {
-                "ok": False,
-                "error": {
-                    "code": "SOLVER_UNAVAILABLE",
-                    "message": diag,
-                },
-            }
-
-    analysis_id = f"analysis_{uuid.uuid4().hex[:8]}"
+    # Reject a bad solver name before the (expensive) STEP export, so the caller
+    # gets SOLVER_NOT_FOUND rather than a downstream export/mesh error.
+    try:
+        _resolve_requested_solver(solver)
+    except StructuralSolveError as exc:
+        return {"ok": False, "error": {"code": exc.code, "message": exc.message}}
 
     # Export STEP
     try:
@@ -258,94 +381,18 @@ def analysis_stress_check(
             },
         }
 
-    # Mesh
+    # Mesh → solve → parse via the shared engine.
     try:
-        # Build face groups from BCs
-        face_groups: dict[str, list[str]] = {}
-        for i, bc in enumerate(bcs):
-            group_name = f"bc_{i}_{bc.bc_type}"
-            face_groups[group_name] = list(bc.faces)
-
-        mesh_info = mesh_step_to_msh(
+        result = solve_structural_from_step(
             step_path=step_path,
-            face_groups=face_groups,
-            mesh_size=mesh_size,
-        )
-    except RuntimeError as exc:
-        return {
-            "ok": False,
-            "error": {
-                "code": "MESH_FAILED",
-                "message": str(exc),
-            },
-        }
-    except Exception as exc:
-        return {
-            "ok": False,
-            "error": {
-                "code": "MESH_FAILED",
-                "message": f"Meshing failed: {exc}",
-            },
-        }
-
-    dof_count = int(mesh_info.num_nodes) * 3
-    field_solver = explicit_solver
-    if field_solver is None:
-        field_solver = get_solver("", AnalysisType.STRUCTURAL, dof_count=dof_count)
-        if field_solver is None:
-            return {
-                "ok": False,
-                "error": {
-                    "code": "NO_SOLVER",
-                    "message": "No structural solver available. Install CalculiX: apt install calculix-ccx",
-                },
-            }
-
-    try:
-        used_solver, result, solve_time = _solve_structural_with_fallback(
-            analysis_id=analysis_id,
-            body=body,
             material=mat,
-            boundary_conditions=tuple(bcs),
+            boundary_conditions=bcs,
             mesh_size=mesh_size,
-            mesh_info=mesh_info,
-            primary_solver=field_solver,
-            allow_fallback=not bool(requested_solver_name),
+            solver=solver,
+            body_label=body,
         )
-    except Exception as exc:
-        return {
-            "ok": False,
-            "error": {
-                "code": "SOLVE_FAILED",
-                "message": f"Solver failed: {exc}",
-            },
-        }
-
-    # Patch analysis_id and solve_time into result
-    result = FieldResult(
-        analysis_id=analysis_id,
-        status=result.status,
-        safety_factor=result.safety_factor,
-        max_von_mises_mpa=result.max_von_mises_mpa,
-        max_displacement_mm=result.max_displacement_mm,
-        checks=result.checks,
-        scalar_fields=result.scalar_fields,
-        solver_name=used_solver.name(),
-        solve_time_s=solve_time,
-    )
-
-    # Tag a typed failure mode inferred from the result's own signals, so the
-    # Interpret/Decide steps have a real value to dispatch on. (Comparing it
-    # against expectations is the Interpret step's job — decide.interpret.)
-    inferred = _infer_failure_mode(result)
-    if inferred is not None:
-        result = dataclasses.replace(result, failure_mode=inferred)
-
-    # Persist
-    try:
-        save_result(result)
-    except Exception:
-        log.warning("Failed to persist analysis result", exc_info=True)
+    except StructuralSolveError as exc:
+        return {"ok": False, "error": {"code": exc.code, "message": exc.message}}
 
     return {"ok": True, **result.to_dict()}
 

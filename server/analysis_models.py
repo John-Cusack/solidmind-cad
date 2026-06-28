@@ -316,6 +316,10 @@ class FieldResult:
     solve_time_s: float = 0.0
     failure_mode: FailureMode | None = None
     candidates: tuple[str, ...] = ()  # fix-option labels for the Decide step
+    # Peak von Mises with mesh-singularity spikes excluded (top-5% nodes that also
+    # exceed 2× the median). Defaults to 0.0 when a solver doesn't compute it; the
+    # batch scorer uses it so an incidental sharp corner doesn't tank a sound part.
+    filtered_peak_von_mises_mpa: float = 0.0
 
     @property
     def factor_of_safety(self) -> float:
@@ -335,6 +339,7 @@ class FieldResult:
             "solve_time_s": self.solve_time_s,
             "failure_mode": self.failure_mode.value if self.failure_mode else None,
             "candidates": list(self.candidates),
+            "filtered_peak_von_mises_mpa": self.filtered_peak_von_mises_mpa,
         }
 
     @classmethod
@@ -352,6 +357,7 @@ class FieldResult:
             solve_time_s=d.get("solve_time_s", 0.0),
             failure_mode=_parse_failure_mode(fm),
             candidates=tuple(d.get("candidates", ())),
+            filtered_peak_von_mises_mpa=d.get("filtered_peak_von_mises_mpa", 0.0),
         )
 
 

@@ -55,13 +55,14 @@ class TestFEAIntegration(unittest.TestCase):
         shutil.rmtree(cls._tmpdir, ignore_errors=True)
 
     def test_mesh_step(self):
-        from orchestrator.fea import mesh_step
+        # Meshing now lives in the shared engine (server.analysis_mesh); the
+        # orchestrator no longer carries its own duplicate.
+        from server.analysis_mesh import mesh_step_to_msh
 
-        out_dir = Path(self._tmpdir) / "mesh_test"
-        info = mesh_step(self.step_path, 3.0, out_dir)
-        self.assertGreater(info.element_count, 0)
-        self.assertGreater(info.node_count, 0)
-        self.assertTrue(info.path.exists())
+        info = mesh_step_to_msh(step_path=str(self.step_path), mesh_size=3.0)
+        self.assertGreater(info.num_elements, 0)
+        self.assertGreater(info.num_nodes, 0)
+        self.assertTrue(Path(info.path).exists())
 
     def test_full_pipeline(self):
         from orchestrator.fea import run_l2_fea
@@ -122,12 +123,12 @@ class TestFEAIntegration(unittest.TestCase):
         # Should pass — steel cylinder under 1000N is well within yield
         self.assertTrue(report.passed, f"FEA should pass: SF={report.safety_factor:.2f}")
         self.assertGreater(report.safety_factor, 1.0)
-        self.assertGreater(report.filtered_max_stress_mpa, 0)
+        self.assertGreater(report.peak_fine_mpa, 0)
 
         # Stress should be in the right ballpark (analytical ~ 12.7 MPa)
         # Allow generous range due to stress concentrations and BCs
         self.assertLess(
-            report.filtered_max_stress_mpa, 200.0, "Stress unreasonably high for simple axial load"
+            report.peak_fine_mpa, 200.0, "Stress unreasonably high for simple axial load"
         )
 
     def test_scorer_integration(self):

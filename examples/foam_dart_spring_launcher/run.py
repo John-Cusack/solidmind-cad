@@ -37,15 +37,18 @@ if str(_HERE) not in sys.path:
 
 import physics_model as pm  # noqa: E402
 
+from server.analysis_convergence import relative_change, run_convergence_study  # noqa: E402
 from server.analysis_models import (  # noqa: E402
     AnalysisCheck,
+    BoundaryCondition,  # noqa: E402
     CheckStatus,
     FailureMode,
     ReflectExpectations,
 )
 from server.decide import from_failure, interpret_compare_to_expectations  # noqa: E402
 from server.screen_stress import screen_stress  # noqa: E402
-from server.tools_analysis import _resolve_material  # noqa: E402
+from server.tools_analysis import StructuralSolveError, _resolve_material  # noqa: E402
+from server.tools_cad import cad_export_body  # noqa: E402
 
 PULLBACKS_MM = [10.0, 20.0, 30.0]
 MAX_COMPRESSION_M = 0.030
@@ -56,8 +59,16 @@ M_TO_FT = 3.28084
 # tooth. width/length are the screen's section width and bending moment arm.
 LATCH_TOOTH_WIDTH_MM = 6.0
 LATCH_TOOTH_LEN_MM = 2.5
-LATCH_V1 = {"root_mm": 1.0, "fillet_ratio": 0.0}  # deliberately under-dimensioned
-LATCH_V2 = {"root_mm": 2.2, "fillet_ratio": 0.3}  # thicker root + real fillet
+LATCH_V1 = {
+    "root_mm": 1.0,
+    "fillet_ratio": 0.0,
+    "clamp_fillet_mm": 0.0,
+}  # under-dimensioned, sharp everywhere
+LATCH_V2 = {
+    "root_mm": 2.2,
+    "fillet_ratio": 0.3,
+    "clamp_fillet_mm": 0.5,
+}  # thicker root + root & clamp fillets
 # Analytical beam theory vs meshed FEA legitimately diverge at a stress
 # concentration; flag (don't fail) a screen-vs-FEA gap wider than this. Applied
 # only to the *converged* (filleted) variant — a comparison against a singular
@@ -78,6 +89,13 @@ LATCH_MESH_FINE_MM = 0.2
 # has converged at the fillet (trust the value); above it the peak is still
 # climbing → singular root. 10% is a standard engineering-convergence threshold.
 FEA_CONVERGENCE_TOL = 0.10
+# A sear's governing structural load is the *catch* event — the moving plunger
+# arrested by the tooth — not the static full-cock hold. Treat the catch as a
+# suddenly-applied load: the classic dynamic amplification factor for a load
+# applied instantaneously from rest is 2.0 (Roark, shock loading). The static
+# hold force still sizes the spring seat and the rod's buckling; only the latch
+# tooth sees this amplified catch load. (ROADMAP Move 4 #4.)
+LATCH_IMPACT_FACTOR = 2.0
 
 _CHRONO_DAEMON = Path(__file__).resolve().parents[2] / "chrono_daemon" / "build" / "chrono_daemon"
 
@@ -148,13 +166,19 @@ def screen_parts(
     youngs_mpa: float,
     latch_root_mm: float,
     latch_fillet_ratio: float,
+    latch_force_n: float | None = None,
 ) -> dict[str, AnalysisCheck]:
+    # The latch tooth is screened at its governing *catch* load; the spring seat
+    # and rod see the static hold force. Default the latch load to the hold force
+    # so callers that don't separate them keep the static behaviour.
+    if latch_force_n is None:
+        latch_force_n = hold_force_n
     checks: dict[str, AnalysisCheck] = {}
-    # Latch tooth: cantilever under the spring hold force, root is the hotspot.
+    # Latch tooth: cantilever under the catch load, root is the hotspot.
     checks["latch_sear"] = screen_stress(
         name="latch tooth_root",
         section={"type": "rectangle", "width_mm": LATCH_TOOTH_WIDTH_MM, "height_mm": latch_root_mm},
-        load={"force_n": hold_force_n, "length_mm": LATCH_TOOTH_LEN_MM},
+        load={"force_n": latch_force_n, "length_mm": LATCH_TOOTH_LEN_MM},
         yield_strength_mpa=yield_mpa,
         stress_concentration={"feature": "fillet", "ratio": latch_fillet_ratio},
         target_fos=2.0,
@@ -377,6 +401,7 @@ def build_latch_variants(out: Path, log: StepLog) -> dict[str, dict[str, Any]] |
                 tooth_width_mm=LATCH_TOOTH_WIDTH_MM,
                 label=label,
                 log=lambda m: log.say("Synthesize", m),
+                clamp_fillet_mm=cfg["clamp_fillet_mm"],
             )
         except Exception as exc:  # one builder error → skip that variant, keep the rest
             log.say("Simulate", f"FEA SKIPPED ({label} latch build failed: {exc})")
@@ -384,45 +409,19 @@ def build_latch_variants(out: Path, log: StepLog) -> dict[str, dict[str, Any]] |
     return variants or None
 
 
-def _fea_solve_once(
-    *,
-    variant: dict[str, Any],
-    material: str | dict[str, Any],
-    hold_force_n: float,
-    mesh_size: float,
-    fixed_name: str,
-    load_name: str,
-) -> dict[str, Any]:
-    """One CalculiX solve of a latch body at a given mesh size.
-
-    Returns the raw result dict — the caller inspects ``ok`` and surfaces
-    ``error.code`` on failure rather than collapsing it to a bare None.
-    """
-    from server.tools_analysis import analysis_stress_check
-
-    return analysis_stress_check(
-        body=variant["body"],
-        doc=variant["doc"],
-        material=material,
-        mesh_size=mesh_size,
-        boundary_conditions=[
-            {"bc_type": "fixed", "faces": [fixed_name]},
-            {"bc_type": "force", "faces": [load_name], "value": {"fy": -hold_force_n}},
-        ],
-    )
-
-
 def fea_latch(
     *,
     variant: dict[str, Any],
     material: str | dict[str, Any],
-    hold_force_n: float,
+    latch_force_n: float,
     log: StepLog,
     tag: str,
 ) -> dict[str, Any] | None:
     """Run a *mesh-convergence* CalculiX study on one latch body.
 
-    Solves at a coarse and a fine mesh and compares the peak von Mises. The
+    Exports the body once, then drives the shared ``run_convergence_study`` — the
+    same two-density engine the batch outer loop (``run_l2_fea``) uses — so the
+    example and the core can never disagree about what "converged" means. The
     trusted result is the fine solve, enriched with the convergence trend:
 
         {"max_von_mises_mpa", "safety_factor", "status", ...,   # fine solve
@@ -441,46 +440,48 @@ def fea_latch(
         if not fixed_name or not load_name:
             log.say("Simulate", f"FEA SKIPPED ({tag}: could not resolve latch faces)")
             return None
-        coarse = _fea_solve_once(
-            variant=variant,
-            material=material,
-            hold_force_n=hold_force_n,
-            mesh_size=LATCH_MESH_COARSE_MM,
-            fixed_name=fixed_name,
-            load_name=load_name,
+        export = cad_export_body(body=variant["body"], format="step", doc=variant["doc"])
+        if not export.get("ok"):
+            code = export.get("error", {}).get("code", "?")
+            log.say("Simulate", f"FEA SKIPPED ({tag}: STEP export failed: {code})")
+            return None
+        mat = _resolve_material(material)
+        if mat is None:
+            log.say("Simulate", f"FEA SKIPPED ({tag}: unknown material {material!r})")
+            return None
+        study = run_convergence_study(
+            step_path=export["path"],
+            material=mat,
+            boundary_conditions=[
+                BoundaryCondition(bc_type="fixed", faces=(fixed_name,), value={}),
+                BoundaryCondition(
+                    bc_type="force", faces=(load_name,), value={"fy": -latch_force_n}
+                ),
+            ],
+            coarse_size=LATCH_MESH_COARSE_MM,
+            fine_size=LATCH_MESH_FINE_MM,
+            threshold=FEA_CONVERGENCE_TOL,
+            body_label=variant["body"],
         )
-        fine = _fea_solve_once(
-            variant=variant,
-            material=material,
-            hold_force_n=hold_force_n,
-            mesh_size=LATCH_MESH_FINE_MM,
-            fixed_name=fixed_name,
-            load_name=load_name,
-        )
-    except Exception as exc:  # solver/mesh/connection error → degrade, don't crash
+    except StructuralSolveError as exc:  # solver/mesh failure → degrade, don't crash
         log.say("Simulate", f"FEA SKIPPED ({tag}: {exc})")
         return None
-    for which, r in (("coarse", coarse), ("fine", fine)):
-        if not r.get("ok"):
-            code = r.get("error", {}).get("code", "?")
-            log.say("Simulate", f"FEA SKIPPED ({tag}: {which} solve failed: {code})")
-            return None
+    except Exception as exc:  # connection/topology/export error → degrade, don't crash
+        log.say("Simulate", f"FEA SKIPPED ({tag}: {exc})")
+        return None
 
-    peak_coarse = coarse["max_von_mises_mpa"]
-    peak_fine = fine["max_von_mises_mpa"]
-    converged, delta = fea_convergence(peak_coarse, peak_fine)
-    res = dict(fine)
+    res = dict(study.fine.to_dict())
     res.update(
-        peak_coarse_mpa=peak_coarse,
-        peak_fine_mpa=peak_fine,
-        convergence_delta=delta,
-        converged=converged,
+        peak_coarse_mpa=study.peak_coarse_mpa,
+        peak_fine_mpa=study.peak_fine_mpa,
+        convergence_delta=study.convergence_delta,
+        converged=study.converged,
     )
-    trend = "converged" if converged else "DIVERGING (singular root)"
+    trend = "converged" if study.converged else "DIVERGING (singular root)"
     log.say(
         "Simulate",
-        f"FEA {tag}: peak vM {peak_coarse:.1f}→{peak_fine:.1f} MPa "
-        f"(Δ {(delta or 0.0) * 100:.0f}% under refinement) — {trend}",
+        f"FEA {tag}: peak vM {study.peak_coarse_mpa:.1f}→{study.peak_fine_mpa:.1f} MPa "
+        f"(Δ {study.convergence_delta * 100:.0f}% under refinement) — {trend}",
     )
     return res
 
@@ -491,12 +492,13 @@ def _rel_within(
     """Relative difference ``|value - reference| / value`` against a tolerance.
 
     ``value`` is the denominator (the trusted/measured quantity); a missing or
-    non-positive ``value`` yields ``(None, None)``. Shared by the convergence and
-    screen-agreement checks so the two classifications can never drift apart.
+    non-positive ``value`` yields ``(None, None)``. The relative-change formula is
+    the shared-core ``relative_change`` so this example and the engine that runs
+    the batch convergence study can never drift apart.
     """
-    if not value or value <= 0.0:
+    rel = relative_change(reference, value)
+    if rel is None:
         return None, None
-    rel = abs(value - reference) / value
     return rel <= tol, rel
 
 
@@ -818,6 +820,11 @@ def write_report(
         )
     )
     A(f"- Full-cock spring hold force: **{hold_force_n:.1f} N** (k × 30 mm).\n")
+    A(
+        f"- Latch governing load: **{hold_force_n * LATCH_IMPACT_FACTOR:.1f} N** "
+        f"({LATCH_IMPACT_FACTOR:g}× hold) — the sear catches a moving plunger, so it "
+        "is sized for a suddenly-applied (impact) load, not the static hold.\n"
+    )
 
     A("## Sim-to-real chain\n")
     A("**Spring → plunger energy delivery** (Chrono validates physics_model):\n")
@@ -1053,6 +1060,8 @@ def run(argv: list[str] | None = None) -> int:
         efficiency=args.efficiency,
     ).validated()
     hold_force_n = spec.spring_k_n_per_m * MAX_COMPRESSION_M
+    # The latch tooth is sized by the catch event, not the static hold (#4).
+    latch_force_n = hold_force_n * LATCH_IMPACT_FACTOR
 
     # 1. SPECIFY
     log.say(
@@ -1075,6 +1084,7 @@ def run(argv: list[str] | None = None) -> int:
     # 4. SCREEN — V1 (deliberately under-dimensioned latch: thin, sharp root)
     v1 = screen_parts(
         hold_force_n=hold_force_n,
+        latch_force_n=latch_force_n,
         yield_mpa=mat.yield_strength_mpa,
         youngs_mpa=mat.youngs_modulus_mpa,
         latch_root_mm=LATCH_V1["root_mm"],
@@ -1106,7 +1116,7 @@ def run(argv: list[str] | None = None) -> int:
             fea_v1 = fea_latch(
                 variant=variants["v1"],
                 material=material_arg,
-                hold_force_n=hold_force_n,
+                latch_force_n=latch_force_n,
                 log=log,
                 tag="V1 latch (sharp root)",
             )
@@ -1116,7 +1126,7 @@ def run(argv: list[str] | None = None) -> int:
             fea_v2 = fea_latch(
                 variant=variants["v2"],
                 material=material_arg,
-                hold_force_n=hold_force_n,
+                latch_force_n=latch_force_n,
                 log=log,
                 tag="V2 latch (filleted root)",
             )
@@ -1180,6 +1190,7 @@ def run(argv: list[str] | None = None) -> int:
     # 8. ACT — apply the fix (thicker root + real fillet), re-screen
     v2 = screen_parts(
         hold_force_n=hold_force_n,
+        latch_force_n=latch_force_n,
         yield_mpa=mat.yield_strength_mpa,
         youngs_mpa=mat.youngs_modulus_mpa,
         latch_root_mm=LATCH_V2["root_mm"],
