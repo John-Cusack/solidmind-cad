@@ -275,11 +275,17 @@ class CalculiXSolver(FieldSolver):
             full_inp.write_text(f"** mesh conversion failed: {exc}\n")
         return full_inp  # return full for set parsing
 
+    #: meshio tetra cell type → CalculiX solid element keyword. Linear (tetra) and
+    #: quadratic (tetra10) are the two orders the mesher emits.
+    _TET_ELEMENT_TYPES = {"tetra": "C3D4", "tetra10": "C3D10"}
+
     def _write_ccx_native(self, mesh: Any, out_path: Path) -> None:
         """Write a CalculiX-compatible .inp directly from meshio mesh object.
 
-        Only includes volume elements (tetra) and all nodes.
-        Uses free-format with proper spacing that CalculiX can parse.
+        Only includes solid volume elements — linear ``tetra`` (C3D4) or quadratic
+        ``tetra10`` (C3D10) — and all nodes; the lower-dimensional gmsh blocks
+        (lines, surface triangles) are dropped, which is what keeps the deck immune
+        to ccx-2.21's ``gen3delem`` crash. Free-format with spacing ccx can parse.
         """
 
         lines: list[str] = []
@@ -293,15 +299,17 @@ class CalculiXSolver(FieldSolver):
             nid = i + 1  # 1-based
             lines.append(f"{nid}, {x:.10g}, {y:.10g}, {z:.10g}")
 
-        # Elements — only volume (tetra4)
+        # Elements — only solid tetrahedra (linear or quadratic).
         elem_id = 1
         for cell_block in mesh.cells:
-            if cell_block.type == "tetra":
-                lines.append("*ELEMENT, TYPE=C3D4, ELSET=volume")
-                for conn in cell_block.data:
-                    nodes = ", ".join(str(int(n) + 1) for n in conn)  # 1-based
-                    lines.append(f"{elem_id}, {nodes}")
-                    elem_id += 1
+            ctype = self._TET_ELEMENT_TYPES.get(cell_block.type)
+            if ctype is None:
+                continue
+            lines.append(f"*ELEMENT, TYPE={ctype}, ELSET=volume")
+            for conn in cell_block.data:
+                nodes = ", ".join(str(int(n) + 1) for n in conn)  # 1-based
+                lines.append(f"{elem_id}, {nodes}")
+                elem_id += 1
 
         out_path.write_text("\n".join(lines) + "\n")
 
@@ -322,20 +330,20 @@ class CalculiXSolver(FieldSolver):
         return names
 
     def _collect_volume_node_ids(self, ccx_inp: Path) -> set[int]:
-        """Collect all node IDs referenced by C3D4 elements in the filtered mesh."""
+        """Collect all node IDs referenced by solid (C3D4/C3D10) elements."""
         node_ids: set[int] = set()
         try:
-            in_c3d4 = False
+            in_volume = False
             for line in ccx_inp.read_text().splitlines():
                 stripped = line.strip()
                 upper = stripped.upper()
-                if upper.startswith("*ELEMENT") and "TYPE=C3D4" in upper:
-                    in_c3d4 = True
+                if upper.startswith("*ELEMENT") and ("TYPE=C3D4" in upper or "TYPE=C3D10" in upper):
+                    in_volume = True
                     continue
-                if in_c3d4 and stripped.startswith("*"):
-                    in_c3d4 = False
+                if in_volume and stripped.startswith("*"):
+                    in_volume = False
                     continue
-                if in_c3d4:
+                if in_volume:
                     parts = [p.strip() for p in stripped.rstrip(",").split(",") if p.strip()]
                     # parts[0] = element ID, parts[1:] = node IDs
                     for p in parts[1:]:
@@ -346,6 +354,23 @@ class CalculiXSolver(FieldSolver):
         except Exception:
             pass
         return node_ids
+
+    @staticmethod
+    def _parse_id(tok: str) -> int | None:
+        """Parse an Abaqus id token to int, tolerant of float formatting.
+
+        meshio writes ``*ELSET`` members as floats (``1.0,2.0,...``), so a plain
+        ``str.isdigit()`` check silently drops every element id — leaving the BC
+        node sets empty and CalculiX rejecting the deck (``node set Nbc0 has not
+        yet been defined``). Accept ``"1"`` and ``"1.0"`` alike.
+        """
+        tok = tok.strip()
+        if not tok:
+            return None
+        try:
+            return int(float(tok))
+        except ValueError:
+            return None
 
     def _extract_nset_from_elset(
         self,
@@ -373,9 +398,9 @@ class CalculiXSolver(FieldSolver):
                     in_target = False
                     continue
                 for tok in stripped.rstrip(",").split(","):
-                    tok = tok.strip()
-                    if tok.isdigit():
-                        elem_ids.add(int(tok))
+                    eid = self._parse_id(tok)
+                    if eid is not None:
+                        elem_ids.add(eid)
 
         if not elem_ids:
             return []
@@ -395,16 +420,14 @@ class CalculiXSolver(FieldSolver):
                 parts = [p.strip() for p in stripped.rstrip(",").split(",") if p.strip()]
                 if not parts:
                     continue
-                try:
-                    eid = int(parts[0])
-                except ValueError:
+                eid = self._parse_id(parts[0])
+                if eid is None:
                     continue
                 if eid in elem_ids:
                     for p in parts[1:]:
-                        try:
-                            node_ids.add(int(p))
-                        except ValueError:
-                            pass
+                        nid = self._parse_id(p)
+                        if nid is not None:
+                            node_ids.add(nid)
 
         return sorted(node_ids)
 

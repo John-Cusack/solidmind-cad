@@ -12,6 +12,7 @@ Dimensions come from the committed design brief.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -117,6 +118,50 @@ LATCH_BASE_W_MM = 8.0  # column depth in X (the stiff anchor)
 LATCH_BASE_H_MM = 12.0  # column height in Y
 
 
+def _corner_arc(
+    prev: tuple[float, float],
+    vtx: tuple[float, float],
+    nxt: tuple[float, float],
+    r: float,
+) -> tuple[dict[str, Any], tuple[float, float], tuple[float, float], tuple[int, int]]:
+    """Tangent fillet arc for an axis-aligned 90° corner of a CCW polygon.
+
+    Returns ``(arc, entry_point, exit_point, (head_pos, tail_pos))`` where the
+    polygon, traversed CCW, arrives at ``entry_point`` and leaves at
+    ``exit_point``. ``head_pos``/``tail_pos`` are the sketch endpoint indices
+    (1 = start_angle point, 2 = end_angle point) that those two points map to —
+    they differ for convex vs reflex corners because the minor arc sweeps the
+    opposite way. The arc dict is the minor (90°) wedge with ``start_angle <
+    end_angle`` so the addon draws it CCW.
+    """
+    ux, uy = vtx[0] - prev[0], vtx[1] - prev[1]
+    ul = math.hypot(ux, uy)
+    ux, uy = ux / ul, uy / ul  # incoming edge direction
+    wx, wy = nxt[0] - vtx[0], nxt[1] - vtx[1]
+    wl = math.hypot(wx, wy)
+    wx, wy = wx / wl, wy / wl  # outgoing edge direction
+
+    cross = ux * wy - uy * wx
+    # Interior normal of the incoming edge: left for a convex CCW corner, right
+    # for a reflex one (the tooth root). The arc centre sits r along it from the
+    # incoming tangent point.
+    nrmx, nrmy = (-uy, ux) if cross >= 0 else (uy, -ux)
+    t_in = (vtx[0] - r * ux, vtx[1] - r * uy)  # entry tangent point (incoming edge)
+    t_out = (vtx[0] + r * wx, vtx[1] + r * wy)  # exit tangent point (outgoing edge)
+    cx, cy = t_in[0] + r * nrmx, t_in[1] + r * nrmy
+    a_in = math.degrees(math.atan2(t_in[1] - cy, t_in[0] - cx)) % 360.0
+    a_out = math.degrees(math.atan2(t_out[1] - cy, t_out[0] - cx)) % 360.0
+
+    if cross >= 0:  # convex: minor arc sweeps CCW entry → exit (like a line: head=1)
+        start, end, head_pos, tail_pos = a_in, a_out, 1, 2
+    else:  # reflex: minor arc sweeps CCW exit → entry (head=2, as the root always did)
+        start, end, head_pos, tail_pos = a_out, a_in, 2, 1
+    if end <= start:
+        end += 360.0
+    arc = {"type": "arc", "cx": cx, "cy": cy, "r": r, "start_angle": start, "end_angle": end}
+    return arc, t_in, t_out, (head_pos, tail_pos)
+
+
 def latch_profile(
     *,
     root_mm: float,
@@ -124,64 +169,95 @@ def latch_profile(
     tooth_len_mm: float,
     base_w_mm: float = LATCH_BASE_W_MM,
     base_h_mm: float = LATCH_BASE_H_MM,
+    clamp_fillet_mm: float = 0.0,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Return (elements, constraints) for the latch L-profile in the XY plane.
 
     Vertices, counter-clockwise: A(0,0) B(w,0) C(w,h-root) D(w+len,h-root)
-    E(w+len,h) F(0,h). C is the concave tooth root. When ``fillet_mm > 0`` the
-    corner at C is replaced by a tangent quarter-arc (the fillet), tangent to the
-    column right face (x=w) and the tooth underside (y=h-root).
+    E(w+len,h) F(0,h). C is the concave tooth root; ``fillet_mm`` rounds it.
+
+    ``clamp_fillet_mm`` (ROADMAP Move 4 #3) rounds the two foot corners A and B
+    where the fixed-clamp face (min-Y) meets the column sides. A perfectly rigid
+    fixed face terminating at a sharp geometric corner is a stress singularity
+    that re-emerges as the mesh refines past the tooth fillet; relieving the
+    geometry there keeps the converged tooth-root peak honest in the limit.
+    (A fully de-singularized clamp would also model the support as compliant /
+    bonded rather than rigid — solver-side follow-up.) Defaults to 0.0 (sharp),
+    which reproduces the original profile element-for-element.
+
+    Each corner is filleted only if its radius fits both adjoining edges;
+    otherwise it stays sharp.
     """
-    w, h, t, r = base_w_mm, base_h_mm, root_mm, fillet_mm
-    a = (0.0, 0.0)
-    b = (w, 0.0)
-    d = (w + tooth_len_mm, h - t)
-    e = (w + tooth_len_mm, h)
-    f = (0.0, h)
+    w, h, t = base_w_mm, base_h_mm, root_mm
+    # (position, requested radius) per vertex, CCW. A/B are the clamp foot; C is
+    # the reflex tooth root; D/E/F stay sharp.
+    verts: list[tuple[tuple[float, float], float]] = [
+        ((0.0, 0.0), clamp_fillet_mm),  # A foot-left (clamp edge)
+        ((w, 0.0), clamp_fillet_mm),  # B foot-right (clamp edge)
+        ((w, h - t), fillet_mm),  # C tooth root (reflex)
+        ((w + tooth_len_mm, h - t), 0.0),  # D tooth tip lower
+        ((w + tooth_len_mm, h), 0.0),  # E tooth tip upper
+        ((0.0, h), 0.0),  # F top-left
+    ]
+    n = len(verts)
 
-    def line(p1: tuple[float, float], p2: tuple[float, float]) -> dict[str, Any]:
-        return {"type": "line", "x1": p1[0], "y1": p1[1], "x2": p2[0], "y2": p2[1]}
+    def fits(i: int, r: float) -> bool:
+        if r <= 1e-6:
+            return False
+        (px, py), _ = verts[(i - 1) % n]
+        (vx, vy), _ = verts[i]
+        (nx, ny), _ = verts[(i + 1) % n]
+        in_len = math.hypot(vx - px, vy - py)
+        out_len = math.hypot(nx - vx, ny - vy)
+        return r < min(in_len, out_len) - 1e-6
 
-    def coincident(i: int, ipos: int, j: int, jpos: int) -> dict[str, Any]:
-        return {
-            "type": "Coincident",
-            "first": i,
-            "first_pos": ipos,
-            "second": j,
-            "second_pos": jpos,
-        }
+    radii = [r if fits(i, r) else 0.0 for i, (_, r) in enumerate(verts)]
 
-    # A fillet only fits if it is smaller than both adjoining edges.
-    use_fillet = r > 1e-6 and r < min(t, w, tooth_len_mm) - 1e-6
-    if not use_fillet:
-        c = (w, h - t)
-        elements = [line(a, b), line(b, c), line(c, d), line(d, e), line(e, f), line(f, a)]
-        # End of each line coincides with the start of the next; last closes to first.
-        constraints = [coincident(i, 2, (i + 1) % 6, 1) for i in range(6)]
-        return elements, constraints
+    # Per vertex: its entry/exit point and (if filleted) its arc + endpoint meta.
+    entry: list[tuple[float, float]] = []
+    exit_: list[tuple[float, float]] = []
+    arcs: list[dict[str, Any] | None] = []
+    arc_meta: list[tuple[int, int] | None] = []
+    for i in range(n):
+        (vx, vy), _ = verts[i]
+        if radii[i] <= 0.0:
+            entry.append((vx, vy))
+            exit_.append((vx, vy))
+            arcs.append(None)
+            arc_meta.append(None)
+            continue
+        prev = verts[(i - 1) % n][0]
+        nxt = verts[(i + 1) % n][0]
+        arc, t_in, t_out, meta = _corner_arc(prev, (vx, vy), nxt, radii[i])
+        entry.append(t_in)
+        exit_.append(t_out)
+        arcs.append(arc)
+        arc_meta.append(meta)
 
-    # Filleted root: shorten B->C to the lower tangent point, arc up to the side
-    # tangent point, then continue C->D. Arc center sits r inside the corner.
-    c1 = (w, h - t - r)  # tangent point on the column right face (angle 180 deg)
-    c2 = (w + r, h - t)  # tangent point on the tooth underside (angle 90 deg)
-    arc = {
-        "type": "arc",
-        "cx": w + r,
-        "cy": h - t - r,
-        "r": r,
-        "start_angle": 90.0,  # arc pos 1 -> c2
-        "end_angle": 180.0,  # arc pos 2 -> c1
-    }
-    # Emission order / indices: 0:A-B 1:B-C1 2:arc 3:C2-D 4:D-E 5:E-F 6:F-A
-    elements = [line(a, b), line(b, c1), arc, line(c2, d), line(d, e), line(e, f), line(f, a)]
+    # Walk the polygon CCW: at each vertex emit its arc (if any), then the edge
+    # line from this vertex's exit to the next vertex's entry.
+    elements: list[dict[str, Any]] = []
+    meta_seq: list[tuple[int, int]] = []  # (head_pos, tail_pos) per emitted element
+    for i in range(n):
+        if arcs[i] is not None:
+            elements.append(arcs[i])
+            meta_seq.append(arc_meta[i])  # type: ignore[arg-type]
+        p1 = exit_[i]
+        p2 = entry[(i + 1) % n]
+        elements.append({"type": "line", "x1": p1[0], "y1": p1[1], "x2": p2[0], "y2": p2[1]})
+        meta_seq.append((1, 2))  # a line's head is pos 1, tail is pos 2
+
+    # Each element's tail coincides with the next element's head; close the loop.
+    m = len(elements)
     constraints = [
-        coincident(0, 2, 1, 1),  # A-B end  -> B-C1 start
-        coincident(1, 2, 2, 2),  # B-C1 end -> arc end (c1)
-        coincident(2, 1, 3, 1),  # arc start (c2) -> C2-D start
-        coincident(3, 2, 4, 1),  # C2-D end -> D-E start
-        coincident(4, 2, 5, 1),  # D-E end  -> E-F start
-        coincident(5, 2, 6, 1),  # E-F end  -> F-A start
-        coincident(6, 2, 0, 1),  # F-A end  -> A-B start (close)
+        {
+            "type": "Coincident",
+            "first": k,
+            "first_pos": meta_seq[k][1],
+            "second": (k + 1) % m,
+            "second_pos": meta_seq[(k + 1) % m][0],
+        }
+        for k in range(m)
     ]
     return elements, constraints
 
@@ -195,16 +271,21 @@ def build_latch_variant(
     tooth_width_mm: float,
     label: str,
     log: Callable[[str], None],
+    clamp_fillet_mm: float = 0.0,
 ) -> dict[str, Any]:
     """Build one latch variant and leave its body live for in-session FEA.
 
     Returns ``{"part", "doc", "body", "step"}``. The body persists in its own
     document (named ``latch_sear_<label>``) so ``analysis.stress_check`` can run
-    against it via ``doc=`` immediately after the build.
+    against it via ``doc=`` immediately after the build. ``clamp_fillet_mm``
+    relieves the fixed-clamp foot corners (ROADMAP Move 4 #3).
     """
     part = f"latch_sear_{label}"
     elements, constraints = latch_profile(
-        root_mm=root_mm, fillet_mm=fillet_mm, tooth_len_mm=tooth_len_mm
+        root_mm=root_mm,
+        fillet_mm=fillet_mm,
+        tooth_len_mm=tooth_len_mm,
+        clamp_fillet_mm=clamp_fillet_mm,
     )
     doc = _send("new_document", name=part).get("name", part)
     body = _send("new_body", name=part, doc=doc)["name"]

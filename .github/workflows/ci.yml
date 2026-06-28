@@ -98,22 +98,18 @@ jobs:
         with:
           workspaces: geometry
 
-      - name: Set up venv + FEA dependencies
+      - name: Set up venv + FEA dependencies (versions from pyproject [fea])
+        # `gmsh`/`meshio` versions come from pyproject's [fea] extra (single source
+        # of truth) instead of being re-pinned here, where they had drifted (gmsh
+        # was unpinned). The maturin build-backend means `pip install -e .` also
+        # builds the solidmind_geometry kernel, so no separate `maturin develop`
+        # step is needed. `schemas` (pydantic) + scipy are the deps the FEA test
+        # set imports that have no fea-only extra (fea-cpu bundles scikit-sparse,
+        # which needs system libsuitesparse-dev).
         run: |
           python -m venv .venv
           .venv/bin/pip install --upgrade pip "maturin>=1.7,<2"
-          .venv/bin/pip install \
-            "jsonschema>=4.10,<5" \
-            "orjson>=3.9,<4" \
-            "PyYAML>=6.0,<7" \
-            "pydantic>=2.6,<3" \
-            "numpy>=1.26,<3" \
-            "scipy>=1.11,<2" \
-            "gmsh" \
-            "meshio>=5,<6"
-
-      - name: Build Rust geometry kernel (solidmind_geometry)
-        run: .venv/bin/maturin develop --manifest-path geometry/Cargo.toml
+          .venv/bin/pip install -e ".[fea,schemas]" "scipy>=1.11,<2"
 
       - name: Run FEA solver tests
         run: >

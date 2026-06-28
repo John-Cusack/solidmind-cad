@@ -326,10 +326,12 @@ def _run_l2_checks(
                     level=VerificationLevel.L2_COARSE_FEA,
                     check_name="max_von_mises",
                     subsystem_name=sub_name,
-                    value=report.filtered_max_stress_mpa,
+                    value=report.peak_fine_mpa,
                     unit="MPa",
                     threshold=material.yield_strength_mpa,
-                    passed=report.safety_factor >= 1.0,
+                    # A non-converged peak is a singularity, not a trustworthy
+                    # stress — the stress check can only pass if it also converged.
+                    passed=report.safety_factor >= 1.0 and report.converged,
                     notes=variant_tag,
                 )
             )
@@ -374,22 +376,31 @@ def _run_l2_checks(
             )
 
             # Store in variant measured/scores
-            v.measured["max_von_mises_mpa"] = report.filtered_max_stress_mpa
+            v.measured["max_von_mises_mpa"] = report.peak_fine_mpa
             v.measured["max_displacement_mm"] = (
                 report.fine.max_displacement_mm if report.fine else 0.0
             )
-            v.scores["max_von_mises"] = report.filtered_max_stress_mpa
+            v.scores["max_von_mises"] = report.peak_fine_mpa
             v.scores["safety_factor"] = report.safety_factor
 
-            # Mark infeasible if failed
-            if not report.passed:
+            # Feasibility is gated on yield only. Non-convergence is reported (the
+            # convergence VerificationResult above) and flagged here, but does NOT
+            # auto-eliminate the variant: real CAD geometry routinely has incidental
+            # sharp corners that never fully converge, and rejecting on that alone
+            # would leave a whole sweep with no feasible candidates. The peak is the
+            # singular (inflated) value, so SF is conservative, not optimistic.
+            if report.safety_factor < 1.0:
                 v.feasible = False
-                reasons = []
-                if report.safety_factor < 1.0:
-                    reasons.append(f"SF={report.safety_factor:.2f} < 1.0")
-                if not report.converged:
-                    reasons.append(f"convergence={report.convergence_pct:.1f}% > 10%")
-                v.elimination_reason = f"L2 FEA: {', '.join(reasons)}"
+                v.elimination_reason = f"L2 FEA: SF={report.safety_factor:.2f} < 1.0"
+            elif not report.converged:
+                log.warning(
+                    "L2 FEA %s variant %d: peak did not converge (%.1f%%) — flagged, "
+                    "not rejected (SF=%.2f on the singular peak)",
+                    sub_name,
+                    v.variant_index,
+                    report.convergence_pct,
+                    report.safety_factor,
+                )
 
     return results
 
