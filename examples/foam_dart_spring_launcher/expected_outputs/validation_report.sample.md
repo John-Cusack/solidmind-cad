@@ -40,12 +40,13 @@ The lossless head-to-head validates the energy core of physics_model against the
 - `[Synthesize] SKIPPED (smoke mode — no geometry)`
 - `[Reflect] filed expectations for 3 part classes (latch hotspot=tooth_root)`
 - `[Screen] V1 latch=fail spring_seat=pass plunger_rod=pass`
-- `[Simulate] latch screen FAIL is definitive — no FEA needed to reject V1`
+- `[Simulate] FEA SKIPPED (smoke)`
 - `[Simulate] Chrono SKIPPED (smoke)`
+- `[Simulate] Kinematic SKIPPED (smoke); clearance computed analytically only`
 - `[Interpret] stress_concentration; hotspot as expected; peak 67.5 MPa outside band 15-60; mode stress_concentration was in the checklist`
 - `[Decide] add_fillet → add or enlarge the fillet/round at the hotspot to lower Kt`
 - `[Act] V2 latch re-screen → pass (peak 68 → 6 MPa)`
-- `[Learn] finding written to <out>/launcher_v2/finding.md (knowledge store unavailable)`
+- `[Learn] finding written to /tmp/fdsl_sample/launcher_v2/finding.md (knowledge store unavailable)`
 
 ## Structural checks (V1 → V2)
 
@@ -54,6 +55,18 @@ The lossless head-to-head validates the energy core of physics_model against the
 | Latch tooth (FoS basis) | > 2.0 | FAIL (peak 68 MPa) | PASS (peak 6 MPa) |
 | Spring seat | > 2.0 | PASS | PASS |
 | Plunger rod (buckling) | > 2.0 | PASS | PASS |
+
+## FEA mesh convergence (latch tooth)
+
+_FEA SKIPPED_ — no CalculiX/FreeCAD this run. The analytical screen above stands on its own; run with the addon + `ccx`/`gmsh` to solve each root at two mesh densities and confirm convergence.
+
+## Kinematic checks (plunger in guide)
+
+| Check | Target | Result | Mode |
+| --- | ---: | :--: | --- |
+| Plunger travel | full release | SKIPPED | smoke |
+| Plunger binding/interference | none | SKIPPED | smoke |
+| Moving clearance | ≥ 0.40 mm | 0.40 mm PASS | analytical (from brief specs) |
 
 ## V1 failure → V2 fix
 

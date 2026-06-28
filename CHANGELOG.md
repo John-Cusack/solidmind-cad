@@ -21,6 +21,24 @@ and this project aims to follow [Semantic Versioning](https://semver.org/).
   example to close the autonomous iteration test for a part class
   (`tests/test_iteration_loop_foam_dart_e2e.py`). `--smoke` runs solver-free
   for CI.
+- **Foam-dart launcher: real structural FEA + kinematic Tier-2 rungs.** The
+  Simulate step now drives a real `analysis.stress_check` (CalculiX)
+  **mesh-convergence study** on an enriched latch — the builder grows a real
+  cantilever tooth with a V1 sharp / V2 filleted root
+  (`orchestrator/worker_builds/foam_dart_launcher.py`
+  `build_latch_variant`/`latch_profile`). Each root is solved at two mesh
+  densities: the filleted root (V2) **converges** and its value confirms the
+  analytical screen (±25%), while the sharp root (V1) **diverges** — a stress
+  singularity FEA cannot resolve, so the analytical screen's FAIL is the
+  operative rejection (the report notes that an idealized clamp edge is itself
+  singular, deferring exact root stress to sub-modeling). A motion Tier-2 rung
+  reports plunger travel, binding, and moving clearance (analytical from the
+  brief, with a best-effort FreeCAD geometric confirmation). Both rungs report
+  `SKIPPED` when a backend is absent and emit nothing under `--smoke`. New
+  guarded e2e tests (V2 converges + confirms screen, V1 diverges) plus CI-safe
+  unit coverage for the profile, face selection, screen-vs-FEA and
+  mesh-convergence classification (`tests/test_foam_dart_fea_e2e.py`,
+  `tests/test_foam_dart_kinematics_e2e.py`).
 - **Analytical structural screening tier (`analysis.screen_stress`).** Beam
   bending (σ=Mc/I) + handbook stress-concentration-factor lookup + Euler
   buckling bound, returning an `AnalysisCheck` that gates Tier-3 FEA — the
