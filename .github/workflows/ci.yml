@@ -76,10 +76,18 @@ jobs:
           python-version: "3.12"
           cache: pip
 
-      - name: Install CalculiX
+      - name: Install CalculiX + gmsh runtime libs
+        # gmsh's pip wheel dlopen's libGLU/X11 libs at import even in headless
+        # API mode, which the runner image lacks (libGLU.so.1 not found).
         run: |
           sudo apt-get update
-          sudo apt-get install -y calculix-ccx
+          sudo apt-get install -y \
+            calculix-ccx \
+            libglu1-mesa \
+            libxrender1 \
+            libxcursor1 \
+            libxft2 \
+            libxinerama1
           ccx -version || true
 
       - name: Install Rust toolchain
