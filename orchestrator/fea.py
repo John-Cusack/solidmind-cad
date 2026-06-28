@@ -134,6 +134,60 @@ def mesh_step(
 # ---------------------------------------------------------------------------
 
 
+def _extract_volume_elements(mesh_text: str) -> tuple[str, list[str]]:
+    """Filter a Gmsh-emitted Abaqus mesh down to its solid (C3D10) elements.
+
+    Gmsh writes lower-dimensional element blocks (``T3D3`` line elements,
+    ``CPS6`` plane-stress triangles) alongside the ``C3D10`` tetrahedra. If those
+    survive into the deck, CalculiX assigns the ``*SOLID SECTION`` to the plane
+    elements and dies in ``gen3delem`` ("first thickness ... is zero"), and the
+    bogus element ids also feed an over-broad ``EALL`` that segfaults the solver.
+
+    Returns the mesh text with only ``*NODE`` and ``C3D10`` element blocks kept,
+    plus the ordered list of real ``C3D10`` element ids (for an explicit EALL).
+    """
+    kept: list[str] = []
+    elem_ids: list[str] = []
+    # Three contexts for a data line: inside a kept C3D10 element block (keep +
+    # collect id), inside a dropped non-C3D10 element block (skip), or anything
+    # else — e.g. *NODE coordinates (keep). Only element data lines are ever
+    # dropped; node and other-keyword data must survive.
+    in_c3d10_block = False
+    in_dropped_block = False
+    for line in mesh_text.splitlines():
+        stripped = line.strip()
+        if stripped.upper().startswith("*ELEMENT"):
+            in_c3d10_block = "C3D10" in stripped.upper()
+            in_dropped_block = not in_c3d10_block
+            if in_c3d10_block:
+                kept.append(line)
+            continue
+        if stripped.startswith("*"):
+            # Any other keyword (nodes, sets, etc.) — keep and leave element mode.
+            in_c3d10_block = False
+            in_dropped_block = False
+            kept.append(line)
+            continue
+        # Data line.
+        if in_dropped_block:
+            continue
+        kept.append(line)
+        if in_c3d10_block and stripped and stripped[0].isdigit():
+            elem_ids.append(stripped.split(",")[0].strip())
+    return "\n".join(kept), elem_ids
+
+
+def _ccx_num(value: float) -> str:
+    """Format a float for a CalculiX card.
+
+    CalculiX 2.21 reads material/load card data in fixed-width fields, so Python's
+    full-precision repr (e.g. ``2.6999999999999998e-09``, 22 chars) overflows the
+    field and corrupts the parse. A bounded 6-significant-figure form is always
+    short enough and loses no engineering precision.
+    """
+    return f"{value:.6g}"
+
+
 def build_inp(
     mesh_inp: Path,
     material: Material,
@@ -153,7 +207,8 @@ def build_inp(
     Returns path to the complete .inp file.
     """
     mesh_text = mesh_inp.read_text()
-    lines = [mesh_text.rstrip()]
+    volume_text, elem_ids = _extract_volume_elements(mesh_text)
+    lines = [volume_text.rstrip()]
 
     # Node sets
     if node_sets:
@@ -164,27 +219,31 @@ def build_inp(
                 chunk = node_ids[i : i + 10]
                 lines.append(", ".join(str(n) for n in chunk))
 
-    # Element set for all elements
-    lines.append("*ELSET, ELSET=EALL, GENERATE")
-    lines.append("1, 999999999, 1")
+    # Element set listing only the real solid (C3D10) elements — an explicit list,
+    # not GENERATE-to-huge, so EALL never references non-existent ids (which
+    # segfaults ccx and assigns the solid section to phantom elements).
+    lines.append("*ELSET, ELSET=EALL")
+    for i in range(0, len(elem_ids), 10):
+        lines.append(", ".join(elem_ids[i : i + 10]))
 
     # Material
     mat_name = "MAT1"
     lines.append(f"*MATERIAL, NAME={mat_name}")
     lines.append("*ELASTIC")
-    lines.append(f"{material.young_modulus_mpa}, {material.poisson_ratio}")
+    lines.append(f"{_ccx_num(material.young_modulus_mpa)}, {_ccx_num(material.poisson_ratio)}")
     lines.append("*DENSITY")
-    lines.append(f"{material.density_kg_m3 * 1e-12}")  # kg/m3 -> tonne/mm3
+    lines.append(_ccx_num(material.density_kg_m3 * 1e-12))  # kg/m3 -> tonne/mm3
 
     # Assign material to solid section
     lines.append(f"*SOLID SECTION, ELSET=EALL, MATERIAL={mat_name}")
     lines.append("")
 
-    # Boundary conditions
+    # Boundary conditions — solid (C3D10) nodes have only 3 translational DOF;
+    # constraining DOF 4-6 segfaults ccx, so fix 1-3 only.
     for bc in bcs:
         if bc.bc_type == "fixed":
             lines.append("*BOUNDARY")
-            lines.append(f"{bc.node_set_name}, 1, 6")
+            lines.append(f"{bc.node_set_name}, 1, 3")
 
     # Step
     lines.append("*STEP")
@@ -196,7 +255,7 @@ def build_inp(
             for dof, val in enumerate(bc.values, start=1):
                 if abs(val) > 1e-12:
                     lines.append("*CLOAD")
-                    lines.append(f"{bc.node_set_name}, {dof}, {val}")
+                    lines.append(f"{bc.node_set_name}, {dof}, {_ccx_num(val)}")
 
     # Output requests
     lines.append("*NODE FILE")
@@ -259,13 +318,20 @@ def run_ccx(inp_path: Path, timeout_sec: int = 300) -> Path:
 def parse_frd(frd_path: Path, yield_strength_mpa: float = 0.0) -> FEAResult:
     """Parse a CalculiX .frd result file to extract stress and displacement.
 
-    Uses meshio if available, falls back to simple .frd text parsing.
+    Prefers meshio when it can read the .frd, falls back to the dependency-free
+    text parser. meshio can't deduce the format from the ``.frd`` extension, so we
+    pass it explicitly; any failure (unsupported format, parse error) degrades to
+    the text parser rather than crashing the pipeline.
     """
     try:
         import meshio  # noqa: F401  availability probe; ImportError falls back to the text parser
-
-        return _parse_frd_meshio(frd_path, yield_strength_mpa)
     except ImportError:
+        return _parse_frd_simple(frd_path, yield_strength_mpa)
+
+    try:
+        return _parse_frd_meshio(frd_path, yield_strength_mpa)
+    except Exception:  # noqa: BLE001 — meshio frd support varies; text parser is authoritative
+        log.debug("meshio could not read %s; using text parser", frd_path, exc_info=True)
         return _parse_frd_simple(frd_path, yield_strength_mpa)
 
 
@@ -274,7 +340,8 @@ def _parse_frd_meshio(frd_path: Path, yield_strength_mpa: float) -> FEAResult:
     import meshio
     import numpy as np
 
-    mesh = meshio.read(str(frd_path))
+    # meshio can't deduce "frd" from the extension — name the format explicitly.
+    mesh = meshio.read(str(frd_path), file_format="frd")
 
     # Extract displacement
     max_disp = 0.0

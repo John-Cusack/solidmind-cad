@@ -56,6 +56,70 @@ jobs:
       - name: Run unit tests
         run: .venv/bin/python -m unittest --verbose
 
+  fea-backend:
+    name: FEA solver tests (CalculiX + gmsh)
+    runs-on: ubuntu-latest
+    # Real-backend lane: the L2 FEA pipeline (orchestrator/fea.py) and its
+    # integration tests are guarded by `skipUnless(ccx and gmsh)`, so the main
+    # `unittest` job skips them. Without a lane that installs the solver, deck
+    # regressions (e.g. cards ccx 2.21 rejects) rot silently. This job installs
+    # CalculiX + gmsh + meshio and runs the FEA test modules so they actually
+    # execute. Scoped to FEA only — Elmer (thermal) is intentionally not
+    # installed here; those tests skip and stay out of this lane.
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install CalculiX + gmsh runtime libs
+        # gmsh's pip wheel dlopen's libGLU/X11 libs at import even in headless
+        # API mode, which the runner image lacks (libGLU.so.1 not found).
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            calculix-ccx \
+            libglu1-mesa \
+            libxrender1 \
+            libxcursor1 \
+            libxft2 \
+            libxinerama1
+          ccx -version || true
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: geometry
+
+      - name: Set up venv + FEA dependencies
+        run: |
+          python -m venv .venv
+          .venv/bin/pip install --upgrade pip "maturin>=1.7,<2"
+          .venv/bin/pip install \
+            "jsonschema>=4.10,<5" \
+            "orjson>=3.9,<4" \
+            "PyYAML>=6.0,<7" \
+            "pydantic>=2.6,<3" \
+            "numpy>=1.26,<3" \
+            "scipy>=1.11,<2" \
+            "gmsh" \
+            "meshio>=5,<6"
+
+      - name: Build Rust geometry kernel (solidmind_geometry)
+        run: .venv/bin/maturin develop --manifest-path geometry/Cargo.toml
+
+      - name: Run FEA solver tests
+        run: >
+          .venv/bin/python -m unittest --verbose
+          tests.test_fea tests.test_fea_deck tests.test_fea_integration
+
   lint:
     name: Ruff lint
     runs-on: ubuntu-latest
