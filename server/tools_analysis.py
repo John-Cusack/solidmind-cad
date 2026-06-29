@@ -31,6 +31,7 @@ from server.analysis_solvers import (
 )
 from server.analysis_store import save_result
 from server.screen_stress import screen_stress
+from server.screen_thermal import screen_thermal
 from server.tools_cad import cad_export_body
 
 log = logging.getLogger("solidmind.tools_analysis")
@@ -59,6 +60,28 @@ def _resolve_screen_material(material: str | dict[str, Any]) -> Material | None:
             poissons_ratio=float(material.get("poissons_ratio", 0.3)),
             density_kg_m3=float(material.get("density_kg_m3", 0.0)),
             yield_strength_mpa=float(material["yield_strength_mpa"]),
+        )
+    return get_material(material)
+
+
+def _resolve_thermal_screen_material(material: str | dict[str, Any]) -> Material | None:
+    """Resolve a material for thermal screening, accepting a minimal inline dict.
+
+    Thermal screening only needs conductivity / density / specific heat, so an
+    inline dict may carry just those (the documented schema); the structural
+    fields default. A string falls back to the catalog. Unlike the structural
+    ``Material.from_dict``, this never requires structural keys — so the
+    documented thermal-only inline-dict path can't raise a stray ``KeyError``.
+    """
+    if isinstance(material, dict):
+        return Material(
+            name=material.get("name", "custom"),
+            youngs_modulus_mpa=float(material.get("youngs_modulus_mpa", 0.0)),
+            poissons_ratio=float(material.get("poissons_ratio", 0.3)),
+            density_kg_m3=float(material.get("density_kg_m3", 0.0)),
+            yield_strength_mpa=float(material.get("yield_strength_mpa", 0.0)),
+            thermal_conductivity_w_mk=float(material.get("thermal_conductivity_w_mk", 0.0)),
+            specific_heat_j_kgk=float(material.get("specific_heat_j_kgk", 0.0)),
         )
     return get_material(material)
 
@@ -442,6 +465,94 @@ def analysis_screen_stress(
             target_fos=target_fos,
             name=name,
             expectations=exp,
+        )
+    except (ValueError, KeyError, TypeError) as exc:
+        return {
+            "ok": False,
+            "error": {"code": "INVALID_INPUT", "message": str(exc)},
+        }
+    return {"ok": True, **check.to_dict()}
+
+
+def _backfill_thermal_props(
+    block: dict[str, Any] | None, mat: Material | None, keys: tuple[str, ...]
+) -> dict[str, Any] | None:
+    """Fill missing material-derived scalars in a physics block from a Material.
+
+    Lets the caller pass ``material="aluminum_6061_t6"`` and omit
+    ``conductivity_w_mk`` / ``density_kg_m3`` / ``specific_heat_j_kgk`` from the
+    conduction/biot/transient blocks. Caller-supplied values always win.
+    """
+    if block is None:
+        return None
+    if mat is None:
+        return block
+    src = {
+        "conductivity_w_mk": mat.thermal_conductivity_w_mk,
+        "density_kg_m3": mat.density_kg_m3,
+        "specific_heat_j_kgk": mat.specific_heat_j_kgk,
+    }
+    filled = dict(block)
+    for key in keys:
+        if key not in filled:
+            # Backfill unconditionally (even a 0.0). A material missing the field
+            # then surfaces a clear "must be positive" ValueError from
+            # screen_thermal rather than a cryptic KeyError on the absent key.
+            filled[key] = src[key]
+    return filled
+
+
+def analysis_screen_thermal(
+    *,
+    power_w: float,
+    convection: dict[str, Any],
+    conduction: dict[str, Any] | None = None,
+    biot: dict[str, Any] | None = None,
+    transient: dict[str, Any] | None = None,
+    material: str | dict[str, Any] | None = None,
+    max_temperature_k: float = 0.0,
+    target_fos: float = 2.0,
+    name: str = "analytical thermal screen",
+) -> dict[str, Any]:
+    """Tier-1 analytical thermal screen — gate thermal FEA without a solver.
+
+    Lumped-parameter heat transfer: a series conduction/convection resistance
+    network for the steady hot-spot temperature, plus the Biot number as the
+    validity gate for the single-temperature assumption. Returns an AnalysisCheck
+    (pass/warn/fail). A WARN means the screen is not definitive — the part is
+    marginal, or internal gradients are significant (Bi>0.1) — so run
+    ``analysis.thermal_check`` (FEA). No gmsh / Elmer is invoked.
+
+    ``material`` (key or inline dict) is optional: when supplied, its thermal
+    conductivity / density / specific heat backfill any of those left out of the
+    conduction / biot / transient blocks.
+    """
+    try:
+        mat: Material | None = None
+        if material is not None:
+            mat = _resolve_thermal_screen_material(material)
+            if mat is None:
+                return {
+                    "ok": False,
+                    "error": {
+                        "code": "UNKNOWN_MATERIAL",
+                        "message": (
+                            f"Material not found: {material!r}. "
+                            "Use analysis.list_materials to see available materials."
+                        ),
+                    },
+                }
+        check = screen_thermal(
+            power_w=power_w,
+            convection=convection,
+            conduction=_backfill_thermal_props(conduction, mat, ("conductivity_w_mk",)),
+            biot=_backfill_thermal_props(biot, mat, ("conductivity_w_mk",)),
+            transient=_backfill_thermal_props(
+                transient, mat, ("density_kg_m3", "specific_heat_j_kgk")
+            ),
+            max_temperature_k=max_temperature_k,
+            target_fos=target_fos,
+            name=name,
         )
     except (ValueError, KeyError, TypeError) as exc:
         return {
