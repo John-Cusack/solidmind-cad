@@ -25,6 +25,7 @@ def store_brief(
     parameters: dict[str, Any],
     status: str = "intent",
     research_notes: str = "",
+    part_class: str = "",
 ) -> DesignBrief:
     """Create and store a new brief.  Returns the stored DesignBrief."""
     brief_id = f"brief_{secrets.token_hex(4)}"
@@ -37,6 +38,7 @@ def store_brief(
         research_notes=research_notes,
         created_at=now,
         updated_at=now,
+        part_class=part_class,
     )
     _store[brief_id] = brief
     return brief
@@ -54,6 +56,7 @@ def update_brief(
     status: str | None = None,
     research_notes: str | None = None,
     name: str | None = None,
+    part_class: str | None = None,
 ) -> DesignBrief | None:
     """Patch fields on an existing brief.  Returns updated brief or None."""
     existing = _store.get(brief_id)
@@ -70,6 +73,7 @@ def update_brief(
         interfaces=existing.interfaces,
         created_at=existing.created_at,
         updated_at=_now_iso(),
+        part_class=part_class if part_class is not None else existing.part_class,
     )
     _store[brief_id] = updated
     return updated
@@ -91,6 +95,7 @@ def add_part(brief_id: str, part: PartEntry) -> DesignBrief | None:
         interfaces=existing.interfaces,
         created_at=existing.created_at,
         updated_at=_now_iso(),
+        part_class=existing.part_class,
     )
     _store[brief_id] = updated
     return updated
@@ -103,14 +108,14 @@ def update_part(
 ) -> DesignBrief | None:
     """Patch fields on a named part.  Returns updated brief or None.
 
-    Accepted fields: kind, quantity, specs, status, body_label.
+    Accepted fields: kind, quantity, specs, status, body_label, part_class.
     Unknown fields are silently ignored.
     """
     existing = _store.get(brief_id)
     if existing is None:
         return None
 
-    _ALLOWED = {"kind", "quantity", "specs", "status", "body_label"}
+    _ALLOWED = {"kind", "quantity", "specs", "status", "body_label", "part_class"}
     patched = {k: v for k, v in fields.items() if k in _ALLOWED}
     if not patched:
         return existing
@@ -128,6 +133,7 @@ def update_part(
                     specs=dict(patched.get("specs", p.specs)),
                     status=patched.get("status", p.status),
                     body_label=patched.get("body_label", p.body_label),
+                    part_class=patched.get("part_class", p.part_class),
                 )
             )
         else:
@@ -146,6 +152,7 @@ def update_part(
         interfaces=existing.interfaces,
         created_at=existing.created_at,
         updated_at=_now_iso(),
+        part_class=existing.part_class,
     )
     _store[brief_id] = updated
     return updated
@@ -167,6 +174,7 @@ def add_interface(brief_id: str, iface: InterfaceEntry) -> DesignBrief | None:
         interfaces=[*existing.interfaces, iface],
         created_at=existing.created_at,
         updated_at=_now_iso(),
+        part_class=existing.part_class,
     )
     _store[brief_id] = updated
     return updated

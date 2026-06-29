@@ -41,14 +41,20 @@ What landed, mapped to the priority stack and the step list:
   (`tests/test_knowledge_persistence_e2e.py` — ingest → fresh process → recall);
   the foam-dart example auto-ingests its V2 finding.
 
+**Update — 2026-06-28:** the `part_class` Specify field and the **shared**
+failure-mode taxonomy under `me_knowledge/failure_modes/` both landed (see Specify
+and Reflect below). `design.save_brief` / `design.add_part` / `design.update_part`
+carry `part_class`; `server.failure_modes.expectations_for` turns it into typed
+`ReflectExpectations` from a catalog seeded with the project-test classes plus the
+promoted foam-dart classes. Reflect's generalization is no longer plumbing-blocked
+— what remains there is catalog *breadth* and closing the loop on a second class.
+
 Still open (tracked in the step sections and priority stack below): the
-`screen_thermal` / `screen_aero` tiers and auto-gating FEA behind the screen; the
-`part_class` Specify field; a **shared** failure-mode taxonomy under
-`me_knowledge/failure_modes/` (today only the foam-dart example ships its own
-`failure_modes.yaml`); structured `FixCandidate` objects (current `candidates`
-are string labels); and the regression-recovery + cross-session-memory tests
-(bar items 2 and 3). Inner-loop status moves **✗ → ◐: closed on one part class,
-generalization to more classes pending.**
+`screen_thermal` / `screen_aero` tiers and auto-gating FEA behind the screen;
+structured `FixCandidate` objects (current `candidates` are string labels); and
+the regression-recovery + cross-session-memory tests (bar items 2 and 3).
+Inner-loop status moves **✗ → ◐: closed on one part class, generalization to more
+classes pending.**
 
 **Addendum — 2026-06-27 (foam-dart FEA hardening):** the example's Simulate
 rung now drives a real CalculiX **mesh-convergence study** on the enriched
@@ -223,12 +229,12 @@ fix: add an optional `part_class: str` to `design.save_brief` and
 look up in the failure-mode taxonomy. Without this, the Reflect → Learn
 feedback loop can't retrieve part-class-specific findings cleanly.
 
-**What would move this forward:** just the `part_class` field — **still open as
-of 2026-06-26.** `part_class` now exists as a concept in the Reflect layer
-(`ReflectExpectations.part_class`), but `design.save_brief` / `design.add_part`
-don't yet carry it, so the brief can't dispatch taxonomy lookups by class. This
-is now the gating item for generalizing Reflect past the one wired part class.
-Specify is otherwise well-served today.
+**What would move this forward:** just the `part_class` field — **landed
+2026-06-28.** `design.save_brief`, `design.add_part`, and `design.update_part`
+now carry an optional `part_class` (stored on `PartEntry`/`DesignBrief`), so a
+brief can dispatch taxonomy lookups by class via `server.failure_modes`. Specify
+is now well-served end to end; the remaining Reflect-generalization work is the
+catalog breadth itself (more part classes), not the plumbing.
 
 ### 2. Synthesize ✓
 
@@ -315,14 +321,15 @@ but FMEA is a heavyweight deliverable, not a pre-check habit.
 
 **What would move this from ✗ to ◐ — progress as of 2026-06-26:**
 
-1. **Part-class failure-mode taxonomies.** ✗ **still open (the main remaining
-   gap).** A small structured catalog per common part class: hexapod leg →
-   `[fillet_stress_concentration, femur_buckling, tibia_tip_deflection,
-   knee_fatigue]`. The foam-dart example proves the *format* with its own
-   `failure_modes.yaml`, but there is no shared
-   `me_knowledge/failure_modes/<part_class>.yaml` catalog yet. Should start with
-   hand-curated entries for the part classes that already have project tests
-   (hexapod leg, planetary gearbox, quadrotor, rc car).
+1. **Part-class failure-mode taxonomies.** ✓ **landed 2026-06-28.** A shared
+   hand-curated catalog now lives under `me_knowledge/failure_modes/`
+   (`structural.yaml` + `foam_dart_launcher.yaml`), loaded by
+   `server.failure_modes.load_taxonomy` / `expectations_for` into typed
+   `ReflectExpectations`. Seeded with the four part classes that already have
+   project tests (hexapod leg, planetary gearbox, quadrotor arm, rc-car chassis)
+   plus the promoted foam-dart classes (latch_sear, spring_seat, plunger_rod);
+   the foam-dart example now reads the shared catalog instead of only its own
+   local file. Remaining: *breadth* — add entries as new part classes get builds.
 2. **An expectations schema.** ✓ **done.** `ReflectExpectations` is implemented
    in `server/analysis_models.py`; the analysis/decide tools consume it and the
    loop-closure test requires it.
@@ -1128,11 +1135,13 @@ plus the `part_class` field and the thermal/aero screen tiers.)*
 2. **Knowledge persistence test.** ✓ **done** —
    `tests/test_knowledge_persistence_e2e.py`.
 3. **Part-class failure-mode taxonomies** as hand-curated YAML under
-   `me_knowledge/failure_modes/` — ✗ **still the highest-leverage next step.** The
-   foam-dart example proves the format with its own `failure_modes.yaml`; promote
-   it to a shared catalog seeded with the four part classes that already have
-   project tests (hexapod leg, planetary gearbox, quadrotor, rc car), and add the
-   `part_class` field to the brief so Reflect can look them up.
+   `me_knowledge/failure_modes/` — ✓ **landed 2026-06-28.** Promoted the foam-dart
+   format to a shared catalog (`server.failure_modes`) seeded with the four
+   project-test part classes plus the foam-dart classes, and added the
+   `part_class` field to `design.save_brief` / `design.add_part` /
+   `design.update_part` so Reflect can look them up by class. Next: close the loop
+   on a *second* part class using the new catalog entry (e.g. a hexapod leg) to
+   prove the dispatch generalizes past foam-dart.
 4. **Auto-ingestion** from `study.results` (and closed iterate cycles) into the
    knowledge corpus so Learn fills itself without manual curation. ◐ demoed once
    in the foam-dart example; not yet generalized.
@@ -1147,8 +1156,8 @@ instead of as code:
 
 | Rule file | Step | Rule → Tool refactor | Status |
 |---|---|---|---|
-| `design-pipeline.md` | Specify | Mostly already tools; add `part_class` field | ◐ field still missing |
-| `me-preflight.md` | Reflect | → `reflect`/expectations + failure-mode taxonomy | ◐ `ReflectExpectations` done; shared taxonomy missing |
+| `design-pipeline.md` | Specify | Mostly already tools; add `part_class` field | ✓ `part_class` field landed |
+| `me-preflight.md` | Reflect | → `reflect`/expectations + failure-mode taxonomy | ✓ `ReflectExpectations` + shared taxonomy landed |
 | `analysis-policy.md` | Reflect + Simulate gating | → analysis tier ladder (Move 1) | ◐ `screen_stress` done; thermal/aero + auto-gate pending |
 | `motion-validation.md` | Screen → Simulate tier escalation | → `motion.*` tiers | ✓ implemented |
 | `self-assessment.md` | Interpret | → `decide.interpret` + `FailureMode` enum | ✓ both landed |

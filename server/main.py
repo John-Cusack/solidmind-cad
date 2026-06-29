@@ -3845,6 +3845,15 @@ def _design_tool_list() -> list[dict[str, Any]]:
                         "default": "",
                         "description": "Research notes and sources",
                     },
+                    "part_class": {
+                        "type": "string",
+                        "default": "",
+                        "description": (
+                            "Optional taxonomy key (e.g. 'hexapod_leg', "
+                            "'planetary_gearbox') the Reflect step uses to look up "
+                            "characteristic failure modes. Set on single-part briefs."
+                        ),
+                    },
                 },
                 "required": ["name", "parameters"],
                 "additionalProperties": False,
@@ -3916,6 +3925,15 @@ def _design_tool_list() -> list[dict[str, Any]]:
                         "description": "How many of this part",
                     },
                     "specs": {"type": "object", "description": "Part specs (any key-value pairs)"},
+                    "part_class": {
+                        "type": "string",
+                        "default": "",
+                        "description": (
+                            "Optional taxonomy key (e.g. 'hexapod_leg', "
+                            "'planetary_gearbox') the Reflect step uses to look up "
+                            "characteristic failure modes for this part."
+                        ),
+                    },
                 },
                 "required": ["brief_id", "name"],
                 "additionalProperties": False,
@@ -3948,6 +3966,10 @@ def _design_tool_list() -> list[dict[str, Any]]:
                         "description": "Updated kind",
                     },
                     "quantity": {"type": "integer", "description": "Updated quantity"},
+                    "part_class": {
+                        "type": "string",
+                        "description": "Updated taxonomy key for Reflect-step failure-mode lookup",
+                    },
                 },
                 "required": ["brief_id", "name"],
                 "additionalProperties": False,

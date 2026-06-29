@@ -42,7 +42,6 @@ from server.analysis_models import (  # noqa: E402
     AnalysisCheck,
     BoundaryCondition,  # noqa: E402
     CheckStatus,
-    FailureMode,
     ReflectExpectations,
 )
 from server.decide import from_failure, interpret_compare_to_expectations  # noqa: E402
@@ -141,19 +140,16 @@ def resolve_material(key: str):
 # Reflect: build expectations from the failure-modes taxonomy
 # --------------------------------------------------------------------------- #
 def load_expectations() -> dict[str, ReflectExpectations]:
-    import yaml
+    """Reflect expectations for this launcher's structural part classes.
 
-    data = yaml.safe_load((_HERE / "failure_modes.yaml").read_text())
-    out: dict[str, ReflectExpectations] = {}
-    for part_class, spec in data["part_classes"].items():
-        lo, hi = spec["expected_peak_stress_mpa"]
-        out[part_class] = ReflectExpectations(
-            part_class=part_class,
-            failure_modes_to_check=tuple(FailureMode(m) for m in spec["failure_modes_to_check"]),
-            expected_hotspot=spec["expected_hotspot"],
-            expected_peak_stress_mpa=(float(lo), float(hi)),
-        )
-    return out
+    Reads the *shared* project taxonomy (``me_knowledge/failure_modes/``) so the
+    example and the catalog can't drift, then layers this example's local
+    ``failure_modes.yaml`` on top as an offline override/fallback (it ships the
+    same three classes the shared catalog was seeded from).
+    """
+    from server.failure_modes import load_taxonomy
+
+    return load_taxonomy(extra_dirs=[_HERE])
 
 
 # --------------------------------------------------------------------------- #

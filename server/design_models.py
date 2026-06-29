@@ -26,6 +26,7 @@ class PartEntry:
     specs: dict[str, Any] = dc_field(default_factory=dict)
     status: str = "pending"  # pending | building | built
     body_label: str = ""  # set after cad.new_body creates it
+    part_class: str = ""  # taxonomy key for Reflect-step failure-mode lookup
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -35,6 +36,7 @@ class PartEntry:
             "specs": dict(self.specs),
             "status": self.status,
             "body_label": self.body_label,
+            "part_class": self.part_class,
         }
 
     @classmethod
@@ -46,6 +48,7 @@ class PartEntry:
             specs=dict(d.get("specs", {})),
             status=d.get("status", "pending"),
             body_label=d.get("body_label", ""),
+            part_class=d.get("part_class", ""),
         )
 
 
@@ -101,6 +104,7 @@ class DesignBrief:
     interfaces: list[InterfaceEntry] = dc_field(default_factory=list)
     created_at: str = ""
     updated_at: str = ""
+    part_class: str = ""  # taxonomy key for single-part briefs (Reflect lookup)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -113,6 +117,7 @@ class DesignBrief:
             "interfaces": [i.to_dict() for i in self.interfaces],
             "created_at": self.created_at,
             "updated_at": self.updated_at,
+            "part_class": self.part_class,
         }
 
     @classmethod
@@ -127,6 +132,7 @@ class DesignBrief:
             interfaces=[InterfaceEntry.from_dict(i) for i in d.get("interfaces", [])],
             created_at=d.get("created_at", ""),
             updated_at=d.get("updated_at", ""),
+            part_class=d.get("part_class", ""),
         )
 
     def get_part(self, name: str) -> PartEntry | None:

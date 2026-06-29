@@ -8,6 +8,19 @@ and this project aims to follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **Part-class taxonomy: `part_class` field + shared failure-mode catalog.**
+  The Reflect step can now look up a part's characteristic failure modes by
+  class instead of inferring them from a brief's free-text name. `design.save_brief`,
+  `design.add_part`, and `design.update_part` carry an optional `part_class`
+  (persisted on `PartEntry`/`DesignBrief`); `server.failure_modes.load_taxonomy` /
+  `expectations_for` load a hand-curated catalog under `me_knowledge/failure_modes/`
+  (`structural.yaml` + `foam_dart_launcher.yaml`) into typed `ReflectExpectations`.
+  Seeded with the four part classes that already have project builds (hexapod leg,
+  planetary gearbox, quadrotor arm, rc-car chassis) plus the promoted foam-dart
+  classes; the foam-dart example now reads the shared catalog (local
+  `failure_modes.yaml` kept as an offline override). Loading degrades gracefully on
+  a missing dir / absent PyYAML / one malformed entry. Closes the ROADMAP's named
+  Specify + Reflect gating items (`tests/test_failure_modes.py`).
 - **Foam-dart spring launcher example — sim-to-real validation rig.** New
   `examples/foam_dart_spring_launcher/` walks the full nine-step inner loop
   (Specify → Synthesize → Reflect → Screen → Simulate → Interpret → Decide →

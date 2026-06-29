@@ -1,0 +1,62 @@
+# Shared Reflect-step failure-mode taxonomy — structural part classes.
+#
+# Seeded with the part classes that already have project builders/tests under
+# orchestrator/worker_builds/ and tests/test_project_*.py: hexapod leg,
+# planetary gearbox, quadrotor arm, rc-car chassis. See README.md for the format.
+#
+# failure_modes_to_check values match server.analysis_models.FailureMode.
+# Peak-stress bands are order-of-magnitude engineering estimates for the usual
+# printed/aluminium prototype, not a substitute for the screen or FEA — they
+# exist so Interpret can flag a result that lands wildly outside expectation.
+
+part_classes:
+
+  hexapod_leg:
+    description: >
+      Composite leg segment (femur/tibia with servo pockets) carrying body
+      weight reacted through the hip/knee joints under walking torque.
+    failure_modes_to_check: [stress_concentration, fatigue, buckling, deflection]
+    expected_hotspot: knee_fillet
+    expected_peak_stress_mpa: [10, 80]
+    notes: >
+      The inside fillet at the knee is the classic stress riser; a slender femur
+      is a Euler-buckling candidate under stance load, and the gait cycles the
+      joint millions of times (fatigue). Fix order: root fillet, then widen the
+      femur section, then thicken near the servo pocket.
+
+  planetary_gearbox:
+    description: >
+      Spur gear tooth (sun / planet / ring) and the planet carrier reacting
+      transmitted torque through the mesh.
+    failure_modes_to_check: [contact, fatigue, stress_concentration, yield]
+    expected_hotspot: tooth_root
+    expected_peak_stress_mpa: [20, 120]
+    notes: >
+      Tooth-root bending fatigue (Lewis) and flank contact (Hertzian) govern;
+      the tooth-root fillet is the stress concentration. Increase module/face
+      width or add a full root radius before changing material.
+
+  quadrotor_arm:
+    description: >
+      Cantilever arm carrying a motor + propeller at the tip; reacts thrust,
+      gyroscopic and vibratory loads back into the central hub.
+    failure_modes_to_check: [yield, deflection, fatigue, resonance]
+    expected_hotspot: arm_root
+    expected_peak_stress_mpa: [5, 50]
+    notes: >
+      Bending at the hub root governs static strength; tip deflection and a
+      first bending mode near the prop passing frequency drive the dynamic case.
+      Deepen the section at the root or add a gusset; raise the natural frequency
+      rather than chasing stress alone.
+
+  rc_car_chassis:
+    description: >
+      Flat chassis plate with suspension/motor mount bosses, loaded by landing
+      impacts and cornering through the mount points.
+    failure_modes_to_check: [yield, deflection, stress_concentration, fatigue]
+    expected_hotspot: suspension_mount_boss
+    expected_peak_stress_mpa: [5, 60]
+    notes: >
+      Stress concentrates at the mount-boss roots and bolt holes; the plate also
+      acts as a stiffness element (deflection under cornering). Add fillets at
+      boss roots and ribs across the span before thickening the whole plate.

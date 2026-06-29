@@ -51,11 +51,17 @@ def design_save_brief(
     parameters: dict[str, Any],
     status: str = "intent",
     research_notes: str = "",
+    part_class: str = "",
 ) -> dict[str, Any]:
     """Save a design brief.  Accepts any parameters dict.
 
     The LLM extracts parameters from user specs, research, or conversation
     and stores them here.  The user reviews and approves before building.
+
+    ``part_class`` is an optional taxonomy key (e.g. "hexapod_leg",
+    "planetary_gearbox") used by the Reflect step to look up the part's
+    characteristic failure modes in ``me_knowledge/failure_modes/``.  Set it
+    on single-part briefs; for assemblies set it per-part on ``design.add_part``.
     """
     if not name:
         return _error_result("INVALID_INPUT", "Brief name is required")
@@ -71,6 +77,7 @@ def design_save_brief(
         parameters=parameters,
         status=status,
         research_notes=research_notes,
+        part_class=part_class,
     )
     return {"ok": True, "brief": brief.to_dict()}
 
@@ -207,6 +214,7 @@ def design_add_part(
     kind: str = "custom",
     quantity: int = 1,
     specs: dict[str, Any] | None = None,
+    part_class: str = "",
 ) -> dict[str, Any]:
     """Add a part to the brief's parts list.
 
@@ -214,6 +222,9 @@ def design_add_part(
     constrain surrounding custom parts).
     specs: open dict — any key-value pairs relevant to this part
     (dimensions, material, model number, mounting pattern, etc.).
+    part_class: optional taxonomy key (e.g. "hexapod_leg", "planetary_gearbox")
+    the Reflect step uses to look up characteristic failure modes in
+    ``me_knowledge/failure_modes/``.  Set it on load-bearing custom parts.
     """
     if not name:
         return _error_result("INVALID_INPUT", "Part name is required")
@@ -235,6 +246,7 @@ def design_add_part(
         kind=kind,
         quantity=quantity,
         specs=specs or {},
+        part_class=part_class,
     )
     updated = store_add_part(brief_id, part)
     if updated is None:
@@ -251,11 +263,12 @@ def design_update_part(
     body_label: str | None = None,
     kind: str | None = None,
     quantity: int | None = None,
+    part_class: str | None = None,
 ) -> dict[str, Any]:
     """Update fields on a named part.
 
     Use this to mark parts as built, attach body labels after cad.new_body,
-    or update specs with refined dimensions.
+    update specs with refined dimensions, or set the ``part_class`` taxonomy key.
     """
     if status is not None and status not in _VALID_PART_STATUSES:
         return _error_result(
@@ -279,6 +292,8 @@ def design_update_part(
         fields["kind"] = kind
     if quantity is not None:
         fields["quantity"] = quantity
+    if part_class is not None:
+        fields["part_class"] = part_class
 
     updated = store_update_part(brief_id, name, **fields)
     if updated is None:
