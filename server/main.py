@@ -128,6 +128,7 @@ from server.tools_analysis import (
     analysis_list_materials,
     analysis_list_solvers,
     analysis_screen_stress,
+    analysis_screen_thermal,
     analysis_stress_check,
     analysis_stress_from_simulation,
     analysis_thermal_check,
@@ -4675,6 +4676,83 @@ def _analysis_tool_list() -> list[dict[str, Any]]:
             },
         },
         {
+            "name": "analysis.screen_thermal",
+            "description": (
+                "Tier-1 analytical thermal screen (lumped-parameter "
+                "conduction/convection resistance network + Biot-number validity "
+                "gate). Gates thermal FEA: FAIL = over temperature limit, "
+                "WARN = marginal or internal gradients significant (Bi>0.1, run "
+                "analysis.thermal_check), PASS = comfortably cool. SI units. "
+                "No gmsh/Elmer invoked."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "power_w": {
+                        "type": "number",
+                        "description": "Heat dissipated / applied to the part (W).",
+                    },
+                    "convection": {
+                        "type": "object",
+                        "description": (
+                            "Convective rejection path. {coeff_w_m2k, area_m2, "
+                            "ambient_k?} (ambient default 293.15 K)."
+                        ),
+                    },
+                    "conduction": {
+                        "type": "object",
+                        "description": (
+                            "Optional internal conduction drop in series before the "
+                            "surface. {length_m, area_m2, conductivity_w_mk}. "
+                            "conductivity backfills from material if omitted."
+                        ),
+                    },
+                    "biot": {
+                        "type": "object",
+                        "description": (
+                            "Optional lumped-validity gate. {char_length_m, "
+                            "conductivity_w_mk}; char_length = volume/area or "
+                            "slab half-thickness. Bi>0.1 forces WARN."
+                        ),
+                    },
+                    "transient": {
+                        "type": "object",
+                        "description": (
+                            "Optional time-constant report. {density_kg_m3, "
+                            "volume_m3, specific_heat_j_kgk}; backfills from material."
+                        ),
+                    },
+                    "material": {
+                        "description": (
+                            "Optional material key (e.g. 'aluminum_6061_t6') or inline "
+                            "dict; backfills conductivity/density/specific-heat into the "
+                            "conduction/biot/transient blocks."
+                        ),
+                    },
+                    "max_temperature_k": {
+                        "type": "number",
+                        "description": (
+                            "Temperature limit (K). 0 = report only, no pass/fail on "
+                            "temperature (status then driven by the Biot gate)."
+                        ),
+                        "default": 0.0,
+                    },
+                    "target_fos": {
+                        "type": "number",
+                        "description": "Target factor of safety on temperature rise (default 2.0).",
+                        "default": 2.0,
+                    },
+                    "name": {
+                        "type": "string",
+                        "description": "Check label.",
+                        "default": "analytical thermal screen",
+                    },
+                },
+                "required": ["power_w", "convection"],
+                "additionalProperties": False,
+            },
+        },
+        {
             "name": "analysis.stress_from_simulation",
             "description": (
                 "Run stress analysis using forces extracted from simulation results. "
@@ -5313,6 +5391,7 @@ _FASTENER_DISPATCH: dict[str, Any] = {
 _ANALYSIS_DISPATCH: dict[str, Any] = {
     "analysis.stress_check": analysis_stress_check,
     "analysis.screen_stress": analysis_screen_stress,
+    "analysis.screen_thermal": analysis_screen_thermal,
     "analysis.stress_from_simulation": analysis_stress_from_simulation,
     "analysis.thermal_check": analysis_thermal_check,
     "analysis.conjugate_thermal_check": analysis_conjugate_thermal_check,
