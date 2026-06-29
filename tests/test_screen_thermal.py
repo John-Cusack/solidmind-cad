@@ -32,9 +32,7 @@ class TestAnalyticalCore(unittest.TestCase):
 
     def test_convective_equilibrium_temp(self) -> None:
         # T = T_inf + Q/(hA) = 293.15 + 10*2.0 = 313.15 K
-        self.assertAlmostEqual(
-            convective_equilibrium_temp_k(10.0, 25.0, 0.02, 293.15), 313.15
-        )
+        self.assertAlmostEqual(convective_equilibrium_temp_k(10.0, 25.0, 0.02, 293.15), 313.15)
 
     def test_biot_number_lumped_valid(self) -> None:
         # Bi = h L_c / k = 100 * 0.01 / 200 = 0.005 (< 0.1, lumped valid)
@@ -46,9 +44,7 @@ class TestAnalyticalCore(unittest.TestCase):
 
     def test_lumped_time_constant(self) -> None:
         # tau = rho V c / (h A) = 2700 * 1e-6 * 900 / (50 * 0.01) = 4.86 s
-        self.assertAlmostEqual(
-            lumped_time_constant_s(2700.0, 1e-6, 900.0, 50.0, 0.01), 4.86
-        )
+        self.assertAlmostEqual(lumped_time_constant_s(2700.0, 1e-6, 900.0, 50.0, 0.01), 4.86)
 
     def test_zero_area_raises(self) -> None:
         with self.assertRaises(ValueError):
