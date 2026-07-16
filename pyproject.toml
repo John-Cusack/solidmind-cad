@@ -69,7 +69,7 @@ fea-cpu = [
 fea-gpu = [
   "scipy>=1.11,<2",
   "nvidia-cudss-cu12>=0.4,<1",
-  "nvmath-python>=0.8,<1",
+  "nvmath-python>=0.8,<2",
   "cupy-cuda12x>=14,<15",
 ]
 schemas = ["pydantic>=2.6,<3"]
