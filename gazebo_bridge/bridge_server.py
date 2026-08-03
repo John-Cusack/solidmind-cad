@@ -30,6 +30,9 @@ _CAPABILITIES: dict[str, Any] = {
     # for direct, user-supplied model files.
     "formats": ["package", "sdf", "urdf"],
     "features": ["diagnose", "spawn_model", "px4"],
+    # Teleop axes this bridge honours — core rejects a command on any axis an
+    # engine does not declare instead of dropping it silently (contract §2).
+    "teleop_dofs": ["vx_mps", "vy_mps", "vz_mps", "yaw_rate_rps", "body_height_m"],
     "fields": {"emits": [], "accepts": []},  # no field producer yet (contract §8)
 }
 
@@ -203,6 +206,7 @@ class GazeboBridgeServer:
                 "modes": list(_CAPABILITIES["modes"]),
                 "formats": list(_CAPABILITIES["formats"]),
                 "features": list(_CAPABILITIES["features"]),
+                "teleop_dofs": list(_CAPABILITIES["teleop_dofs"]),
                 "fields": dict(_CAPABILITIES["fields"]),
             },
         }

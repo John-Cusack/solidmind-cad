@@ -1,11 +1,10 @@
 """Unified simulation engine lifecycle management.
 
-Provides start/stop/status for all simulation backends:
-- **chrono**: C++ multibody dynamics daemon (gear trains, linkages)
-- **gazebo**: CPU physics + ROS/PX4 (drones, wheeled vehicles)
-- **isaac**: GPU physics (legged robots, articulated mechanisms)
+Provides start/stop/status for every engine the registry knows — which ones
+those are is descriptor data (``engines.d/``), not a list in this module.
 
-Each backend can run as a subprocess managed by this module.  If a backend
+An engine with a launch command runs as a subprocess managed here; one
+without (a user-run daemon or a remote engine) is attached to.  If an engine
 is already running (responds to health check), ``start_engine`` returns early.
 
 Thread-safe: all engine state is guarded by ``_lock``.
@@ -15,16 +14,25 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import socket
 import subprocess
-import sys
 import threading
 import time
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 from typing import Any
+
+from server.engine_registry import (
+    engine_names,
+    launch_argv,
+    resolve_cwd,
+    resolve_host,
+    resolve_port,
+)
+from server.engine_registry import (
+    install_hint as descriptor_hint,
+)
 
 logger = logging.getLogger("solidmind.sim_engine_manager")
 
@@ -60,28 +68,13 @@ class EngineState:
 # Configuration (env vars + defaults)
 # ---------------------------------------------------------------------------
 
-_DEFAULT_PORTS: dict[str, int] = {
-    "chrono": 9877,
-    "gazebo": 9879,
-    "isaac": 9878,
-}
-
-_DEFAULT_HOST = "127.0.0.1"
-
 
 def _get_host() -> str:
-    return os.environ.get("SOLIDMIND_SIM_HOST", _DEFAULT_HOST)
+    return resolve_host("")
 
 
 def _get_port(backend: str) -> int:
-    env_key = f"SOLIDMIND_{backend.upper()}_PORT"
-    env_val = os.environ.get(env_key)
-    if env_val is not None:
-        try:
-            return int(env_val)
-        except ValueError:
-            logger.warning("Invalid %s=%r, using default", env_key, env_val)
-    return _DEFAULT_PORTS[backend]
+    return resolve_port(backend)
 
 
 # ---------------------------------------------------------------------------
@@ -93,7 +86,10 @@ _engines: dict[str, EngineState] = {}
 _shutdown_event = threading.Event()
 _monitor_thread: threading.Thread | None = None
 
-VALID_BACKENDS = frozenset(_DEFAULT_PORTS.keys())
+
+def _valid_backends() -> frozenset[str]:
+    """The engines the registry knows — data, not a table in core."""
+    return frozenset(engine_names())
 
 
 def _get_or_create_state(backend: str) -> EngineState:
@@ -181,7 +177,7 @@ def start_engine(
     Parameters
     ----------
     backend : str
-        One of: 'chrono', 'gazebo', 'isaac'.
+        Any registered engine name (see ``sim.engine_status``).
     port : int | None
         Override default port.
     headless : bool
@@ -197,10 +193,10 @@ def start_engine(
         ``{"ok": True, "status": "started"|"already_running", ...}``
     """
     backend = backend.strip().lower()
-    if backend not in VALID_BACKENDS:
+    if backend not in _valid_backends():
         return _error(
             "UNKNOWN_BACKEND",
-            f"Unknown backend {backend!r}. Available: {sorted(VALID_BACKENDS)}",
+            f"Unknown backend {backend!r}. Available: {sorted(_valid_backends())}",
         )
 
     host = _get_host()
@@ -264,15 +260,14 @@ def start_engine(
         state.port = actual_port
         state.error = ""
 
-    # Delegate to backend-specific launcher (outside lock for potentially slow ops)
-    if backend == "isaac":
-        result = _start_isaac(actual_port, headless, timeout_s)
-    elif backend == "gazebo":
-        result = _start_gazebo(actual_port, runtime, timeout_s)
-    elif backend == "chrono":
-        result = _start_chrono(actual_port, timeout_s)
-    else:
-        result = _error("UNKNOWN_BACKEND", f"No launcher for {backend!r}")
+    # Launch from the descriptor (outside the lock — spawning can be slow).
+    result = _launch_from_descriptor(
+        backend,
+        port=actual_port,
+        headless=headless,
+        runtime=runtime,
+        timeout_s=timeout_s,
+    )
 
     # Update state based on result
     with _lock:
@@ -300,99 +295,40 @@ def start_engine(
     return result
 
 
-def _start_chrono(port: int, timeout_s: float) -> dict[str, Any]:
-    """Start the Chrono bridge, which starts the C++ daemon underneath it.
+def _launch_from_descriptor(
+    backend: str,
+    *,
+    port: int,
+    headless: bool,
+    runtime: str,
+    timeout_s: float,
+) -> dict[str, Any]:
+    """Start *backend* using its descriptor's launch command.
 
-    Core speaks the contract to the bridge; the bridge compiles mechanisms
-    into Chrono's native spec and drives the daemon.  Launching the pair as
-    one supervised process keeps stop/health handling unchanged.
+    Nothing here knows which engine it is starting: the argv, the working
+    directory and the install hint all come from ``engines.d`` (see
+    ``docs/engine-contract.md`` §9).  A descriptor without a launch command is
+    attach-only — a user-managed daemon or a remote engine — and says so
+    rather than pretending it can spawn one.
     """
-    run_script = _PROJECT_ROOT / "chrono_daemon" / "run.sh"
-    build_binary = _PROJECT_ROOT / "chrono_daemon" / "build" / "chrono_daemon"
-    launcher = run_script if run_script.is_file() else build_binary
+    # Variants let one descriptor carry the handful of launch shapes an engine
+    # has (Gazebo's real runtime, Isaac with a GUI) without core branching.
+    variant: str | None = None
+    if runtime and runtime != "stub":
+        variant = runtime
+    elif not headless:
+        variant = "gui"
 
-    if launcher.is_file():
-        cmd = [
-            sys.executable,
-            "-m",
-            "chrono_bridge.bridge_server",
-            "--port",
-            str(port),
-            "--daemon-port",
-            str(port + 100),
-            "--launch-daemon",
-            str(launcher),
-        ]
-    else:
+    argv = launch_argv(backend, port=port, variant=variant, extra={"RUNTIME": runtime})
+    if argv is None:
+        hint = descriptor_hint(backend)
         return _error(
-            "CHRONO_NOT_BUILT",
-            "Chrono daemon not found. Build it with:\n"
-            "  cd chrono_daemon && mkdir -p build && cd build\n"
-            "  cmake .. && make -j$(nproc)\n"
-            "Or install as a systemd service:\n"
-            "  chrono_daemon/install-service.sh",
+            "ENGINE_ATTACH_ONLY",
+            f"The {backend!r} descriptor has no launch command — start it yourself, "
+            f"then core will attach on port {port}." + (f"\n{hint}" if hint else ""),
         )
 
-    return _launch_subprocess("chrono", cmd, port, timeout_s)
-
-
-def _start_gazebo(port: int, runtime: str, timeout_s: float) -> dict[str, Any]:
-    """Start the Gazebo bridge subprocess."""
-    script = _PROJECT_ROOT / "scripts" / "run_gazebo_bridge.sh"
-
-    if runtime == "stub":
-        cmd = [
-            "python3",
-            "-m",
-            "gazebo_bridge.bridge_server",
-            "--port",
-            str(port),
-            "--runtime",
-            "stub",
-        ]
-    elif script.is_file():
-        cmd = [
-            "bash",
-            str(script),
-            "--port",
-            str(port),
-            "--runtime",
-            runtime,
-        ]
-    else:
-        return _error(
-            "GAZEBO_LAUNCH_FAILED",
-            "Gazebo bridge launcher not found. Run in stub mode:\n"
-            "  sim.start_engine('gazebo', runtime='stub')\n"
-            "Or install Gazebo Harmonic and use:\n"
-            "  scripts/run_gazebo_bridge.sh --runtime real",
-        )
-
-    return _launch_subprocess("gazebo", cmd, port, timeout_s)
-
-
-def _start_isaac(port: int, headless: bool, timeout_s: float) -> dict[str, Any]:
-    """Start the Isaac bridge subprocess."""
-    try:
-        from server.isaac_adapter import launch_bridge
-
-        return launch_bridge(headless=headless, port=port, timeout_s=timeout_s)
-    except ImportError:
-        pass
-
-    script = _PROJECT_ROOT / "scripts" / "run_isaac_bridge.sh"
-    if not script.is_file():
-        return _error(
-            "ISAAC_LAUNCH_FAILED",
-            "Isaac bridge launcher not found. Set ISAAC_PYTHON env var or\n"
-            "ensure scripts/run_isaac_bridge.sh exists.",
-        )
-
-    cmd = ["bash", str(script), "--port", str(port)]
-    if headless:
-        cmd.append("--headless")
-
-    return _launch_subprocess("isaac", cmd, port, timeout_s)
+    return _launch_subprocess(backend, argv, port, timeout_s, cwd=resolve_cwd(backend))
 
 
 def _launch_subprocess(
@@ -400,6 +336,7 @@ def _launch_subprocess(
     cmd: list[str],
     port: int,
     timeout_s: float,
+    cwd: str | None = None,
 ) -> dict[str, Any]:
     """Generic subprocess launcher with TCP readiness wait."""
     host = _get_host()
@@ -410,6 +347,7 @@ def _launch_subprocess(
             cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
+            cwd=cwd,
         )
     except FileNotFoundError as exc:
         return _error(
@@ -480,7 +418,7 @@ def stop_engine(backend: str, *, drain_timeout_s: float = 5.0) -> dict[str, Any]
     7. Set state → STOPPED
     """
     backend = backend.strip().lower()
-    if backend not in VALID_BACKENDS:
+    if backend not in _valid_backends():
         return _error("UNKNOWN_BACKEND", f"Unknown backend {backend!r}")
 
     with _lock:
@@ -561,7 +499,7 @@ def engine_status() -> dict[str, Any]:
     statuses: dict[str, dict[str, Any]] = {}
 
     with _lock:
-        for backend in VALID_BACKENDS:
+        for backend in _valid_backends():
             state = _get_or_create_state(backend)
             port = state.port
 
@@ -578,22 +516,9 @@ def engine_status() -> dict[str, Any]:
                 if healthy:
                     state.last_health = time.monotonic()
 
-            install_hint = ""
+            hint = ""
             if state.status in (EngineStatus.STOPPED, EngineStatus.FAILED):
-                if backend == "chrono":
-                    binary = _PROJECT_ROOT / "chrono_daemon" / "build" / "chrono_daemon"
-                    if binary.is_file():
-                        install_hint = (
-                            "Binary found but not running. Start with: sim.start_engine('chrono')"
-                        )
-                    else:
-                        install_hint = "Not built. cd chrono_daemon && mkdir build && cd build && cmake .. && make"
-                elif backend == "gazebo":
-                    install_hint = (
-                        "Start stub: sim.start_engine('gazebo'). Real: install Gazebo Harmonic"
-                    )
-                elif backend == "isaac":
-                    install_hint = "Set ISAAC_PYTHON env var, then: sim.start_engine('isaac')"
+                hint = descriptor_hint(backend)
 
             statuses[backend] = {
                 "status": state.status.value,
@@ -605,7 +530,7 @@ def engine_status() -> dict[str, Any]:
                 "uptime_s": round(time.monotonic() - state.started_at, 1)
                 if state.started_at and state.status in (EngineStatus.READY, EngineStatus.RUNNING)
                 else None,
-                "install_hint": install_hint or None,
+                "install_hint": hint or None,
             }
 
     return {"ok": True, "engines": statuses}
@@ -651,7 +576,7 @@ def _monitor_loop(interval_s: float) -> None:
     host = _get_host()
     while not _shutdown_event.is_set():
         with _lock:
-            for backend in VALID_BACKENDS:
+            for backend in _valid_backends():
                 state = _engines.get(backend)
                 if state is None:
                     continue

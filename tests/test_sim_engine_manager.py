@@ -11,7 +11,6 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 from server.sim_engine_manager import (
-    VALID_BACKENDS,
     EngineState,
     EngineStatus,
     _engines,
@@ -21,6 +20,7 @@ from server.sim_engine_manager import (
     _health_check,
     _lock,
     _tcp_ping,
+    _valid_backends,
     engine_status,
     shutdown_all,
     start_engine,
@@ -236,7 +236,7 @@ class TestEngineStatusReport(unittest.TestCase):
         result = engine_status()
         self.assertTrue(result["ok"])
         self.assertIn("engines", result)
-        for backend in VALID_BACKENDS:
+        for backend in _valid_backends():
             eng = result["engines"][backend]
             self.assertEqual(eng["status"], "stopped")
             self.assertFalse(eng["managed"])
@@ -285,7 +285,7 @@ class TestThreadSafety(unittest.TestCase):
             except Exception as exc:
                 errors.append(exc)
 
-        threads = [threading.Thread(target=worker, args=(b,)) for b in VALID_BACKENDS]
+        threads = [threading.Thread(target=worker, args=(b,)) for b in _valid_backends()]
         for t in threads:
             t.start()
         for t in threads:

@@ -48,7 +48,7 @@ except ImportError:
     _HAS_PYMAVLINK = False
 
 from gazebo_bridge.bridge_server import GazeboBridgeServer
-from server.gazebo_client import GazeboClient
+from server.engine_client import EngineClient
 
 
 def _px4_reachable(timeout_s: float = 0.5) -> bool:
@@ -111,7 +111,7 @@ class TestGazeboPx4RealRuntime(unittest.TestCase):
             time.sleep(0.02)
         self.assertGreater(self.server.port, 0, "bridge failed to bind")
 
-        self.client = GazeboClient(host="127.0.0.1", port=self.server.port)
+        self.client = EngineClient("gazebo", host="127.0.0.1", port=self.server.port)
         self.client.connect(timeout=2.0)
 
     def tearDown(self) -> None:

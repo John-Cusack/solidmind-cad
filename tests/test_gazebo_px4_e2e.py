@@ -10,7 +10,7 @@ import unittest
 from unittest.mock import patch
 
 from gazebo_bridge.bridge_server import GazeboBridgeServer
-from server.gazebo_client import GazeboClient
+from server.engine_client import EngineClient
 
 
 @unittest.skipUnless(
@@ -37,7 +37,7 @@ class TestGazeboPx4E2E(unittest.TestCase):
         if self.server.port == 0:
             self.fail("Gazebo bridge server failed to bind")
 
-        self.client = GazeboClient(host="127.0.0.1", port=self.server.port)
+        self.client = EngineClient("gazebo", host="127.0.0.1", port=self.server.port)
         self.client.connect(timeout=2.0)
         with tempfile.NamedTemporaryFile(suffix=".sdf", mode="w", delete=False) as f:
             f.write(
@@ -62,7 +62,7 @@ class TestGazeboPx4E2E(unittest.TestCase):
             pass
 
     def test_px4_lifecycle_and_offboard_teleop(self) -> None:
-        started = self.client.px4_start()
+        started = self.client.send_command("px4_start")
         self.assertIn("status", started)
         self.assertTrue(started["status"].get("running", False))
 

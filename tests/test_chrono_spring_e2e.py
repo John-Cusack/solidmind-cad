@@ -21,7 +21,7 @@ import unittest
 from pathlib import Path
 
 from chrono_bridge.spec_builder import build_simulation_spec
-from server.chrono_client import ChronoClient
+from server.engine_client import EngineClient
 from server.motion_models import JointEdge, JointType, Mechanism, PartNode
 
 _DAEMON_PATH = Path(__file__).resolve().parents[1] / "chrono_daemon" / "build" / "chrono_daemon"
@@ -114,7 +114,7 @@ class TestSpringEnergyBalanceE2E(unittest.TestCase):
         return peak
 
     def test_peak_speed_matches_energy_balance(self):
-        client = ChronoClient(host="127.0.0.1", port=_TEST_PORT)
+        client = EngineClient("chrono", host="127.0.0.1", port=_TEST_PORT)
         client.connect(timeout=2.0)
         try:
             result = client.simulate(

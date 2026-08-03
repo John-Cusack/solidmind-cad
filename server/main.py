@@ -254,11 +254,9 @@ from server.tools_motion import (
     motion_create_assembly,
     motion_define_mechanism,
     motion_drive_joint,
-    motion_isaac_launch,
-    motion_isaac_screenshot,
-    motion_isaac_stop,
     motion_list_mechanisms,
     motion_propagate_motion,
+    motion_screenshot,
     motion_simulate,
     motion_teleop_command,
     motion_teleop_start,
@@ -3348,17 +3346,15 @@ def _motion_tool_list() -> list[dict[str, Any]]:
                         "exclusiveMinimum": 0,
                         "description": "Output sampling interval in seconds (> 0, >= dt_s, <= duration_s).",
                     },
-                    "backend": {
-                        "type": "string",
-                        "enum": ["isaac", "chrono", "gazebo"],
-                        "default": "isaac",
-                        "description": "Simulation backend. Defaults to isaac.",
-                    },
+                    "backend": _engine_enum_property("Simulation backend."),
                     "mode": {
                         "type": "string",
                         "enum": ["batch", "teleop"],
                         "default": "batch",
-                        "description": "Isaac and Gazebo support batch and teleop. Chrono supports batch only.",
+                        "description": (
+                            "Batch runs to completion; teleop opens an interactive session. "
+                            "Engines advertise which they support — sim.engine_status lists them."
+                        ),
                     },
                     "profile": {
                         "type": "object",
@@ -3428,12 +3424,9 @@ def _motion_tool_list() -> list[dict[str, Any]]:
                 "type": "object",
                 "properties": {
                     "mechanism_id": {"type": "string", "description": "Mechanism handle"},
-                    "backend": {
-                        "type": "string",
-                        "enum": ["isaac", "gazebo"],
-                        "default": "isaac",
-                        "description": "Teleop backend (isaac or gazebo).",
-                    },
+                    "backend": _engine_enum_property(
+                        "Teleop backend; only engines advertising teleop can start a session."
+                    ),
                     "profile": {
                         "type": "object",
                         "description": (
@@ -3568,15 +3561,19 @@ def _motion_tool_list() -> list[dict[str, Any]]:
             },
         },
         {
-            "name": "motion.isaac_screenshot",
+            "name": "motion.screenshot",
             "description": (
-                "Capture the Isaac Sim viewport as a PNG image. "
-                "Use after importing a URDF or running a simulation to visually inspect the scene. "
-                "Optionally reposition the camera before capture."
+                "Capture the simulation engine's viewport as a PNG image. "
+                "Use after loading a model or running a simulation to visually inspect the "
+                "scene. Only engines that advertise a 'screenshot' capability can answer; "
+                "ask sim.engine_status to see which do."
             ),
             "inputSchema": {
                 "type": "object",
                 "properties": {
+                    "backend": _engine_enum_property(
+                        "Engine to capture from. Defaults to the registry default."
+                    ),
                     "width": {
                         "type": "integer",
                         "default": 1280,
@@ -3610,53 +3607,6 @@ def _motion_tool_list() -> list[dict[str, Any]]:
             },
         },
         {
-            "name": "motion.isaac_launch",
-            "description": (
-                "Launch the Isaac Sim bridge as a managed subprocess. Spawns the bridge process "
-                "and waits for it to accept TCP connections (up to timeout). If the bridge is "
-                "already running, returns immediately. Use before any Isaac Sim operations "
-                "(teleop, simulate, screenshot) if the bridge is not already started."
-            ),
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "headless": {
-                        "type": "boolean",
-                        "default": False,
-                        "description": "Run Isaac Sim without GUI window (for CI/remote)",
-                    },
-                    "port": {
-                        "type": "integer",
-                        "default": 9878,
-                        "description": "TCP port for the bridge server",
-                    },
-                    "environment": {
-                        "type": "string",
-                        "default": "full_warehouse.usd",
-                        "description": "Isaac Sim environment/scene to load",
-                    },
-                    "timeout_s": {
-                        "type": "number",
-                        "default": 120.0,
-                        "description": "Max seconds to wait for bridge to become ready",
-                    },
-                },
-                "additionalProperties": False,
-            },
-        },
-        {
-            "name": "motion.isaac_stop",
-            "description": (
-                "Stop the managed Isaac Sim bridge subprocess. Sends SIGTERM and waits "
-                "for clean exit. Only affects bridges launched via motion.isaac_launch."
-            ),
-            "inputSchema": {
-                "type": "object",
-                "properties": {},
-                "additionalProperties": False,
-            },
-        },
-        {
             "name": "motion.verify_sim_package",
             "description": (
                 "Verify that a mechanism exported correctly through the FreeCAD → URDF → Isaac pipeline. "
@@ -3681,14 +3631,14 @@ def _motion_tool_list() -> list[dict[str, Any]]:
                         "type": "string",
                         "description": "FreeCAD document name (optional, for stage 1 model tree check)",
                     },
-                    "check_isaac": {
+                    "check_engine": {
                         "type": "boolean",
                         "default": False,
                         "description": "If true, also query Isaac Sim scene and compare against URDF (stage 3)",
                     },
                     "prim_path": {
                         "type": "string",
-                        "description": "USD prim path to diagnose in Isaac (default '/'). Only used if check_isaac=true.",
+                        "description": "Scene path to diagnose (default '/'). Only used if check_engine=true.",
                     },
                 },
                 "required": ["mechanism_id"],
@@ -5122,14 +5072,15 @@ def _sim_tool_list() -> list[dict[str, Any]]:
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "backend": {
-                        "type": "string",
-                        "enum": ["chrono", "gazebo", "isaac"],
-                        "description": "Which simulation backend to start",
-                    },
+                    "backend": _engine_enum_property(
+                        "Which simulation backend to start.", include_default=False
+                    ),
                     "port": {
                         "type": "integer",
-                        "description": "Override default port (chrono=9877, gazebo=9879, isaac=9878)",
+                        "description": (
+                            "Override the descriptor's port (see engines.d/, or "
+                            "SOLIDMIND_<ENGINE>_PORT)"
+                        ),
                     },
                     "headless": {
                         "type": "boolean",
@@ -5157,10 +5108,9 @@ def _sim_tool_list() -> list[dict[str, Any]]:
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "backend": {
-                        "type": "string",
-                        "enum": ["chrono", "gazebo", "isaac"],
-                    },
+                    "backend": _engine_enum_property(
+                        "Which simulation backend to stop.", include_default=False
+                    ),
                 },
                 "required": ["backend"],
                 "additionalProperties": False,
@@ -5223,6 +5173,27 @@ def _decide_tool_list() -> list[dict[str, Any]]:
             },
         },
     ]
+
+
+def _engine_enum_property(description: str, *, include_default: bool = True) -> dict[str, Any]:
+    """Backend property generated from the engine registry.
+
+    The enum, the default and the per-engine guidance are all descriptor data
+    (``engines.d/``), so installing a third-party engine widens the tool
+    surface without a core edit — and uninstalling one narrows it.
+    """
+    from server.engine_registry import default_engine, engine_names, when_to_use
+
+    names = engine_names()
+    guidance = "  ".join(f"{name}: {when_to_use(name)}" for name in names if when_to_use(name))
+    prop: dict[str, Any] = {
+        "type": "string",
+        "enum": names,
+        "description": f"{description} {guidance}".strip(),
+    }
+    if include_default:
+        prop["default"] = default_engine()
+    return prop
 
 
 def _tool_list() -> list[dict[str, Any]]:
@@ -5388,9 +5359,7 @@ _MOTION_DISPATCH: dict[str, Any] = {
     "motion.teleop_command": motion_teleop_command,
     "motion.teleop_state": motion_teleop_state,
     "motion.teleop_stop": motion_teleop_stop,
-    "motion.isaac_screenshot": motion_isaac_screenshot,
-    "motion.isaac_launch": motion_isaac_launch,
-    "motion.isaac_stop": motion_isaac_stop,
+    "motion.screenshot": motion_screenshot,
     "motion.verify_sim_package": motion_verify_sim_package,
 }
 

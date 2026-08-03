@@ -13,7 +13,7 @@ import unittest
 
 from isaac_bridge.bridge_server import BridgeServer
 from isaac_bridge.runtime_isaac import IsaacRuntime
-from server.isaac_client import IsaacClient, IsaacCommandError
+from server.engine_client import EngineClient, EngineCommandError
 
 _MECHANISM = {
     "name": "e2e_mech",
@@ -50,7 +50,7 @@ class TestIsaacBridgeRealRuntime(unittest.TestCase):
         self.thread.join(timeout=2.0)
 
     def test_simulate_and_teleop_lifecycle(self) -> None:
-        client = IsaacClient(host="127.0.0.1", port=self.server.port)
+        client = EngineClient("isaac", host="127.0.0.1", port=self.server.port)
         client.connect(timeout=2.0)
 
         sim = client.simulate(
@@ -84,17 +84,17 @@ class TestIsaacBridgeRealRuntime(unittest.TestCase):
         client.disconnect()
 
     def test_import_urdf_file_not_found(self) -> None:
-        client = IsaacClient(host="127.0.0.1", port=self.server.port)
+        client = EngineClient("isaac", host="127.0.0.1", port=self.server.port)
         client.connect(timeout=2.0)
-        with self.assertRaises(IsaacCommandError) as ctx:
+        with self.assertRaises(EngineCommandError) as ctx:
             client.import_urdf("/nonexistent/robot.urdf")
         self.assertEqual(ctx.exception.code, "URDF_NOT_FOUND")
         client.disconnect()
 
     def test_simulate_with_urdf_not_found(self) -> None:
-        client = IsaacClient(host="127.0.0.1", port=self.server.port)
+        client = EngineClient("isaac", host="127.0.0.1", port=self.server.port)
         client.connect(timeout=2.0)
-        with self.assertRaises(IsaacCommandError) as ctx:
+        with self.assertRaises(EngineCommandError) as ctx:
             client.simulate(
                 mechanism=_MECHANISM,
                 duration_s=0.1,
@@ -107,7 +107,7 @@ class TestIsaacBridgeRealRuntime(unittest.TestCase):
 
     def test_simulate_without_urdf_reference_mode(self) -> None:
         """Without Isaac Sim, simulate falls back to reference mode."""
-        client = IsaacClient(host="127.0.0.1", port=self.server.port)
+        client = EngineClient("isaac", host="127.0.0.1", port=self.server.port)
         client.connect(timeout=2.0)
         sim = client.simulate(
             mechanism=_MECHANISM,

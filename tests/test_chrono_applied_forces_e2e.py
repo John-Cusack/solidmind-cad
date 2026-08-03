@@ -19,7 +19,7 @@ import unittest
 from pathlib import Path
 
 from chrono_bridge.spec_builder import build_simulation_spec
-from server.chrono_client import ChronoClient
+from server.engine_client import EngineClient
 from server.motion_models import (
     AppliedForce,
     DriveCondition,
@@ -73,8 +73,8 @@ class TestAppliedForceE2E(unittest.TestCase):
         except subprocess.TimeoutExpired:
             cls.proc.kill()
 
-    def _client(self) -> ChronoClient:
-        c = ChronoClient(host="127.0.0.1", port=_TEST_PORT)
+    def _client(self) -> EngineClient:
+        c = EngineClient("chrono", host="127.0.0.1", port=_TEST_PORT)
         c.connect(timeout=2.0)
         return c
 

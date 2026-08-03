@@ -35,6 +35,9 @@ _CAPABILITIES: dict[str, Any] = {
     "modes": ["batch", "session", "teleop"],  # simulate / simulate_start+status+stop / teleop_*
     "formats": ["urdf"],  # import_urdf + simulate(urdf_path=...)
     "features": ["diagnose", "screenshot", "import_urdf", "load_environment", "reload"],
+    # Isaac's teleop controller drives forward speed, yaw rate and body height;
+    # it has no lateral or vertical axis (contract §2).
+    "teleop_dofs": ["vx_mps", "yaw_rate_rps", "body_height_m"],
     "fields": {"emits": [], "accepts": []},  # no field producer yet (contract §8)
 }
 
@@ -201,6 +204,7 @@ class BridgeServer:
                 "modes": list(_CAPABILITIES["modes"]),
                 "formats": list(_CAPABILITIES["formats"]),
                 "features": list(_CAPABILITIES["features"]),
+                "teleop_dofs": list(_CAPABILITIES["teleop_dofs"]),
                 "fields": dict(_CAPABILITIES["fields"]),
             },
         }
