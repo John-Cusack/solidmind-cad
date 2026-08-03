@@ -1,0 +1,21 @@
+# Gazebo engine descriptor.  See docs/engine-contract.md §9.
+
+name = "gazebo"
+port = 9879
+when_to_use = "Drones (PX4 SITL), wheeled vehicles, and any CPU-only environment. 5-DOF teleop."
+install_hint = "Runs in stub mode with no install: sim.start_engine('gazebo'). For real physics install Gazebo Harmonic and use runtime='real'."
+
+# Default runtime is the in-memory stub: it needs nothing installed and is the
+# reference engine core's CI runs against.
+launch = [
+    "${PYTHON}",
+    "-m",
+    "gazebo_bridge.bridge_server",
+    "--port",
+    "${PORT}",
+    "--runtime",
+    "stub",
+]
+
+[variants.real]
+launch = ["bash", "scripts/run_gazebo_bridge.sh", "--port", "${PORT}", "--runtime", "real"]

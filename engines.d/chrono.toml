@@ -1,0 +1,24 @@
+# Chrono engine descriptor — data, not code.
+#
+# Core ships defaults for its own engines here; users add third-party engines
+# the same way by dropping a TOML file into ~/.solidmind/engines.d/ (or
+# $SOLIDMIND_ENGINES_D).  See docs/engine-contract.md §9.
+
+name = "chrono"
+port = 9877
+when_to_use = "Gear trains, linkages, springs — analytical multibody dynamics, batch only. No GPU required."
+install_hint = "Build the daemon: cd chrono_daemon && mkdir -p build && cd build && cmake .. && make -j$(nproc)"
+
+# The bridge shim speaks the contract and starts the C++ daemon underneath it,
+# so core supervises exactly one process.
+launch = [
+    "${PYTHON}",
+    "-m",
+    "chrono_bridge.bridge_server",
+    "--port",
+    "${PORT}",
+    "--daemon-port",
+    "9977",
+    "--launch-daemon",
+    "chrono_daemon/run.sh",
+]
