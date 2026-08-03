@@ -278,7 +278,8 @@ def main() -> int:
         "port": port,
         "launch_args": (" " + args.launch_args) if args.launch_args else "",
         "packages_toml": ", ".join(f'"{p}"' for p in packages),
-        "packages_tuple": ", ".join(f'"{p}"' for p in packages) + ("," if len(packages) == 1 else ""),
+        "packages_tuple": ", ".join(f'"{p}"' for p in packages)
+        + ("," if len(packages) == 1 else ""),
     }
 
     target: Path = args.target

@@ -116,7 +116,9 @@ class TestPipelineAcrossTheSplit(unittest.TestCase):
         )
         self.manifest_path = Path(write_manifest(manifest, str(self.pkg)))
         self.urdf_path = Path(
-            write_urdf(self.model, str(self.pkg / f"{self.model.name}.urdf"), base_dir=str(self.pkg))
+            write_urdf(
+                self.model, str(self.pkg / f"{self.model.name}.urdf"), base_dir=str(self.pkg)
+            )
         )
 
     # -- what core produces ---------------------------------------------

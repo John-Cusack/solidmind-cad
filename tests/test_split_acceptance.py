@@ -20,7 +20,13 @@ from pathlib import Path
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 
 #: Packages that leave core at split time.
-_ENGINE_PACKAGES = ("chrono_bridge", "chrono_daemon", "gazebo_bridge", "isaac_bridge", "rl_training")
+_ENGINE_PACKAGES = (
+    "chrono_bridge",
+    "chrono_daemon",
+    "gazebo_bridge",
+    "isaac_bridge",
+    "rl_training",
+)
 
 
 class TestWheelShipsNoEngineCode(unittest.TestCase):

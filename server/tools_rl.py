@@ -46,7 +46,9 @@ def _rl_python() -> str:
     candidate = os.environ.get("ISAAC_PYTHON", "")
     if candidate and os.path.isfile(candidate):
         return candidate
-    sibling = _PROJECT_ROOT.parent / "isaacsim" / "_build" / "linux-x86_64" / "release" / "python.sh"
+    sibling = (
+        _PROJECT_ROOT.parent / "isaacsim" / "_build" / "linux-x86_64" / "release" / "python.sh"
+    )
     if sibling.is_file():
         return str(sibling)
     return sys.executable
