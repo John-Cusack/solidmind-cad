@@ -379,7 +379,11 @@ Estimated 2–3 weeks focused. Each step below becomes one implementation prompt
    gazebo-side package→SDF compilation at load time (manifest actuators/sensors carry the
    abstract specs — the biggest behavioral migration; drone e2e tests gate it).
    `simulation_spec_builder` → chrono bridge shim. `verify_urdf_vs_isaac` → normalized
-   `diagnose`. *Done when:* core emits only manifest + meshes + URDF.
+   `diagnose`. *Done when:* core emits only manifest + meshes + URDF. **— done:**
+   `gazebo_bridge/package_to_sdf.py` + `gazebo_bridge/px4_airframe.py` compile SDF and
+   PX4 params from the manifest at load time; `chrono_bridge/` is a contract server in
+   front of the C++ daemon; `verify_urdf_vs_diagnose` reads the normalized report.
+   Not verified: the drone SITL e2e gate needs Gazebo + PX4, neither installed here.
 4. **Registry-driven vocabulary.** `engines.d/` descriptors + registry; delete backend
    tables/if-elifs; generate tool text + prompts from registry + handshake; fold
    vendor-named tools; collapse three clients into one generic client with the msg-rate

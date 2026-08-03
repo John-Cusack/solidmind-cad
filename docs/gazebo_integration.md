@@ -332,10 +332,14 @@ class SimJoint:
 
 # build_sim_model(mechanism, manifest) → SimModel
 # write_urdf(model, output_path) → str       ← exists
-# write_sdf(model, output_path) → str        ← to add
 ```
 
-### 5.2 New: write_sdf()
+### 5.2 SDF generation — moved to the bridge
+
+> **Superseded.** The design below shipped as `write_sdf` in core and has
+> since moved engine-side: `gazebo_bridge/package_to_sdf.py` compiles
+> `manifest.json` into SDF at load time. The signature is kept here as the
+> historical record of what the compiler must produce.
 
 ```python
 def write_sdf(

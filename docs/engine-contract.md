@@ -85,7 +85,7 @@ about an engine is hardcoded in core.
   "runtime_mode": "stub",
   "capabilities": {
     "modes": ["batch", "teleop"],
-    "formats": ["sdf", "urdf"],
+    "formats": ["package", "sdf", "urdf"],
     "features": ["diagnose", "spawn_model", "px4"],
     "fields": {"emits": [], "accepts": []}
   }
@@ -145,7 +145,7 @@ then SIGKILL if the process is still alive.
 |---|---|
 | `modes: session` | `simulate_start`, `simulate_status`, `simulate_stop` |
 | `modes: teleop` | `teleop_start`, `teleop_command`, `teleop_state`, `teleop_stop` |
-| `features: diagnose` | `diagnose` — normalized scene report: generic joint-type counts and DOF. Vendor scene-graph vocabulary stays engine-side |
+| `features: diagnose` | `diagnose` — see §3.3 |
 | `features: screenshot` | `screenshot` |
 | `features: spawn_model` | `spawn_model` |
 | `features: import_urdf` | `import_urdf` |
@@ -156,7 +156,36 @@ then SIGKILL if the process is still alive.
 A batch-only engine that implements exactly the four floor verbs is a valid,
 first-class engine.
 
-### 3.3 Rate discipline
+### 3.3 Normalized `diagnose`
+
+`diagnose` reports the scene an engine actually built, in **generic** terms —
+vendor scene-graph vocabulary (USD prim types, Gazebo entity IDs) stays
+engine-side. Core runs one urdf-vs-diagnose check against every engine.
+
+```json
+{
+  "joint_counts": {"revolute": 18, "fixed": 1},
+  "joint_total": 19,
+  "dof_count": 18,
+  "dof_names": ["hip_yaw_0", "..."],
+  "joints": [
+    {"name": "hip_yaw_0", "type": "revolute", "connected": true, "has_drive": true}
+  ]
+}
+```
+
+| Field | Meaning |
+|---|---|
+| `joint_counts` | Count per generic joint type: `revolute`, `prismatic`, `fixed`, `spherical`, `distance`, `other` |
+| `joint_total` | Total joints the engine built |
+| `dof_count` / `dof_names` | Articulation degrees of freedom, when the engine has an articulation concept. Omit rather than guess |
+| `joints[]` | Per joint: `name`, generic `type`, `connected` (both bodies resolved), `has_drive` (non-zero stiffness or damping). Omit `has_drive` when the engine reports no drive data — absent is not the same as zero |
+| `error` | Set when the engine could not inspect the scene at all |
+
+Engines may include their raw scene detail alongside these keys; core ignores
+it. The reference normalizer is `isaac_bridge/diagnose_normalize.py`.
+
+### 3.4 Rate discipline
 
 Core is never inside a physics-rate loop (Principle 5). Per-timestep exchange
 through core is a rule-out, not a tuning problem: decisions needed between
@@ -218,9 +247,10 @@ migration steps:
 - **Core's best-effort shutdown sender uses the wrong envelope field**
   (`{"command": "shutdown"}` instead of `{"cmd": ...}`, `server/sim_engine_manager.py`),
   so no engine has ever received it. Fixed with the lifecycle work.
-- **No engine reads the sim package yet.** `formats` advertise what each engine
-  ingests today (`urdf`, `sdf`, `mechanism`, `chrono_spec`); `package` arrives
-  with the dialect-inversion step.
+- **Package ingestion is engine-by-engine.** Gazebo compiles `manifest.json`
+  into SDF at load time (`gazebo_bridge/package_to_sdf.py`) and advertises
+  `package`. Chrono takes the canonical `mechanism` and compiles it into its
+  native spec in the bridge shim. Isaac still consumes the courtesy URDF.
 
 ---
 
@@ -502,8 +532,8 @@ reports start with its output. Tiers:
 
 Current in-repo conformance, as of contract v1.0.0:
 
-| Engine | `hello` | `request_id` echo | `UNSUPPORTED_COMMAND` | `shutdown` | Result schema |
-|---|---|---|---|---|---|
-| gazebo (stub + real) | ✅ | ✅ | ✅ | ❌ (§4.2) | ✅ |
-| isaac | ✅ | ✅ | ✅ | ❌ (§4.2) | engine-dependent |
-| chrono | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Engine | `hello` | `request_id` echo | `UNSUPPORTED_COMMAND` | `shutdown` | Package ingest | Result schema |
+|---|---|---|---|---|---|---|
+| gazebo (stub + real) | ✅ | ✅ | ✅ | ❌ (§4.2) | ✅ `package` → SDF | ✅ |
+| isaac | ✅ | ✅ | ✅ | ❌ (§4.2) | ❌ `urdf` only | engine-dependent |
+| chrono (bridge shim) | ✅ | ✅ | ✅ | ✅ | ✅ `mechanism` → spec | ✅ |

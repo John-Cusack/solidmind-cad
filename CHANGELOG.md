@@ -8,6 +8,34 @@ and this project aims to follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Changed
+- **Dialect inversion: core emits only manifest + meshes + URDF.** Every vendor
+  format is now compiled by the engine that consumes it, at load time, from the
+  canonical package (step 3 of `docs/engine-integration-architecture.md` §7).
+  - **Gazebo**: new `gazebo_bridge/package_to_sdf.py` compiles `manifest.json`
+    into SDF — motor plugins, sensors, primitive-vs-mesh collisions and all —
+    when `spawn_model`/`simulate`/`teleop_start` are given a `package_path`.
+    `server/sim_export.py` loses `write_sdf`/`validate_sdf` and the plugin and
+    sensor emitters; `cad.export_sim_package` loses `emit_sdf`.
+  - **PX4**: `server/px4_airframe_generator.py` moved to
+    `gazebo_bridge/px4_airframe.py` and is manifest-driven. Pass `px4=true` to
+    `motion.simulate`/`motion.teleop_start` alongside `package_path`; core's
+    airframe specs expose `to_drone_config()` instead of
+    `to_px4_airframe_params()`. Rotor positions are now taken relative to the
+    root link, so a chassis away from the origin no longer skews CA_ROTOR arms.
+  - **Chrono**: new `chrono_bridge/` package — a contract server that compiles
+    the neutral mechanism into Chrono's native spec (moved
+    `simulation_spec_builder`) and drives the C++ daemon underneath it.
+    `sim.start_engine("chrono")` starts the pair as one process. Core no longer
+    builds Chrono specs or post-processes planetary speeds.
+  - **`diagnose` is normalized**: engines report generic joint-type counts, DOF
+    and per-joint connectivity (`isaac_bridge/diagnose_normalize.py`), so
+    `server/sim_verify.verify_urdf_vs_isaac` becomes one engine-agnostic
+    `verify_urdf_vs_diagnose`.
+  - Manifest actuators gained `motor_constant`, `max_rot_velocity_rad_s` and
+    `min_rot_velocity_rad_s` (additive, schema v1.x), because `k` and `ω` are
+    not recoverable from thrust alone.
+  - **Not verified here**: the drone SITL end-to-end gate needs Gazebo Harmonic
+    and PX4, neither installed in this environment.
 - **Engine packages no longer import core.** The three reverse imports that
   blocked splitting the engines into sibling repositories are gone (step 2 of
   `docs/engine-integration-architecture.md` §7). `isaac_bridge` ships its own

@@ -16,7 +16,7 @@ python3 -m unittest tests.test_tools_cad  # Run a single test module
 ```
 Claude Code CLI ──stdio──▶ MCP Bridge Server ──TCP socket──▶ FreeCAD Addon
                            (server/main.py)     :9876         (freecad_addon/)
-                               ├─ TCP :9877 ──▶ Chrono Daemon (optional, C++ MBS)
+                               ├─ TCP :9877 ──▶ Chrono Bridge (optional) ──▶ C++ MBS daemon
                                ├─ TCP :9878 ──▶ Isaac Bridge  (optional, GPU sim)
                                ├─ TCP :9879 ──▶ Gazebo Bridge (optional, CPU sim)
                                ├─ Field solvers  ──▶ CalculiX (structural FEA, subprocess)

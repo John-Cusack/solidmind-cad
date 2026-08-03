@@ -105,7 +105,7 @@ python3 -m unittest tests.test_rl_tools tests.test_rl_deploy_fixes
 ### Lightweight (no external daemons)
 
 ```bash
-python3 -m unittest tests.test_tools_motion tests.test_motion_isaac_integration tests.test_simulation_spec_builder tests.test_chrono_client
+python3 -m unittest tests.test_tools_motion tests.test_motion_isaac_integration tests.test_chrono_spec_builder tests.test_chrono_client
 ```
 
 ### Isaac bridge (runtime-backed)
