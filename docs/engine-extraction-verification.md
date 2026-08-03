@@ -89,19 +89,26 @@ tests use the reference engine as their fixture.
 
 ## 6. Wheel ships no engine code
 
-**Status: verified at the packaging level.**
+**Status: verified — a wheel was built and inspected.**
 
 `pyproject.toml`'s `[tool.maturin]` now carries explicit `include`/`exclude`
-lists — previously there were none, and maturin swept in every top-level
+lists; previously there were none, and maturin swept in every top-level
 package it found. `tests/test_split_acceptance.py::TestWheelShipsNoEngineCode`
-asserts every engine package is excluded, none is included, and core's own
-packages still are.
+asserts the config, and `maturin build --release` confirms the artifact:
 
-Checked at configuration level: building a wheel needs Rust plus several
-minutes, and the config is what decides the contents. With the engines now
-removed from core there is nothing left to leak either way — but **a
-built-wheel inspection has still not been run**, and the next `maturin build`
-should confirm it.
+```
+top-level entries in solidmind_cad-0.2.0-cp312-cp312-manylinux_2_34_x86_64.whl
+  engines.d        4     reference_engine   4     server   106
+  feature_support  4     schemas           13     tck        9
+  solidmind_geometry 2
+engine code: none          total files: 148
+```
+
+The wheel also *works* standalone: installed into a clean venv with only
+`jsonschema` alongside it, `python -m reference_engine.bridge_server` starts
+and `python -m tck` reports **conformant on all six tiers** — core shipping
+its own engine and its own conformance kit, with no repository checkout
+present.
 
 ## 7. No vendor names in core control flow; guidance is generated
 
