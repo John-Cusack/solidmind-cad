@@ -48,13 +48,27 @@ read two file formats, pass the TCK, drop a descriptor.
 |---|---|---|
 | reference | conformant | all six tiers, physics included |
 | gazebo (stub runtime) | conformant | physics tier skipped — reports `runtime_mode: "stub"` |
+| gazebo (**real**, Gazebo Harmonic) | conformant | against a live headless world; physics skipped — Gazebo does not advertise `mechanism` |
 | isaac (no Isaac Sim installed) | conformant | physics skipped (stub mode), package skipped (`urdf` only) |
 | chrono (shim + built C++ daemon) | conformant | gear-ratio physics **passes** against the real daemon |
 
 Reproduce with `python3 -m tck --port <engine port>`. The run found and fixed
-four real gaps: Gazebo's error taxonomy (`INVALID_JSON` / `INVALID_REQUEST`),
-its missing-`cmd` handling, both bridges' session codes, and Isaac's absent
-`summary.dt_s`.
+six real gaps: Gazebo's error taxonomy (`INVALID_JSON` / `INVALID_REQUEST`),
+its missing-`cmd` handling, both bridges' session codes, Isaac's absent
+`summary.dt_s`, and two found by the first real-runtime run:
+
+- **Gazebo fabricated its results.** `RealGazeboRuntime.handle_simulate`
+  delegated to the stub and relabelled the summary `gazebo_real`, so a real run
+  returned the stub's synthetic ramp — 120 rpm for every part, 5 N·m for every
+  joint — whatever the world actually did. Core cannot tell an invented number
+  from a measured one, which is why the gear ratio came back as exactly 1.0.
+  The real runtime now steps in `output_interval` chunks, reads link poses back
+  off `dynamic_pose/info`, derives speeds from the rotation over the final
+  interval, and **omits** any quantity it did not measure.
+- **The TCK judged an engine on a format it never claimed.** The physics
+  scenarios are in-band `mechanism` dicts; Gazebo advertises `package`, `sdf`
+  and `urdf`. The tier now skips when `mechanism` is not advertised, the same
+  way tiers 2 and 4 already skip on `package` and `session`.
 
 ## 4. Hexapod e2e (export → import → RL config) across the split layout
 
@@ -80,12 +94,29 @@ It has **not** been run against real Isaac on this branch.
 - In each split repo: a generated `tests/test_import_boundary.py` does the
   same from the other side, and runs in that repo's CI.
 - `scripts/verify_engine_repos.sh` runs each repo's suite from its own
-  directory with core off the path: isaac 75 tests, gazebo 68, chrono 5, rl 4.
+  directory with core off the path: isaac 259 tests, gazebo 110, chrono 64,
+  rl 5.
 
-Tests that still reach into core are filed in each repo's
-`tests/needs_porting/` with a note on what to swap them to. Core no longer
-holds copies: the engine-only suites moved with their engines, and core's own
-tests use the reference engine as their fixture.
+The deferred tests are **done**. Every module that used to sit in a repo's
+`tests/needs_porting/` now runs in that repo's suite, and the quarantine
+directories are gone. Porting meant swapping core imports for local
+equivalents — `server.motion_models` → the bridge's own view types,
+`server.engine_client` → `tck.client.TckClient` or the bridge's client,
+`server.sim_package_manifest` → checked-in package fixtures.
+
+Two modules were not simply moved:
+
+- `test_sim_real_backends` was cross-engine. Its Gazebo half became
+  `test_gazebo_real_world.py`; its Isaac and Chrono halves were dropped in
+  favour of those repos' own real-runtime suites, and the parts driving core's
+  `sim_engine_manager` stayed in core, which tests the manager directly.
+- `test_rl_deploy_fixes` split: the `DirectPolicyController` cases went to
+  solidmind-engine-isaac with the code they exercise, and the env-config case
+  stayed in solidmind-rl.
+
+Porting also surfaced a real defect: `AppliedForceView.frame` defaulted to
+`"world"` in the Chrono bridge while core defaults to `"body"`, so a mechanism
+that omitted the field silently changed how its forces were applied.
 
 ## 6. Wheel ships no engine code
 
@@ -155,6 +186,7 @@ under a burst, and tracks per command rather than per engine.
 |---|---|
 | Publish the four sibling repos | **done** — `github.com/John-Cusack/solidmind-engine-{isaac,gazebo,chrono}` and `solidmind-rl`, public, with history |
 | Remove the engines from core | **done** — core holds no engine package; `tests/test_import_boundaries.py` asserts it |
-| Port the deferred test modules | open, in the engine repos (`tests/needs_porting/`) |
-| Built-wheel inspection | open — `maturin build` now that the packages are gone |
-| Isaac and Gazebo real-runtime legs | open — needs a GPU host and a Gazebo install |
+| Port the deferred test modules | **done** — no `needs_porting/` directory remains; §5 above |
+| Built-wheel inspection | **done** — §6 above |
+| Gazebo real-runtime leg | **done** — 5 tests spawn and step a live Gazebo Harmonic world, and the TCK runs against a real-runtime bridge; found the fabricated-results bug in §3 |
+| Isaac real-runtime leg | open — needs a GPU host |
