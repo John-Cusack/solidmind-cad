@@ -16,11 +16,27 @@ from isaac_bridge.protocol import (
     encode_response,
     error_response,
     ok_response,
-    parse_request_line,
+    parse_request_envelope,
 )
 from isaac_bridge.runtime_isaac import IsaacRuntime, IsaacRuntimeError, main_thread_dispatcher
 
 logger = logging.getLogger("solidmind.isaac_bridge")
+
+# Engine Integration Contract v1 (docs/engine-contract.md).  The literals are
+# duplicated per bridge on purpose — the contract is data, not a shared import.
+_PROTOCOL_VERSION = "1.0.0"
+_CONTRACT_VERSIONS_SUPPORTED = ("1",)
+_BRIDGE_VERSION = "1.0.0"
+
+# Capabilities are derived from ``BridgeServer._handle_line`` below — every
+# entry here must have a working handler, and every handler must be covered by
+# an entry (capability honesty, contract §2).
+_CAPABILITIES: dict[str, Any] = {
+    "modes": ["batch", "session", "teleop"],  # simulate / simulate_start+status+stop / teleop_*
+    "formats": ["urdf"],  # import_urdf + simulate(urdf_path=...)
+    "features": ["diagnose", "screenshot", "import_urdf", "load_environment", "reload"],
+    "fields": {"emits": [], "accepts": []},  # no field producer yet (contract §8)
+}
 
 
 def _probe_port(host: str, port: int) -> socket.socket:
@@ -171,18 +187,38 @@ class BridgeServer:
                         return
         logger.info("Client disconnected: %s", peer)
 
+    def _hello(self) -> dict[str, Any]:
+        """Capability handshake — Engine Integration Contract v1 §2."""
+        return {
+            "protocol_version": _PROTOCOL_VERSION,
+            "contract_versions_supported": list(_CONTRACT_VERSIONS_SUPPORTED),
+            "engine": "isaac",
+            "engine_version": _BRIDGE_VERSION,
+            # Isaac falls back to an in-process reference path when the
+            # Omniverse stack is absent — that is not a real engine.
+            "runtime_mode": "real" if self._runtime.engine_available else "stub",
+            "capabilities": {
+                "modes": list(_CAPABILITIES["modes"]),
+                "formats": list(_CAPABILITIES["formats"]),
+                "features": list(_CAPABILITIES["features"]),
+                "fields": dict(_CAPABILITIES["fields"]),
+            },
+        }
+
     def _handle_line(self, line: bytes) -> dict[str, Any]:
         try:
-            cmd, args = parse_request_line(line)
+            cmd, args, request_id = parse_request_envelope(line)
         except ProtocolError as exc:
-            return error_response(exc.code, exc.message)
+            return error_response(exc.code, exc.message, request_id=exc.request_id)
 
         import time as _time
 
         logger.info("=> %s (thread=%s)", cmd, threading.current_thread().name)
         t0 = _time.monotonic()
         try:
-            if cmd == "ping":
+            if cmd == "hello":
+                result = self._hello()
+            elif cmd == "ping":
                 result = self._runtime.ping()
             elif cmd == "import_urdf":
                 result = self._runtime.import_urdf(
@@ -266,16 +302,20 @@ class BridgeServer:
                     preset=_optional_str(args, "preset"),
                 )
             else:
-                logger.info("<= %s UNKNOWN_COMMAND (%.3fs)", cmd, _time.monotonic() - t0)
-                return error_response("UNKNOWN_COMMAND", f"Unknown command: {cmd}")
+                logger.info("<= %s UNSUPPORTED_COMMAND (%.3fs)", cmd, _time.monotonic() - t0)
+                return error_response(
+                    "UNSUPPORTED_COMMAND",
+                    f"Unknown command: {cmd}",
+                    request_id=request_id,
+                )
             logger.info("<= %s OK (%.3fs)", cmd, _time.monotonic() - t0)
-            return ok_response(result)
+            return ok_response(result, request_id=request_id)
         except IsaacRuntimeError as exc:
             logger.info("<= %s ERROR %s (%.3fs)", cmd, exc.code, _time.monotonic() - t0)
-            return error_response(exc.code, exc.message, details=exc.details)
+            return error_response(exc.code, exc.message, details=exc.details, request_id=request_id)
         except ValueError as exc:
             logger.info("<= %s ERROR INVALID_ARGS (%.3fs)", cmd, _time.monotonic() - t0)
-            return error_response("INVALID_ARGS", str(exc))
+            return error_response("INVALID_ARGS", str(exc), request_id=request_id)
         except Exception as exc:
             # After a hot-reload, IsaacRuntimeError from the reloaded module
             # won't match the old class reference.  Duck-type check.
@@ -283,10 +323,12 @@ class BridgeServer:
                 logger.info(
                     "<= %s ERROR %s (%.3fs, post-reload)", cmd, exc.code, _time.monotonic() - t0
                 )
-                return error_response(exc.code, exc.message, details=exc.details)
+                return error_response(
+                    exc.code, exc.message, details=exc.details, request_id=request_id
+                )
             logger.exception("Unhandled error while processing '%s'", cmd)
             logger.info("<= %s ERROR INTERNAL (%.3fs)", cmd, _time.monotonic() - t0)
-            return error_response("INTERNAL_ERROR", str(exc))
+            return error_response("INTERNAL_ERROR", str(exc), request_id=request_id)
 
 
 def _require_str(args: dict[str, Any], key: str) -> str:

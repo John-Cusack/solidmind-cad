@@ -74,7 +74,59 @@ class TestBridgeDispatch(unittest.TestCase):
     def test_unknown_command(self) -> None:
         result = self._call('{"cmd":"nope","args":{}}')
         self.assertFalse(result["ok"])
-        self.assertEqual(result["error"]["code"], "UNKNOWN_COMMAND")
+        self.assertEqual(result["error"]["code"], "UNSUPPORTED_COMMAND")
+
+    def test_hello_handshake(self) -> None:
+        """Engine Integration Contract v1 §2 — capabilities from real dispatch."""
+        result = self._call('{"cmd":"hello","args":{}}')
+        self.assertTrue(result["ok"], result)
+        payload = result["result"]
+        self.assertEqual(payload["protocol_version"], "1.0.0")
+        self.assertEqual(payload["contract_versions_supported"], ["1"])
+        self.assertEqual(payload["engine"], "isaac")
+        self.assertIn(payload["runtime_mode"], ("real", "stub"))
+
+        caps = payload["capabilities"]
+        self.assertEqual(caps["modes"], ["batch", "session", "teleop"])
+        self.assertEqual(caps["formats"], ["urdf"])
+        self.assertEqual(
+            caps["features"],
+            ["diagnose", "screenshot", "import_urdf", "load_environment", "reload"],
+        )
+        self.assertEqual(caps["fields"], {"emits": [], "accepts": []})
+
+    def test_hello_capabilities_match_ping_command_list(self) -> None:
+        """Capability honesty: advertised features have handlers ping knows about."""
+        hello = self._call('{"cmd":"hello","args":{}}')["result"]
+        commands = set(self._call('{"cmd":"ping","args":{}}')["result"]["capabilities"]["commands"])
+        for feature in hello["capabilities"]["features"]:
+            self.assertIn(feature, commands)
+
+    def test_request_id_echoed(self) -> None:
+        result = self._call('{"cmd":"ping","args":{},"request_id":"req-7"}')
+        self.assertEqual(result["request_id"], "req-7")
+
+    def test_request_id_absent_when_not_sent(self) -> None:
+        result = self._call('{"cmd":"ping","args":{}}')
+        self.assertNotIn("request_id", result)
+
+    def test_request_id_echoed_on_unknown_command(self) -> None:
+        result = self._call('{"cmd":"nope","args":{},"request_id":"req-8"}')
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["request_id"], "req-8")
+
+    def test_request_id_echoed_on_framing_error(self) -> None:
+        """A recoverable token survives even when the envelope is rejected."""
+        result = self._call('{"args":{},"request_id":"req-9"}')
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["error"]["code"], "INVALID_REQUEST")
+        self.assertEqual(result["request_id"], "req-9")
+
+    def test_malformed_json_has_no_request_id(self) -> None:
+        result = self._call("{not json}")
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["error"]["code"], "INVALID_JSON")
+        self.assertNotIn("request_id", result)
 
     def test_unsupported_joint_type(self) -> None:
         result = self._call(

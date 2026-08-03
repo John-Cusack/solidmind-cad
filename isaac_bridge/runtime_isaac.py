@@ -1686,12 +1686,22 @@ class IsaacRuntime:
         except Exception as exc:
             logger.warning("[runtime] Failed to load environment '%s': %s", environment, exc)
 
+    @property
+    def engine_available(self) -> bool:
+        """True when the Omniverse stack is present and driving real physics.
+
+        False means the runtime falls back to its in-process reference path —
+        reported as ``runtime_mode: "stub"`` in the contract handshake.
+        """
+        return bool(self._engine.available)
+
     def ping(self) -> dict[str, Any]:
         return {
             "pong": True,
             "bridge_version": "1.0.0",
             "capabilities": {
                 "commands": [
+                    "hello",
                     "ping",
                     "diagnose",
                     "reload",

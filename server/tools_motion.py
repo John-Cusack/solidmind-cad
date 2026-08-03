@@ -1461,8 +1461,10 @@ def _simulate_with_isaac(
                 err.get("message", "Isaac bridge is not available."),
                 unavailable_code=code,
             )
-        # Fallback: old bridge without simulate_start support
-        if code == "UNKNOWN_COMMAND":
+        # Fallback: old bridge without simulate_start support.  Contract v1
+        # renamed the code to UNSUPPORTED_COMMAND; older bridges still send
+        # UNKNOWN_COMMAND, so accept both.
+        if code in ("UNSUPPORTED_COMMAND", "UNKNOWN_COMMAND"):
             return _simulate_with_isaac_legacy(
                 mech,
                 duration_s=duration_s,

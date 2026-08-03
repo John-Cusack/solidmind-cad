@@ -10,9 +10,25 @@ import socket
 import threading
 from typing import Any
 
-from gazebo_bridge.runtime_gazebo import GazeboRuntimeError, create_runtime
+from gazebo_bridge.runtime_gazebo import GazeboRuntimeError, RealGazeboRuntime, create_runtime
 
 logger = logging.getLogger("solidmind.gazebo_bridge")
+
+# Engine Integration Contract v1 (docs/engine-contract.md).  The literals are
+# duplicated per bridge on purpose — the contract is data, not a shared import.
+_PROTOCOL_VERSION = "1.0.0"
+_CONTRACT_VERSIONS_SUPPORTED = ("1",)
+_BRIDGE_VERSION = "0.2.0"
+
+# Capabilities are derived from ``GazeboBridgeServer._route`` below — every
+# entry here must have a working handler, and every handler must be covered by
+# an entry (capability honesty, contract §2).
+_CAPABILITIES: dict[str, Any] = {
+    "modes": ["batch", "teleop"],  # simulate / teleop_*
+    "formats": ["sdf", "urdf"],  # spawn_model + simulate accept both
+    "features": ["diagnose", "spawn_model", "px4"],
+    "fields": {"emits": [], "accepts": []},  # no field producer yet (contract §8)
+}
 
 
 class GazeboBridgeServer:
@@ -112,65 +128,85 @@ class GazeboBridgeServer:
                 pass
             logger.info("Connection from %s:%d closed", *addr)
 
+    def _encode(self, payload: dict[str, Any], request_id: str | None) -> str:
+        """Serialize one response line, echoing ``request_id`` when present."""
+        if request_id is not None:
+            payload = {**payload, "request_id": request_id}
+        return json.dumps(payload) + "\n"
+
     def _dispatch(self, line: bytes) -> str:
+        request_id: str | None = None
         try:
             msg = json.loads(line.decode("utf-8"))
         except (json.JSONDecodeError, UnicodeDecodeError) as exc:
-            return (
-                json.dumps(
-                    {
-                        "ok": False,
-                        "error": {
-                            "code": "GAZEBO_PROTOCOL_ERROR",
-                            "message": f"JSON parse error: {exc}",
-                        },
-                    }
-                )
-                + "\n"
+            return self._encode(
+                {
+                    "ok": False,
+                    "error": {
+                        "code": "GAZEBO_PROTOCOL_ERROR",
+                        "message": f"JSON parse error: {exc}",
+                    },
+                },
+                None,
             )
 
-        cmd = msg.get("cmd", "")
-        args = msg.get("args", {})
+        if isinstance(msg, dict) and isinstance(msg.get("request_id"), str):
+            request_id = msg["request_id"]
+
+        cmd = msg.get("cmd", "") if isinstance(msg, dict) else ""
+        args = msg.get("args", {}) if isinstance(msg, dict) else {}
         if not isinstance(args, dict):
-            return (
-                json.dumps(
-                    {
-                        "ok": False,
-                        "error": {
-                            "code": "GAZEBO_PROTOCOL_ERROR",
-                            "message": "Message field 'args' must be an object.",
-                        },
-                    }
-                )
-                + "\n"
+            return self._encode(
+                {
+                    "ok": False,
+                    "error": {
+                        "code": "GAZEBO_PROTOCOL_ERROR",
+                        "message": "Message field 'args' must be an object.",
+                    },
+                },
+                request_id,
             )
 
         try:
             result = self._route(cmd, args)
-            return json.dumps({"ok": True, "result": result}) + "\n"
+            return self._encode({"ok": True, "result": result}, request_id)
         except GazeboRuntimeError as exc:
-            return (
-                json.dumps(
-                    {
-                        "ok": False,
-                        "error": {"code": exc.code or "GAZEBO_COMMAND_ERROR", "message": str(exc)},
-                    }
-                )
-                + "\n"
+            return self._encode(
+                {
+                    "ok": False,
+                    "error": {"code": exc.code or "GAZEBO_COMMAND_ERROR", "message": str(exc)},
+                },
+                request_id,
             )
         except Exception as exc:
             logger.exception("Unhandled error in command '%s'", cmd)
-            return (
-                json.dumps(
-                    {
-                        "ok": False,
-                        "error": {"code": "GAZEBO_INTERNAL_ERROR", "message": str(exc)},
-                    }
-                )
-                + "\n"
+            return self._encode(
+                {
+                    "ok": False,
+                    "error": {"code": "GAZEBO_INTERNAL_ERROR", "message": str(exc)},
+                },
+                request_id,
             )
 
+    def _hello(self) -> dict[str, Any]:
+        """Capability handshake — Engine Integration Contract v1 §2."""
+        return {
+            "protocol_version": _PROTOCOL_VERSION,
+            "contract_versions_supported": list(_CONTRACT_VERSIONS_SUPPORTED),
+            "engine": "gazebo",
+            "engine_version": _BRIDGE_VERSION,
+            "runtime_mode": "real" if isinstance(self._runtime, RealGazeboRuntime) else "stub",
+            "capabilities": {
+                "modes": list(_CAPABILITIES["modes"]),
+                "formats": list(_CAPABILITIES["formats"]),
+                "features": list(_CAPABILITIES["features"]),
+                "fields": dict(_CAPABILITIES["fields"]),
+            },
+        }
+
     def _route(self, cmd: str, args: dict[str, Any]) -> Any:
+        if cmd == "hello":
+            return self._hello()
         if cmd == "ping":
             return self._runtime.handle_ping()
         if cmd == "diagnose":
@@ -193,7 +229,7 @@ class GazeboBridgeServer:
             return self._runtime.handle_px4_status(args)
         if cmd == "px4_stop":
             return self._runtime.handle_px4_stop(args)
-        raise GazeboRuntimeError(f"Unknown command: {cmd}", code="UNKNOWN_COMMAND")
+        raise GazeboRuntimeError(f"Unknown command: {cmd}", code="UNSUPPORTED_COMMAND")
 
 
 def main() -> None:

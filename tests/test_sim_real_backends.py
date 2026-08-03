@@ -508,10 +508,10 @@ class TestIsaacBridgeDegraded(unittest.TestCase):
         self.assertIn("code", resp["error"])
 
     def test_unknown_command(self):
-        """Unknown command returns UNKNOWN_COMMAND error."""
+        """Unknown command returns UNSUPPORTED_COMMAND error (contract §4)."""
         resp = self._bridge.send("nonexistent_command")
         self.assertFalse(resp["ok"])
-        self.assertEqual(resp["error"]["code"], "UNKNOWN_COMMAND")
+        self.assertEqual(resp["error"]["code"], "UNSUPPORTED_COMMAND")
 
     def test_health_check_protocol(self):
         """Verify _health_check works against real Isaac bridge."""
