@@ -4,6 +4,11 @@ from __future__ import annotations
 
 import unittest
 
+from chrono_bridge.spec_builder import (
+    add_derived_speeds,
+    build_simulation_spec,
+    validate_simulation_spec,
+)
 from server.motion_models import (
     AppliedForce,
     DriveCondition,
@@ -13,11 +18,6 @@ from server.motion_models import (
     PartNode,
 )
 from server.motion_planetary import detect_planetary_sets
-from server.simulation_spec_builder import (
-    add_derived_speeds,
-    build_simulation_spec,
-    validate_simulation_spec,
-)
 
 
 def _make_planetary_mechanism(

@@ -897,15 +897,15 @@ class TestRealChrono(unittest.TestCase):
     def test_full_pipeline_define_to_simulate(self):
         """Full pipeline: define mechanism → build spec → simulate → verify.
 
-        Exercises the Python planner (simulation_spec_builder) + C++ executor
+        Exercises the Python planner (chrono_bridge.spec_builder) + C++ executor
         end-to-end, the same path as motion.simulate(backend='chrono').
         """
-        from server import motion_store
-        from server.simulation_spec_builder import (
+        from chrono_bridge.spec_builder import (
             add_derived_speeds,
             build_simulation_spec,
             validate_simulation_spec,
         )
+        from server import motion_store
         from server.tools_motion import motion_define_mechanism
 
         motion_store.clear()

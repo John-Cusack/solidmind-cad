@@ -18,6 +18,7 @@ import logging
 import os
 import socket
 import subprocess
+import sys
 import threading
 import time
 from dataclasses import dataclass
@@ -300,14 +301,28 @@ def start_engine(
 
 
 def _start_chrono(port: int, timeout_s: float) -> dict[str, Any]:
-    """Start the Chrono daemon subprocess."""
+    """Start the Chrono bridge, which starts the C++ daemon underneath it.
+
+    Core speaks the contract to the bridge; the bridge compiles mechanisms
+    into Chrono's native spec and drives the daemon.  Launching the pair as
+    one supervised process keeps stop/health handling unchanged.
+    """
     run_script = _PROJECT_ROOT / "chrono_daemon" / "run.sh"
     build_binary = _PROJECT_ROOT / "chrono_daemon" / "build" / "chrono_daemon"
+    launcher = run_script if run_script.is_file() else build_binary
 
-    if build_binary.is_file():
-        cmd = [str(build_binary), "--port", str(port)]
-    elif run_script.is_file():
-        cmd = ["bash", str(run_script), "--port", str(port)]
+    if launcher.is_file():
+        cmd = [
+            sys.executable,
+            "-m",
+            "chrono_bridge.bridge_server",
+            "--port",
+            str(port),
+            "--daemon-port",
+            str(port + 100),
+            "--launch-daemon",
+            str(launcher),
+        ]
     else:
         return _error(
             "CHRONO_NOT_BUILT",

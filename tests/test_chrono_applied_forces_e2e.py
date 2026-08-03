@@ -18,6 +18,7 @@ import time
 import unittest
 from pathlib import Path
 
+from chrono_bridge.spec_builder import build_simulation_spec
 from server.chrono_client import ChronoClient
 from server.motion_models import (
     AppliedForce,
@@ -27,7 +28,6 @@ from server.motion_models import (
     Mechanism,
     PartNode,
 )
-from server.simulation_spec_builder import build_simulation_spec
 
 _DAEMON_PATH = Path(__file__).resolve().parents[1] / "chrono_daemon" / "build" / "chrono_daemon"
 _TEST_PORT = 19877  # not the default 9877; avoid colliding with a running instance

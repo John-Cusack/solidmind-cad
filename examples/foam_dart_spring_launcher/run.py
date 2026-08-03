@@ -274,9 +274,9 @@ def chrono_plunger_velocity(
         log.say("Simulate", "Chrono SKIPPED (daemon not built); using analytical value")
         return None, []
 
+    from chrono_bridge.spec_builder import build_simulation_spec
     from server.chrono_client import ChronoClient
     from server.motion_models import JointEdge, JointType, Mechanism, PartNode
-    from server.simulation_spec_builder import build_simulation_spec
 
     z0 = 0.005  # initial plunger offset; spring rest = z0 + pullback (compressed)
     rest = z0 + pullback_m

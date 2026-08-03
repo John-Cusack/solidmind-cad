@@ -1,9 +1,13 @@
-"""Build Chrono simulation specs from Mechanism definitions.
+"""Build Chrono simulation specs from contract mechanism data.
 
 This module is the Python "planner" in the Python Planner + C++ Executor
-architecture.  It converts a high-level Mechanism (parts, joints, drives)
-into a flat list of Chrono objects that the C++ daemon instantiates directly
-— no domain logic in C++.
+architecture.  It converts a mechanism (parts, joints, drives) into a flat
+list of Chrono objects that the C++ daemon instantiates directly — no domain
+logic in C++.
+
+It lives on the engine side of the contract: core sends the neutral mechanism
+and the bridge compiles it into Chrono's native spec, the same way the Gazebo
+bridge compiles a package into SDF (architecture doc, Principle 3).
 
 Key design decisions:
 - Gears → 1D shaft elements (ChShaft + ChShaftsGear / ChShaftsPlanetary)
@@ -20,19 +24,27 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from server.motion_models import JointType, Mechanism
-from server.motion_planetary import PlanetarySet, detect_planetary_sets
+from chrono_bridge.mechanism import (
+    JointType,
+    PlanetarySet,
+    as_mechanism,
+    detect_planetary_sets,
+)
 
-log = logging.getLogger("solidmind.simulation_spec_builder")
+log = logging.getLogger("solidmind.chrono_bridge.spec_builder")
 
 
-def build_simulation_spec(mechanism: Mechanism) -> dict[str, Any]:
+def build_simulation_spec(mechanism: Any) -> dict[str, Any]:
     """Convert a Mechanism into a simulation spec for the Chrono daemon.
+
+    Accepts either a mechanism dict (as it arrives over the socket) or any
+    object exposing ``parts``/``joints``/``drives``.
 
     Returns a dict with:
       - "objects": list of Chrono element dicts to instantiate
       - "derived_outputs": dict of outputs computed post-simulation
     """
+    mechanism = as_mechanism(mechanism)
     # Springs are only consumed on PRISMATIC joints; warn loudly if one is set
     # elsewhere so it isn't a silent no-op.
     for j in mechanism.joints:
@@ -135,7 +147,7 @@ def add_derived_speeds(result: dict[str, Any], spec: dict[str, Any]) -> None:
 
 
 def _build_gear_objects(
-    mechanism: Mechanism,
+    mechanism: Any,
     planetary_sets: list[PlanetarySet],
 ) -> tuple[list[dict[str, Any]], set[str]]:
     """Build shaft-based objects for gears. Returns (objects, consumed_joint_ids)."""
@@ -233,7 +245,7 @@ def _build_gear_objects(
 
 
 def _build_body_objects(
-    mechanism: Mechanism,
+    mechanism: Any,
     shaft_part_ids: set[str],
     consumed_joints: set[str],
 ) -> tuple[list[dict[str, Any]], set[str]]:
@@ -352,7 +364,7 @@ def _build_body_objects(
 
 
 def _build_motor_objects(
-    mechanism: Mechanism,
+    mechanism: Any,
     shaft_part_ids: set[str],
 ) -> list[dict[str, Any]]:
     """Build motor objects from drive conditions.
@@ -426,7 +438,7 @@ def _resolve_driven_part(
 
 
 def _build_applied_force_objects(
-    mechanism: Mechanism,
+    mechanism: Any,
     shaft_part_ids: set[str],
 ) -> list[dict[str, Any]]:
     """Translate Mechanism.applied_forces into Chrono daemon spec objects.

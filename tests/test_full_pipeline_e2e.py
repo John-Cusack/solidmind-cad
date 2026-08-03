@@ -466,12 +466,12 @@ class TestFullPipelineE2E(unittest.TestCase):
     @requires_chrono
     def test_30_chrono_simulate(self) -> None:
         """Chrono daemon: gear_a=1000, gear_b=-500 RPM."""
-        from server import motion_store
-        from server.simulation_spec_builder import (
+        from chrono_bridge.spec_builder import (
             add_derived_speeds,
             build_simulation_spec,
             validate_simulation_spec,
         )
+        from server import motion_store
 
         mech = motion_store.get(self._mech_id)
         self.assertIsNotNone(mech, "Mechanism not in store")

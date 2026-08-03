@@ -9,15 +9,15 @@ from __future__ import annotations
 
 import unittest
 
+from chrono_bridge.spec_builder import (
+    build_simulation_spec,
+    validate_simulation_spec,
+)
 from server.motion_models import (
     JointEdge,
     JointType,
     Mechanism,
     PartNode,
-)
-from server.simulation_spec_builder import (
-    build_simulation_spec,
-    validate_simulation_spec,
 )
 
 
@@ -88,7 +88,7 @@ class TestSpringEmission(unittest.TestCase):
             joints=(joint,),
             drives=(),
         )
-        with self.assertLogs("solidmind.simulation_spec_builder", level="WARNING") as cm:
+        with self.assertLogs("solidmind.chrono_bridge.spec_builder", level="WARNING") as cm:
             objs = build_simulation_spec(mech)["objects"]
         self.assertEqual(_by_type(objs, "spring"), [])  # not emitted
         self.assertTrue(any("only" in m and "PRISMATIC" in m for m in cm.output))
