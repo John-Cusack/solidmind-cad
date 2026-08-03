@@ -243,7 +243,7 @@ class StubGazeboRuntime:
         if profile is None:
             profile = {}
         if not isinstance(profile, dict):
-            raise GazeboRuntimeError("profile must be an object", code="INVALID_INPUT")
+            raise GazeboRuntimeError("profile must be an object", code="INVALID_REQUEST")
 
         controller_type = str(profile.get("controller_type", "multirotor_direct")).strip().lower()
         try:
@@ -342,7 +342,7 @@ class StubGazeboRuntime:
         if session is None:
             raise GazeboRuntimeError(
                 f"No such session: {session_id}",
-                code="GAZEBO_SESSION_NOT_FOUND",
+                code="SESSION_NOT_FOUND",
             )
         controller = self._session_controllers.get(session_id)
         if controller is None:
@@ -405,7 +405,7 @@ class StubGazeboRuntime:
         if session is None:
             raise GazeboRuntimeError(
                 f"No such session: {session_id}",
-                code="GAZEBO_SESSION_NOT_FOUND",
+                code="SESSION_NOT_FOUND",
             )
         return session.telemetry()
 
@@ -682,5 +682,5 @@ def create_runtime(
         )
     raise GazeboRuntimeError(
         f"Unsupported Gazebo runtime mode '{mode}'. Use 'real' or 'stub'.",
-        code="INVALID_INPUT",
+        code="INVALID_REQUEST",
     )

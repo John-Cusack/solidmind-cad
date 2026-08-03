@@ -146,7 +146,7 @@ class TestTeleopStopCleanup(unittest.TestCase):
         self.server._runtime.tick_teleop(0.01)
 
     def test_state_after_stop_returns_error(self) -> None:
-        """teleop_state after stop returns ISAAC_UNKNOWN_SESSION."""
+        """teleop_state after stop returns SESSION_NOT_FOUND."""
         started = self._call(
             json.dumps(
                 {
@@ -175,7 +175,7 @@ class TestTeleopStopCleanup(unittest.TestCase):
             )
         )
         self.assertFalse(state["ok"])
-        self.assertEqual(state["error"]["code"], "ISAAC_UNKNOWN_SESSION")
+        self.assertEqual(state["error"]["code"], "SESSION_NOT_FOUND")
 
 
 class TestTeleopStartStopCycle(unittest.TestCase):

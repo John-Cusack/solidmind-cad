@@ -186,7 +186,7 @@ class TestBridgeDispatch(unittest.TestCase):
             json.dumps({"cmd": "teleop_state", "args": {"session_id": session_id}})
         )
         self.assertFalse(missing["ok"])
-        self.assertEqual(missing["error"]["code"], "ISAAC_UNKNOWN_SESSION")
+        self.assertEqual(missing["error"]["code"], "SESSION_NOT_FOUND")
 
 
 class TestDiagnoseCommand(unittest.TestCase):
@@ -437,7 +437,7 @@ class TestSimulateSessionLifecycle(unittest.TestCase):
             )
         )
         self.assertFalse(result["ok"])
-        self.assertEqual(result["error"]["code"], "ISAAC_UNKNOWN_SESSION")
+        self.assertEqual(result["error"]["code"], "SESSION_NOT_FOUND")
 
     def test_simulate_stop_unknown_session_idempotent(self) -> None:
         result = self._call(

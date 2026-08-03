@@ -2305,7 +2305,7 @@ class IsaacRuntime:
             session = self._sessions.get(session_id)
         if session is None:
             raise IsaacRuntimeError(
-                "ISAAC_UNKNOWN_SESSION",
+                "SESSION_NOT_FOUND",
                 f"unknown simulation session {session_id}",
             )
         if session.session_type != "simulate":
@@ -2402,6 +2402,8 @@ class IsaacRuntime:
             "time_series": time_series,
             "summary": {
                 "simulation_time_s": duration_s,
+                # Required by the contract's result schema (§7).
+                "dt_s": dt_s,
                 "time_steps": stop_result.get("target_steps", 0),
                 "output_samples": len(time_series),
                 "steady_state_speeds": speeds,
@@ -2677,7 +2679,7 @@ class IsaacRuntime:
             session = self._sessions.get(session_id)
             if session is None:
                 raise IsaacRuntimeError(
-                    "ISAAC_UNKNOWN_SESSION",
+                    "SESSION_NOT_FOUND",
                     f"unknown session {session_id}",
                 )
             session.state.vx_mps = float(vx_mps)
@@ -2691,7 +2693,7 @@ class IsaacRuntime:
             session = self._sessions.get(session_id)
             if session is None:
                 raise IsaacRuntimeError(
-                    "ISAAC_UNKNOWN_SESSION",
+                    "SESSION_NOT_FOUND",
                     f"unknown session {session_id}",
                 )
             state = session.state.to_dict()

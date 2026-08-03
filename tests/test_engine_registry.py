@@ -52,7 +52,9 @@ class TestBuiltinDescriptors(unittest.TestCase):
         self.addCleanup(registry.reset_cache)
 
     def test_core_engines_are_registered(self) -> None:
-        self.assertEqual(registry.engine_names(), ["chrono", "gazebo", "isaac"])
+        # The reference engine ships with core and is always present; the other
+        # three are core's defaults for engines that live in sibling repos.
+        self.assertEqual(registry.engine_names(), ["chrono", "gazebo", "isaac", "reference"])
 
     def test_every_engine_carries_guidance_and_a_hint(self) -> None:
         """Descriptors are what make an engine recommendable (Principle 8)."""

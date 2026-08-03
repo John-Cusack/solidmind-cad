@@ -149,7 +149,7 @@ class GazeboBridgeServer:
                 {
                     "ok": False,
                     "error": {
-                        "code": "GAZEBO_PROTOCOL_ERROR",
+                        "code": "INVALID_JSON",
                         "message": f"JSON parse error: {exc}",
                     },
                 },
@@ -160,13 +160,25 @@ class GazeboBridgeServer:
             request_id = msg["request_id"]
 
         cmd = msg.get("cmd", "") if isinstance(msg, dict) else ""
+        if not isinstance(cmd, str) or not cmd.strip():
+            return self._encode(
+                {
+                    "ok": False,
+                    "error": {
+                        "code": "INVALID_REQUEST",
+                        "message": "Request field 'cmd' must be a non-empty string",
+                    },
+                },
+                request_id,
+            )
+
         args = msg.get("args", {}) if isinstance(msg, dict) else {}
         if not isinstance(args, dict):
             return self._encode(
                 {
                     "ok": False,
                     "error": {
-                        "code": "GAZEBO_PROTOCOL_ERROR",
+                        "code": "INVALID_REQUEST",
                         "message": "Message field 'args' must be an object.",
                     },
                 },

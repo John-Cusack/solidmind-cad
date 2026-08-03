@@ -245,7 +245,10 @@ def _is_unknown_session_error(result: dict[str, Any]) -> bool:
     if not isinstance(err, dict):
         return False
     code = str(err.get("code", "")).strip().upper()
+    # SESSION_NOT_FOUND is the contract code; the vendor-prefixed spellings
+    # are what older bridges send.
     if code in {
+        "SESSION_NOT_FOUND",
         "ISAAC_UNKNOWN_SESSION",
         "ISAAC_SESSION_NOT_FOUND",
         "GAZEBO_UNKNOWN_SESSION",
