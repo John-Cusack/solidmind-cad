@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import json
 import math
+import shutil
 import statistics
+import tempfile
 import time
 from pathlib import Path
 from typing import Any
@@ -199,20 +201,30 @@ def tier_package(
         tier.skip("ingests a sim package", f"'package' not advertised (formats={formats})")
         return tier
 
-    package = package_dir or (_FIXTURES / "golden_package")
-    if not (package / "manifest.json").is_file():
-        tier.fail("golden package is present", f"no manifest.json under {package}")
+    source = package_dir or (_FIXTURES / "golden_package")
+    if not (source / "manifest.json").is_file():
+        tier.fail("golden package is present", f"no manifest.json under {source}")
         return tier
 
-    response = client.request(
-        "simulate",
-        {"package_path": str(package), "duration_s": 0.1, "dt_s": 0.01, "output_interval": 0.05},
-    )
-    tier.expect(
-        "ingests the golden package",
-        bool(response.get("ok")),
-        json.dumps(response.get("error", {}))[:200],
-    )
+    # Engines compile their own artifacts next to the manifest, so hand them a
+    # throwaway copy rather than letting them write into the kit.
+    with tempfile.TemporaryDirectory(prefix="tck_package_") as tmp:
+        package = Path(tmp) / source.name
+        shutil.copytree(source, package)
+        response = client.request(
+            "simulate",
+            {
+                "package_path": str(package),
+                "duration_s": 0.1,
+                "dt_s": 0.01,
+                "output_interval": 0.05,
+            },
+        )
+        tier.expect(
+            "ingests the golden package",
+            bool(response.get("ok")),
+            json.dumps(response.get("error", {}))[:200],
+        )
 
     missing = client.request(
         "simulate", {"package_path": "/tck/definitely/not/a/package", "duration_s": 0.1}
