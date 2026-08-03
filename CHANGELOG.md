@@ -8,6 +8,33 @@ and this project aims to follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **Engine Integration Contract v1 — published spec, schemas, and handshake.**
+  `docs/engine-contract.md` is now the normative contract between core and any
+  simulation engine: NDJSON envelope with an opaque `request_id`, a required
+  `hello` capability handshake, a frozen four-verb floor
+  (`hello`/`ping`/`simulate`/`shutdown`), a shared error taxonomy, session
+  semantics, and the versioning promise (additive-only within v1.x). Three
+  schemas back it — `schemas/sim_package.schema.json` (manifest),
+  `sim_result.schema.json` (simulate results, with `summary.peak_joint_forces`
+  and `time_series[].joint_efforts` shape-pinned for Tier 3.5), and
+  `field_snapshot.schema.json` (multi-physics sidecar, no producer yet).
+  All three bridges answer `hello` with capabilities derived from their actual
+  dispatch, echo `request_id` verbatim when sent, and return
+  `UNSUPPORTED_COMMAND` for unknown verbs (was `UNKNOWN_COMMAND` on
+  gazebo/isaac, a bare string on chrono). The chrono daemon's error envelope is
+  now `{"code", "message"}` like the others, and its summary carries `dt_s` +
+  `engine_mode` so results validate. First step of the engine-extraction
+  migration (`docs/engine-integration-architecture.md` §7); everything is
+  additive (`tests/test_engine_contract.py`).
+- **`cad.export_sim_package` writes `manifest.json`.** The canonical model
+  description used to exist only in memory and travel back over MCP — a
+  non-Python engine had nothing to read. New `server/sim_package_manifest.py`
+  (pure functions, no FreeCAD dependency) serializes it beside the meshes in SI
+  units, in two schema-valid modes: **full** (mechanism supplied — links with
+  mass/inertia/collision, joints, plus abstract rotor `actuators` and `sensors`
+  from a `drone_config`) and **reduced** (bodies only — pose + mesh). Each mesh
+  declares its native unit (`mm`, `scale_to_m: 0.001`) and vertex frame
+  (`link_local` vs `world`). The tool result gains `manifest_path`.
 - **Part-class taxonomy: `part_class` field + shared failure-mode catalog.**
   The Reflect step can now look up a part's characteristic failure modes by
   class instead of inferring them from a brief's free-text name. `design.save_brief`,

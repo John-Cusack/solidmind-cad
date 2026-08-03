@@ -1100,6 +1100,10 @@ def cad_export_sim_package(
 
     result = client.send_command("export_sim_package", **kwargs)
 
+    # Populated below when a mechanism is supplied; drives the manifest's
+    # full (links + joints + inertia) vs reduced (bodies-only) mode.
+    sim_model = None
+
     # Generate URDF if mechanism_id provided
     if mechanism_id is not None:
         mechanism = motion_store.get(mechanism_id)
@@ -1232,7 +1236,39 @@ def cad_export_sim_package(
                         "message": str(exc),
                     }
 
+    # ------------------------------------------------------------------
+    # Canonical manifest — Engine Integration Contract v1 §6.  Written for
+    # both modes so a non-Python engine has something on disk to read.
+    # A manifest failure must not sink an otherwise-successful export, so
+    # it is reported like the airframe error above.
+    # ------------------------------------------------------------------
+    from server.sim_package_manifest import build_manifest, write_manifest
+
+    pkg_dir = result.get("output_dir", output_dir or ".")
+    try:
+        manifest = build_manifest(
+            name=(sim_model.name if sim_model is not None else _package_name(pkg_dir)),
+            output_dir=pkg_dir,
+            body_manifest=result.get("bodies", []),
+            sim_model=sim_model,
+            drone_config=drone_config,
+        )
+        result["manifest_path"] = write_manifest(manifest, pkg_dir)
+    except OSError as exc:
+        result["manifest_error"] = {
+            "code": "MANIFEST_WRITE_FAILED",
+            "message": str(exc),
+        }
+
     return {"ok": True, **result}
+
+
+def _package_name(pkg_dir: str) -> str:
+    """Name for a bodies-only package — the export directory's basename."""
+    import os
+
+    base = os.path.basename(os.path.normpath(pkg_dir))
+    return base or "sim_package"
 
 
 @_wrap
