@@ -399,6 +399,12 @@ Estimated 2–3 weeks focused. Each step below becomes one implementation prompt
    extract the TCK (protocol/package/results/sessions/physics-sanity tiers) from
    `test_sim_cross_backend.py` + golden fixtures; core CI = reference engine only.
    *Done when:* TCK passes against reference + all three real bridges locally.
+   **— done:** `reference_engine/` is its own engine (not the Gazebo stub renamed)
+   with analytic gear/pendulum/free-fall physics; `tck/` runs standalone against any
+   `host:port` with six tiers and a golden package; a CI job runs it against the
+   reference engine with zero engines installed. All four engines verified conformant
+   locally — the run found and fixed three real gaps (gazebo and isaac error
+   taxonomy, isaac's missing `summary.dt_s`).
 6. **The split.** `git subtree split` each of `isaac_bridge/`, `gazebo_bridge/`,
    `chrono_daemon/`, `rl_training/` into sibling repos with history; per-repo CI (TCK +
    own tests + import guard); default descriptors in core; engine tests leave core.

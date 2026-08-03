@@ -532,9 +532,17 @@ proceed hopefully.
 
 ## 11. Conformance
 
-The TCK (Test Compatibility Kit, arriving in a later migration step) runs
-standalone against any `host:port` and is the support boundary — engine bug
-reports start with its output. Tiers:
+The TCK runs standalone against any `host:port` and is the support boundary —
+engine bug reports start with its output:
+
+```bash
+python3 -m tck --host 127.0.0.1 --port 9880     # 0 = conformant, 1 = not
+```
+
+It imports nothing from core, so an engine repository can vendor `tck/` and run
+it with a stock Python. `tck/README.md` is the engine author's guide; the
+reference engine (`reference_engine/`) is a complete worked example that passes
+every tier with no install. Tiers:
 
 1. **Protocol** — handshake, framing, error taxonomy, capability honesty.
 2. **Package** — ingest the golden fixture package.
@@ -544,10 +552,14 @@ reports start with its output. Tiers:
    period, gear-ratio propagation, falling-box settle) within tolerance.
 6. **Latency report** — informational RTT distribution.
 
-Current in-repo conformance, as of contract v1.0.0:
+Current in-repo conformance, verified by running the TCK against each engine:
 
-| Engine | `hello` | `request_id` echo | `UNSUPPORTED_COMMAND` | `shutdown` | Package ingest | Result schema |
-|---|---|---|---|---|---|---|
-| gazebo (stub + real) | ✅ | ✅ | ✅ | ❌ (§4.2) | ✅ `package` → SDF | ✅ |
-| isaac | ✅ | ✅ | ✅ | ❌ (§4.2) | ❌ `urdf` only | engine-dependent |
-| chrono (bridge shim) | ✅ | ✅ | ✅ | ✅ | ✅ `mechanism` → spec | ✅ |
+| Engine | TCK verdict | Package ingest | Sessions / teleop | Physics tier |
+|---|---|---|---|---|
+| reference | conformant | ✅ `package` | ✅ both | ✅ all three scenarios |
+| gazebo (stub) | conformant | ✅ `package` → SDF | teleop only | skipped (`runtime_mode: stub`) |
+| isaac (no Isaac Sim installed) | conformant | ❌ `urdf` only | ✅ both | skipped (`runtime_mode: stub`) |
+| chrono (bridge shim + daemon) | conformant | ❌ `mechanism` → spec | ❌ batch only | ✅ gear ratio |
+
+`shutdown` remains unimplemented on the gazebo and isaac bridges (§4.2); the
+TCK does not send it, since it would end the engine mid-run.

@@ -75,6 +75,28 @@ and this project aims to follow [Semantic Versioning](https://semver.org/).
   and no module-level core→engine import.
 
 ### Added
+- **Reference engine + TCK — conformance is now runnable.** `reference_engine/`
+  is core's own implementation of the contract: pure Python, no install, with
+  analytic physics (gear-ratio propagation, pendulum period, free fall) so it
+  can answer the physics tier honestly. It is a fresh engine rather than the
+  Gazebo stub renamed — the stub stays Gazebo's, this one is the worked example
+  an engine author clones. Step 5 of
+  `docs/engine-integration-architecture.md` §7.
+- **`tck/` — the Engine Integration Contract Test Kit.** `python3 -m tck --port
+  N` runs six tiers (protocol, package, results, sessions/teleop, physics
+  sanity, latency) against any engine in any language and prints a per-check
+  report; exit code 0 means conformant. It imports nothing from `server`, so an
+  engine repository can vendor it. Capability honesty is checked both ways: an
+  advertised verb must work and an unadvertised one must answer
+  `UNSUPPORTED_COMMAND`. Partial engines pass with skips, not failures. A CI
+  job runs it against the reference engine with zero engines installed, and
+  `tests/test_sim_cross_backend.py` is retired into tier 3.
+- **All four engines verified conformant locally** — and the run found real
+  gaps, now fixed: the Gazebo bridge emitted `GAZEBO_PROTOCOL_ERROR` where the
+  contract says `INVALID_JSON`/`INVALID_REQUEST` and routed a missing `cmd` to
+  the unknown-verb path; both bridges used vendor-prefixed session codes instead
+  of `SESSION_NOT_FOUND`; and Isaac omitted the required `summary.dt_s`.
+
 - **Engine Integration Contract v1 — published spec, schemas, and handshake.**
   `docs/engine-contract.md` is now the normative contract between core and any
   simulation engine: NDJSON envelope with an opaque `request_id`, a required
