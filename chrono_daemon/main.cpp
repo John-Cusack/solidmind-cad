@@ -41,16 +41,39 @@ static void signal_handler(int) {
     g_running = false;
 }
 
+/// Capability handshake — Engine Integration Contract v1 §2.  The lists are
+/// derived from the verbs handled below; every advertised capability must have
+/// a working handler and every handler must be advertised.
+static json hello_result() {
+    return {
+        {"protocol_version", PROTOCOL_VERSION},
+        {"contract_versions_supported", json::array({CONTRACT_VERSION})},
+        {"engine", "chrono"},
+        {"engine_version", DAEMON_VERSION},
+        {"runtime_mode", "real"},
+        {"capabilities", {
+            {"modes", json::array({"batch"})},           // simulate only
+            {"formats", json::array({"chrono_spec", "mechanism"})},
+            {"features", json::array()},                 // no optional verbs
+            {"fields", {{"emits", json::array()}, {"accepts", json::array()}}}
+        }}
+    };
+}
+
 /// Handle a single JSON command and return a response.
 static json handle_command(const json& msg) {
     std::string cmd;
     try {
         cmd = msg.at("cmd").get<std::string>();
     } catch (...) {
-        return error_response("Missing 'cmd' field");
+        return error_response("INVALID_REQUEST", "Missing 'cmd' field");
     }
 
     json args = msg.value("args", json::object());
+
+    if (cmd == "hello") {
+        return ok_response(hello_result());
+    }
 
     if (cmd == "ping") {
         return ok_response({{"pong", true}});
@@ -59,7 +82,9 @@ static json handle_command(const json& msg) {
     if (cmd == "simulate") {
         try {
             if (!args.contains("mechanism") && !args.contains("simulation_spec")) {
-                return error_response("Missing 'mechanism' or 'simulation_spec' in args");
+                return error_response(
+                    "INVALID_REQUEST",
+                    "Missing 'mechanism' or 'simulation_spec' in args");
             }
 
             double duration_s = args.value("duration_s", 1.0);
@@ -94,7 +119,7 @@ static json handle_command(const json& msg) {
             return ok_response(result);
 
         } catch (const std::exception& e) {
-            return error_response(std::string("Simulation error: ") + e.what());
+            return error_response("ENGINE_ERROR", std::string("Simulation error: ") + e.what());
         }
     }
 
@@ -103,7 +128,7 @@ static json handle_command(const json& msg) {
         return ok_response({{"message", "Shutting down"}});
     }
 
-    return error_response("Unknown command: " + cmd);
+    return error_response("UNSUPPORTED_COMMAND", "Unknown command: " + cmd);
 }
 
 /// Handle a single client connection (blocking).
@@ -114,11 +139,15 @@ static void handle_client(int client_fd) {
     std::cerr << "[chrono_daemon] Client connected" << std::endl;
 
     while (g_running) {
-        if (!read_message(client_fd, buffer, msg)) {
+        bool parsed = true;
+        if (!read_message(client_fd, buffer, msg, parsed)) {
             break;  // Client disconnected
         }
 
-        json response = handle_command(msg);
+        json response = parsed
+            ? handle_command(msg)
+            : error_response("INVALID_JSON", "Malformed JSON request line");
+        echo_request_id(response, msg);
 
         if (!send_response(client_fd, response)) {
             break;  // Send failed

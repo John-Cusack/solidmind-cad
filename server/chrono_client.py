@@ -152,7 +152,13 @@ class ChronoClient:
         )
 
         if not response.get("ok", False):
-            error_msg = response.get("error", "Unknown error")
+            error = response.get("error", "Unknown error")
+            # Contract v1 errors are ``{"code", "message"}`` objects; older
+            # daemons sent a bare string.  Accept both.
+            if isinstance(error, dict):
+                error_msg = f"{error.get('code', 'ENGINE_ERROR')}: {error.get('message', '')}"
+            else:
+                error_msg = str(error)
             logger.error("Command '%s' failed: %s", cmd, error_msg)
             raise ChronoCommandError(error_msg)
 

@@ -212,6 +212,10 @@ inline json run_simulation(
         {"efficiency_model", "none"},
         {"efficiency_note", "1D shaft model — no friction losses modeled"},
         {"simulation_time_s", duration_s},
+        // dt_s + engine_mode are required by the contract result schema
+        // (docs/engine-contract.md §7, schemas/sim_result.schema.json).
+        {"dt_s", dt_s},
+        {"engine_mode", "chrono"},
         {"time_steps", static_cast<int>(duration_s / dt_s)},
         {"output_samples", output_samples}
     };
