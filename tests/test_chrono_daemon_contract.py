@@ -36,6 +36,9 @@ def _wait_for_listening(host: str, port: int, timeout_s: float = 5.0) -> bool:
     return False
 
 
+# Real-backend test (pytest marker: requires_chrono_real).  The repo runs
+# unittest, so the gate is skipUnless — same convention as the other e2e tests.
+@unittest.skipUnless(_daemon_available(), f"chrono_daemon binary not built at {_DAEMON_PATH}")
 class TestChronoContractHandshake(unittest.TestCase):
     """Engine Integration Contract v1 against the real C++ daemon.
 
