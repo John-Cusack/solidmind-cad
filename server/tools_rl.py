@@ -3,6 +3,12 @@
 Tools follow the same dispatch pattern as ``tools_motion.py`` and
 ``tools_study.py``.  Phase 1 uses subprocess management directly
 (like ``study_runner.py``).
+
+``rl_training`` owns URDF analysis and env-config generation — core only
+orchestrates.  Every import of it is therefore deferred to call time and
+degrades to an error result when the RL pipeline is not installed, which
+is also the shape the CLI parity path will take (see
+``docs/engine-integration-architecture.md`` §7 step 7).
 """
 
 from __future__ import annotations
@@ -17,8 +23,6 @@ import time
 import uuid
 from pathlib import Path
 from typing import Any
-
-from server.urdf_analyzer import analyze_urdf
 
 log = logging.getLogger("solidmind.tools_rl")
 
@@ -46,6 +50,14 @@ def rl_configure_environment(
     """Parse URDF → URDFAnalysis → generate Isaac Lab env config."""
     if not os.path.isfile(urdf_path):
         return _error_result("URDF_NOT_FOUND", f"URDF file not found: {urdf_path}")
+
+    try:
+        from rl_training.urdf_analyzer import analyze_urdf
+    except ImportError as exc:
+        return _error_result(
+            "RL_PIPELINE_UNAVAILABLE",
+            f"The RL training pipeline is not installed: {exc}",
+        )
 
     try:
         analysis = analyze_urdf(urdf_path)

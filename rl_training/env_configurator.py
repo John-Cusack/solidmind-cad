@@ -10,7 +10,7 @@ import textwrap
 from pathlib import Path
 from typing import Any
 
-from server.urdf_analyzer import URDFAnalysis
+from rl_training.urdf_analyzer import URDFAnalysis
 
 # Default actuator parameters when URDF <dynamics> tags are missing.
 _DEFAULT_STIFFNESS = 10.0
