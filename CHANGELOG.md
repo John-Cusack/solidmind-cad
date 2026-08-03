@@ -8,6 +8,32 @@ and this project aims to follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Changed
+- **Engines are registry data, not a table in core.** Descriptors in
+  `engines.d/*.toml` (and `~/.solidmind/engines.d/` for third parties) now
+  supply every port, launch command, install hint and piece of model-facing
+  guidance core used to hardcode — step 4 of
+  `docs/engine-integration-architecture.md` §7. Dropping in a descriptor adds a
+  backend to the MCP tool enums, the prompt guidance and `sim.start_engine`
+  with no core edit; a descriptor without a `launch` command is attach-only
+  (a user-run daemon or a remote engine).
+  - **One client, one adapter.** `server/engine_client.py` replaces
+    `isaac_client`/`gazebo_client`/`chrono_client`, and `server/sim_adapter.py`
+    replaces `isaac_adapter`/`gazebo_adapter` — about 2,100 lines of
+    near-duplicate code gone. The client caches each engine's `hello` and
+    carries the **msg-rate tripwire** (architecture doc §3.7): sustained
+    >100 msg/s on any command logs a warning, so core can't quietly end up
+    inside a control loop.
+  - **Behaviour comes from the handshake.** `motion.simulate` picks
+    session-based or single-call simulation from the engine's advertised
+    `modes`; teleop is refused when an engine doesn't advertise it; and a new
+    `teleop_dofs` capability (additive, v1.x) means commanding an axis an
+    engine doesn't support is an error instead of a silently dropped setpoint.
+  - **Vendor-named tools folded**: `motion.isaac_launch`/`motion.isaac_stop`
+    are covered by `sim.start_engine`/`sim.stop_engine`, and
+    `motion.isaac_screenshot` becomes capability-gated `motion.screenshot`.
+    `motion.verify_sim_package`'s `check_isaac` is now `check_engine`.
+  - Still name-bound and scheduled for later steps: the chrono *study* solver
+    in `server/study_solvers.py`, and `rl_training`'s `ISAAC_PYTHON` launch.
 - **Dialect inversion: core emits only manifest + meshes + URDF.** Every vendor
   format is now compiled by the engine that consumes it, at load time, from the
   canonical package (step 3 of `docs/engine-integration-architecture.md` §7).

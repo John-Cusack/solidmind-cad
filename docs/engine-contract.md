@@ -108,6 +108,7 @@ about an engine is hardcoded in core.
 | `modes` | array of string | `batch` (one-shot `simulate`), `session` (`simulate_start`/`simulate_status`/`simulate_stop`), `teleop` (`teleop_*`) |
 | `formats` | array of string | Model inputs the engine ingests: `package` (canonical sim package), `urdf`, `sdf`, `mechanism` (legacy in-band mechanism dict), `chrono_spec` (transitional, see §6) |
 | `features` | array of string | Optional verbs and behaviours: `diagnose`, `screenshot`, `spawn_model`, `import_urdf`, `load_environment`, `reload`, `px4` |
+| `teleop_dofs` | array of string | Teleop axes the engine honours (`vx_mps`, `vy_mps`, `vz_mps`, `yaw_rate_rps`, `body_height_m`). Core refuses a command on an axis you don't list rather than dropping it silently. Omit when the engine has no teleop |
 | `fields` | object | `{"emits": [...], "accepts": [...]}` — field-snapshot quantities (§8). Empty arrays when the engine does no multi-physics coupling |
 
 **Capability honesty is a contract requirement.** Every verb implied by an
@@ -483,9 +484,22 @@ when_to_use = "Legged robots, articulated arms; GPU contact physics."
 - **Stop** = `shutdown` → SIGTERM → SIGKILL.
 - Core owns only the processes it spawns.
 
-**Descriptors are documented here but not implemented yet** — the registry
-arrives in the registry/vocabulary step of the migration. Until then core keeps
-its backend tables.
+**Implemented.** Core reads descriptors from `engines.d/` (its own defaults)
+and `~/.solidmind/engines.d/` — or `$SOLIDMIND_ENGINES_D` — with user files
+overriding core's by name. Everything core says about an engine comes from
+there: the backend enum in the MCP tool schemas, the model-facing selection
+guidance, install hints, ports and launch commands. A broken descriptor is
+logged and skipped rather than taking the tool surface down.
+
+Two conveniences beyond the fields above:
+
+| Field | Meaning |
+|---|---|
+| `default` | Marks the engine chosen when a caller names none (`SOLIDMIND_DEFAULT_ENGINE` overrides) |
+| `[variants.<name>]` | An alternate `launch` for the same engine — Gazebo's `real` runtime, Isaac with a GUI — so core needs no per-engine launch branch |
+
+`${PORT}` in a launch command expands to the port core allocated; `${VAR}` and
+`${VAR:-default}` read the environment. `${PYTHON}` is core's interpreter.
 
 ---
 

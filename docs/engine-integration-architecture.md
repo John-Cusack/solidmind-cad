@@ -388,7 +388,13 @@ Estimated 2–3 weeks focused. Each step below becomes one implementation prompt
    tables/if-elifs; generate tool text + prompts from registry + handshake; fold
    vendor-named tools; collapse three clients into one generic client with the msg-rate
    tripwire. *Done when:* `grep -r "isaac\|gazebo\|chrono" server/` finds no
-   control-flow references (data/descriptors only).
+   control-flow references (data/descriptors only). **— done:** `server/engine_registry.py`
+   + `engines.d/*.toml`; one `server/engine_client.py` (with the tripwire) and one
+   `server/sim_adapter.py` replace three clients and two adapters; `motion.isaac_*`
+   folded into `sim.*` and a capability-gated `motion.screenshot`; session-vs-batch
+   simulation is chosen from `hello`. Remaining name references in `server/` are the
+   chrono *study solver* and `rl_training`'s `ISAAC_PYTHON` launch, both scheduled for
+   later steps.
 5. **Reference engine + TCK.** Promote the stub to a named in-core reference engine;
    extract the TCK (protocol/package/results/sessions/physics-sanity tiers) from
    `test_sim_cross_backend.py` + golden fixtures; core CI = reference engine only.
