@@ -25,7 +25,7 @@ from server.motion_models import JointEdge, JointType, Mechanism, PartNode
 from server.sim_export import build_sim_model
 from server.sim_package_manifest import build_manifest, write_manifest
 from server.tools_cad import cad_export_sim_package
-from tests.conftest import GazeboStubBridge, mechanism_factory, unused_tcp_port
+from tests.conftest import ReferenceEngineFixture, mechanism_factory, unused_tcp_port
 
 _SCHEMA_DIR = Path(__file__).resolve().parents[1] / "schemas"
 
@@ -84,38 +84,38 @@ class TestHelloHandshake(unittest.TestCase):
 
     def test_hello_shape(self) -> None:
         port = unused_tcp_port()
-        with GazeboStubBridge(port) as bridge:
+        with ReferenceEngineFixture(port) as bridge:
             resp = _send_raw(bridge.host, bridge.port, {"cmd": "hello", "args": {}})
 
         self.assertTrue(resp["ok"], resp)
         result = resp["result"]
         self.assertEqual(result["protocol_version"], "1.0.0")
         self.assertEqual(result["contract_versions_supported"], ["1"])
-        self.assertEqual(result["engine"], "gazebo")
+        self.assertEqual(result["engine"], "reference")
         self.assertIsInstance(result["engine_version"], str)
-        self.assertEqual(result["runtime_mode"], "stub")
+        self.assertEqual(result["runtime_mode"], "real")
 
         caps = result["capabilities"]
-        self.assertEqual(caps["modes"], ["batch", "teleop"])
-        self.assertEqual(caps["formats"], ["package", "sdf", "urdf"])
-        self.assertEqual(caps["features"], ["diagnose", "spawn_model", "px4"])
+        self.assertEqual(caps["modes"], ["batch", "session", "teleop"])
+        self.assertEqual(caps["formats"], ["package", "mechanism", "urdf"])
+        self.assertEqual(caps["features"], ["diagnose"])
         self.assertEqual(caps["fields"], {"emits": [], "accepts": []})
 
     def test_advertised_capabilities_have_handlers(self) -> None:
         """Capability honesty: every advertised verb group actually answers."""
         port = unused_tcp_port()
-        with GazeboStubBridge(port) as bridge:
+        with ReferenceEngineFixture(port) as bridge:
             hello = _send_raw(bridge.host, bridge.port, {"cmd": "hello"})["result"]
             # features -> one representative verb each
-            for verb in ("ping", "diagnose", "px4_status"):
+            for verb in ("ping", "diagnose"):
                 resp = _send_raw(bridge.host, bridge.port, {"cmd": verb, "args": {}})
                 self.assertTrue(resp["ok"], f"{verb}: {resp}")
         self.assertIn("diagnose", hello["capabilities"]["features"])
-        self.assertIn("px4", hello["capabilities"]["features"])
+        self.assertIn("session", hello["capabilities"]["modes"])
 
     def test_request_id_echoed_when_sent(self) -> None:
         port = unused_tcp_port()
-        with GazeboStubBridge(port) as bridge:
+        with ReferenceEngineFixture(port) as bridge:
             resp = _send_raw(
                 bridge.host,
                 bridge.port,
@@ -125,13 +125,13 @@ class TestHelloHandshake(unittest.TestCase):
 
     def test_request_id_absent_when_not_sent(self) -> None:
         port = unused_tcp_port()
-        with GazeboStubBridge(port) as bridge:
+        with ReferenceEngineFixture(port) as bridge:
             resp = _send_raw(bridge.host, bridge.port, {"cmd": "ping", "args": {}})
         self.assertNotIn("request_id", resp)
 
     def test_request_id_echoed_on_error(self) -> None:
         port = unused_tcp_port()
-        with GazeboStubBridge(port) as bridge:
+        with ReferenceEngineFixture(port) as bridge:
             resp = _send_raw(
                 bridge.host,
                 bridge.port,
@@ -142,7 +142,7 @@ class TestHelloHandshake(unittest.TestCase):
 
     def test_unknown_command_code(self) -> None:
         port = unused_tcp_port()
-        with GazeboStubBridge(port) as bridge:
+        with ReferenceEngineFixture(port) as bridge:
             resp = _send_raw(bridge.host, bridge.port, {"cmd": "definitely_not_a_verb"})
         self.assertFalse(resp["ok"])
         self.assertEqual(resp["error"]["code"], "UNSUPPORTED_COMMAND")
@@ -154,7 +154,7 @@ class TestSimResultSchema(unittest.TestCase):
     def test_stub_simulate_validates(self) -> None:
         schema = _load_schema("sim_result.schema.json")
         port = unused_tcp_port()
-        with GazeboStubBridge(port) as bridge:
+        with ReferenceEngineFixture(port) as bridge:
             resp = _send_raw(
                 bridge.host,
                 bridge.port,

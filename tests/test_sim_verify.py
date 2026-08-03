@@ -297,13 +297,47 @@ class TestVerifyUrdfVsDiagnose(unittest.TestCase):
         joint_details: list[dict[str, Any]],
         articulation: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        from isaac_bridge.diagnose_normalize import normalize_diagnose
+        """Build the contract's normalized diagnose shape (§3.3).
 
-        return normalize_diagnose(
-            type_counts=type_counts,
-            joint_details=joint_details,
-            articulation=articulation,
-        )
+        Engines produce this from their own scene graph — Isaac's normalizer
+        moved out with the split — so core's checker is tested against the
+        shape itself rather than any one engine's translation of it.
+        """
+        generic = {
+            "PhysicsRevoluteJoint": "revolute",
+            "PhysicsPrismaticJoint": "prismatic",
+            "PhysicsFixedJoint": "fixed",
+        }
+        counts: dict[str, int] = {}
+        for usd_type, count in type_counts.items():
+            if usd_type in generic:
+                counts[generic[usd_type]] = counts.get(generic[usd_type], 0) + count
+
+        joints = []
+        for detail in joint_details:
+            kind = generic.get(str(detail.get("type", "")), "other")
+            entry: dict[str, Any] = {
+                "name": detail.get("path", ""),
+                "type": kind,
+                "connected": bool(detail.get("physics_body0"))
+                and bool(detail.get("physics_body1")),
+            }
+            namespace = "angular" if kind == "revolute" else "linear"
+            stiffness = detail.get(f"drive_{namespace}_stiffness")
+            damping = detail.get(f"drive_{namespace}_damping")
+            if stiffness is not None or damping is not None:
+                entry["has_drive"] = bool((stiffness or 0.0) or (damping or 0.0))
+            joints.append(entry)
+
+        normalized: dict[str, Any] = {
+            "joint_counts": counts,
+            "joint_total": sum(counts.values()),
+            "joints": joints,
+        }
+        if articulation:
+            normalized["dof_count"] = articulation["dof_count"]
+            normalized["dof_names"] = list(articulation.get("dof_names", []))
+        return normalized
 
     def test_diagnose_error(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

@@ -5,7 +5,9 @@ port = 9878
 # Chosen when a caller does not name a backend.
 default = true
 when_to_use = "Legged robots and articulated arms — GPU contact physics, joint-level control, sessions and teleop."
-install_hint = "Install Isaac Sim and set ISAAC_PYTHON to its python.sh, then: sim.start_engine('isaac')"
+# The engine lives in its own repository now; core launches it there.
+cwd = "~/repos/solidmind-engine-isaac"
+install_hint = "git clone https://github.com/John-Cusack/solidmind-engine-isaac ~/repos/solidmind-engine-isaac, install Isaac Sim, and set ISAAC_PYTHON to its python.sh"
 
 # The wrapper script resolves ISAAC_PYTHON (Isaac ships its own interpreter)
 # and kills the whole process group on exit.

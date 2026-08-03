@@ -28,7 +28,7 @@ from server.tools_design import (
     design_save_brief,
     design_update_brief,
 )
-from tests.conftest import GazeboStubBridge, mechanism_factory, unused_tcp_port
+from tests.conftest import ReferenceEngineFixture, mechanism_factory, unused_tcp_port
 
 _ELMER_AVAILABLE = bool(shutil.which("ElmerSolver") and shutil.which("ElmerGrid"))
 _GMSH_AVAILABLE = False
@@ -229,7 +229,7 @@ class TestRCCarGazeboSim(unittest.TestCase):
         """Gazebo stub returns time_series for RC car mechanism."""
         port = unused_tcp_port()
         mech = mechanism_factory("rc_car_suspension")
-        with GazeboStubBridge(port) as bridge:
+        with ReferenceEngineFixture(port) as bridge:
             resp = _send_command(
                 bridge.host,
                 bridge.port,
@@ -250,7 +250,7 @@ class TestRCCarGazeboSim(unittest.TestCase):
         """Extract peak wheel load from bump simulation → FEA BCs."""
         port = unused_tcp_port()
         mech = mechanism_factory("rc_car_suspension")
-        with GazeboStubBridge(port) as bridge:
+        with ReferenceEngineFixture(port) as bridge:
             resp = _send_command(
                 bridge.host,
                 bridge.port,

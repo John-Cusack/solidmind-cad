@@ -591,10 +591,15 @@ def mechanism_factory(kind: str = "gear_pair") -> dict[str, Any]:
     raise ValueError(f"Unknown mechanism kind: {kind!r}")
 
 
-class GazeboStubBridge:
-    """Launch a real GazeboBridgeServer with StubGazeboRuntime in a daemon thread.
+class ReferenceEngineFixture:
+    """Run core's reference engine in a daemon thread.
 
-    Use as a context manager or call start()/stop() manually.
+    Core's tests used the Gazebo stub as their engine until the split moved
+    Gazebo to its own repository.  The reference engine is the replacement and
+    the better fixture: it ships with core, needs no install, and is the same
+    engine CI runs the TCK against.
+
+    Use as a context manager or call start()/stop().
     """
 
     def __init__(self, port: int) -> None:
@@ -604,20 +609,15 @@ class GazeboStubBridge:
         self._thread: threading.Thread | None = None
 
     def start(self) -> None:
-        from gazebo_bridge.bridge_server import GazeboBridgeServer
+        from reference_engine.bridge_server import ReferenceBridgeServer
 
-        self._server = GazeboBridgeServer(
-            host=self.host,
-            port=self.port,
-            runtime_mode="stub",
-        )
+        self._server = ReferenceBridgeServer(host=self.host, port=self.port)
         self._thread = threading.Thread(
             target=self._server.serve_forever,
             daemon=True,
-            name="gazebo-stub-bridge",
+            name="reference-engine",
         )
         self._thread.start()
-        # Wait for server to be accepting connections
         deadline = time.monotonic() + 5.0
         while time.monotonic() < deadline:
             try:
@@ -628,7 +628,7 @@ class GazeboStubBridge:
                 return
             except (ConnectionRefusedError, OSError):
                 time.sleep(0.05)
-        raise RuntimeError(f"GazeboStubBridge did not start on port {self.port}")
+        raise RuntimeError(f"reference engine did not start on port {self.port}")
 
     def stop(self) -> None:
         if self._server is not None:
@@ -636,9 +636,13 @@ class GazeboStubBridge:
         if self._thread is not None:
             self._thread.join(timeout=5.0)
 
-    def __enter__(self) -> GazeboStubBridge:
+    def __enter__(self) -> ReferenceEngineFixture:
         self.start()
         return self
 
     def __exit__(self, *exc: Any) -> None:
         self.stop()
+
+
+#: Kept as an alias while call sites migrate — it is the reference engine now.
+GazeboStubBridge = ReferenceEngineFixture

@@ -19,7 +19,9 @@ from pathlib import Path
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 
-# Packages that leave core at split time.
+# Engine packages.  After the split these live in sibling repositories, so the
+# scan finds nothing here — which is the point.  The names stay listed because
+# a checkout mid-migration (or a stray copy) must still be caught.
 _ENGINE_PACKAGES = ("chrono_bridge", "gazebo_bridge", "isaac_bridge", "rl_training")
 
 # Core packages an engine package may never import.
@@ -68,10 +70,15 @@ class TestEnginePackagesDoNotImportCore(unittest.TestCase):
             + "\n  ".join(sorted(violations)),
         )
 
-    def test_scan_actually_sees_files(self) -> None:
-        """Guard the guard — an empty scan would pass vacuously."""
-        for package in _ENGINE_PACKAGES:
-            self.assertGreater(len(_python_files(package)), 0, f"no files scanned in {package}")
+    def test_engine_packages_are_gone_from_core(self) -> None:
+        """The split's end state: core holds no engine package at all."""
+        present = [p for p in _ENGINE_PACKAGES if (_REPO_ROOT / p).is_dir()]
+        self.assertEqual(
+            present,
+            [],
+            "engine packages still in core — they live in sibling repositories now:\n  "
+            + "\n  ".join(present),
+        )
 
 
 class TestCoreDoesNotImportEngines(unittest.TestCase):

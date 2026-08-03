@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -16,6 +17,20 @@ from server.tools_rl import (
     rl_start_training,
     rl_stop_training,
 )
+
+
+def _rl_pipeline_installed() -> bool:
+    """solidmind-rl is a separate repository on Isaac's interpreter now."""
+    from server.tools_rl import _rl_python
+
+    proc = subprocess.run(
+        [_rl_python(), "-m", "rl_training.cli", "--help"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return proc.returncode == 0
+
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 _HEXAPOD_URDF = _PROJECT_ROOT / "hexapod_sim_pkg" / "Hexapod_v2_1DOF.urdf"
@@ -119,8 +134,18 @@ class TestRLStopTraining(unittest.TestCase):
         self.assertTrue(result["already_stopped"])
 
 
+@unittest.skipUnless(
+    _rl_pipeline_installed(),
+    "solidmind-rl is not installed — export runs in that repository now",
+)
 class TestRLDeployPolicy(unittest.TestCase):
-    """Test rl.deploy_policy tool."""
+    """rl.deploy_policy — the export half of the CLI parity path.
+
+    Core resolves the checkpoint directory and reuses already-exported
+    artifacts; everything past that (reading the checkpoint format, tracing
+    the policy) happens in the pipeline's own process, so these need it
+    installed.
+    """
 
     def test_missing_dir(self) -> None:
         result = rl_deploy_policy(checkpoint_dir="/nonexistent_dir")

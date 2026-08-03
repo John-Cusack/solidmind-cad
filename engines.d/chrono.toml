@@ -7,7 +7,9 @@
 name = "chrono"
 port = 9877
 when_to_use = "Gear trains, linkages, springs — analytical multibody dynamics, batch only. No GPU required."
-install_hint = "Build the daemon: cd chrono_daemon && mkdir -p build && cd build && cmake .. && make -j$(nproc)"
+# The engine lives in its own repository now; core launches it there.
+cwd = "~/repos/solidmind-engine-chrono"
+install_hint = "git clone https://github.com/John-Cusack/solidmind-engine-chrono ~/repos/solidmind-engine-chrono, then build the daemon: cd chrono_daemon && mkdir -p build && cd build && cmake .. && make -j$(nproc)"
 
 # The bridge shim speaks the contract and starts the C++ daemon underneath it,
 # so core supervises exactly one process.

@@ -5,8 +5,10 @@ boundary crossed the way it is crossed in production: core writes only neutral
 artifacts, the engine compiles its own dialect from them, and the RL pipeline
 runs as a subprocess on its own interpreter.
 
-The one leg that needs hardware — importing into a live Isaac scene — lives in
-``tests/test_isaac_urdf_integration.py`` and skips without Isaac Sim.
+Engine-side legs live with their engines now: package→SDF in
+solidmind-engine-gazebo, URDF import in solidmind-engine-isaac.  What core
+verifies here is its own half — that the artifacts it writes are neutral,
+schema-valid and readable by a contract engine.
 """
 
 from __future__ import annotations
@@ -20,6 +22,27 @@ from typing import Any
 from server.motion_models import JointEdge, JointType, Mechanism, PartNode
 from server.sim_export import build_sim_model, write_urdf
 from server.sim_package_manifest import build_manifest, write_manifest
+
+
+def _rl_pipeline_installed() -> bool:
+    """Is solidmind-rl on this machine?
+
+    After the split it is a separate repository on Isaac's interpreter, so a
+    core checkout usually does not have it — and the tools are expected to say
+    so rather than fail.
+    """
+    import subprocess
+
+    from server.tools_rl import _rl_python
+
+    proc = subprocess.run(
+        [_rl_python(), "-m", "rl_training.cli", "--help"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return proc.returncode == 0
+
 
 _STL = """solid leg
   facet normal 0 0 -1
@@ -142,23 +165,9 @@ class TestPipelineAcrossTheSplit(unittest.TestCase):
 
     # -- what an engine makes of it -------------------------------------
 
-    def test_the_gazebo_bridge_compiles_the_package(self) -> None:
-        """The dialect inversion: core's package in, Gazebo's SDF out."""
-        import shutil
-        import xml.etree.ElementTree as ET
-
-        from gazebo_bridge.package_to_sdf import compile_and_validate
-
-        with tempfile.TemporaryDirectory() as engine_side:
-            # Copy first — the engine writes its artifacts next to the manifest.
-            package = Path(engine_side) / "package"
-            shutil.copytree(self.pkg, package)
-            compiled = compile_and_validate(str(package))
-            self.assertEqual(compiled["findings"], [])
-            model = ET.parse(compiled["sdf_path"]).getroot().find("model")
-
-        self.assertEqual(len(model.findall("link")), 3)
-        self.assertEqual(len(model.findall("joint")), 2)
+    # The Gazebo leg — package in, SDF out — moved to solidmind-engine-gazebo
+    # with the bridge.  What core can still assert is that any contract engine
+    # reads the package, which the reference engine does below.
 
     def test_the_reference_engine_ingests_the_package(self) -> None:
         """Any contract engine can read what core wrote."""
@@ -173,6 +182,7 @@ class TestPipelineAcrossTheSplit(unittest.TestCase):
 
     # -- what the RL pipeline makes of it -------------------------------
 
+    @unittest.skipUnless(_rl_pipeline_installed(), "solidmind-rl is not installed")
     def test_rl_configures_an_environment_from_the_urdf(self) -> None:
         """The CLI parity path: core shells out, the pipeline answers JSON.
 
@@ -203,6 +213,15 @@ class TestPipelineAcrossTheSplit(unittest.TestCase):
         result = rl_configure_environment(urdf_path="/nonexistent/robot.urdf")
         self.assertFalse(result["ok"])
         self.assertEqual(result["error"]["code"], "URDF_NOT_FOUND")
+
+    @unittest.skipIf(_rl_pipeline_installed(), "solidmind-rl is installed here")
+    def test_absent_rl_pipeline_degrades_to_a_clear_error(self) -> None:
+        """Core without solidmind-rl says so — it does not crash on an import."""
+        from server.tools_rl import rl_configure_environment
+
+        result = rl_configure_environment(urdf_path=str(self.urdf_path))
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["error"]["code"], "RL_PIPELINE_UNAVAILABLE")
 
 
 if __name__ == "__main__":

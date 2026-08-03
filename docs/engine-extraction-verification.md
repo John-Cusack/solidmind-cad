@@ -9,7 +9,8 @@ change that quietly re-couples core to an engine fails CI instead of a review.
 What needs a real engine, a GPU or a published remote is recorded here with
 what was actually run.
 
-**Verified:** 2026-08-03, on this branch.
+**Verified:** 2026-08-03, on this branch — after the split was published and
+the engines removed from core.
 
 ---
 
@@ -140,10 +141,10 @@ under a burst, and tracks per command rather than per engine.
 
 ## What remains
 
-| Item | Blocked on |
+| Item | Status |
 |---|---|
-| Publish the four sibling repos | your remote — `scripts/split_engines.sh` has already built them locally |
-| Remove the engines from core | publication; `scripts/remove_engines_from_core.sh --confirm` |
-| Port the 11 deferred test modules | the engine repos, once published |
-| Built-wheel inspection | the removal above, then `maturin build` |
-| Isaac and Gazebo real-runtime legs | a GPU host and a Gazebo install |
+| Publish the four sibling repos | **done** — `github.com/John-Cusack/solidmind-engine-{isaac,gazebo,chrono}` and `solidmind-rl`, public, with history |
+| Remove the engines from core | **done** — core holds no engine package; `tests/test_import_boundaries.py` asserts it |
+| Port the deferred test modules | open, in the engine repos (`tests/needs_porting/`) |
+| Built-wheel inspection | open — `maturin build` now that the packages are gone |
+| Isaac and Gazebo real-runtime legs | open — needs a GPU host and a Gazebo install |
