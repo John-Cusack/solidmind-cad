@@ -1,0 +1,141 @@
+{
+  "schema_version": "1.0.0",
+  "name": "tck_golden",
+  "generator": "tck fixtures",
+  "mode": "full",
+  "units": {
+    "length": "m",
+    "mass": "kg",
+    "angle": "rad"
+  },
+  "links": [
+    {
+      "name": "base",
+      "is_root": true,
+      "mesh": {
+        "file": "base.stl",
+        "unit": "mm",
+        "scale_to_m": 0.001,
+        "frame": "link_local"
+      },
+      "world_pose": {
+        "xyz_m": [
+          0.0,
+          0.0,
+          0.5
+        ],
+        "quat_wxyz": [
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mass_kg": 1.0,
+      "inertia": {
+        "ixx": 0.01,
+        "ixy": 0.0,
+        "ixz": 0.0,
+        "iyy": 0.01,
+        "iyz": 0.0,
+        "izz": 0.02
+      },
+      "collision": {
+        "kind": "box",
+        "size_m": [
+          0.1,
+          0.1,
+          0.05
+        ]
+      }
+    },
+    {
+      "name": "rotor",
+      "mesh": {
+        "file": "rotor.stl",
+        "unit": "mm",
+        "scale_to_m": 0.001,
+        "frame": "link_local"
+      },
+      "world_pose": {
+        "xyz_m": [
+          0.1,
+          0.0,
+          0.55
+        ],
+        "quat_wxyz": [
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "mass_kg": 0.02,
+      "inertia": {
+        "ixx": 1e-05,
+        "ixy": 0.0,
+        "ixz": 0.0,
+        "iyy": 1e-05,
+        "iyz": 0.0,
+        "izz": 2e-05
+      },
+      "collision": {
+        "kind": "cylinder",
+        "radius_m": 0.05,
+        "length_m": 0.005
+      }
+    }
+  ],
+  "joints": [
+    {
+      "name": "rotor_joint",
+      "type": "continuous",
+      "parent": "base",
+      "child": "rotor",
+      "origin_xyz_m": [
+        0.1,
+        0.0,
+        0.05
+      ],
+      "origin_rpy_rad": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "axis": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "effort": 5.0,
+      "velocity": 1000.0,
+      "damping": 0.004,
+      "friction": 0.0
+    }
+  ],
+  "actuators": [
+    {
+      "type": "rotor",
+      "name": "rotor_0",
+      "index": 0,
+      "joint": "rotor_joint",
+      "link": "rotor",
+      "position_m": [
+        0.1,
+        0.0,
+        0.55
+      ],
+      "direction": "ccw",
+      "max_thrust_N": 8.55,
+      "moment_constant": 0.016,
+      "motor_constant": 8.54858e-06,
+      "max_rot_velocity_rad_s": 1000.0
+    }
+  ],
+  "sensors": [
+    {
+      "type": "imu",
+      "link": "base"
+    }
+  ]
+}
