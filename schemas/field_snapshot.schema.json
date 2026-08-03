@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "field_snapshot.schema.json",
+  "title": "Field Snapshot Sidecar",
+  "description": "JSON sidecar describing one on-disk field payload (VTU) exchanged between solvers/engines — Engine Integration Contract v1 (docs/engine-contract.md §8). No producer exists yet; the format is published so solver authors can target it.",
+  "type": "object",
+  "properties": {
+    "schema_version": {"type": "string", "pattern": "^1\\.[0-9]+\\.[0-9]+$"},
+    "quantity": {
+      "type": "string",
+      "description": "Fixed v1 vocabulary — core type-checks coupling chains against it",
+      "enum": [
+        "temperature",
+        "heat_flux",
+        "pressure",
+        "displacement",
+        "force",
+        "stress_von_mises"
+      ]
+    },
+    "units": {"type": "string", "minLength": 1, "description": "SI unit string, e.g. 'K', 'Pa', 'm', 'N', 'W/m^2'"},
+    "mesh_ref": {"type": "string", "minLength": 1, "description": "Mesh the field is defined on, relative to the sidecar"},
+    "time_s": {
+      "type": ["number", "null"],
+      "description": "Sample time; null for steady-state results"
+    },
+    "data_file": {"type": "string", "minLength": 1, "description": "Field payload (VTU), relative to the sidecar"}
+  },
+  "required": ["schema_version", "quantity", "units", "mesh_ref", "time_s", "data_file"],
+  "additionalProperties": false
+}

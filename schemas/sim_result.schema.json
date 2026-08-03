@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "sim_result.schema.json",
+  "title": "Simulation Result",
+  "description": "Result payload returned by an engine's simulate verb — Engine Integration Contract v1 (docs/engine-contract.md §7). Open by design: engines may add their own members and core ignores what it does not know.",
+  "type": "object",
+  "$defs": {
+    "sample": {
+      "type": "object",
+      "description": "One output sample. joint_efforts is pinned because Tier 3.5 (analysis.stress_from_simulation) reads it.",
+      "properties": {
+        "t": {"type": "number", "minimum": 0, "description": "Sample time (s)"},
+        "parts": {
+          "type": "object",
+          "description": "Per-part state, keyed by part id",
+          "additionalProperties": {"type": "object"}
+        },
+        "joint_efforts": {
+          "type": "array",
+          "description": "Per-joint effort (N·m or N) at this sample, in joint order",
+          "items": {"type": "number"}
+        }
+      },
+      "required": ["t"],
+      "additionalProperties": true
+    },
+    "summary": {
+      "type": "object",
+      "description": "Run-level aggregates",
+      "properties": {
+        "simulation_time_s": {"type": "number", "minimum": 0},
+        "dt_s": {"type": "number", "exclusiveMinimum": 0},
+        "engine_mode": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Engine identity and fidelity, e.g. 'stub', 'gazebo_real', 'chrono'"
+        },
+        "peak_joint_forces": {
+          "type": "object",
+          "description": "Peak force/torque magnitude per joint id. Pinned for Tier 3.5.",
+          "additionalProperties": {"type": "number"}
+        },
+        "output_interval": {"type": "number", "exclusiveMinimum": 0}
+      },
+      "required": ["simulation_time_s", "dt_s", "engine_mode"],
+      "additionalProperties": true
+    },
+    "file_ref": {
+      "type": "object",
+      "description": "Spilled telemetry. When present the file is authoritative and time_series may be empty or downsampled.",
+      "properties": {
+        "role": {"type": "string", "minLength": 1},
+        "path": {"type": "string", "minLength": 1},
+        "format": {"type": "string", "minLength": 1},
+        "rows": {"type": "integer", "minimum": 0}
+      },
+      "required": ["role", "path", "format"],
+      "additionalProperties": true
+    }
+  },
+  "properties": {
+    "time_series": {"type": "array", "items": {"$ref": "#/$defs/sample"}},
+    "summary": {"$ref": "#/$defs/summary"},
+    "files": {"type": "array", "items": {"$ref": "#/$defs/file_ref"}},
+    "warnings": {"type": "array", "items": {"type": "string"}}
+  },
+  "required": ["time_series", "summary"],
+  "additionalProperties": true
+}

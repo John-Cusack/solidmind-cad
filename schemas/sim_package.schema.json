@@ -1,0 +1,189 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "sim_package.schema.json",
+  "title": "Sim Package Manifest",
+  "description": "Canonical model description written by cad.export_sim_package — Engine Integration Contract v1 (docs/engine-contract.md §6). All values SI (m, kg, s, rad); meshes declare their own native unit.",
+  "type": "object",
+  "$defs": {
+    "vector3": {
+      "type": "array",
+      "description": "3D vector (x, y, z)",
+      "items": {"type": "number"},
+      "minItems": 3,
+      "maxItems": 3
+    },
+    "quaternion": {
+      "type": "array",
+      "description": "Unit quaternion in (w, x, y, z) order",
+      "items": {"type": "number"},
+      "minItems": 4,
+      "maxItems": 4
+    },
+    "pose": {
+      "type": "object",
+      "description": "Pose in the document world frame (Z-up, right-handed)",
+      "properties": {
+        "xyz_m": {"$ref": "#/$defs/vector3"},
+        "quat_wxyz": {"$ref": "#/$defs/quaternion"}
+      },
+      "required": ["xyz_m", "quat_wxyz"],
+      "additionalProperties": false
+    },
+    "mesh_ref": {
+      "type": "object",
+      "description": "Reference to a mesh file beside the manifest, with its native unit",
+      "properties": {
+        "file": {"type": "string", "description": "Path relative to the package directory"},
+        "unit": {"type": "string", "enum": ["mm", "cm", "m", "in"]},
+        "scale_to_m": {"type": "number", "exclusiveMinimum": 0, "description": "Multiply mesh vertices by this to obtain metres"},
+        "frame": {
+          "type": "string",
+          "enum": ["link_local", "world"],
+          "description": "Frame the mesh vertices are expressed in"
+        }
+      },
+      "required": ["file", "unit", "scale_to_m", "frame"],
+      "additionalProperties": false
+    },
+    "inertia": {
+      "type": "object",
+      "description": "Inertia tensor about the link frame origin (kg·m²)",
+      "properties": {
+        "ixx": {"type": "number", "minimum": 0},
+        "ixy": {"type": "number"},
+        "ixz": {"type": "number"},
+        "iyy": {"type": "number", "minimum": 0},
+        "iyz": {"type": "number"},
+        "izz": {"type": "number", "minimum": 0}
+      },
+      "required": ["ixx", "ixy", "ixz", "iyy", "iyz", "izz"],
+      "additionalProperties": false
+    },
+    "collision": {
+      "type": "object",
+      "description": "Primitive collision geometry (metres). Omitted when collision falls back to the visual mesh.",
+      "properties": {
+        "kind": {"type": "string", "enum": ["box", "cylinder"]},
+        "size_m": {"$ref": "#/$defs/vector3"},
+        "radius_m": {"type": "number", "exclusiveMinimum": 0},
+        "length_m": {"type": "number", "exclusiveMinimum": 0}
+      },
+      "required": ["kind"],
+      "additionalProperties": false
+    },
+    "link": {
+      "type": "object",
+      "description": "One rigid body. mass_kg/inertia/collision are present only in full (mechanism-backed) exports.",
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "is_root": {"type": "boolean"},
+        "mesh": {"$ref": "#/$defs/mesh_ref"},
+        "world_pose": {"$ref": "#/$defs/pose"},
+        "mass_kg": {"type": "number", "minimum": 0},
+        "inertia": {"$ref": "#/$defs/inertia"},
+        "collision": {"$ref": "#/$defs/collision"}
+      },
+      "required": ["name", "world_pose"],
+      "additionalProperties": false
+    },
+    "joint": {
+      "type": "object",
+      "description": "Kinematic constraint. origin_* express the child link frame in the parent link frame at the zero configuration.",
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "type": {
+          "type": "string",
+          "enum": ["revolute", "continuous", "prismatic", "fixed", "planar", "floating"]
+        },
+        "parent": {"type": "string", "minLength": 1},
+        "child": {"type": "string", "minLength": 1},
+        "origin_xyz_m": {"$ref": "#/$defs/vector3"},
+        "origin_rpy_rad": {"$ref": "#/$defs/vector3"},
+        "axis": {"$ref": "#/$defs/vector3"},
+        "limits": {
+          "type": "object",
+          "description": "Motion limits — radians for revolute, metres for prismatic. Absent for fixed and continuous joints.",
+          "properties": {
+            "lower": {"type": "number"},
+            "upper": {"type": "number"}
+          },
+          "required": ["lower", "upper"],
+          "additionalProperties": false
+        },
+        "effort": {"type": "number", "minimum": 0, "description": "Max effort (N·m or N)"},
+        "velocity": {"type": "number", "minimum": 0, "description": "Max velocity (rad/s or m/s)"},
+        "damping": {"type": "number", "minimum": 0},
+        "friction": {"type": "number", "minimum": 0},
+        "mimic": {
+          "type": "object",
+          "description": "Slave-joint relation (gear meshes, belt drives)",
+          "properties": {
+            "joint": {"type": "string", "minLength": 1},
+            "multiplier": {"type": "number"}
+          },
+          "required": ["joint", "multiplier"],
+          "additionalProperties": false
+        }
+      },
+      "required": ["name", "type", "parent", "child", "origin_xyz_m", "origin_rpy_rad", "axis"],
+      "additionalProperties": false
+    },
+    "actuator": {
+      "type": "object",
+      "description": "Abstract actuator spec — never vendor plugin configuration",
+      "properties": {
+        "type": {"type": "string", "enum": ["rotor", "servo"]},
+        "name": {"type": "string", "minLength": 1},
+        "joint": {"type": "string", "description": "Joint this actuator drives"},
+        "link": {"type": "string", "description": "Link the actuator force applies to"},
+        "index": {"type": "integer", "minimum": 0, "description": "Actuator channel index"},
+        "position_m": {"$ref": "#/$defs/vector3"},
+        "direction": {"type": "string", "enum": ["ccw", "cw"]},
+        "max_thrust_N": {"type": "number", "minimum": 0},
+        "moment_constant": {"type": "number"},
+        "stiffness": {"type": "number", "minimum": 0},
+        "damping": {"type": "number", "minimum": 0}
+      },
+      "required": ["type"],
+      "additionalProperties": false
+    },
+    "sensor": {
+      "type": "object",
+      "description": "Sensor presence and mounting",
+      "properties": {
+        "type": {"type": "string", "enum": ["imu", "gps", "barometer", "magnetometer"]},
+        "link": {"type": "string", "minLength": 1},
+        "pose": {"$ref": "#/$defs/pose"}
+      },
+      "required": ["type", "link"],
+      "additionalProperties": false
+    }
+  },
+  "properties": {
+    "schema_version": {"type": "string", "pattern": "^1\\.[0-9]+\\.[0-9]+$"},
+    "name": {"type": "string", "minLength": 1},
+    "generator": {"type": "string", "description": "Producing tool and version"},
+    "mode": {
+      "type": "string",
+      "enum": ["full", "reduced"],
+      "description": "full = mechanism-backed (links + joints + inertia); reduced = bodies only"
+    },
+    "units": {
+      "type": "object",
+      "description": "Manifest units. SI is the only v1 combination; the block is explicit so consumers never guess.",
+      "properties": {
+        "length": {"const": "m"},
+        "mass": {"const": "kg"},
+        "angle": {"const": "rad"}
+      },
+      "required": ["length", "mass", "angle"],
+      "additionalProperties": false
+    },
+    "links": {"type": "array", "items": {"$ref": "#/$defs/link"}},
+    "joints": {"type": "array", "items": {"$ref": "#/$defs/joint"}},
+    "actuators": {"type": "array", "items": {"$ref": "#/$defs/actuator"}},
+    "sensors": {"type": "array", "items": {"$ref": "#/$defs/sensor"}}
+  },
+  "required": ["schema_version", "name", "generator", "mode", "units", "links", "joints"],
+  "additionalProperties": false
+}
