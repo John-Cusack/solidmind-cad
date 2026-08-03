@@ -418,7 +418,13 @@ Estimated 2–3 weeks focused. Each step below becomes one implementation prompt
 7. **Verification.** Wheel contains no engine code (maturin contents — currently
    unverified); hexapod pipeline e2e (export → Isaac → RL config) across the split
    layout; `rl.*` tools drive solidmind-rl via the CLI parity path
-   (`docs/simulation-and-rl.md`).
+   (`docs/simulation-and-rl.md`). **— done:** all nine §9 criteria checked in
+   `docs/engine-extraction-verification.md`, with the mechanizable ones as tests
+   (`tests/test_split_acceptance.py`, `tests/test_pipeline_e2e.py`). `rl.*` now shells
+   out to `rl_training.cli`, so core imports no engine package at all; maturin gained
+   the explicit include/exclude that keeps engines out of the wheel. Left open there:
+   publication of the sibling repos, the built-wheel inspection that follows removal,
+   and the Isaac/Gazebo real-runtime legs.
 
 **Known long poles:** step 3's SDF move from export-time to load-time (drone/PX4 flow is
 the most entangled consumer), and chrono's canonical ingest (recorded decision: Python

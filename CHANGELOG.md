@@ -8,6 +8,31 @@ and this project aims to follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Changed
+- **`rl.*` drives the RL pipeline as a subprocess — core imports no engine code
+  at all.** The pipeline runs on Isaac Sim's bundled interpreter, which core's
+  venv cannot import from, so `rl.configure_environment` and `rl.deploy_policy`
+  now shell out to a new `rl_training.cli` (`configure`, `analyze`, `export`)
+  and parse one JSON object back, the same way training already worked. With
+  that, `tests/test_import_boundaries.py` drops its last allowed exception:
+  nothing in `server/` imports an engine package, lazily or otherwise. Step 7
+  of `docs/engine-integration-architecture.md` §7.
+
+### Added
+- **`docs/engine-extraction-verification.md`** — the nine acceptance criteria
+  from §9 with evidence for each, and an explicit list of what is still open
+  (publishing the sibling repos, the built-wheel inspection that follows
+  removal, the Isaac and Gazebo real-runtime legs).
+- **Verification is tests, not prose, wherever it can be.**
+  `tests/test_split_acceptance.py` asserts the wheel excludes every engine
+  package, that importing core loads none of them at runtime, and that no
+  comparison in `server/` branches on an engine name (with the one recorded
+  exception, the chrono *study* solver). `tests/test_pipeline_e2e.py` walks
+  mechanism → package → URDF → RL env config, crossing every boundary the
+  split introduced.
+- **`pyproject.toml` gained explicit maturin include/exclude lists.** There
+  were none, so the wheel would have shipped whatever top-level packages a
+  checkout happened to contain — including the engines.
+
 - **Engines are registry data, not a table in core.** Descriptors in
   `engines.d/*.toml` (and `~/.solidmind/engines.d/` for third parties) now
   supply every port, launch command, install hint and piece of model-facing
