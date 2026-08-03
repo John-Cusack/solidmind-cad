@@ -7,6 +7,19 @@ and this project aims to follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+- **Engine packages no longer import core.** The three reverse imports that
+  blocked splitting the engines into sibling repositories are gone (step 2 of
+  `docs/engine-integration-architecture.md` §7). `isaac_bridge` ships its own
+  contract client (`isaac_bridge/client.py`) instead of borrowing
+  `server.isaac_client`; `server/mavlink_controller.py` moved to
+  `gazebo_bridge/mavlink_controller.py`; `server/urdf_analyzer.py` moved to
+  `rl_training/urdf_analyzer.py`. The `rl.*` tools now import the RL pipeline
+  lazily and return `RL_PIPELINE_UNAVAILABLE` when it is absent, so starting the
+  MCP server never requires it. `tests/test_import_boundaries.py` statically
+  enforces both directions: no `server.*` import anywhere in an engine package,
+  and no module-level core→engine import.
+
 ### Added
 - **Engine Integration Contract v1 — published spec, schemas, and handshake.**
   `docs/engine-contract.md` is now the normative contract between core and any

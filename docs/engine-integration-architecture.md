@@ -69,7 +69,8 @@ translation does.
 - **Bidirectional imports** block any split: `isaac_bridge/lifecycle.py:20` →
   `server.isaac_client`; `gazebo_bridge/runtime_gazebo.py:196` →
   `server.mavlink_controller`; `rl_training/env_configurator.py:13` →
-  `server.urdf_analyzer`.
+  `server.urdf_analyzer`. *(All three severed in step 2; a static guard in
+  `tests/test_import_boundaries.py` keeps them severed.)*
 - **Three near-duplicate clients** (`isaac_client.py`, `gazebo_client.py`,
   `chrono_client.py`, ~420 lines each) prove the protocol is uniform and collapse into one
   generic client.
@@ -365,12 +366,15 @@ Estimated 2–3 weeks focused. Each step below becomes one implementation prompt
    `schemas/sim_package.schema.json` + `sim_result.schema.json` +
    `field_snapshot.schema.json`; add `hello` (+ `request_id` passthrough) to all three
    bridges and the stub; make `export_sim_package` write `manifest.json` to disk.
-   *Done when:* schemas validate real exports; all bridges answer `hello`.
+   *Done when:* schemas validate real exports; all bridges answer `hello`. **— done.**
 2. **Sever the three reverse imports.** `isaac_bridge/lifecycle.py` (client dep — moves
    with the bridge or gets its own), `gazebo_bridge/runtime_gazebo.py` (satisfied
    in-package once mavlink moves), `rl_training/env_configurator.py` (urdf_analyzer moves
    to RL). Add "no `server.*` imports" guards.
-   *Done when:* bridges import nothing from core.
+   *Done when:* bridges import nothing from core. **— done:** the isaac bridge got its
+   own `isaac_bridge/client.py`; `mavlink_controller` moved to `gazebo_bridge/` and
+   `urdf_analyzer` to `rl_training/` (ahead of step 3's wider mavlink move); the `rl.*`
+   tools import the RL pipeline lazily.
 3. **Dialect inversion.** SDF + motor/sensor plugins + PX4 artifacts + mavlink →
    gazebo-side package→SDF compilation at load time (manifest actuators/sensors carry the
    abstract specs — the biggest behavioral migration; drone e2e tests gate it).
