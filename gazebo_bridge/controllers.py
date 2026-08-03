@@ -80,7 +80,7 @@ class Px4OffboardController:
     """
 
     # Stored as Any to avoid a hard import dep on pymavlink at module load
-    # time; runtime injects a real ``server.mavlink_controller.MavlinkController``.
+    # time; runtime injects a real ``gazebo_bridge.mavlink_controller.MavlinkController``.
     mavlink: Any | None = field(default=None)
 
     def attach_mavlink(self, mavlink: Any) -> None:

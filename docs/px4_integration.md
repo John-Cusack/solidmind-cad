@@ -221,7 +221,7 @@ The bridge currently has scaffolding (`gazebo_bridge/px4_integration.py`,
 `gazebo_bridge/controllers.py:Px4OffboardController`) but no real
 MAVLink wiring. Phase 2 adds:
 
-- `server/mavlink_controller.py` — async `MavlinkController` class
+- `gazebo_bridge/mavlink_controller.py` — `MavlinkController` class
 - `Px4OffboardController` rewritten to dispatch via the controller
 - `Px4Manager` lifecycle tracks heartbeat instead of just `is_alive()`
 - Real-runtime test suite at `tests/test_gazebo_px4_real_runtime.py`

@@ -23,7 +23,7 @@ The threading model:
   feeds telemetry state and surfaces the ack via an event.
 
 When pymavlink is missing (the ``[drone]`` optional dep was not
-installed) ``import server.mavlink_controller`` still succeeds; the
+installed) ``import gazebo_bridge.mavlink_controller`` still succeeds; the
 ImportError is deferred to ``connect()`` so unit tests that never
 connect can still import the module.
 """

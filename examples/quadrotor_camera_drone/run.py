@@ -568,7 +568,7 @@ def fly_takeoff_hover_land(takeoff_alt_m: float, hover_secs: float) -> None:
     will invoke the same code path once the recording prompt drives
     flight via ``motion.teleop_command``.
     """
-    from server.mavlink_controller import MavlinkController, MavlinkError
+    from gazebo_bridge.mavlink_controller import MavlinkController, MavlinkError
 
     _banner("Stage 5: Flight (arm → takeoff → hover → land)")
     ctrl = MavlinkController(udp_url="udp:127.0.0.1:14540")

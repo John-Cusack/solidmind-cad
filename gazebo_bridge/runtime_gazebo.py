@@ -193,7 +193,7 @@ class StubGazeboRuntime:
         mavlink_ctrl: Any | None = None
         if controller_type == "px4_offboard" and not self._px4.is_fake_mode():
             try:
-                from server.mavlink_controller import (
+                from gazebo_bridge.mavlink_controller import (
                     MavlinkController,
                     MavlinkError,
                 )

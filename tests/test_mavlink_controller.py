@@ -1,4 +1,4 @@
-"""Unit tests for ``server.mavlink_controller.MavlinkController``.
+"""Unit tests for ``gazebo_bridge.mavlink_controller.MavlinkController``.
 
 Tests stub the pymavlink connection via the ``connect_factory`` injection
 seam so they run without a real PX4.  E2E tests against a live PX4
@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 from typing import Any
 from unittest.mock import MagicMock
 
-from server.mavlink_controller import (
+from gazebo_bridge.mavlink_controller import (
     MavlinkController,
     MavlinkError,
 )
