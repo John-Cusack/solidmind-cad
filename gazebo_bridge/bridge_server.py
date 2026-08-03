@@ -25,7 +25,10 @@ _BRIDGE_VERSION = "0.2.0"
 # an entry (capability honesty, contract §2).
 _CAPABILITIES: dict[str, Any] = {
     "modes": ["batch", "teleop"],  # simulate / teleop_*
-    "formats": ["sdf", "urdf"],  # spawn_model + simulate accept both
+    # 'package' is the canonical input: the bridge compiles manifest.json into
+    # SDF itself (gazebo_bridge/package_to_sdf.py).  sdf/urdf remain accepted
+    # for direct, user-supplied model files.
+    "formats": ["package", "sdf", "urdf"],
     "features": ["diagnose", "spawn_model", "px4"],
     "fields": {"emits": [], "accepts": []},  # no field producer yet (contract §8)
 }

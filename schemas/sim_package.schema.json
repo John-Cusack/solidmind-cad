@@ -141,6 +141,13 @@
         "direction": {"type": "string", "enum": ["ccw", "cw"]},
         "max_thrust_N": {"type": "number", "minimum": 0},
         "moment_constant": {"type": "number"},
+        "motor_constant": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Thrust coefficient k in F = k·ω² (N·s²)"
+        },
+        "max_rot_velocity_rad_s": {"type": "number", "exclusiveMinimum": 0},
+        "min_rot_velocity_rad_s": {"type": "number", "minimum": 0},
         "stiffness": {"type": "number", "minimum": 0},
         "damping": {"type": "number", "minimum": 0}
       },

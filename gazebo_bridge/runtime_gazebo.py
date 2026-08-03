@@ -51,6 +51,53 @@ def _normalize_world_name(args: dict[str, Any], default: str) -> str:
     return world_name
 
 
+def compile_package(args: dict[str, Any]) -> dict[str, Any] | None:
+    """Compile ``args['package_path']`` into SDF, or return None if absent.
+
+    This is the dialect inversion in one function: core ships a neutral
+    package, and Gazebo's SDF — motor plugins and all — is produced here, at
+    load time, by the engine that consumes it.
+    """
+    package_path = str(args.get("package_path", "")).strip()
+    if not package_path:
+        return None
+
+    from gazebo_bridge.package_to_sdf import SdfCompileError, compile_and_validate
+
+    try:
+        compiled = compile_and_validate(package_path)
+    except SdfCompileError as exc:
+        raise GazeboRuntimeError(str(exc), code=exc.code) from exc
+
+    logger.info(
+        "Compiled sim package %s -> %s (drone_mode=%s)",
+        package_path,
+        compiled["sdf_path"],
+        compiled["drone_mode"],
+    )
+
+    # PX4 airframe params are another vendor artifact derived from the same
+    # manifest.  Opt-in via ``px4``; ``register_airframe=False`` returns the
+    # script instead of installing it.
+    if args.get("px4"):
+        from gazebo_bridge.px4_airframe import AirframeGeneratorError, generate_from_package
+
+        try:
+            compiled.update(
+                generate_from_package(
+                    package_path,
+                    install_path=args.get("px4_install_path"),
+                    register=bool(args.get("register_airframe", True)),
+                )
+            )
+        except AirframeGeneratorError as exc:
+            compiled["airframe_error"] = {
+                "code": exc.code or "AIRFRAME_GENERATION_FAILED",
+                "message": str(exc),
+            }
+    return compiled
+
+
 def _resolve_model_path(args: dict[str, Any]) -> tuple[str, str]:
     sdf_path = str(args.get("sdf_path", "")).strip()
     urdf_path = str(args.get("urdf_path", "")).strip()
@@ -66,7 +113,7 @@ def _resolve_model_path(args: dict[str, Any]) -> tuple[str, str]:
         )
         return explicit, fmt
     raise GazeboRuntimeError(
-        "spawn_model requires sdf_path, urdf_path, or path.",
+        "spawn_model requires package_path, sdf_path, urdf_path, or path.",
         code="GAZEBO_SPAWN_FAILED",
     )
 
@@ -102,7 +149,12 @@ class StubGazeboRuntime:
         }
 
     def handle_spawn_model(self, args: dict[str, Any]) -> dict[str, Any]:
-        path_str, fmt = _resolve_model_path(args)
+        compiled = compile_package(args)
+        if compiled is not None:
+            path_str, fmt = compiled["sdf_path"], "package"
+        else:
+            path_str, fmt = _resolve_model_path(args)
+
         path = Path(path_str)
         if not path.exists():
             raise GazeboRuntimeError(
@@ -112,7 +164,7 @@ class StubGazeboRuntime:
         self._entity_counter += 1
         model_name = str(args.get("model_name", "")).strip() or path.stem
         world_name = _normalize_world_name(args, self._world_name)
-        return {
+        result = {
             "spawned": True,
             "entity_id": self._entity_counter,
             "model_name": model_name,
@@ -120,8 +172,25 @@ class StubGazeboRuntime:
             "source_path": str(path),
             "source_format": fmt,
         }
+        if compiled is not None:
+            # Surface what the bridge produced from the package: the SDF it
+            # compiled, its validation findings, and any PX4 artifact.
+            result["compiled_from_package"] = str(args.get("package_path"))
+            for key, value in compiled.items():
+                if key in ("sdf_path", "model_name", "drone_mode"):
+                    continue
+                if key == "findings":
+                    if value:
+                        result["sdf_validation"] = value
+                    continue
+                result[key] = value
+        return result
 
     def handle_simulate(self, args: dict[str, Any]) -> dict[str, Any]:
+        # A package is compiled up front even in stub mode: ingesting the
+        # canonical package is part of the contract, and failing here is how
+        # a malformed package surfaces as PACKAGE_INVALID.
+        compiled = compile_package(args)
         duration_s = float(args.get("duration_s", 1.0))
         dt_s = float(args.get("dt_s", 0.01))
         output_interval = float(args.get("output_interval", 0.05))
@@ -152,18 +221,22 @@ class StubGazeboRuntime:
         for _i, jid in enumerate(joint_ids):
             peak_joint_forces[jid] = 5.0  # stub steady-state effort
 
-        return {
-            "time_series": time_series,
-            "summary": {
-                "simulation_time_s": duration_s,
-                "dt_s": dt_s,
-                "output_interval": output_interval,
-                "steady_state_speeds": {pid: 120.0 for pid in part_ids},
-                "peak_joint_forces": peak_joint_forces,
-                "engine_mode": "stub",
-                "world_name": world_name,
-            },
+        summary: dict[str, Any] = {
+            "simulation_time_s": duration_s,
+            "dt_s": dt_s,
+            "output_interval": output_interval,
+            "steady_state_speeds": {pid: 120.0 for pid in part_ids},
+            "peak_joint_forces": peak_joint_forces,
+            "engine_mode": "stub",
+            "world_name": world_name,
         }
+        if compiled is not None:
+            summary["sdf_path"] = compiled["sdf_path"]
+            summary["model_name"] = compiled["model_name"]
+            if compiled["findings"]:
+                summary["sdf_validation"] = compiled["findings"]
+
+        return {"time_series": time_series, "summary": summary}
 
     def handle_teleop_start(self, args: dict[str, Any]) -> dict[str, Any]:
         profile = args.get("profile", {})
@@ -224,7 +297,18 @@ class StubGazeboRuntime:
             if isinstance(controller, Px4OffboardController):
                 controller.attach_mavlink(mavlink_ctrl)
 
-        model_name = str(args.get("model_name", "")).strip() or f"model_{session_id[-4:]}"
+        # Teleop sessions accept a package too; the compiled SDF is what the
+        # session carries from here on.
+        compiled = compile_package(args)
+        sdf_path = (
+            compiled["sdf_path"]
+            if compiled is not None
+            else (str(args.get("sdf_path")) if args.get("sdf_path") is not None else None)
+        )
+
+        model_name = str(args.get("model_name", "")).strip() or (
+            compiled["model_name"] if compiled is not None else f"model_{session_id[-4:]}"
+        )
         world_name = _normalize_world_name(args, self._world_name)
         session = GazeboSession(
             session_id=session_id,
@@ -235,7 +319,7 @@ class StubGazeboRuntime:
             model_name=model_name,
             entity_id=int(args.get("entity_id", 0)) or None,
             urdf_path=(str(args.get("urdf_path")) if args.get("urdf_path") is not None else None),
-            sdf_path=(str(args.get("sdf_path")) if args.get("sdf_path") is not None else None),
+            sdf_path=sdf_path,
             controller_type=controller_type,
             status="running",
         )
@@ -433,16 +517,27 @@ class RealGazeboRuntime(StubGazeboRuntime):
                 code="GAZEBO_NOT_CONNECTED",
             )
 
-        source_path = str(args.get("sdf_path", "") or args.get("urdf_path", "")).strip()
+        # A package is the preferred input: compile it here, then spawn the
+        # SDF this bridge just produced.
+        source_path = str(args.get("package_path", "")).strip()
+        source_key = "package_path"
+        if not source_path:
+            source_path = str(args.get("sdf_path", "") or args.get("urdf_path", "")).strip()
+            source_key = "sdf_path" if source_path.endswith(".sdf") else "urdf_path"
+
         if source_path:
             spawn_args: dict[str, Any] = {
                 "world_name": _normalize_world_name(args, self._world_name),
-                "model_name": str(args.get("model_name", "")).strip() or Path(source_path).stem,
+                source_key: source_path,
             }
-            if source_path.endswith(".sdf"):
-                spawn_args["sdf_path"] = source_path
-            else:
-                spawn_args["urdf_path"] = source_path
+            # Leave model_name unset for packages: spawn_model takes it from
+            # the compiled SDF's stem, which is the manifest's model name —
+            # the package directory is often named something else entirely.
+            explicit_name = str(args.get("model_name", "")).strip()
+            if explicit_name:
+                spawn_args["model_name"] = explicit_name
+            elif source_key != "package_path":
+                spawn_args["model_name"] = Path(source_path).stem
             spawned = self.handle_spawn_model(spawn_args)
         else:
             spawned = None

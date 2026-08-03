@@ -36,14 +36,7 @@ import math
 import os
 from typing import Any
 
-from server.sim_export import (
-    _DEFAULT_MAX_ROT_VELOCITY,
-    _DEFAULT_MOMENT_CONSTANT,
-    _DEFAULT_MOTOR_CONSTANT,
-    SimJoint,
-    SimLink,
-    SimModel,
-)
+from server.sim_export import SimJoint, SimLink, SimModel
 
 __all__ = [
     "MANIFEST_FILENAME",
@@ -63,6 +56,14 @@ _MM_TO_M = 0.001
 _IDENTITY_QUAT = (1.0, 0.0, 0.0, 0.0)
 
 _SENSOR_TYPES = ("imu", "gps", "barometer", "magnetometer")
+
+# Physical rotor defaults, used when a drone config states only some of the
+# motor parameters.  These describe the rotor itself (thrust coefficient, yaw
+# torque ratio, maximum rate) — not any engine's plugin, whose tuning
+# parameters stay engine-side.
+_DEFAULT_MOTOR_CONSTANT = 8.54858e-06  # N·s²  (T = k·ω²)
+_DEFAULT_MOMENT_CONSTANT = 0.016  # τ_yaw / T
+_DEFAULT_MAX_ROT_VELOCITY = 1000.0  # rad/s
 
 
 def _generator() -> str:
@@ -339,6 +340,9 @@ def _actuators(
     ``max_thrust_N`` is the physical thrust at the rotor's maximum angular
     rate: for the ``k·ω²`` thrust model both Gazebo's motor plugin and the PX4
     airframe generator use, that is ``motor_constant * max_rot_velocity²``.
+    The coefficient and the rate are carried alongside it because the engine
+    compiles them into its own motor model and mixer parameters, and ``k`` and
+    ``ω`` are not recoverable from the product alone.
     """
     if not drone_config:
         return []
@@ -366,7 +370,12 @@ def _actuators(
             "direction": _normalize_direction(rotor.get("direction", "ccw")),
             "max_thrust_N": motor_constant * max_rot_velocity * max_rot_velocity,
             "moment_constant": float(rotor.get("moment_constant", _DEFAULT_MOMENT_CONSTANT)),
+            "motor_constant": motor_constant,
+            "max_rot_velocity_rad_s": max_rot_velocity,
         }
+        min_rot_velocity = rotor.get("min_rot_velocity", rotor.get("min_rot_velocity_rad_s"))
+        if min_rot_velocity is not None:
+            entry["min_rot_velocity_rad_s"] = float(min_rot_velocity)
         if link_name:
             entry["link"] = link_name
             if link_name in poses:
