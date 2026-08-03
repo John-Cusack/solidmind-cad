@@ -74,5 +74,5 @@ finishes green in ~5 minutes, the recording session is unblocked.
 - [`README.md`](README.md) — operator-facing run instructions for `run.py`
 - [`docs/px4_integration.md`](../../docs/px4_integration.md) — the
   verified PX4 v1.17 takeoff sequence the bridge uses
-- [`server/px4_airframe_generator.py`](../../server/px4_airframe_generator.py)
-  — the airframe-from-geometry generator
+- [`gazebo_bridge/px4_airframe.py`](../../gazebo_bridge/px4_airframe.py)
+  — the airframe-from-package generator

@@ -1319,9 +1319,11 @@ def _cad_tool_list() -> list[dict[str, Any]]:
         {
             "name": "cad.export_sim_package",
             "description": (
-                "Export all (or specified) bodies as individual meshes + optionally generate URDF from mechanism. "
-                "One MCP call that exports each body as a separate mesh file with its placement, "
-                "and generates a URDF file if a mechanism_id is provided. Ready for Isaac Sim import."
+                "Export a canonical sim package: per-body meshes + manifest.json (+ URDF when a "
+                "mechanism_id is given). One MCP call that exports each body as a separate mesh "
+                "file with its placement and writes the manifest every simulation engine reads. "
+                "Pass the output_dir to motion.simulate as package_path — engines compile their "
+                "own native format (Gazebo SDF, PX4 airframe params) from the package."
             ),
             "inputSchema": {
                 "type": "object",
@@ -1340,30 +1342,18 @@ def _cad_tool_list() -> list[dict[str, Any]]:
                         "type": "string",
                         "description": "Mechanism handle from motion.define_mechanism — triggers URDF generation",
                     },
-                    "emit_sdf": {
-                        "type": "boolean",
-                        "default": False,
-                        "description": (
-                            "When mechanism_id is provided, also emit an SDF artifact beside URDF. "
-                            "Recommended for Gazebo-native drone simulation."
-                        ),
-                    },
                     "drone_config": {
                         "type": "object",
                         "description": (
-                            "Optional drone configuration. When present alongside emit_sdf=true, the "
-                            "SDF embeds a canonical Gazebo MulticopterMotorModel plugin per rotor and "
-                            "(by default) IMU/GPS/baro/magnetometer sensors on the root link. Keys:\n"
+                            "Optional drone configuration. Its rotors and sensors become abstract "
+                            "actuators/sensors entries in manifest.json; the engine compiles them "
+                            "into its own motor model and autopilot params at load time. Keys:\n"
                             "  rotors: list of {index, joint, direction ('ccw'|'cw'), [link, "
-                            "position_m, motor_constant, max_rot_velocity, moment_constant]}\n"
+                            "position_m, motor_constant, max_rot_velocity, min_rot_velocity, "
+                            "moment_constant]}\n"
                             "  sensors: bool (default True) or fine-grained dict\n"
-                            "  px4: bool — when True, also generates a PX4 airframe params script "
-                            "(see server.px4_airframe_generator). Result includes airframe_id and "
-                            "airframe_path.\n"
-                            "  register_airframe: bool (default True when px4=True) — drop the script "
-                            "into the PX4 install dir.\n"
-                            "  px4_install_path: optional override for the PX4 directory "
-                            "(defaults to SOLIDMIND_PX4_INSTALL or ~/repos/PX4-Autopilot)."
+                            "PX4 airframe params are generated bridge-side: pass px4=true to "
+                            "motion.simulate/motion.teleop_start alongside package_path."
                         ),
                     },
                     "ground_clearance_m": {
@@ -3381,11 +3371,28 @@ def _motion_tool_list() -> list[dict[str, Any]]:
                             "Enables physics-based articulation simulation with Isaac."
                         ),
                     },
+                    "package_path": {
+                        "type": "string",
+                        "description": (
+                            "Path to the sim package directory from cad.export_sim_package "
+                            "(the one containing manifest.json). Preferred input for Gazebo: "
+                            "the bridge compiles its own SDF from it at load time."
+                        ),
+                    },
                     "sdf_path": {
                         "type": "string",
                         "description": (
-                            "Path to SDF file from cad.export_sim_package(emit_sdf=true). "
-                            "For Gazebo backend, provide urdf_path or sdf_path (sdf preferred)."
+                            "Path to a hand-written SDF file. Prefer package_path; this is for "
+                            "models core did not produce."
+                        ),
+                    },
+                    "px4": {
+                        "type": "boolean",
+                        "default": False,
+                        "description": (
+                            "Gazebo backend: generate and register a PX4 airframe init script "
+                            "from the package. Requires package_path. PX4 must be rebuilt for a "
+                            "new airframe to be selectable via PX4_SIM_MODEL."
                         ),
                     },
                     "import_config": {
@@ -3453,11 +3460,18 @@ def _motion_tool_list() -> list[dict[str, Any]]:
                             "Enables physics-based articulation teleop with Isaac."
                         ),
                     },
+                    "package_path": {
+                        "type": "string",
+                        "description": (
+                            "Path to the sim package directory from cad.export_sim_package. "
+                            "Preferred input for Gazebo teleop."
+                        ),
+                    },
                     "sdf_path": {
                         "type": "string",
                         "description": (
-                            "Path to SDF file from cad.export_sim_package(emit_sdf=true). "
-                            "For Gazebo backend, provide urdf_path or sdf_path."
+                            "Path to a hand-written SDF file. Prefer package_path; this is for "
+                            "models core did not produce."
                         ),
                     },
                     "import_config": {

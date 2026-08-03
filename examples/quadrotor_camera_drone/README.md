@@ -15,30 +15,39 @@ There are now **two** ways to get a drone airframe into PX4 SITL:
 
 ### Recommended for new drones: `MulticopterAirframe` spec
 
-Describe the drone as a typed dataclass and let the spec emit the
-SimModel + SDF + PX4 airframe params directly.  No FreeCAD doc
-required — useful for tests, parameter sweeps, and any drone where
-the CAD geometry is purely cosmetic (the rotor visuals don't change
-flight behaviour; PX4 reads CA_ROTOR positions and the SDF motor
-plugin reads `motorConstant × ω²`).
+Describe the drone as a typed dataclass, let the spec emit the SimModel and
+the canonical package, and let the Gazebo bridge compile the SDF and PX4
+airframe params from that package.  No FreeCAD doc required — useful for
+tests, parameter sweeps, and any drone where the CAD geometry is purely
+cosmetic (the rotor visuals don't change flight behaviour; PX4 reads
+CA_ROTOR positions and the SDF motor plugin reads `motorConstant × ω²`).
 
 ```python
+from gazebo_bridge.package_to_sdf import compile_package_to_sdf
+from gazebo_bridge.px4_airframe import generate_from_package
 from server.airframes.presets import cinema_drone
-from server.sim_export import write_sdf
-from server.px4_airframe_generator import register_airframe
+from server.sim_package_manifest import build_manifest, write_manifest
 
 af = cinema_drone()              # 5.7 kg X-quad with payload + battery
-sim_model = af.to_sim_model()    # SimModel with chassis + 4 rotor links
-write_sdf(sim_model, "/tmp/cinema_drone.sdf", drone_config={
-    "rotors": [
-        {"index": i, "joint": f"{r.name}_joint",
-         "direction": r.direction, "link": r.name}
-        for i, r in enumerate(af.rotors)
-    ],
-    "sensors": True,
-})
-register_airframe(af.to_px4_airframe_params())
+pkg_dir = "/tmp/cinema_drone"
+
+# Core side: one neutral package (manifest + meshes).
+manifest = build_manifest(
+    name=af.name,
+    output_dir=pkg_dir,
+    sim_model=af.to_sim_model(),   # chassis + 4 rotor links
+    drone_config=af.to_drone_config(),
+)
+write_manifest(manifest, pkg_dir)
+
+# Engine side: Gazebo's dialect, compiled from the package.
+compile_package_to_sdf(pkg_dir)
+generate_from_package(pkg_dir)     # writes the PX4 airframe init script
 ```
+
+In a normal session you never call the bridge functions directly —
+`motion.simulate(backend="gazebo", package_path=..., px4=True)` does it for
+you when the bridge loads the model.
 
 The spec collapses what used to be three loose inputs (`mechanism +
 drone_config + manifest`) into one typed object.  Inertia, hover
@@ -51,8 +60,8 @@ battery's mass into the chassis link.
 Useful when you actually need to *draw* the drone in FreeCAD (e.g.
 for the demo recording where the LLM builds the chassis live).
 `run.py` walks through the legacy `motion.define_mechanism` +
-`cad.export_sim_package` API; both paths produce equivalent SDFs
-through the same `write_sdf` writer, so the underlying physics is
+`cad.export_sim_package` API; both paths produce equivalent packages
+compiled by the same bridge-side SDF compiler, so the underlying physics is
 identical.
 
 ## Prerequisites
@@ -163,7 +172,7 @@ hand-tuned.
 - [`docs/px4_integration.md`](../../docs/px4_integration.md) — full PX4
   integration architecture, the verified v1.17 takeoff sequence, and
   install runbook
-- [`server/px4_airframe_generator.py`](../../server/px4_airframe_generator.py)
+- [`gazebo_bridge/px4_airframe.py`](../../gazebo_bridge/px4_airframe.py)
   — the airframe params generator
 - [`examples/hexapod_robot/`](../hexapod_robot/) — sibling example
   exercising the orchestrator + URDF + Isaac Sim path (no PX4)

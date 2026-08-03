@@ -245,10 +245,17 @@ def _has_sim_path(path: str | None) -> bool:
     return bool(path and str(path).strip())
 
 
-def _validate_gazebo_sim_paths(urdf_path: str | None, sdf_path: str | None) -> str | None:
-    if _has_sim_path(urdf_path) or _has_sim_path(sdf_path):
+def _validate_gazebo_sim_paths(
+    urdf_path: str | None,
+    sdf_path: str | None,
+    package_path: str | None = None,
+) -> str | None:
+    if _has_sim_path(package_path) or _has_sim_path(urdf_path) or _has_sim_path(sdf_path):
         return None
-    return "Gazebo simulation requires at least one model path: provide urdf_path or sdf_path."
+    return (
+        "Gazebo simulation requires a model: provide package_path (preferred), "
+        "urdf_path, or sdf_path."
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1173,27 +1180,12 @@ def _simulate_with_chrono(
             unavailable_code="CHRONO_NOT_CONNECTED",
         )
 
-    # Build simulation spec (Python planner -> C++ executor)
-    from server.simulation_spec_builder import (
-        add_derived_speeds,
-        build_simulation_spec,
-        validate_simulation_spec,
-    )
-
-    spec = build_simulation_spec(mech)
-
-    # Pre-flight: catch referential integrity issues before the C++ round-trip.
-    spec_issues = validate_simulation_spec(spec)
-    if spec_issues:
-        return _error_result(
-            "SIMULATION_SPEC_INVALID",
-            "Simulation spec failed pre-flight validation:\n"
-            + "\n".join(f"  - {issue}" for issue in spec_issues),
-        )
-
+    # Core sends the neutral mechanism; the chrono bridge compiles it into
+    # Chrono's native simulation spec on its own side of the boundary
+    # (architecture doc, Principle 3).
     try:
         result = client.simulate(
-            simulation_spec=spec,
+            mechanism=mech.to_dict(),
             duration_s=duration_s,
             dt_s=dt_s,
             output_interval=output_interval,
@@ -1205,10 +1197,10 @@ def _simulate_with_chrono(
     except Exception as exc:
         return _error_result("CHRONO_ERROR", str(exc))
 
-    # Post-process: compute derived planet speeds from sun/carrier.
-    add_derived_speeds(result, spec)
+    # Derived planet speeds are computed engine-side, along with the spec
+    # they fall out of.
 
-    # Surface C++ build warnings.
+    # Surface engine build warnings.
     build_warnings = result.pop("warnings", [])
 
     # Post-flight: detect zero-motion (all steady-state speeds are zero).
@@ -1254,19 +1246,21 @@ def _simulate_with_gazebo(
     profile: dict[str, Any],
     urdf_path: str | None = None,
     sdf_path: str | None = None,
+    package_path: str | None = None,
+    px4: bool = False,
     import_config: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Run batch simulation via the optional Gazebo sidecar (single-call)."""
-    model_path_error = _validate_gazebo_sim_paths(urdf_path, sdf_path)
+    model_path_error = _validate_gazebo_sim_paths(urdf_path, sdf_path, package_path)
     if model_path_error is not None:
         return _error_result("INVALID_INPUT", model_path_error)
 
-    preflight = (
-        _run_sdf_preflight(sdf_path) if _has_sim_path(sdf_path) else _run_urdf_preflight(urdf_path)
-    )
+    # SDF is compiled and validated engine-side now; core only pre-flights the
+    # URDF it wrote itself.
+    preflight = None if _has_sim_path(package_path) else _run_urdf_preflight(urdf_path)
     if preflight and preflight["blockers"]:
         return _error_result(
-            "URDF_VALIDATION_FAILED" if not _has_sim_path(sdf_path) else "SDF_VALIDATION_FAILED",
+            "URDF_VALIDATION_FAILED",
             f"Model pre-flight found {len(preflight['blockers'])} blocker(s): "
             + "; ".join(b["message"] for b in preflight["blockers"]),
         )
@@ -1281,6 +1275,8 @@ def _simulate_with_gazebo(
         profile=profile,
         urdf_path=urdf_path,
         sdf_path=sdf_path,
+        package_path=package_path,
+        px4=px4,
         import_config=import_config,
     )
     if not result.get("ok", False):
@@ -1296,7 +1292,7 @@ def _simulate_with_gazebo(
     result["backend_used"] = "gazebo"
     result["mode_used"] = "batch"
     if preflight:
-        result["urdf_validation" if not _has_sim_path(sdf_path) else "sdf_validation"] = preflight
+        result["urdf_validation"] = preflight
 
     # Extract peak joint forces from Gazebo time series if present
     ts = result.get("time_series", [])
@@ -1384,38 +1380,6 @@ def _run_urdf_preflight(urdf_path: str | None) -> dict[str, Any] | None:
         "warnings": warnings,
         "notes": notes,
     }
-
-
-def _run_sdf_preflight(sdf_path: str | None) -> dict[str, Any] | None:
-    """Run SDF structural validation if a path is provided."""
-    if sdf_path is None:
-        return None
-    if not os.path.isfile(sdf_path):
-        return None
-
-    try:
-        from server.models import Severity
-        from server.sim_export import validate_sdf
-    except ImportError:
-        log.debug("sim_export.validate_sdf not available, skipping preflight")
-        return None
-
-    try:
-        findings = validate_sdf(sdf_path)
-    except Exception as exc:
-        log.warning("SDF preflight validation failed: %s", exc)
-        return None
-
-    if not findings:
-        return None
-
-    blockers = [f.to_dict() for f in findings if f.severity == Severity.BLOCK]
-    warnings = [f.to_dict() for f in findings if f.severity == Severity.WARN]
-    notes = [f.to_dict() for f in findings if f.severity == Severity.NOTE]
-
-    if not blockers and not warnings and not notes:
-        return None
-    return {"blockers": blockers, "warnings": warnings, "notes": notes}
 
 
 def _simulate_with_isaac(
@@ -1558,6 +1522,8 @@ def motion_simulate(
     profile: dict[str, Any] | None = None,
     urdf_path: str | None = None,
     sdf_path: str | None = None,
+    package_path: str | None = None,
+    px4: bool = False,
     import_config: dict[str, Any] | None = None,
     verify: bool = True,
     capture: list[str] | None = None,
@@ -1616,7 +1582,7 @@ def motion_simulate(
             f"mode='teleop' is only supported with backends {sorted(_TELEOP_BACKENDS)}",
         )
     if selected_backend == "gazebo":
-        path_error = _validate_gazebo_sim_paths(urdf_path, sdf_path)
+        path_error = _validate_gazebo_sim_paths(urdf_path, sdf_path, package_path)
         if path_error is not None:
             return _error_result("INVALID_INPUT", path_error)
 
@@ -1627,6 +1593,8 @@ def motion_simulate(
             profile=profile or {},
             urdf_path=urdf_path,
             sdf_path=sdf_path,
+            package_path=package_path,
+            px4=px4,
             import_config=import_config,
         )
     elif selected_backend == "chrono":
@@ -1645,6 +1613,8 @@ def motion_simulate(
             profile=profile or {},
             urdf_path=urdf_path,
             sdf_path=sdf_path,
+            package_path=package_path,
+            px4=px4,
             import_config=import_config,
         )
     else:
@@ -1711,8 +1681,9 @@ def motion_verify_sim_package(
     except Exception as exc:
         log.warning("Could not get model tree for verify: %s", exc)
 
-    # Stage 3: Get Isaac scene state (if requested)
-    isaac_diagnose: dict[str, Any] | None = None
+    # Stage 3: Ask the engine for its scene report (normalized by contract,
+    # so the comparison downstream is engine-agnostic).
+    diagnose: dict[str, Any] | None = None
     if check_isaac:
         try:
             from server.isaac_client import get_client as get_isaac_client
@@ -1724,15 +1695,15 @@ def motion_verify_sim_package(
                     prim_path=prim_path or "/",
                 )
                 if isinstance(diag_result, dict):
-                    isaac_diagnose = diag_result
+                    diagnose = diag_result
         except Exception as exc:
-            log.warning("Could not get Isaac diagnose for verify: %s", exc)
+            log.warning("Could not get engine diagnose for verify: %s", exc)
 
     result = verify_sim_package(
         mechanism=mech,
         model_tree_bodies=model_tree_bodies,
         urdf_path=urdf_path,
-        isaac_diagnose=isaac_diagnose,
+        diagnose=diagnose,
     )
 
     return {"ok": True, **result}
@@ -1934,6 +1905,8 @@ def motion_teleop_start(
     profile: dict[str, Any] | None = None,
     urdf_path: str | None = None,
     sdf_path: str | None = None,
+    package_path: str | None = None,
+    px4: bool = False,
     import_config: dict[str, Any] | None = None,
     verify: bool = True,
 ) -> dict[str, Any]:
@@ -2006,7 +1979,7 @@ def motion_teleop_start(
             import_config = {**(import_config or {}), "robot_type": "mobile"}
 
     if selected_backend == "gazebo":
-        path_error = _validate_gazebo_sim_paths(urdf_path, sdf_path)
+        path_error = _validate_gazebo_sim_paths(urdf_path, sdf_path, package_path)
         if path_error is not None:
             return _error_result("INVALID_INPUT", path_error)
 
@@ -2022,12 +1995,12 @@ def motion_teleop_start(
                 ),
             )
 
-    preflight = (
-        _run_sdf_preflight(sdf_path) if _has_sim_path(sdf_path) else _run_urdf_preflight(urdf_path)
-    )
+    # SDF is compiled and validated engine-side; core pre-flights only its
+    # own URDF.
+    preflight = None if _has_sim_path(package_path) else _run_urdf_preflight(urdf_path)
     if preflight and preflight["blockers"]:
         return _error_result(
-            "URDF_VALIDATION_FAILED" if not _has_sim_path(sdf_path) else "SDF_VALIDATION_FAILED",
+            "URDF_VALIDATION_FAILED",
             f"Model pre-flight found {len(preflight['blockers'])} blocker(s): "
             + "; ".join(b["message"] for b in preflight["blockers"]),
         )
@@ -2040,6 +2013,8 @@ def motion_teleop_start(
             profile=profile_obj,
             urdf_path=urdf_path,
             sdf_path=sdf_path,
+            package_path=package_path,
+            px4=px4,
             import_config=import_config,
             verify=verify,
         )
@@ -2087,7 +2062,7 @@ def motion_teleop_start(
     }
     # Include URDF pre-flight findings (non-blocker warnings/notes)
     if preflight:
-        response["urdf_validation" if not _has_sim_path(sdf_path) else "sdf_validation"] = preflight
+        response["urdf_validation"] = preflight
     return response
 
 

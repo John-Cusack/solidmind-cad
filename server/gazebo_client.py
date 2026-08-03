@@ -235,6 +235,8 @@ class GazeboClient:
         profile: dict[str, Any] | None = None,
         urdf_path: str | None = None,
         sdf_path: str | None = None,
+        package_path: str | None = None,
+        px4: bool = False,
         import_config: dict[str, Any] | None = None,
         world_name: str | None = None,
     ) -> dict[str, Any]:
@@ -250,6 +252,10 @@ class GazeboClient:
             kwargs["urdf_path"] = urdf_path
         if sdf_path is not None:
             kwargs["sdf_path"] = sdf_path
+        if package_path is not None:
+            kwargs["package_path"] = package_path
+        if px4:
+            kwargs["px4"] = True
         if import_config is not None:
             kwargs["import_config"] = import_config
         if world_name is not None:
@@ -266,6 +272,8 @@ class GazeboClient:
         profile: dict[str, Any] | None = None,
         urdf_path: str | None = None,
         sdf_path: str | None = None,
+        package_path: str | None = None,
+        px4: bool = False,
         import_config: dict[str, Any] | None = None,
         verify: bool = True,
         world_name: str | None = None,
@@ -280,6 +288,10 @@ class GazeboClient:
             kwargs["urdf_path"] = urdf_path
         if sdf_path is not None:
             kwargs["sdf_path"] = sdf_path
+        if package_path is not None:
+            kwargs["package_path"] = package_path
+        if px4:
+            kwargs["px4"] = True
         if import_config is not None:
             kwargs["import_config"] = import_config
         if world_name is not None:
@@ -292,9 +304,10 @@ class GazeboClient:
         model_name: str | None = None,
         urdf_path: str | None = None,
         sdf_path: str | None = None,
+        package_path: str | None = None,
         world_name: str | None = None,
     ) -> dict[str, Any]:
-        """Spawn a URDF/SDF model into a Gazebo world."""
+        """Spawn a model into a Gazebo world from a package, URDF, or SDF."""
         kwargs: dict[str, Any] = {}
         if model_name is not None:
             kwargs["model_name"] = model_name
@@ -302,6 +315,8 @@ class GazeboClient:
             kwargs["urdf_path"] = urdf_path
         if sdf_path is not None:
             kwargs["sdf_path"] = sdf_path
+        if package_path is not None:
+            kwargs["package_path"] = package_path
         if world_name is not None:
             kwargs["world_name"] = world_name
         return self.send_command("spawn_model", **kwargs)

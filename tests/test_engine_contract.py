@@ -97,7 +97,7 @@ class TestHelloHandshake(unittest.TestCase):
 
         caps = result["capabilities"]
         self.assertEqual(caps["modes"], ["batch", "teleop"])
-        self.assertEqual(caps["formats"], ["sdf", "urdf"])
+        self.assertEqual(caps["formats"], ["package", "sdf", "urdf"])
         self.assertEqual(caps["features"], ["diagnose", "spawn_model", "px4"])
         self.assertEqual(caps["fields"], {"emits": [], "accepts": []})
 

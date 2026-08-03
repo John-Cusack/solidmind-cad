@@ -48,6 +48,8 @@ def simulate(
     profile: dict[str, Any] | None = None,
     urdf_path: str | None = None,
     sdf_path: str | None = None,
+    package_path: str | None = None,
+    px4: bool = False,
     import_config: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Run batch simulation using the Gazebo bridge if available.
@@ -73,6 +75,8 @@ def simulate(
             profile=profile or {},
             urdf_path=urdf_path,
             sdf_path=sdf_path,
+            package_path=package_path,
+            px4=px4,
             import_config=import_config,
         )
     except GazeboConnectionError as exc:
@@ -95,6 +99,8 @@ def teleop_start(
     profile: dict[str, Any],
     urdf_path: str | None = None,
     sdf_path: str | None = None,
+    package_path: str | None = None,
+    px4: bool = False,
     import_config: dict[str, Any] | None = None,
     verify: bool = True,
 ) -> dict[str, Any]:
@@ -115,6 +121,8 @@ def teleop_start(
             profile=profile,
             urdf_path=urdf_path,
             sdf_path=sdf_path,
+            package_path=package_path,
+            px4=px4,
             import_config=import_config,
             verify=verify,
         )

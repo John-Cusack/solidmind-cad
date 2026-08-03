@@ -237,7 +237,7 @@ class TestFreecadToAirframeIntegration(unittest.TestCase):
                 0.0,
                 "CA_ROTOR0_PY (FRD) must be positive — rotor_FR sits at "
                 "front-right, which is +Y in FRD body frame.  If this is "
-                "negative or zero, extract_rotors() is missing the "
+                "negative or zero, rotors_from_manifest() is missing the "
                 "FLU→FRD conversion.",
             )
 

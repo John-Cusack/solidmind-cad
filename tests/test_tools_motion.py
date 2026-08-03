@@ -1018,12 +1018,12 @@ class TestSimulateBackendBehavior(TestMotionToolsBase):
         self.assertIn("chrono", choice_backends)
         self.assertIn("isaac", choice_backends)
 
-    def test_gazebo_requires_urdf_or_sdf_path(self):
+    def test_gazebo_requires_a_model_path(self):
         mid = self._make_mechanism()
         result = motion_simulate(mid, backend="gazebo")
         self.assertFalse(result["ok"])
         self.assertEqual(result["error"]["code"], "INVALID_INPUT")
-        self.assertIn("urdf_path or sdf_path", result["error"]["message"])
+        self.assertIn("package_path", result["error"]["message"])
 
     def test_gazebo_accepts_sdf_path_only(self):
         from unittest.mock import patch
@@ -1457,12 +1457,12 @@ class TestTeleopTools(TestMotionToolsBase):
         self.assertTrue(result["ok"])
         isaac_cmd.assert_called_once()
 
-    def test_gazebo_teleop_requires_urdf_or_sdf_path(self):
+    def test_gazebo_teleop_requires_a_model_path(self):
         mid = self._make_mechanism()
         result = motion_teleop_start(mid, backend="gazebo")
         self.assertFalse(result["ok"])
         self.assertEqual(result["error"]["code"], "INVALID_INPUT")
-        self.assertIn("urdf_path or sdf_path", result["error"]["message"])
+        self.assertIn("package_path", result["error"]["message"])
 
     def test_gazebo_teleop_rejects_invalid_controller_type(self):
         mid = self._make_mechanism()

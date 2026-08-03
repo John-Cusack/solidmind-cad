@@ -8,7 +8,7 @@ all four motors via ``gz topic --pub`` to the
 ``gz.msgs.Actuators`` command topic, and asserts the drone has risen
 under thrust.
 
-This test deliberately bypasses ``server.sim_export.write_sdf``'s
+This test deliberately bypasses ``gazebo_bridge.package_to_sdf``'s
 ``drone_config`` path because that path currently emits a non-canonical
 plugin block (single plugin with multiple ``<rotor>`` children rather
 than one plugin per rotor with the required gz schema). Fixing the
