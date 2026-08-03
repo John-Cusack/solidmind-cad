@@ -1,11 +1,11 @@
 """Reusable Isaac Sim lifecycle manager.
 
-Wraps ``BridgeServer`` + ``IsaacClient`` into a single entry point for
+Wraps ``BridgeServer`` + ``BridgeClient`` into a single entry point for
 both tests and scripts.  Handles:
 
 - BridgeServer startup in a background thread
 - Ephemeral port binding (port=0)
-- IsaacClient connection with retry
+- BridgeClient connection with retry
 - Clean shutdown (disconnect → server shutdown → thread join)
 - Context manager support (``with IsaacLifecycle(...) as lc:``)
 """
@@ -17,7 +17,7 @@ import threading
 import time
 from typing import Any
 
-from server.isaac_client import IsaacClient
+from isaac_bridge.client import BridgeClient
 
 logger = logging.getLogger("solidmind.isaac_lifecycle")
 
@@ -52,7 +52,7 @@ class IsaacLifecycle:
         self._host = host
         self._port = port
         self._server: Any = None  # BridgeServer instance
-        self._client: IsaacClient | None = None
+        self._client: BridgeClient | None = None
         self._bridge_thread: threading.Thread | None = None
         self._pump_thread: threading.Thread | None = None
         self._started = False
@@ -65,8 +65,8 @@ class IsaacLifecycle:
         return self._port
 
     @property
-    def client(self) -> IsaacClient:
-        """The connected ``IsaacClient`` (available after ``start()``)."""
+    def client(self) -> BridgeClient:
+        """The connected ``BridgeClient`` (available after ``start()``)."""
         if self._client is None:
             raise RuntimeError("IsaacLifecycle not started — call start() first")
         return self._client
@@ -125,7 +125,7 @@ class IsaacLifecycle:
             raise RuntimeError(f"Bridge server did not bind within {timeout}s")
 
         # Connect client
-        self._client = IsaacClient(host=self._host, port=actual_port)
+        self._client = BridgeClient(host=self._host, port=actual_port)
         client_deadline = deadline  # reuse remaining time
         last_exc: Exception | None = None
         while time.monotonic() < client_deadline:
