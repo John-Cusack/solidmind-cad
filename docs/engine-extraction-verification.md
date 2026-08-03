@@ -74,16 +74,18 @@ It has **not** been run against real Isaac on this branch.
 
 **Status: verified, and enforced two ways.**
 
-- In core: `tests/test_import_boundaries.py` statically scans every engine
-  package for `server.*` imports — module level or nested — and finds none.
+- In core: `tests/test_import_boundaries.py` now asserts the stronger thing —
+  no engine package is present in core at all — and still scans for `server.*`
+  imports if one reappears mid-migration.
 - In each split repo: a generated `tests/test_import_boundary.py` does the
   same from the other side, and runs in that repo's CI.
 - `scripts/verify_engine_repos.sh` runs each repo's suite from its own
   directory with core off the path: isaac 75 tests, gazebo 68, chrono 5, rl 4.
 
 Tests that still reach into core are filed in each repo's
-`tests/needs_porting/` (11 modules total) with a note on what to swap them
-to. Core keeps its copies until they are ported.
+`tests/needs_porting/` with a note on what to swap them to. Core no longer
+holds copies: the engine-only suites moved with their engines, and core's own
+tests use the reference engine as their fixture.
 
 ## 6. Wheel ships no engine code
 
@@ -95,10 +97,11 @@ package it found. `tests/test_split_acceptance.py::TestWheelShipsNoEngineCode`
 asserts every engine package is excluded, none is included, and core's own
 packages still are.
 
-Checked at configuration level deliberately: it holds in a working checkout
-where the engine directories are still present, and building a wheel needs
-Rust plus several minutes. **A built-wheel inspection has not been run**; the
-first `maturin build` after the engines are removed should confirm it.
+Checked at configuration level: building a wheel needs Rust plus several
+minutes, and the config is what decides the contents. With the engines now
+removed from core there is nothing left to leak either way — but **a
+built-wheel inspection has still not been run**, and the next `maturin build`
+should confirm it.
 
 ## 7. No vendor names in core control flow; guidance is generated
 
