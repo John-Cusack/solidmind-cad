@@ -75,6 +75,27 @@ and this project aims to follow [Semantic Versioning](https://semver.org/).
   and no module-level core→engine import.
 
 ### Added
+- **The engine repositories exist.** `scripts/split_engines.sh` cuts
+  `solidmind-engine-isaac`, `solidmind-engine-gazebo`,
+  `solidmind-engine-chrono` and `solidmind-rl` out of core with
+  `git subtree split`, so each keeps the commits that touched its own files
+  rather than arriving as a squashed import. Every repo gets packaging for its
+  *own* interpreter, a README, CI (own tests + import guard + TCK), and a
+  vendored copy of the conformance kit. `scripts/verify_engine_repos.sh` proves
+  the claim rather than asserting it: each repo's tests run from its own
+  directory with core nowhere on the path, and the Isaac and Gazebo bridges
+  answer the TCK as conformant standalone. Step 6 of
+  `docs/engine-integration-architecture.md` §7.
+- **`docs/engines.md`** — the curated engine list and the four-step guide to
+  adding your own (implement four verbs, read two formats, pass the TCK, drop a
+  descriptor).
+- **Core still holds its copies.** `scripts/remove_engines_from_core.sh` is
+  written and dry-runnable but deliberately not run: until the sibling repos are
+  pushed somewhere durable, core's copies are the only ones that exist off this
+  machine. Tests that import `server.*` are filed in each repo's
+  `tests/needs_porting/` with a note on what to swap them to — enumerated work,
+  excluded from discovery so CI stays green.
+
 - **Reference engine + TCK — conformance is now runnable.** `reference_engine/`
   is core's own implementation of the contract: pure Python, no install, with
   analytic physics (gear-ratio propagation, pendulum period, free fall) so it

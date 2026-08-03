@@ -408,6 +408,13 @@ Estimated 2–3 weeks focused. Each step below becomes one implementation prompt
 6. **The split.** `git subtree split` each of `isaac_bridge/`, `gazebo_bridge/`,
    `chrono_daemon/`, `rl_training/` into sibling repos with history; per-repo CI (TCK +
    own tests + import guard); default descriptors in core; engine tests leave core.
+   **— done, minus publication:** `scripts/split_engines.sh` builds
+   `solidmind-engine-{isaac,gazebo,chrono}` and `solidmind-rl` with per-package history,
+   scaffolding, vendored TCK and import guards; `scripts/verify_engine_repos.sh` proves
+   each stands alone (own tests green, TCK conformant, no `server.*` on the path).
+   Core still holds its copies: `scripts/remove_engines_from_core.sh` is the deliberate
+   last step, to be run only once the siblings are pushed. Tests that reach into core
+   land in each repo's `tests/needs_porting/` — enumerated work, not lost coverage.
 7. **Verification.** Wheel contains no engine code (maturin contents — currently
    unverified); hexapod pipeline e2e (export → Isaac → RL config) across the split
    layout; `rl.*` tools drive solidmind-rl via the CLI parity path
