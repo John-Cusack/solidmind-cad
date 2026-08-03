@@ -354,177 +354,147 @@ def verify_mechanism_vs_urdf(
 # ── Stage 3: URDF vs Isaac USD scene ────────────────────────────
 
 
-def verify_urdf_vs_isaac(
+def verify_urdf_vs_diagnose(
     urdf_path: str,
-    isaac_diagnose: dict[str, Any],
+    diagnose: dict[str, Any],
 ) -> list[Finding]:
-    """Compare URDF expectations against Isaac's actual scene state.
+    """Compare a URDF against an engine's normalized ``diagnose`` report.
 
-    ``isaac_diagnose`` is the result from the bridge's ``diagnose`` command.
+    One check for every engine: ``diagnose`` results are normalized by the
+    contract (generic joint-type counts, DOF, per-joint connectivity), so
+    nothing here knows which engine produced them
+    (``docs/engine-contract.md`` §3.2).
+
+    Findings are advisory — an engine legitimately merges fixed joints, so
+    only *missing* actuated joints and disconnected/undriven ones are flagged.
     """
     findings: list[Finding] = []
 
-    if isaac_diagnose.get("error"):
+    if diagnose.get("error"):
         findings.append(
             Finding(
-                rule_id="isaac_diagnose_error",
+                rule_id="diagnose_error",
                 severity=Severity.BLOCK,
-                message=f"Isaac diagnose failed: {isaac_diagnose['error']}",
-                field="isaac",
+                message=f"Engine diagnose failed: {diagnose['error']}",
+                field="diagnose",
             )
         )
         return findings
 
-    # Parse URDF for expected counts
     if not os.path.isfile(urdf_path):
         return findings
-
     try:
         tree = ET.parse(urdf_path)
     except ET.ParseError:
         return findings
 
     root = tree.getroot()
-    [el.get("name", "") for el in root.findall("link") if el.get("name")]
     urdf_joints_el = root.findall("joint")
     urdf_revolute = sum(1 for j in urdf_joints_el if j.get("type") == "revolute")
-    urdf_prismatic = sum(1 for j in urdf_joints_el if j.get("type") == "prismatic")
-    sum(1 for j in urdf_joints_el if j.get("type") == "fixed")
     urdf_continuous = sum(1 for j in urdf_joints_el if j.get("type") == "continuous")
+    urdf_prismatic = sum(1 for j in urdf_joints_el if j.get("type") == "prismatic")
     urdf_total_joints = len(urdf_joints_el)
 
-    # Isaac scene counts
-    type_counts = isaac_diagnose.get("type_counts", {})
-    isaac_revolute = type_counts.get("PhysicsRevoluteJoint", 0)
-    isaac_prismatic = type_counts.get("PhysicsPrismaticJoint", 0)
-    type_counts.get("PhysicsFixedJoint", 0)
-    isaac_total_joints = sum(
-        type_counts.get(t, 0)
-        for t in (
-            "PhysicsRevoluteJoint",
-            "PhysicsPrismaticJoint",
-            "PhysicsFixedJoint",
-            "PhysicsSphericalJoint",
-            "PhysicsDistanceJoint",
-            "PhysicsJoint",
-        )
-    )
+    joint_counts = diagnose.get("joint_counts", {})
+    engine_total = int(diagnose.get("joint_total", sum(joint_counts.values())))
+    engine_revolute = int(joint_counts.get("revolute", 0))
+    engine_prismatic = int(joint_counts.get("prismatic", 0))
 
-    # --- Joint count comparison ---
-    if isaac_total_joints < urdf_total_joints:
+    if engine_total < urdf_total_joints:
         findings.append(
             Finding(
-                rule_id="isaac_joint_count_low",
+                rule_id="diagnose_joint_count_low",
                 severity=Severity.WARN,
                 message=(
-                    f"Isaac has {isaac_total_joints} joints but URDF defines "
-                    f"{urdf_total_joints}. Isaac may have silently dropped joints."
+                    f"Engine reports {engine_total} joints but the URDF defines "
+                    f"{urdf_total_joints}. Joints may have been silently dropped."
                 ),
-                field="isaac.joints",
+                field="diagnose.joints",
             )
         )
 
-    # --- Joint type breakdown ---
-    # Revolute: URDF revolute + continuous → Isaac revolute
+    # URDF's continuous joints are revolute-without-limits everywhere else.
     urdf_revolute_like = urdf_revolute + urdf_continuous
-    if isaac_revolute < urdf_revolute_like:
+    if engine_revolute < urdf_revolute_like:
         findings.append(
             Finding(
-                rule_id="isaac_revolute_count_low",
+                rule_id="diagnose_revolute_count_low",
                 severity=Severity.WARN,
                 message=(
-                    f"Isaac has {isaac_revolute} revolute joints but URDF defines "
-                    f"{urdf_revolute_like} (revolute={urdf_revolute}, "
+                    f"Engine reports {engine_revolute} revolute joints but the URDF "
+                    f"defines {urdf_revolute_like} (revolute={urdf_revolute}, "
                     f"continuous={urdf_continuous}). "
-                    f"Some revolute joints may not have imported correctly."
+                    "Some revolute joints may not have imported correctly."
                 ),
-                field="isaac.joints.revolute",
+                field="diagnose.joints.revolute",
             )
         )
 
-    if isaac_prismatic < urdf_prismatic:
+    if engine_prismatic < urdf_prismatic:
         findings.append(
             Finding(
-                rule_id="isaac_prismatic_count_low",
+                rule_id="diagnose_prismatic_count_low",
                 severity=Severity.WARN,
                 message=(
-                    f"Isaac has {isaac_prismatic} prismatic joints but URDF defines "
-                    f"{urdf_prismatic}."
+                    f"Engine reports {engine_prismatic} prismatic joints but the URDF "
+                    f"defines {urdf_prismatic}."
                 ),
-                field="isaac.joints.prismatic",
+                field="diagnose.joints.prismatic",
             )
         )
 
-    # --- Articulation DOF check ---
-    art_info = isaac_diagnose.get("articulation_info")
-    if art_info:
-        dof_count = art_info.get("dof_count", 0)
-        dof_names = art_info.get("dof_names", [])
-        # Actuated joints = revolute + prismatic + continuous (not fixed)
-        urdf_actuated = urdf_revolute + urdf_prismatic + urdf_continuous
+    urdf_actuated = urdf_revolute + urdf_continuous + urdf_prismatic
+    if "dof_count" in diagnose:
+        dof_count = int(diagnose["dof_count"])
         if dof_count < urdf_actuated:
             findings.append(
                 Finding(
-                    rule_id="isaac_dof_count_low",
+                    rule_id="diagnose_dof_count_low",
                     severity=Severity.WARN,
                     message=(
-                        f"Isaac articulation has {dof_count} DOFs but URDF defines "
+                        f"Engine reports {dof_count} DOFs but the URDF defines "
                         f"{urdf_actuated} actuated joints. "
-                        f"DOF names: {dof_names}"
+                        f"DOF names: {diagnose.get('dof_names', [])}"
                     ),
-                    field="isaac.articulation.dof",
+                    field="diagnose.dof",
                 )
             )
     else:
         findings.append(
             Finding(
-                rule_id="isaac_no_articulation",
+                rule_id="diagnose_no_dof_report",
                 severity=Severity.NOTE,
-                message="No articulation root found in Isaac scene.",
-                field="isaac.articulation",
+                message="Engine reported no articulation DOF information.",
+                field="diagnose.dof",
             )
         )
 
-    # --- Per-joint detail checks ---
-    joint_details = isaac_diagnose.get("joint_details", [])
-    for jd in joint_details:
-        jpath = jd.get("path", "")
-        jtype = jd.get("type", "")
-
-        # Check body0/body1 targets exist
-        for body_key in ("physics_body0", "physics_body1"):
-            targets = jd.get(body_key, [])
-            if not targets:
-                findings.append(
-                    Finding(
-                        rule_id="isaac_joint_missing_body_target",
-                        severity=Severity.WARN,
-                        message=(
-                            f"Joint '{jpath}' has no {body_key.replace('_', ':')} "
-                            f"target — joint may be disconnected."
-                        ),
-                        field=f"isaac.joint.{jpath}",
-                    )
+    for joint in diagnose.get("joints", []):
+        name = joint.get("name", "?")
+        if joint.get("connected") is False:
+            findings.append(
+                Finding(
+                    rule_id="diagnose_joint_disconnected",
+                    severity=Severity.WARN,
+                    message=(
+                        f"Joint '{name}' is missing a body target — it will have "
+                        "no effect in the simulation."
+                    ),
+                    field=f"diagnose.joint.{name}",
                 )
-
-        # Check that drives are configured (stiffness > 0 for position drive)
-        if jtype in ("PhysicsRevoluteJoint", "PhysicsPrismaticJoint"):
-            drive_ns = "angular" if jtype == "PhysicsRevoluteJoint" else "linear"
-            stiffness = jd.get(f"drive_{drive_ns}_stiffness")
-            damping = jd.get(f"drive_{drive_ns}_damping")
-            if stiffness is not None and damping is not None:
-                if stiffness == 0 and damping == 0:
-                    findings.append(
-                        Finding(
-                            rule_id="isaac_joint_no_drive",
-                            severity=Severity.WARN,
-                            message=(
-                                f"Joint '{jpath}' has stiffness=0 and damping=0 — "
-                                f"joint has no actuation force."
-                            ),
-                            field=f"isaac.joint.{jpath}.drive",
-                        )
-                    )
+            )
+        if joint.get("type") in ("revolute", "prismatic") and joint.get("has_drive") is False:
+            findings.append(
+                Finding(
+                    rule_id="diagnose_joint_no_drive",
+                    severity=Severity.WARN,
+                    message=(
+                        f"Joint '{name}' has no drive (stiffness and damping are "
+                        "both zero) — it has no actuation force."
+                    ),
+                    field=f"diagnose.joint.{name}.drive",
+                )
+            )
 
     return findings
 
@@ -536,7 +506,7 @@ def verify_sim_package(
     mechanism: Mechanism,
     model_tree_bodies: list[dict[str, Any]] | None = None,
     urdf_path: str | None = None,
-    isaac_diagnose: dict[str, Any] | None = None,
+    diagnose: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Run all available verification stages and return a combined report.
 
@@ -557,11 +527,11 @@ def verify_sim_package(
         all_findings.extend(stage2)
         stages_run.append("mechanism_vs_urdf")
 
-    # Stage 3: URDF vs Isaac
-    if urdf_path is not None and isaac_diagnose is not None:
-        stage3 = verify_urdf_vs_isaac(urdf_path, isaac_diagnose)
+    # Stage 3: URDF vs the engine's normalized diagnose report
+    if urdf_path is not None and diagnose is not None:
+        stage3 = verify_urdf_vs_diagnose(urdf_path, diagnose)
         all_findings.extend(stage3)
-        stages_run.append("urdf_vs_isaac")
+        stages_run.append("urdf_vs_diagnose")
 
     blockers = [f for f in all_findings if f.severity == Severity.BLOCK]
     warnings = [f for f in all_findings if f.severity == Severity.WARN]

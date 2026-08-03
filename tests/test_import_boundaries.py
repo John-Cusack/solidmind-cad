@@ -20,7 +20,7 @@ from pathlib import Path
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 
 # Packages that leave core at split time.
-_ENGINE_PACKAGES = ("gazebo_bridge", "isaac_bridge", "rl_training")
+_ENGINE_PACKAGES = ("chrono_bridge", "gazebo_bridge", "isaac_bridge", "rl_training")
 
 # Core packages an engine package may never import.
 _FORBIDDEN_ROOTS = ("server",)

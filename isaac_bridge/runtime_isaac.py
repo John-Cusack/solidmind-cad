@@ -21,6 +21,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from isaac_bridge.controllers import clamp_targets, create_controller
+from isaac_bridge.diagnose_normalize import normalize_diagnose
 from isaac_bridge.models import (
     SUPPORTED_JOINT_TYPES,
     SimulationSession,
@@ -1915,6 +1916,16 @@ class IsaacRuntime:
             }
             if articulation_info:
                 result["articulation"] = articulation_info
+            # Contract-normalized view — generic joint counts, DOF and
+            # connectivity.  Core reads this; the USD detail above is for
+            # humans (docs/engine-contract.md §3.2).
+            result.update(
+                normalize_diagnose(
+                    type_counts=type_counts,
+                    joint_details=joint_details,
+                    articulation=articulation_info,
+                )
+            )
             return result
 
         return main_thread_dispatcher.submit(_do_diagnose)
