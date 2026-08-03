@@ -57,10 +57,10 @@ class TestFixedWingStub(unittest.TestCase):
         with self.assertRaises(NotImplementedError):
             af.to_sim_model()
 
-    def test_to_px4_airframe_params_raises_not_implemented(self) -> None:
+    def test_to_drone_config_raises_not_implemented(self) -> None:
         af = self._make()
         with self.assertRaises(NotImplementedError):
-            af.to_px4_airframe_params()
+            af.to_drone_config()
 
 
 if __name__ == "__main__":

@@ -1,12 +1,12 @@
-"""Parameterized PX4 airframe generator for FreeCAD-built drones.
+"""Parameterized PX4 airframe generator, driven by the canonical sim package.
 
-Phase 4 of the PX4 SITL platform.  Takes a ``SimModel`` plus the
-``drone_config["rotors"]`` list (per-rotor body-frame X/Y plus
-turning direction) and produces a PX4 airframe init shell script
-that can be dropped into ``ROMFS/px4fmu_common/init.d-posix/airframes/``
-to give the drone its own ``SYS_AUTOSTART`` ID with motor allocation
-matrix, hover throttle, and seeded PID gains derived from the
-geometry.
+A PX4 airframe init script is a vendor artifact through and through, so it is
+emitted here — inside the Gazebo engine — from the neutral package core wrote
+(architecture doc, Principle 3).  The input is ``manifest.json``: rotor
+actuators supply position, spin direction and motor constants; link masses
+supply the total mass.  Out comes the shell script PX4 reads at boot, with the
+motor allocation matrix, hover throttle, and PID gains seeded from geometry,
+ready to drop into ``ROMFS/px4fmu_common/init.d-posix/airframes/``.
 
 The generator is split into three concerns:
 
@@ -59,6 +59,7 @@ _X500_HOVER_THROTTLE = 0.60
 _DEFAULT_MOTOR_CONSTANT = 8.54858e-06  # N*s²
 _DEFAULT_MOMENT_CONSTANT = 0.05  # ratio (yaw torque / thrust)
 _DEFAULT_MAX_ROT_VELOCITY = 1000.0  # rad/s
+_DEFAULT_MIN_ROT_VELOCITY = 150.0  # rad/s — PX4's idle motor command
 
 _GRAVITY_MS2 = 9.81
 
@@ -166,102 +167,111 @@ def _normalize_direction(value: Any) -> int:
     return 1
 
 
-def extract_rotors(
-    drone_config: dict[str, Any],
-    sim_model: Any | None = None,
-) -> tuple[RotorParams, ...]:
-    """Build PX4 ``RotorParams`` from the ``drone_config["rotors"]`` list.
+def _root_pose(
+    manifest: dict[str, Any],
+) -> tuple[tuple[float, float, float], tuple[float, float, float, float]]:
+    """World pose of the model's root link — the body frame's origin."""
+    links = manifest.get("links") or []
+    root = next((lk for lk in links if lk.get("is_root")), None)
+    if root is None:
+        children = {j.get("child") for j in manifest.get("joints") or []}
+        root = next((lk for lk in links if lk.get("name") not in children), None)
+    if root is None:
+        return (0.0, 0.0, 0.0), (1.0, 0.0, 0.0, 0.0)
+    pose = root.get("world_pose") or {}
+    xyz = pose.get("xyz_m", [0.0, 0.0, 0.0])
+    quat = pose.get("quat_wxyz", [1.0, 0.0, 0.0, 0.0])
+    return (
+        (float(xyz[0]), float(xyz[1]), float(xyz[2])),
+        (float(quat[0]), float(quat[1]), float(quat[2]), float(quat[3])),
+    )
 
-    Rotor positions are read from the rotor entry's ``position_m`` field
-    (preferred), or computed from the linked link's placement in
-    ``sim_model``.  When neither is available, raises.
+
+def _to_body_frame(
+    position_m: Any,
+    root_xyz: tuple[float, float, float],
+    root_quat: tuple[float, float, float, float],
+) -> tuple[float, float, float]:
+    """Express a world-frame point in the root link's frame."""
+    dx = float(position_m[0]) - root_xyz[0]
+    dy = float(position_m[1]) - root_xyz[1]
+    dz = (float(position_m[2]) if len(position_m) > 2 else 0.0) - root_xyz[2]
+
+    # Rotate by the inverse (conjugate) of the root quaternion.
+    w, x, y, z = root_quat[0], -root_quat[1], -root_quat[2], -root_quat[3]
+    tx = 2.0 * (y * dz - z * dy)
+    ty = 2.0 * (z * dx - x * dz)
+    tz = 2.0 * (x * dy - y * dx)
+    return (
+        dx + w * tx + (y * tz - z * ty),
+        dy + w * ty + (z * tx - x * tz),
+        dz + w * tz + (x * ty - y * tx),
+    )
+
+
+def rotors_from_manifest(manifest: dict[str, Any]) -> tuple[RotorParams, ...]:
+    """Build PX4 ``RotorParams`` from the package manifest's rotor actuators.
 
     Frame convention
     ----------------
-    Input ``position_m`` is in **Gazebo FLU body frame** (X forward,
-    Y left, Z up) — the same convention used by SDF ``<pose>`` and by
-    :class:`server.airframes.multicopter.Rotor`.  PX4's CA_ROTOR
-    parameters are in **FRD body frame** (Y right, Z down), so this
-    function negates Y and Z when emitting :class:`RotorParams`.  An
-    FLU rotor at (0.13, -0.22, +0.06) becomes CA_ROTOR with
-    PX=0.13, PY=+0.22, PZ=-0.06 — matching PX4's stock x500 layout.
+    Manifest ``position_m`` is a world-frame point in the **FLU** convention
+    (X forward, Y left, Z up) — the same frame SDF ``<pose>`` uses.  It is
+    first expressed relative to the root link (the body frame), then converted
+    to PX4's **FRD** body frame by negating Y and Z.  An FLU rotor at
+    (0.13, -0.22, +0.06) becomes CA_ROTOR PX=0.13, PY=+0.22, PZ=-0.06 —
+    matching PX4's stock x500 layout.
 
-    Without this conversion the mixer's moment-arm matrix is the
-    mirror of the physical drone, the allocator can't solve for
-    pure-thrust takeoff, and motor outputs saturate to zero — the
-    drone arms but never lifts.
-
-    Direction is normalized to ±1 (PX4 convention).  Per-rotor motor
-    parameters (``motor_constant``, ``max_rot_velocity``) are inherited
-    from the drone_config entry if provided, else use canonical defaults
-    matching ``server.sim_export``'s SDF emission.
+    Without that conversion the mixer's moment-arm matrix is the mirror of the
+    physical drone: the allocator cannot solve for pure-thrust takeoff, motor
+    outputs saturate to zero, and the drone arms but never lifts.
     """
-    rotor_entries = drone_config.get("rotors") or []
-    if not isinstance(rotor_entries, list) or not rotor_entries:
+    actuators = [
+        a
+        for a in (manifest.get("actuators") or [])
+        if isinstance(a, dict) and a.get("type") == "rotor"
+    ]
+    if not actuators:
         raise AirframeGeneratorError(
-            "drone_config['rotors'] must be a non-empty list",
+            "manifest declares no rotor actuators",
             code="NO_ROTORS",
         )
 
-    link_position_lookup: dict[str, tuple[float, float, float]] = {}
-    if sim_model is not None:
-        for link in getattr(sim_model, "links", []):
-            # SimLink positions are in mm; convert to meters here.
-            pos = getattr(link, "position", None)
-            if pos is None:
-                continue
-            link_position_lookup[link.name] = (
-                float(pos[0]) / 1000.0,
-                float(pos[1]) / 1000.0,
-                float(pos[2]) / 1000.0,
-            )
-
-    joint_to_child: dict[str, str] = {}
-    if sim_model is not None:
-        for joint in getattr(sim_model, "joints", []):
-            joint_to_child[joint.name] = joint.child
+    root_xyz, root_quat = _root_pose(manifest)
 
     out: list[RotorParams] = []
-    for idx, entry in enumerate(rotor_entries):
-        if not isinstance(entry, dict):
-            continue
-
-        # Body-frame position: preferred via explicit position_m;
-        # fallback via SimModel link lookup.
-        pos_m = entry.get("position_m") or entry.get("position")
-        if pos_m is None:
-            joint_name = str(entry.get("joint", ""))
-            link_name = entry.get("link") or joint_to_child.get(joint_name)
-            if link_name and link_name in link_position_lookup:
-                pos_m = link_position_lookup[link_name]
-        if pos_m is None:
+    for idx, entry in enumerate(actuators):
+        position_m = entry.get("position_m")
+        if position_m is None:
             raise AirframeGeneratorError(
-                f"rotor {idx}: cannot resolve position. Provide "
-                "'position_m' or supply a SimModel that contains the "
-                "rotor's child link.",
+                f"rotor {idx}: manifest actuator has no position_m",
                 code="ROTOR_POSITION_MISSING",
             )
+        bx, by, bz = _to_body_frame(position_m, root_xyz, root_quat)
 
-        # FLU (drone_config / SDF) → FRD (PX4 CA_ROTOR): negate Y, Z.
-        px = float(pos_m[0])
-        py = -float(pos_m[1])
-        pz = -float(pos_m[2]) if len(pos_m) > 2 else 0.0
+        max_rot_velocity = float(
+            entry.get("max_rot_velocity_rad_s", _DEFAULT_MAX_ROT_VELOCITY),
+        )
+        motor_constant = entry.get("motor_constant")
+        if motor_constant is None:
+            # F = k·ω²  →  k = F / ω², when only the abstract thrust is given.
+            max_thrust = entry.get("max_thrust_N")
+            motor_constant = (
+                float(max_thrust) / (max_rot_velocity**2)
+                if max_thrust and max_rot_velocity > 0
+                else _DEFAULT_MOTOR_CONSTANT
+            )
 
         out.append(
             RotorParams(
-                px_m=px,
-                py_m=py,
-                pz_m=pz,
+                px_m=bx,
+                py_m=-by,  # FLU → FRD
+                pz_m=-bz,
                 direction=_normalize_direction(entry.get("direction", "ccw")),
                 moment_constant=float(
                     entry.get("moment_constant", _DEFAULT_MOMENT_CONSTANT),
                 ),
-                motor_constant=float(
-                    entry.get("motor_constant", _DEFAULT_MOTOR_CONSTANT),
-                ),
-                max_rot_velocity=float(
-                    entry.get("max_rot_velocity", _DEFAULT_MAX_ROT_VELOCITY),
-                ),
+                motor_constant=float(motor_constant),
+                max_rot_velocity=max_rot_velocity,
             )
         )
 
@@ -284,16 +294,16 @@ def compute_arm_length(rotors: tuple[RotorParams, ...]) -> float:
     return sum(radii) / len(radii)
 
 
-def compute_total_mass(sim_model: Any) -> float:
-    """Sum of ``link.mass_kg`` across the ``SimModel``."""
+def compute_total_mass(manifest: dict[str, Any]) -> float:
+    """Sum of ``links[].mass_kg`` across the package manifest."""
     total = 0.0
-    for link in getattr(sim_model, "links", []):
-        m = getattr(link, "mass_kg", None)
-        if m is not None:
-            total += float(m)
+    for link in manifest.get("links") or []:
+        mass = link.get("mass_kg")
+        if mass is not None:
+            total += float(mass)
     if total <= 0.0:
         raise AirframeGeneratorError(
-            "SimModel has no mass — every link should set mass_kg",
+            "manifest has no mass — every link should declare mass_kg",
             code="NO_MASS",
         )
     return total
@@ -423,29 +433,22 @@ def seed_pid_gains(
 def generate_airframe_params(
     *,
     model_name: str,
-    sim_model: Any | None = None,
-    drone_config: dict[str, Any],
+    manifest: dict[str, Any],
     mass_kg_override: float | None = None,
 ) -> AirframeParams:
-    """Produce a populated ``AirframeParams`` from sim model + config.
+    """Produce a populated ``AirframeParams`` from a package manifest.
 
-    ``model_name`` is the human-readable identifier — used both for the
-    airframe filename and the stable SYS_AUTOSTART hash.  ``sim_model``
-    supplies mass; can be omitted if ``mass_kg_override`` is given (e.g.
-    in tests where SimModel is too heavy to construct).
+    ``model_name`` is the human-readable identifier — used for both the
+    airframe filename and the stable SYS_AUTOSTART hash.  Mass comes from the
+    manifest's link masses unless ``mass_kg_override`` is given.
     """
-    rotors = extract_rotors(drone_config, sim_model=sim_model)
+    rotors = rotors_from_manifest(manifest)
     arm_length = compute_arm_length(rotors)
 
     if mass_kg_override is not None:
         mass_kg = float(mass_kg_override)
     else:
-        if sim_model is None:
-            raise AirframeGeneratorError(
-                "either sim_model or mass_kg_override required",
-                code="NO_MASS_SOURCE",
-            )
-        mass_kg = compute_total_mass(sim_model)
+        mass_kg = compute_total_mass(manifest)
 
     hover = compute_hover_throttle(mass_kg, rotors)
     pid = seed_pid_gains(
@@ -455,6 +458,19 @@ def generate_airframe_params(
     )
     sys_autostart = compute_sys_autostart(model_name)
 
+    # SIM_GZ_EC_MIN/MAX bound the motor command range PX4 sends the motor
+    # model, so they must match the rotors the SDF was compiled with.
+    first_rotor = next(
+        (
+            a
+            for a in (manifest.get("actuators") or [])
+            if isinstance(a, dict) and a.get("type") == "rotor"
+        ),
+        {},
+    )
+    motor_min = int(float(first_rotor.get("min_rot_velocity_rad_s", _DEFAULT_MIN_ROT_VELOCITY)))
+    motor_max = int(rotors[0].max_rot_velocity)
+
     return AirframeParams(
         name=model_name,
         sys_autostart=sys_autostart,
@@ -462,6 +478,8 @@ def generate_airframe_params(
         mass_kg=mass_kg,
         arm_length_m=arm_length,
         hover_throttle=hover,
+        motor_min=motor_min,
+        motor_max=motor_max,
         mc_rollrate_p=pid["mc_rollrate_p"],
         mc_pitchrate_p=pid["mc_pitchrate_p"],
         mc_yawrate_p=pid["mc_yawrate_p"],
@@ -519,7 +537,7 @@ def format_airframe_init_script(params: AirframeParams) -> str:
 #
 # @type Multirotor
 #
-# Generated by server.px4_airframe_generator.
+# Generated by gazebo_bridge.px4_airframe.
 # SYS_AUTOSTART = {params.sys_autostart}
 # Mass = {params.mass_kg:.3f} kg, arm length = {params.arm_length_m:.3f} m,
 # rotor count = {params.rotor_count}, hover throttle = {params.hover_throttle:.3f}.
@@ -627,3 +645,41 @@ def register_airframe(
     out_path.write_text(content, encoding="utf-8")
     out_path.chmod(0o755)
     return out_path
+
+
+# ----------------------------------------------------------------------
+# Top-level: package → airframe
+# ----------------------------------------------------------------------
+
+
+def generate_from_package(
+    package_path: str,
+    *,
+    model_name: str | None = None,
+    install_path: Path | str | None = None,
+    register: bool = True,
+) -> dict[str, Any]:
+    """Derive a PX4 airframe from a sim package and optionally install it.
+
+    This is the entry point the bridge calls at load time when a request asks
+    for PX4.  With ``register=False`` the script is returned instead of
+    written, which is what an operator inspecting the output wants.
+    """
+    from gazebo_bridge.package_to_sdf import load_manifest
+
+    manifest, _package_dir = load_manifest(package_path)
+    name = model_name or str(manifest.get("name", "model"))
+    params = generate_airframe_params(model_name=name, manifest=manifest)
+
+    result: dict[str, Any] = {
+        "airframe_id": params.sys_autostart,
+        "airframe_name": params.name,
+        "airframe_mass_kg": params.mass_kg,
+        "airframe_arm_length_m": params.arm_length_m,
+        "airframe_hover_throttle": params.hover_throttle,
+    }
+    if register:
+        result["airframe_path"] = str(register_airframe(params, install_path=install_path))
+    else:
+        result["airframe_script"] = format_airframe_init_script(params)
+    return result

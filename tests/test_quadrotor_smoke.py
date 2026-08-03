@@ -4,7 +4,8 @@ This test would have caught every bug in the camera-drone debug session
 in one shot.  It:
 
 1. Builds a small :class:`MulticopterAirframe` literal (no FreeCAD doc).
-2. Generates the SDF + PX4 airframe init script via the new pipeline.
+2. Writes the canonical package, then compiles the SDF + PX4 airframe
+   init script engine-side from it.
 3. Deploys both to the PX4 install path.
 4. Launches PX4 SITL + Gazebo.
 5. Streams a GCS heartbeat over MAVLink.
@@ -74,35 +75,28 @@ class TestQuadrotorSmoke(unittest.TestCase):
         # MIS_TAKEOFF_ALT achievable in a short test window.
         af: MulticopterAirframe = x500_like(name="smoke_test_quad")
 
-        # 1. Sim model + SDF
-        sim_model = af.to_sim_model()
-        from server.sim_export import write_sdf
+        # 1. Canonical package (core's only output), then engine-side SDF.
+        from gazebo_bridge.package_to_sdf import compile_package_to_sdf
+        from server.sim_package_manifest import build_manifest, write_manifest
 
-        sdf_dir = self.px4 / "Tools" / "simulation" / "gz" / "models" / "smoke_test_quad"
-        sdf_dir.mkdir(parents=True, exist_ok=True)
-        sdf_path = sdf_dir / "model.sdf"
-        write_sdf(
-            sim_model,
-            str(sdf_path),
-            drone_config={
-                "rotors": [
-                    {
-                        "index": i,
-                        "joint": f"{r.name}_joint",
-                        "direction": r.direction,
-                        "link": r.name,
-                    }
-                    for i, r in enumerate(af.rotors)
-                ],
-                "sensors": True,
-            },
+        pkg_dir = self.px4 / "Tools" / "simulation" / "gz" / "models" / "smoke_test_quad"
+        pkg_dir.mkdir(parents=True, exist_ok=True)
+        manifest = build_manifest(
+            name=af.name,
+            output_dir=str(pkg_dir),
+            sim_model=af.to_sim_model(),
+            drone_config=af.to_drone_config(),
         )
-        # 2. Airframe init script
-        from server.px4_airframe_generator import (
-            register_airframe,
+        write_manifest(manifest, str(pkg_dir))
+        # PX4's gz model loader expects the file to be called model.sdf.
+        sdf_path = Path(
+            compile_package_to_sdf(str(pkg_dir), output_path=str(pkg_dir / "model.sdf"))
         )
 
-        params = af.to_px4_airframe_params()
+        # 2. Airframe init script — also compiled from the package.
+        from gazebo_bridge.px4_airframe import generate_airframe_params, register_airframe
+
+        params = generate_airframe_params(model_name=af.name, manifest=manifest)
         register_airframe(params, install_path=self.px4)
 
         # 3. Launch SITL — left as TODO for the operator: integrating

@@ -10,23 +10,21 @@ type-check against it.  When VTOL comes online, fill in:
 
 - :meth:`VTOLAirframe.to_sim_model` — combined kinematics (rotors +
   motor + control-surface joints).
-- :meth:`VTOLAirframe.to_px4_airframe_params` — ``CA_AIRFRAME``
-  selects between standard VTOL (11), tailsitter (10), tilt-rotor
-  (12), etc. depending on geometry.  Hover/trim throttles both come
-  out of the spec.
+- :meth:`VTOLAirframe.to_drone_config` — abstract rotor + control-
+  surface actuators for the package manifest; the engine derives
+  ``CA_AIRFRAME`` (10=tailsitter, 11=standard VTOL, 12=tiltrotor).
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from server.airframes import SensorPack, StructuralBody
 from server.airframes.fixed_wing import ControlSurface, Motor, Wing
 from server.airframes.multicopter import Rotor
 
 if TYPE_CHECKING:
-    from server.px4_airframe_generator import AirframeParams
     from server.sim_export import SimModel
 
 
@@ -58,11 +56,10 @@ class VTOLAirframe:
             "surfaces under one chassis."
         )
 
-    def to_px4_airframe_params(self) -> AirframeParams:
+    def to_drone_config(self) -> dict[str, Any]:
         raise NotImplementedError(
-            "VTOLAirframe.to_px4_airframe_params is a stub. CA_AIRFRAME "
-            "depends on geometry: 10=tailsitter, 11=standard VTOL, "
-            "12=tiltrotor."
+            "VTOLAirframe.to_drone_config is a stub. Rotor/control-surface "
+            "actuators need the same abstract spec multicopters emit."
         )
 
     def ca_airframe_id(self) -> int:

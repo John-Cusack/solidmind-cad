@@ -1,8 +1,10 @@
-"""Unit tests for ``server.px4_airframe_generator``.
+"""Unit tests for ``gazebo_bridge.px4_airframe``.
 
-Pure-math + file-format tests.  E2E tests that actually fly a SolidMind
-airframe under PX4 live in ``tests.test_px4_solidmind_drone_e2e``
-(Phase 4 verification, gated on PX4 build).
+The PX4 airframe script is a vendor artifact compiled engine-side from the
+canonical package, so these tests feed the generator manifests rather than
+core objects.  Pure-math + file-format tests; E2E tests that actually fly a
+SolidMind airframe under PX4 live in ``tests.test_px4_solidmind_drone_e2e``
+(gated on a PX4 build).
 """
 
 from __future__ import annotations
@@ -10,10 +12,9 @@ from __future__ import annotations
 import re
 import tempfile
 import unittest
-from dataclasses import dataclass, field
 from pathlib import Path
 
-from server.px4_airframe_generator import (
+from gazebo_bridge.px4_airframe import (
     _AUTOSTART_BASE,
     _AUTOSTART_RANGE,
     _X500_ARM_LENGTH_M,
@@ -24,10 +25,11 @@ from server.px4_airframe_generator import (
     compute_hover_throttle,
     compute_sys_autostart,
     compute_total_mass,
-    extract_rotors,
     format_airframe_init_script,
     generate_airframe_params,
+    generate_from_package,
     register_airframe,
+    rotors_from_manifest,
     seed_pid_gains,
 )
 
@@ -36,62 +38,66 @@ from server.px4_airframe_generator import (
 # ----------------------------------------------------------------------
 
 
-@dataclass
-class _FakeLink:
-    name: str
-    position: tuple[float, float, float]  # mm
-    mass_kg: float | None = None
-
-
-@dataclass
-class _FakeJoint:
-    name: str
-    parent: str
-    child: str
-
-
-@dataclass
-class _FakeSimModel:
-    links: list[_FakeLink] = field(default_factory=list)
-    joints: list[_FakeJoint] = field(default_factory=list)
-
-
-def _x500_like_drone_config() -> dict:
-    """drone_config matching the stock X500 layout (4 rotors).
-
-    Positions are in **Gazebo FLU body frame** (X forward, Y left,
-    Z up), matching the SDF ``<pose>`` convention.  ``extract_rotors``
-    converts these to PX4 FRD (negates Y, Z).  Stock x500 has rotor 0
-    at FRD (+0.13, +0.22), which is FLU (+0.13, -0.22).
-    """
-    return {
-        "rotors": [
-            {
-                "index": 0,
-                "joint": "rotor_0_joint",
-                "direction": "ccw",
-                "position_m": (0.13, -0.22, 0.0),
-            },
-            {
-                "index": 1,
-                "joint": "rotor_1_joint",
-                "direction": "ccw",
-                "position_m": (-0.13, 0.20, 0.0),
-            },
-            {
-                "index": 2,
-                "joint": "rotor_2_joint",
-                "direction": "cw",
-                "position_m": (0.13, 0.22, 0.0),
-            },
-            {
-                "index": 3,
-                "joint": "rotor_3_joint",
-                "direction": "cw",
-                "position_m": (-0.13, -0.20, 0.0),
-            },
-        ],
+def _link(name: str, xyz: tuple[float, float, float], mass_kg: float | None = None) -> dict:
+    link: dict = {
+        "name": name,
+        "world_pose": {"xyz_m": list(xyz), "quat_wxyz": [1.0, 0.0, 0.0, 0.0]},
     }
+    if mass_kg is not None:
+        link["mass_kg"] = mass_kg
+    return link
+
+
+def _rotor(index: int, xyz: tuple[float, float, float], direction: str, **extra) -> dict:
+    entry = {
+        "type": "rotor",
+        "name": f"rotor_{index}",
+        "index": index,
+        "joint": f"rotor_{index}_joint",
+        "link": f"rotor_{index}",
+        "position_m": list(xyz),
+        "direction": direction,
+    }
+    entry.update(extra)
+    return entry
+
+
+def _manifest(links: list[dict], actuators: list[dict], name: str = "test_quad") -> dict:
+    return {
+        "schema_version": "1.0.0",
+        "name": name,
+        "generator": "test",
+        "mode": "full",
+        "units": {"length": "m", "mass": "kg", "angle": "rad"},
+        "links": links,
+        "joints": [],
+        "actuators": actuators,
+    }
+
+
+def _x500_like_manifest(mass_kg: float | None = None) -> dict:
+    """Manifest matching the stock X500 layout (4 rotors).
+
+    Rotor positions are world-frame metres in the **Gazebo FLU** convention
+    (X forward, Y left, Z up), as the manifest always carries them.
+    ``rotors_from_manifest`` re-expresses them in the root link's frame and
+    converts to PX4 FRD (negating Y and Z).  Stock x500 has rotor 0 at FRD
+    (+0.13, +0.22), which is FLU (+0.13, -0.22).
+    """
+    positions = [
+        (0.13, -0.22, 0.0),
+        (-0.13, 0.20, 0.0),
+        (0.13, 0.22, 0.0),
+        (-0.13, -0.20, 0.0),
+    ]
+    directions = ["ccw", "ccw", "cw", "cw"]
+    links = [_link("base", (0.0, 0.0, 0.0), mass_kg)]
+    links[0]["is_root"] = True
+    links += [_link(f"rotor_{i}", pos) for i, pos in enumerate(positions)]
+    actuators = [
+        _rotor(i, pos, d) for i, (pos, d) in enumerate(zip(positions, directions, strict=True))
+    ]
+    return _manifest(links, actuators, name="x500_like")
 
 
 # ----------------------------------------------------------------------
@@ -130,85 +136,102 @@ class TestComputeSysAutostart(unittest.TestCase):
 # ----------------------------------------------------------------------
 
 
-class TestExtractRotors(unittest.TestCase):
-    def test_uses_explicit_position_m(self) -> None:
+class TestRotorsFromManifest(unittest.TestCase):
+    def test_reads_actuator_positions(self) -> None:
         # FLU input (0.13, -0.22, 0) → FRD output (0.13, +0.22, 0).
-        cfg = _x500_like_drone_config()
-        rotors = extract_rotors(cfg)
+        rotors = rotors_from_manifest(_x500_like_manifest())
         self.assertEqual(len(rotors), 4)
         self.assertAlmostEqual(rotors[0].px_m, 0.13)
         self.assertAlmostEqual(rotors[0].py_m, 0.22)
 
     def test_negates_y_and_z_for_flu_to_frd(self) -> None:
         """FLU input is converted to FRD: Y and Z negated, X unchanged."""
-        cfg = {
-            "rotors": [
-                {"joint": "j", "direction": "ccw", "position_m": (0.10, 0.20, 0.05)},
-            ],
-        }
-        rotors = extract_rotors(cfg)
+        manifest = _manifest(
+            [dict(_link("base", (0.0, 0.0, 0.0), 1.0), is_root=True)],
+            [_rotor(0, (0.10, 0.20, 0.05), "ccw")],
+        )
+        rotors = rotors_from_manifest(manifest)
         self.assertAlmostEqual(rotors[0].px_m, +0.10)
         self.assertAlmostEqual(rotors[0].py_m, -0.20)
         self.assertAlmostEqual(rotors[0].pz_m, -0.05)
 
+    def test_positions_are_relative_to_the_root_link(self) -> None:
+        """A chassis away from the origin still yields body-frame arms.
+
+        Manifest poses are world-frame; PX4's CA_ROTOR params are body-frame,
+        so the root link's position has to come out of them.
+        """
+        manifest = _manifest(
+            [dict(_link("base", (5.0, 5.0, 1.0), 1.0), is_root=True)],
+            [_rotor(0, (5.13, 4.78, 1.0), "ccw")],
+        )
+        rotors = rotors_from_manifest(manifest)
+        self.assertAlmostEqual(rotors[0].px_m, 0.13)
+        self.assertAlmostEqual(rotors[0].py_m, 0.22)
+        self.assertAlmostEqual(rotors[0].pz_m, 0.0)
+
     def test_normalizes_direction_to_plus_minus_one(self) -> None:
-        cfg = {
-            "rotors": [
-                {"joint": "j0", "direction": "ccw", "position_m": (0.1, 0.1)},
-                {"joint": "j1", "direction": "cw", "position_m": (-0.1, 0.1)},
-                {"joint": "j2", "direction": 1, "position_m": (0.1, -0.1)},
-                {"joint": "j3", "direction": -1, "position_m": (-0.1, -0.1)},
+        manifest = _manifest(
+            [dict(_link("base", (0.0, 0.0, 0.0), 1.0), is_root=True)],
+            [
+                _rotor(0, (0.1, 0.1, 0.0), "ccw"),
+                _rotor(1, (-0.1, 0.1, 0.0), "cw"),
+                _rotor(2, (0.1, -0.1, 0.0), 1),
+                _rotor(3, (-0.1, -0.1, 0.0), -1),
             ],
-        }
-        rotors = extract_rotors(cfg)
+        )
+        rotors = rotors_from_manifest(manifest)
         self.assertEqual([r.direction for r in rotors], [1, -1, 1, -1])
 
-    def test_falls_back_to_sim_model_link_position(self) -> None:
-        # SimLink positions are FLU mm; extract_rotors converts to FRD m.
-        sim = _FakeSimModel(
-            links=[
-                _FakeLink("base", (0.0, 0.0, 0.0)),
-                _FakeLink("rotor_fl", (130.0, -220.0, 0.0)),  # FLU mm
-            ],
-            joints=[_FakeJoint("rotor_fl_joint", "base", "rotor_fl")],
-        )
-        cfg = {
-            "rotors": [{"joint": "rotor_fl_joint", "direction": "ccw"}],
-        }
-        rotors = extract_rotors(cfg, sim_model=sim)
-        self.assertEqual(len(rotors), 1)
-        # FLU (130, -220, 0) mm → FRD (0.130, +0.220, 0) m.
-        self.assertAlmostEqual(rotors[0].px_m, 0.130)
-        self.assertAlmostEqual(rotors[0].py_m, 0.220)
-
     def test_missing_position_raises(self) -> None:
-        cfg = {"rotors": [{"joint": "j", "direction": "ccw"}]}
+        actuator = _rotor(0, (0.0, 0.0, 0.0), "ccw")
+        actuator.pop("position_m")
+        manifest = _manifest([dict(_link("base", (0.0, 0.0, 0.0), 1.0), is_root=True)], [actuator])
         with self.assertRaises(AirframeGeneratorError) as cm:
-            extract_rotors(cfg)
+            rotors_from_manifest(manifest)
         self.assertEqual(cm.exception.code, "ROTOR_POSITION_MISSING")
 
-    def test_empty_rotor_list_raises(self) -> None:
+    def test_no_rotor_actuators_raises(self) -> None:
+        manifest = _manifest([dict(_link("base", (0.0, 0.0, 0.0), 1.0), is_root=True)], [])
         with self.assertRaises(AirframeGeneratorError) as cm:
-            extract_rotors({"rotors": []})
+            rotors_from_manifest(manifest)
         self.assertEqual(cm.exception.code, "NO_ROTORS")
 
     def test_per_rotor_motor_overrides_propagate(self) -> None:
-        cfg = {
-            "rotors": [
-                {
-                    "joint": "j",
-                    "direction": "ccw",
-                    "position_m": (0.1, 0.1),
-                    "motor_constant": 1.5e-5,
-                    "max_rot_velocity": 1500.0,
-                    "moment_constant": 0.07,
-                }
+        manifest = _manifest(
+            [dict(_link("base", (0.0, 0.0, 0.0), 1.0), is_root=True)],
+            [
+                _rotor(
+                    0,
+                    (0.1, 0.1, 0.0),
+                    "ccw",
+                    motor_constant=1.5e-5,
+                    max_rot_velocity_rad_s=1500.0,
+                    moment_constant=0.07,
+                )
             ],
-        }
-        rotors = extract_rotors(cfg)
+        )
+        rotors = rotors_from_manifest(manifest)
         self.assertAlmostEqual(rotors[0].motor_constant, 1.5e-5)
         self.assertAlmostEqual(rotors[0].max_rot_velocity, 1500.0)
         self.assertAlmostEqual(rotors[0].moment_constant, 0.07)
+
+    def test_motor_constant_recovered_from_thrust(self) -> None:
+        """A producer that states only thrust still yields a usable k."""
+        manifest = _manifest(
+            [dict(_link("base", (0.0, 0.0, 0.0), 1.0), is_root=True)],
+            [
+                _rotor(
+                    0,
+                    (0.1, 0.1, 0.0),
+                    "ccw",
+                    max_thrust_N=10.0,
+                    max_rot_velocity_rad_s=1000.0,
+                )
+            ],
+        )
+        rotors = rotors_from_manifest(manifest)
+        self.assertAlmostEqual(rotors[0].motor_constant, 1e-05)
 
 
 # ----------------------------------------------------------------------
@@ -218,28 +241,29 @@ class TestExtractRotors(unittest.TestCase):
 
 class TestGeometryDerived(unittest.TestCase):
     def test_arm_length_x500_matches_reference(self) -> None:
-        rotors = extract_rotors(_x500_like_drone_config())
+        rotors = rotors_from_manifest(_x500_like_manifest())
         arm = compute_arm_length(rotors)
         self.assertAlmostEqual(arm, _X500_ARM_LENGTH_M, places=2)
 
     def test_total_mass_sums_links(self) -> None:
-        sim = _FakeSimModel(
-            links=[
-                _FakeLink("a", (0, 0, 0), mass_kg=0.5),
-                _FakeLink("b", (0, 0, 0), mass_kg=1.5),
-                _FakeLink("c", (0, 0, 0)),  # no mass
-            ]
+        manifest = _manifest(
+            [
+                _link("a", (0, 0, 0), 0.5),
+                _link("b", (0, 0, 0), 1.5),
+                _link("c", (0, 0, 0)),  # no mass
+            ],
+            [],
         )
-        self.assertAlmostEqual(compute_total_mass(sim), 2.0)
+        self.assertAlmostEqual(compute_total_mass(manifest), 2.0)
 
     def test_total_mass_zero_raises(self) -> None:
-        sim = _FakeSimModel(links=[_FakeLink("a", (0, 0, 0))])
+        manifest = _manifest([_link("a", (0, 0, 0))], [])
         with self.assertRaises(AirframeGeneratorError) as cm:
-            compute_total_mass(sim)
+            compute_total_mass(manifest)
         self.assertEqual(cm.exception.code, "NO_MASS")
 
     def test_hover_throttle_x500_close_to_reference(self) -> None:
-        rotors = extract_rotors(_x500_like_drone_config())
+        rotors = rotors_from_manifest(_x500_like_manifest())
         # Stock X500 mass ~ 2 kg, hover ~ 0.6.  Our formula is more
         # principled than X500's pre-tuned value, so tolerance is loose.
         h = compute_hover_throttle(2.0, rotors)
@@ -256,9 +280,7 @@ class TestGeometryDerived(unittest.TestCase):
         appropriate motors instead of getting a wrong-but-plausible
         MPC_THR_HOVER baked into the airframe.
         """
-        from server.px4_airframe_generator import AirframeGeneratorError
-
-        rotors = extract_rotors(_x500_like_drone_config())
+        rotors = rotors_from_manifest(_x500_like_manifest())
         # 100 kg on x500-class motors → ω_hover ~5400 rad/s, max 1000.
         with self.assertRaises(AirframeGeneratorError) as ctx:
             compute_hover_throttle(100.0, rotors)
@@ -297,10 +319,9 @@ class TestGeometryDerived(unittest.TestCase):
 
 class TestGenerateAirframeParams(unittest.TestCase):
     def test_x500_clone_produces_close_to_reference_params(self) -> None:
-        cfg = _x500_like_drone_config()
         params = generate_airframe_params(
             model_name="x500_clone",
-            drone_config=cfg,
+            manifest=_x500_like_manifest(),
             mass_kg_override=2.0,
         )
         self.assertEqual(params.rotor_count, 4)
@@ -308,44 +329,59 @@ class TestGenerateAirframeParams(unittest.TestCase):
         self.assertGreater(params.hover_throttle, 0.5)
         self.assertGreaterEqual(params.sys_autostart, _AUTOSTART_BASE)
 
-    def test_uses_sim_model_mass_when_no_override(self) -> None:
-        sim = _FakeSimModel(
-            links=[
-                _FakeLink("base", (0, 0, 0), mass_kg=1.5),
-                _FakeLink("rotor_0", (130, 220, 0), mass_kg=0.05),
-                _FakeLink("rotor_1", (-130, -200, 0), mass_kg=0.05),
-                _FakeLink("rotor_2", (130, -220, 0), mass_kg=0.05),
-                _FakeLink("rotor_3", (-130, 200, 0), mass_kg=0.05),
-            ],
-            joints=[
-                _FakeJoint("rotor_0_joint", "base", "rotor_0"),
-                _FakeJoint("rotor_1_joint", "base", "rotor_1"),
-                _FakeJoint("rotor_2_joint", "base", "rotor_2"),
-                _FakeJoint("rotor_3_joint", "base", "rotor_3"),
-            ],
-        )
-        cfg = {
-            "rotors": [
-                {"joint": "rotor_0_joint", "direction": "ccw"},
-                {"joint": "rotor_1_joint", "direction": "ccw"},
-                {"joint": "rotor_2_joint", "direction": "cw"},
-                {"joint": "rotor_3_joint", "direction": "cw"},
-            ],
-        }
-        params = generate_airframe_params(
-            model_name="auto_mass_drone",
-            sim_model=sim,
-            drone_config=cfg,
-        )
+    def test_uses_manifest_mass_when_no_override(self) -> None:
+        manifest = _x500_like_manifest(mass_kg=1.5)
+        for link in manifest["links"]:
+            if link["name"].startswith("rotor_"):
+                link["mass_kg"] = 0.05
+        params = generate_airframe_params(model_name="auto_mass_drone", manifest=manifest)
         self.assertAlmostEqual(params.mass_kg, 1.7)  # 1.5 + 4*0.05
 
-    def test_no_mass_source_raises(self) -> None:
+    def test_motor_bounds_come_from_the_manifest(self) -> None:
+        manifest = _x500_like_manifest(mass_kg=2.0)
+        for actuator in manifest["actuators"]:
+            actuator["max_rot_velocity_rad_s"] = 1200.0
+            actuator["min_rot_velocity_rad_s"] = 100.0
+        params = generate_airframe_params(model_name="bounded", manifest=manifest)
+        self.assertEqual(params.motor_max, 1200)
+        self.assertEqual(params.motor_min, 100)
+
+    def test_massless_manifest_raises(self) -> None:
         with self.assertRaises(AirframeGeneratorError) as cm:
-            generate_airframe_params(
-                model_name="no_mass",
-                drone_config=_x500_like_drone_config(),
-            )
-        self.assertEqual(cm.exception.code, "NO_MASS_SOURCE")
+            generate_airframe_params(model_name="no_mass", manifest=_x500_like_manifest())
+        self.assertEqual(cm.exception.code, "NO_MASS")
+
+
+class TestGenerateFromPackage(unittest.TestCase):
+    """The bridge's entry point: package directory in, airframe out."""
+
+    def _package(self) -> str:
+        import json
+
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        manifest = _x500_like_manifest(mass_kg=2.0)
+        (Path(tmp.name) / "manifest.json").write_text(json.dumps(manifest))
+        return tmp.name
+
+    def test_returns_params_without_registering(self) -> None:
+        result = generate_from_package(self._package(), register=False)
+        self.assertEqual(result["airframe_name"], "x500_like")
+        self.assertGreaterEqual(result["airframe_id"], _AUTOSTART_BASE)
+        self.assertAlmostEqual(result["airframe_mass_kg"], 2.0)
+        self.assertIn("MPC_THR_HOVER", result["airframe_script"])
+        self.assertNotIn("airframe_path", result)
+
+    def test_registers_into_a_px4_tree(self) -> None:
+        install = tempfile.TemporaryDirectory()
+        self.addCleanup(install.cleanup)
+        airframes = Path(install.name) / "ROMFS" / "px4fmu_common" / "init.d-posix" / "airframes"
+        airframes.mkdir(parents=True)
+        result = generate_from_package(self._package(), install_path=install.name)
+        written = Path(result["airframe_path"])
+        self.assertTrue(written.is_file())
+        self.assertEqual(written.parent, airframes)
+        self.assertIn("gz_", written.name)
 
 
 # ----------------------------------------------------------------------
@@ -357,7 +393,7 @@ class TestFormatAirframeInitScript(unittest.TestCase):
     def setUp(self) -> None:
         self.params = generate_airframe_params(
             model_name="test_quad",
-            drone_config=_x500_like_drone_config(),
+            manifest=_x500_like_manifest(),
             mass_kg_override=2.0,
         )
 
@@ -412,19 +448,14 @@ class TestFormatAirframeInitScript(unittest.TestCase):
         # Single rotor + 1 kg pushes ω_hover just above 1000 rad/s with
         # default motor constants; use a tiny coaxial-class mass so the
         # quadratic-correct hover formula stays feasible.
-        # FLU input pz=0.05 → FRD output pz=-0.05 (negated by extract_rotors).
-        cfg = {
-            "rotors": [
-                {
-                    "joint": "j",
-                    "direction": "ccw",
-                    "position_m": (0.1, 0.1, 0.05),  # non-zero PZ in FLU
-                }
-            ],
-        }
+        # FLU input pz=0.05 → FRD output pz=-0.05 (negated on the way out).
+        manifest = _manifest(
+            [dict(_link("base", (0.0, 0.0, 0.0), 0.5), is_root=True)],
+            [_rotor(0, (0.1, 0.1, 0.05), "ccw")],  # non-zero PZ in FLU
+        )
         params = generate_airframe_params(
             model_name="lifted",
-            drone_config=cfg,
+            manifest=manifest,
             mass_kg_override=0.5,
         )
         script = format_airframe_init_script(params)
@@ -455,7 +486,7 @@ class TestRegisterAirframe(unittest.TestCase):
     def setUp(self) -> None:
         self.params = generate_airframe_params(
             model_name="reg_test_drone",
-            drone_config=_x500_like_drone_config(),
+            manifest=_x500_like_manifest(),
             mass_kg_override=2.0,
         )
         self.tmp = tempfile.TemporaryDirectory()

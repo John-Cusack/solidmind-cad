@@ -7,7 +7,6 @@ afternoon.
 
 from __future__ import annotations
 
-import tempfile
 import unittest
 import xml.etree.ElementTree as ET
 
@@ -149,26 +148,30 @@ class TestSimModelEmission(unittest.TestCase):
 class TestSDFEmission(unittest.TestCase):
     """End-to-end: spec → SimModel → SDF, assert the bug-fixed tags."""
 
-    def _write_sdf(self, af: MulticopterAirframe) -> str:
-        from server.sim_export import write_sdf
+    def _compile_sdf(self, af: MulticopterAirframe) -> str:
+        """Run the real pipeline: spec → SimModel → package → engine-side SDF.
 
-        sm = af.to_sim_model()
-        with tempfile.NamedTemporaryFile(suffix=".sdf", delete=False) as f:
-            path = f.name
-        # drone_config tells write_sdf to emit motor plugins
-        cfg = {
-            "rotors": [
-                {"index": i, "joint": f"{r.name}_joint", "direction": r.direction, "link": r.name}
-                for i, r in enumerate(af.rotors)
-            ],
-            "sensors": False,  # keep test fast; sensors tested elsewhere
-        }
-        write_sdf(sm, path, drone_config=cfg)
-        return path
+        Core writes only the manifest; the Gazebo bridge compiles the SDF from
+        it at load time, so that is what this asserts against.
+        """
+        import tempfile as _tempfile
+
+        from gazebo_bridge.package_to_sdf import compile_package_to_sdf
+        from server.sim_package_manifest import build_manifest, write_manifest
+
+        pkg_dir = _tempfile.mkdtemp()
+        manifest = build_manifest(
+            name=af.name,
+            output_dir=pkg_dir,
+            sim_model=af.to_sim_model(),
+            drone_config=af.to_drone_config(),
+        )
+        write_manifest(manifest, pkg_dir)
+        return compile_package_to_sdf(pkg_dir)
 
     def test_no_joint_pose_in_sdf(self) -> None:
         """Bug 5 regression: joint <pose> would double-offset rotation axis."""
-        path = self._write_sdf(x500_like())
+        path = self._compile_sdf(x500_like())
         tree = ET.parse(path)
         for joint_el in tree.iter("joint"):
             self.assertIsNone(
@@ -179,7 +182,7 @@ class TestSDFEmission(unittest.TestCase):
 
     def test_motor_plugin_uses_motor_number_and_velocity(self) -> None:
         """Bugs C-7, C-8, C-9 regression: gz-sim motor plugin tag set."""
-        path = self._write_sdf(x500_like())
+        path = self._compile_sdf(x500_like())
         tree = ET.parse(path)
         plugins = [
             p
