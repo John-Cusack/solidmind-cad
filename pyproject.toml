@@ -133,3 +133,30 @@ ignore = [
 manifest-path = "geometry/Cargo.toml"
 python-source = "."
 module-name = "solidmind_geometry"
+# The wheel ships core only: the contract, the orchestration, the reference
+# engine and the conformance kit.  Engines live in their own repositories on
+# their own interpreters (docs/engine-integration-architecture.md §4), so
+# shipping their code to every user would be exactly the coupling the split
+# removed.  Without an explicit list maturin sweeps in every top-level package
+# it finds — including engines still present in a working checkout.
+include = [
+    { path = "server/**/*.py", format = "wheel" },
+    { path = "geometry/**/*.py", format = "wheel" },
+    { path = "solidmind_geometry/**/*.py", format = "wheel" },
+    { path = "reference_engine/**/*.py", format = "wheel" },
+    { path = "tck/**/*.py", format = "wheel" },
+    { path = "tck/fixtures/**/*", format = "wheel" },
+    { path = "engines.d/*.toml", format = "wheel" },
+    { path = "schemas/*.json", format = "wheel" },
+    { path = "feature_support/*.yml", format = "wheel" },
+]
+exclude = [
+    { path = "isaac_bridge/**/*", format = "wheel" },
+    { path = "gazebo_bridge/**/*", format = "wheel" },
+    { path = "chrono_bridge/**/*", format = "wheel" },
+    { path = "chrono_daemon/**/*", format = "wheel" },
+    { path = "rl_training/**/*", format = "wheel" },
+    { path = "tests/**/*", format = "wheel" },
+    { path = "examples/**/*", format = "wheel" },
+    { path = "training_runs/**/*", format = "wheel" },
+]
