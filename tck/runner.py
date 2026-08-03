@@ -63,7 +63,7 @@ def run_tck(
         if "sessions" in tiers:
             tier_sessions(client, report, capabilities)
         if "physics" in tiers:
-            tier_physics(client, report, runtime_mode)
+            tier_physics(client, report, runtime_mode, capabilities)
         if "latency" in tiers:
             tier_latency(client, report, samples=latency_samples)
     finally:

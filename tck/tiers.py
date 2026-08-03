@@ -385,19 +385,35 @@ def _check_teleop_lifecycle(
 # ---------------------------------------------------------------------------
 
 
-def tier_physics(client: TckClient, report: TckReport, runtime_mode: str = "real") -> TierResult:
+def tier_physics(
+    client: TckClient,
+    report: TckReport,
+    runtime_mode: str = "real",
+    capabilities: dict[str, Any] | None = None,
+) -> TierResult:
     """Golden scenarios with analytic answers.
 
     This is the tier that separates "speaks the protocol" from "simulates
-    correctly".  Two things legitimately skip it: an engine reporting
-    ``runtime_mode: "stub"`` (it never claimed to compute physics) and a
-    kinematics-only engine that reports no ``steady_state_speeds``.
+    correctly".  Three things legitimately skip it: an engine reporting
+    ``runtime_mode: "stub"`` (it never claimed to compute physics), an engine
+    that does not advertise the ``mechanism`` format (these scenarios are
+    in-band mechanisms — judging an engine on an input it never claimed to
+    ingest is the TCK's error, not the engine's), and a kinematics-only engine
+    that reports no ``steady_state_speeds``.
     """
     tier = report.tier("5. physics sanity")
     if runtime_mode == "stub":
         tier.skip(
             "physics sanity scenarios",
             "engine reports runtime_mode='stub' — physics applies to real engines",
+        )
+        return tier
+    formats = (capabilities or {}).get("formats") or []
+    if "mechanism" not in formats:
+        tier.skip(
+            "physics sanity scenarios",
+            f"'mechanism' not advertised (formats={formats}) — "
+            "these scenarios are in-band mechanisms",
         )
         return tier
     _check_gear_ratio(client, tier)

@@ -146,6 +146,33 @@ class TestTckCatchesNonConformance(unittest.TestCase):
         failures = [name for _tier, check in report.failures for name in [check.name]]
         self.assertIn("advertised verb 'screenshot' is implemented", failures)
 
+    def test_physics_is_skipped_when_mechanism_is_not_advertised(self) -> None:
+        """An engine is judged on what it claims, not on what the kit prefers.
+
+        The physics scenarios are in-band ``mechanism`` dicts.  Gazebo ingests
+        packages, SDF and URDF — never a mechanism — so running them against it
+        measured nothing and failed it for the result.  A capability the engine
+        never advertised is the kit's problem to skip, exactly as tiers 2 and 4
+        already do for ``package`` and ``session``.
+        """
+        from reference_engine import runtime as runtime_module
+
+        formats = runtime_module.CAPABILITIES["formats"]
+        removed = "mechanism" in formats
+        if removed:
+            formats.remove("mechanism")
+        try:
+            with _ReferenceEngine() as engine:
+                report = run_tck(port=engine.port, tiers=("physics",), latency_samples=1)
+        finally:
+            if removed:
+                formats.append("mechanism")
+
+        self.assertTrue(report.passed)
+        physics = next(t for t in report.tiers if t.tier == "5. physics sanity")
+        self.assertEqual([c.outcome for c in physics.checks], [Outcome.SKIP])
+        self.assertIn("'mechanism' not advertised", physics.checks[0].detail or "")
+
     def test_unreachable_engine_raises(self) -> None:
         from tck.client import TckConnectionError
 

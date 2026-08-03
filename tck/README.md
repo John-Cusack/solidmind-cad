@@ -22,7 +22,7 @@ anyone reads code.
 | 2. package | ingests the golden sim package; a missing one returns `PACKAGE_INVALID` | `package` isn't in `formats` |
 | 3. results | `simulate` output validates against `schemas/sim_result.schema.json` | schema or `jsonschema` unavailable |
 | 4. sessions/teleop | full session and teleop lifecycles, including `SESSION_NOT_FOUND` after stop | the mode isn't advertised |
-| 5. physics sanity | gear ratio (20:40 → half speed, reversed), pendulum period `2π√(L/g)`, free fall settling at `√(2h/g)` | `runtime_mode: "stub"`, or the engine reports no matching state |
+| 5. physics sanity | gear ratio (20:40 → half speed, reversed), pendulum period `2π√(L/g)`, free fall settling at `√(2h/g)` | `runtime_mode: "stub"`, `mechanism` not in `formats` (these scenarios are in-band mechanisms), or the engine reports no matching state |
 | 6. latency | RTT distribution, informational | never fails a run |
 
 **Capability honesty** is the check most engines get wrong first: every verb
