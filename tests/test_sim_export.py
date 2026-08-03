@@ -6,6 +6,7 @@ Pure unit tests — no FreeCAD or network dependency.
 from __future__ import annotations
 
 import math
+import shutil
 import tempfile
 import unittest
 import xml.etree.ElementTree as ET
@@ -2489,10 +2490,22 @@ class TestURDFGenerationPipeline(unittest.TestCase):
     Catches both URDF yaw formula and world-coord mesh bugs.
     """
 
-    FIXTURE_DIR = Path(__file__).parent / "fixtures" / "simple_2body"
+    SOURCE_FIXTURE_DIR = Path(__file__).parent / "fixtures" / "simple_2body"
 
     def setUp(self) -> None:
-        """Build a mechanism matching the fixture URDF."""
+        """Build a mechanism matching the fixture URDF.
+
+        The fixture is copied first, because ``write_urdf`` rewrites each mesh
+        in place to link-local coordinates.  Pointed at the checked-in files it
+        shifted Arm.stl down by another 50 mm on every run — the tests passed,
+        but their input drifted, and a fixture that changes when you look at it
+        is not a fixture.
+        """
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        self.FIXTURE_DIR = Path(tmp) / "simple_2body"
+        shutil.copytree(self.SOURCE_FIXTURE_DIR, self.FIXTURE_DIR)
+
         self.mechanism = Mechanism(
             name="simple_2body",
             parts=(
