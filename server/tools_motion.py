@@ -1819,21 +1819,26 @@ def motion_teleop_start(
     if mech is None:
         return _error_result("NOT_FOUND", f"No mechanism with id '{mechanism_id}'")
 
-    # Auto-populate profile from mechanism when fields are missing.
-    # Only for Isaac backend — Gazebo uses a different controller model
-    # (multirotor_direct, px4_offboard) that doesn't match hexapod profiles.
-    if selected_backend == "isaac":
-        auto_profile = _build_profile_from_mechanism(mech)
-        if auto_profile:
-            merged = {**auto_profile, **profile_obj}
-            profile_obj = merged
+    # Auto-populate the profile from the mechanism when fields are missing.
+    # Joint names, gait groups and stance height are derived from the
+    # kinematics, so they matter to an engine that drives joints and are
+    # inert to one that drives body velocities — and the caller's own values
+    # always win the merge.  The import-config defaults below are gated on
+    # the engine advertising `import_urdf`, since they only mean anything to
+    # an engine that imports a URDF.
+    auto_profile = _build_profile_from_mechanism(mech)
+    if auto_profile:
+        profile_obj = {**auto_profile, **profile_obj}
 
-        # Auto-compute spawn_height from stance geometry so the robot
-        # doesn't clip through the ground on the first physics step.
+    # Import-config defaults only mean something to an engine that imports a
+    # URDF, so they are gated on that capability rather than on a name.
+    if sim_adapter.supports_feature(selected_backend, "import_urdf"):
         ic = import_config or {}
         if "spawn_height" not in ic:
+            # Spawn clear of the ground so the robot doesn't clip through on
+            # the first physics step.
             stance_h = profile_obj.get("stance_height", -0.09)
-            margin = 0.02  # 2 cm clearance above ground
+            margin = 0.02  # 2 cm clearance
             computed_spawn = abs(stance_h) + margin
             ic = {**ic, "spawn_height": computed_spawn}
             log.info(
@@ -1842,11 +1847,10 @@ def motion_teleop_start(
                 abs(stance_h),
                 margin,
             )
-            import_config = ic
-
-        # Default to mobile robot type so Isaac uses free-base defaults
         if "robot_type" not in ic:
-            import_config = {**(import_config or {}), "robot_type": "mobile"}
+            # Free-base defaults suit a walking or rolling robot.
+            ic = {**ic, "robot_type": "mobile"}
+        import_config = ic
 
     # Controller vocabulary belongs to the engine: it knows which controllers
     # it implements and answers with its own error if asked for another.

@@ -75,15 +75,15 @@ class TestEnginePackagesDoNotImportCore(unittest.TestCase):
 
 
 class TestCoreDoesNotImportEngines(unittest.TestCase):
-    """Core never imports a bridge package.
+    """Core never imports an engine package — not even lazily.
 
-    ``server.tools_rl`` is the one allowed exception and only lazily: the
-    ``rl.*`` tools orchestrate the RL pipeline, and step 7 of the migration
-    replaces those calls with the CLI parity path.  Module-level imports are
-    forbidden even there, so importing core never requires the RL package.
+    The last exception went away with the CLI parity path: ``rl.*`` now drives
+    the RL pipeline as a subprocess on its own interpreter, the same way core
+    drives an engine over the contract.  Nothing in ``server/`` imports an
+    engine package at all.
     """
 
-    _ALLOWED_LAZY = {("server/tools_rl.py", "rl_training")}
+    _ALLOWED_LAZY: set[tuple[str, str]] = set()
 
     def test_no_module_level_engine_imports(self) -> None:
         violations: list[str] = []
