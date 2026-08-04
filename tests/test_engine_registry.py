@@ -316,5 +316,53 @@ class TestRateTripwire(unittest.TestCase):
             self.assertEqual(tripwire.rate("stub", "ping"), 0.0)
 
 
+class TestShippedDescriptorsPointAtRealCommands(unittest.TestCase):
+    """A descriptor is only as good as the command it names.
+
+    The split moved every engine into its own repository, and two descriptors
+    kept launching ``scripts/run_<engine>_bridge.sh`` — wrappers that stayed
+    behind in core's history and were never copied across. Core would have
+    tried to start a script that did not exist, and nothing failed until
+    someone ran ``sim.start_engine``.
+
+    Only checkable where the engine is actually cloned, so each case skips
+    when its ``cwd`` is absent. That is enough: it fires on the machines that
+    have the engine, which are the machines that can launch it.
+    """
+
+    def _descriptors(self) -> list[tuple[str, Path, tuple[str, ...]]]:
+        from server.engine_registry import engine_names, get_descriptor, reset_cache
+
+        reset_cache()
+        out = []
+        for name in engine_names():
+            descriptor = get_descriptor(name)
+            if not descriptor.cwd:
+                continue
+            root = Path(descriptor.cwd).expanduser()
+            for variant in (None, *sorted(getattr(descriptor, "variants", {}) or {})):
+                out.append((name, root, descriptor.launch_command(variant)))
+        return out
+
+    def test_every_launched_script_exists_where_the_engine_is_cloned(self) -> None:
+        checked = 0
+        for name, root, argv in self._descriptors():
+            if not root.is_dir():
+                continue
+            for token in argv:
+                # Relative paths ending in a runnable script are the ones that
+                # can silently go missing; flags and module names cannot.
+                if token.startswith("-") or "/" not in token or token.startswith("/"):
+                    continue
+                target = root / token
+                self.assertTrue(
+                    target.is_file(),
+                    f"{name}: descriptor launches {token!r}, missing at {target}",
+                )
+                checked += 1
+        if checked == 0:
+            self.skipTest("no engine repositories are cloned on this machine")
+
+
 if __name__ == "__main__":
     unittest.main()
