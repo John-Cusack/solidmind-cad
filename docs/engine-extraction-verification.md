@@ -50,6 +50,7 @@ read two file formats, pass the TCK, drop a descriptor.
 | gazebo (stub runtime) | conformant | physics tier skipped — reports `runtime_mode: "stub"` |
 | gazebo (**real**, Gazebo Harmonic) | conformant | against a live headless world; physics skipped — Gazebo does not advertise `mechanism` |
 | isaac (no Isaac Sim installed) | conformant | physics skipped (stub mode), package skipped (`urdf` only) |
+| isaac (**real**, Isaac Sim 5.1 / RTX 3090) | conformant | `runtime_mode: "real"`; sessions and teleop pass against GPU physics |
 | chrono (shim + built C++ daemon) | conformant | gear-ratio physics **passes** against the real daemon |
 
 Reproduce with `python3 -m tck --port <engine port>`. The run found and fixed
@@ -80,9 +81,37 @@ the split layout: build the sim model, write the canonical package
 `rl.configure_environment`, which shells out to the RL pipeline's CLI. That
 covers every boundary crossing except the engine import itself.
 
-The Isaac leg (`import_urdf` → `diagnose` → RL config from a live scene) needs
-Isaac Sim; `tests/test_isaac_urdf_integration.py` covers it and skips here.
-It has **not** been run against real Isaac on this branch.
+The Isaac leg has now run. `tests/test_isaac_urdf_integration.py` and
+`tests/test_isaac_bridge_real_runtime.py` live in solidmind-engine-isaac and
+pass against Isaac Sim 5.1 on an RTX 3090 — 13 tests covering `import_urdf`,
+`diagnose`, `reload`, `screenshot`, 0.5 s of GPU physics, and the session and
+teleop lifecycles. Reproduce with:
+
+```
+SOLIDMIND_RUN_ISAAC_E2E=1 ISAAC_PYTHON=<isaacsim>/python.sh \
+  python3 -m unittest tests.test_isaac_urdf_integration tests.test_isaac_bridge_real_runtime
+```
+
+Getting there needed three fixes, all found by the first real run:
+
+- **The suites could not run at all.** Both drove the bridge in-process on a
+  background thread; against real Isaac that segfaults, because Kit's event
+  loop must be pumped from the main thread and the test runner owns it.
+  `IsaacLifecycle` now spawns the bridge the way its `__main__` does and waits
+  on `hello` rather than on the port — Isaac binds early, then spends up to a
+  minute building a SimulationApp and fetching a remote environment USD.
+- **One timeout poisoned every later call.** The bridge's own client sent no
+  `request_id` and returned whatever line arrived next, so a late response came
+  back as the *following* command's result — an `import_urdf` answered with a
+  `reload`'s payload, `ok: true` and all. It now correlates and discards stale
+  replies.
+- **A stale assertion, never exercised.** `test_simulate_simple_2body` expected
+  `samples[].time_s`, the bridge's pre-contract names, where the contract pins
+  `time_series[].t`. The engine was right; the test had simply never run.
+
+Each suite now refuses to run unless the bridge reports `runtime_mode: "real"`,
+so a fallback to the in-process reference path fails loudly instead of
+reporting a green e2e that never touched a GPU.
 
 ## 5. Engine repos import nothing from `server.*`
 
@@ -189,4 +218,5 @@ under a burst, and tracks per command rather than per engine.
 | Port the deferred test modules | **done** — no `needs_porting/` directory remains; §5 above |
 | Built-wheel inspection | **done** — §6 above |
 | Gazebo real-runtime leg | **done** — 5 tests spawn and step a live Gazebo Harmonic world, and the TCK runs against a real-runtime bridge; found the fabricated-results bug in §3 |
-| Isaac real-runtime leg | open — needs a GPU host |
+| Isaac real-runtime leg | **done** — 13 tests against Isaac Sim 5.1 on an RTX 3090, TCK conformant in `runtime_mode: "real"`; §4 |
+| Descriptor launch commands | **done** — the split left both `scripts/run_*_bridge.sh` wrappers behind in core, so `sim.start_engine` would have run a file that did not exist. Restored to their repos; `tests/test_engine_registry.py::TestShippedDescriptorsPointAtRealCommands` now checks every launch target wherever the engine is cloned |
