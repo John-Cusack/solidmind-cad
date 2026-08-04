@@ -7,7 +7,53 @@ and this project aims to follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Removed
+- **The simulation engines no longer ship with core.** `isaac_bridge/`,
+  `gazebo_bridge/`, `chrono_bridge/`, `chrono_daemon/` and `rl_training/` are
+  gone from this repository, along with `server/{isaac,gazebo,chrono}_client.py`
+  and `server/{isaac,gazebo}_adapter.py`. They live in
+  `github.com/John-Cusack/solidmind-engine-{isaac,gazebo,chrono}` and
+  `solidmind-rl`, and are reached only over the Engine Integration Contract.
+  **Install the engine you need** — `sim.engine_status` reports an
+  `install_hint` for each — or use the bundled `reference_engine`, which is pure
+  stdlib and needs nothing. Core's wheel now carries explicit maturin
+  include/exclude lists, so it ships the contract, the orchestration, the
+  reference engine and the conformance kit, and no engine code at all.
+
+### Fixed
+- **`motion.simulate` no longer hands an engine a model format it never
+  advertised.** With no `package_path`/`urdf_path`/`sdf_path`, the in-band
+  mechanism *is* the model, so the engine has to advertise
+  `formats: mechanism`. Core was sending one to Gazebo — which ingests
+  packages, SDF and URDF and never claimed otherwise — and Gazebo answered: a
+  20:40 gear pair came back with both gears at the same speed, a ratio of 1.0,
+  plausible and entirely invented. Neither side enforced the contract. Such a
+  call now returns **`UNSUPPORTED_MODEL_FORMAT`** naming the formats the engine
+  does take, on both the batch and teleop paths. An unreachable engine is not
+  second-guessed. *This turns a previously "successful" call into an error —
+  export a sim package with `cad.export_sim_package` and pass `package_path`.*
+- **`sim.start_engine` could not start Isaac or Gazebo.** Both descriptors
+  launch `scripts/run_<engine>_bridge.sh`, and the split left those wrappers
+  behind in core; core would have run a file that did not exist. Restored to
+  their repositories, and `tests/test_engine_registry.py` now checks that every
+  descriptor's launch target resolves wherever the engine is cloned.
+- **The URDF pipeline rewrote its own test fixture.** `write_urdf` transforms
+  meshes in place to link-local coordinates, and `TestURDFGenerationPipeline`
+  handed it the checked-in fixture, so every run shifted `Arm.stl` down another
+  50 mm. The tests passed either way, which was the problem.
+- **An unbuilt `solidmind_geometry` now says so.** The bare
+  `ModuleNotFoundError` named a module nobody writes by hand and took 15 test
+  modules with it, reading like a broken suite rather than a missing build
+  step. It now names the remedy.
+
 ### Changed
+- **The TCK skips the physics tier when an engine does not advertise
+  `mechanism`.** Those scenarios are in-band mechanism dicts, so running them
+  against a package-only engine measured nothing and then failed it for the
+  result — the kit's error, not the engine's. It now skips with an explicit
+  reason, the same way tiers 2 and 4 already skip on `package` and `session`.
+  Capability honesty runs both ways: an engine must implement what it
+  advertises, and must not be judged on what it doesn't.
 - **`rl.*` drives the RL pipeline as a subprocess — core imports no engine code
   at all.** The pipeline runs on Isaac Sim's bundled interpreter, which core's
   venv cannot import from, so `rl.configure_environment` and `rl.deploy_policy`
@@ -18,10 +64,19 @@ and this project aims to follow [Semantic Versioning](https://semver.org/).
   of `docs/engine-integration-architecture.md` §7.
 
 ### Added
+- **The engines were verified against real installations, and that is what
+  found the bugs above.** The TCK now has runs on record for Gazebo Harmonic
+  driving a live headless world and for Isaac Sim 5.1 on a GPU
+  (`runtime_mode: "real"`, sessions and teleop included), alongside the
+  reference engine and Chrono's built daemon. Both engine repos gained
+  real-runtime suites — 5 tests spawning and stepping an actual Gazebo world,
+  13 against real Isaac physics — and each refuses to run unless the bridge
+  reports `runtime_mode: "real"`, because a green end-to-end that silently fell
+  back to a stub is worse than a skipped one. Finally, all four repositories
+  were cloned fresh from GitHub, started through `sim.start_engine` and driven
+  through `motion.simulate`; that is where the model-format gap surfaced.
 - **`docs/engine-extraction-verification.md`** — the nine acceptance criteria
-  from §9 with evidence for each, and an explicit list of what is still open
-  (publishing the sibling repos, the built-wheel inspection that follows
-  removal, the Isaac and Gazebo real-runtime legs).
+  from §9 with evidence for each, and what remains open.
 - **Verification is tests, not prose, wherever it can be.**
   `tests/test_split_acceptance.py` asserts the wheel excludes every engine
   package, that importing core loads none of them at runtime, and that no
@@ -114,12 +169,14 @@ and this project aims to follow [Semantic Versioning](https://semver.org/).
 - **`docs/engines.md`** — the curated engine list and the four-step guide to
   adding your own (implement four verbs, read two formats, pass the TCK, drop a
   descriptor).
-- **Core still holds its copies.** `scripts/remove_engines_from_core.sh` is
-  written and dry-runnable but deliberately not run: until the sibling repos are
-  pushed somewhere durable, core's copies are the only ones that exist off this
-  machine. Tests that import `server.*` are filed in each repo's
-  `tests/needs_porting/` with a note on what to swap them to — enumerated work,
-  excluded from discovery so CI stays green.
+- **The repositories are published and core's copies are gone.**
+  `scripts/remove_engines_from_core.sh` has been run. The four repos are public
+  at `github.com/John-Cusack/solidmind-engine-{isaac,gazebo,chrono}` and
+  `solidmind-rl`, each with its own history, and core holds no engine package —
+  `tests/test_import_boundaries.py` asserts their absence rather than merely
+  scanning them for `server.*` imports. Every test that reached into core has
+  been ported to its repo's own equivalents; no `tests/needs_porting/`
+  directory remains anywhere.
 
 - **Reference engine + TCK — conformance is now runnable.** `reference_engine/`
   is core's own implementation of the contract: pure Python, no install, with
