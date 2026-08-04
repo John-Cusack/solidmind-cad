@@ -174,13 +174,14 @@ def _build_3blade_props(document_name: str) -> list[str]:
                 ]
             )
 
-        prop_sketch = cad_sketch(
-            body=name,
-            plane="XY",
-            elements=elements,
-            doc=document_name,
+        prop_sketch = _require(
+            cad_sketch(body=name, plane="XY", elements=elements, doc=document_name),
+            f"cad.sketch({name})",
         )
-        cad_pad(sketch=prop_sketch["sketch"], length=ROTOR_THICKNESS_MM, doc=document_name)
+        _require(
+            cad_pad(sketch=prop_sketch["sketch"], length=ROTOR_THICKNESS_MM, doc=document_name),
+            f"cad.pad({name})",
+        )
         cad_set_placement(
             object_name=name,
             position=[dx, dy, CHASSIS_T_MM + 5.0],
@@ -188,6 +189,27 @@ def _build_3blade_props(document_name: str) -> list[str]:
         )
         rotor_bodies.append(name)
     return rotor_bodies
+
+
+def _require(result: dict[str, Any], what: str) -> dict[str, Any]:
+    """Return *result*, or raise with what the tool actually said.
+
+    Every cad.* tool answers ``{"ok": false, "error": {...}}`` rather than
+    raising, so indexing the payload straight away turns a plain "FreeCAD is
+    not running" into ``KeyError: 'sketch'`` six retries later. The first thing
+    this example needs to tell someone is which prerequisite is missing.
+    """
+    if result.get("ok"):
+        return result
+    error = result.get("error") or {}
+    code = error.get("code", "UNKNOWN")
+    message = error.get("message", result)
+    if code == "CONNECTION_ERROR":
+        raise RuntimeError(
+            f"{what} failed: FreeCAD is not reachable. Start it with the "
+            f"SolidMind addon loaded (`freecad &`) and re-run. ({message})"
+        )
+    raise RuntimeError(f"{what} failed [{code}]: {message}")
 
 
 def build_drone_geometry(document_name: str) -> dict[str, Any]:
@@ -205,26 +227,32 @@ def build_drone_geometry(document_name: str) -> dict[str, Any]:
 
     _banner("Stage 1: Build CAD geometry")
     print(f"Creating document: {document_name}")
-    cad_new_document(name=document_name)
+    _require(cad_new_document(name=document_name), "cad.new_document")
 
     # ---- Chassis: rectangular pad on XY plane ----
     print("Building chassis (rectangular pad)…")
-    cad_new_body(name="Chassis", doc=document_name)
-    sketch_result = cad_sketch(
-        body="Chassis",
-        plane="XY",
-        elements=[
-            {
-                "type": "rect",
-                "x": -CHASSIS_W_MM / 2,
-                "y": -CHASSIS_H_MM / 2,
-                "w": CHASSIS_W_MM,
-                "h": CHASSIS_H_MM,
-            }
-        ],
-        doc=document_name,
+    _require(cad_new_body(name="Chassis", doc=document_name), "cad.new_body(Chassis)")
+    sketch_result = _require(
+        cad_sketch(
+            body="Chassis",
+            plane="XY",
+            elements=[
+                {
+                    "type": "rect",
+                    "x": -CHASSIS_W_MM / 2,
+                    "y": -CHASSIS_H_MM / 2,
+                    "w": CHASSIS_W_MM,
+                    "h": CHASSIS_H_MM,
+                }
+            ],
+            doc=document_name,
+        ),
+        "cad.sketch(Chassis)",
     )
-    cad_pad(sketch=sketch_result["sketch"], length=CHASSIS_T_MM, doc=document_name)
+    _require(
+        cad_pad(sketch=sketch_result["sketch"], length=CHASSIS_T_MM, doc=document_name),
+        "cad.pad(Chassis)",
+    )
 
     # ---- Rotors: 3-blade propellers, one per arm tip ----
     # Each prop = central hub circle + 3 trapezoid blades drawn in a
@@ -704,6 +732,9 @@ def main() -> int:
 
     px4_proc: subprocess.Popen[bytes] | None = None
     try:
+        # Same courtesy the PX4 check above gets: name the missing
+        # prerequisite once, rather than surfacing it as a tool error inside
+        # stage 1 after three connection retries.
         # Stage 1: CAD
         geometry = build_drone_geometry(args.document_name)
         if _stop_if_requested(args.stop_after or "", "build"):
@@ -745,6 +776,11 @@ def main() -> int:
         # Stage 5: Fly
         time.sleep(5.0)  # Give PX4's EKF a moment to converge.
         fly_takeoff_hover_land(args.takeoff_alt_m, args.hover_secs)
+    except RuntimeError as exc:
+        # A missing prerequisite is a normal way to run this, not a crash —
+        # the message already says which one and what to do about it.
+        print(f"\n{exc}", file=sys.stderr)
+        return 2
     finally:
         if px4_proc is not None and px4_proc.poll() is None:
             print("Terminating PX4 SITL…")
