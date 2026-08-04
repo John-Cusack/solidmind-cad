@@ -14,7 +14,14 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# Where the engine repositories live. A fresh split puts them beside core, but
+# the descriptors in engines.d/ point at ~/repos — which is what core actually
+# launches — so fall back there rather than reporting them all missing.
 DEST="$(dirname "${REPO_ROOT}")"
+if [[ ! -d "${DEST}/solidmind-engine-isaac" && -d "${HOME}/repos/solidmind-engine-isaac" ]]; then
+    DEST="${HOME}/repos"
+fi
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -23,6 +30,8 @@ while [[ $# -gt 0 ]]; do
         *) echo "Unknown argument: $1" >&2; exit 2 ;;
     esac
 done
+
+echo "Verifying engine repositories under ${DEST}"
 
 # repo | module to launch for the TCK (empty = no bridge) | port | extra argv
 repos=(
