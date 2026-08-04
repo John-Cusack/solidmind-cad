@@ -7,6 +7,46 @@ and this project aims to follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+- **The quadrotor example reported a successful flight for a drone that never
+  left the ground.** It sent `MAV_CMD_NAV_TAKEOFF`, which PX4 v1.17 acks and
+  then ignores — the vehicle sat armed until PX4 gave up with "Disarmed by
+  preflight inaction". `MavlinkController.takeoff_via_mode` exists for exactly
+  this and documents it; the example was not using it. The altitude wait then
+  fell through silently on timeout, so `"Landed."` and `"✓ Flight pipeline
+  complete"` both printed against a stationary vehicle. Altitude is now
+  measured, and failing to reach it raises instead of passing.
+- **Engines no longer outlive the server that started them.**
+  `sim_engine_manager.shutdown_all` has always been written and tested, and its
+  docstring has always said "Call at server exit" — but nothing called it. Every
+  engine survived the MCP server; three Isaac bridges were found orphaned for 18
+  hours holding 16 GB between them. It compounds, because engine handles live
+  only in memory: a restarted server cannot reach the previous instance's
+  engines, so it pings them, sees them answering, and reports `already_running`,
+  quietly binding a fresh session to a stale simulation. Now wired to `atexit`
+  and to SIGTERM/SIGINT, which still exit with the signal's status.
+- **The quadrotor example no longer leaks its Gazebo world.** PX4 starts the
+  server from a transient shell that exits, so it is reparented to init in a
+  different process group and no signal aimed at PX4 can reach it. The next run
+  then inherits that world silently — `px4-rc.gzsim` attaches to the first
+  `/world/*/clock` it finds. That is not benign: PX4 sources `gz_env.sh` only
+  when starting a *new* server, and its `default.sdf` has no `<plugin>` tags at
+  all, so an inherited world can have no IMU, GPS or barometer while PX4
+  attaches, spawns the model, and never receives a sample. The example now reaps
+  any pre-existing world before launching and stops Gazebo on the way out.
+- **Docs: `ss -ulnp | grep 14540` never showed what it claimed.** PX4 binds
+  14580 and *sends to* 14540, so nothing is listening there until a ground
+  station binds it.
+
+### Added
+- `examples/quadrotor_camera_drone/sim_processes.py` — PX4/Gazebo process
+  reaper, shared by `run.py` and `flight_lab.py` rather than implemented twice.
+  It reads `ps` and drops its own PID instead of using `pgrep -f`, which matches
+  the reaper's own command line and has already caused a false "already
+  listening" reading and a kill that hit nothing.
+- Docs: how to read an arming denial out of the ulog instead of guessing, and
+  why force-arm cannot bypass preflight over MAVLink.
+
 ## [0.4.0] — 2026-08-04
 
 One contract addition, and the tooling that goes with it. Additive within

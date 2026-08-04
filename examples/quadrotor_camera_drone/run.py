@@ -660,6 +660,37 @@ def launch_px4_sim(
 # ---------------------------------------------------------------------------
 
 
+def _wait_for_altitude(
+    ctrl: Any,
+    reached: Any,
+    *,
+    timeout_s: float,
+    what: str,
+) -> float:
+    """Block until the measured altitude satisfies ``reached``.
+
+    Raises rather than returning, because a silent fall-through here is
+    what let the pipeline report a successful flight for a drone that
+    stayed on the ground the whole time.
+    """
+    deadline = time.monotonic() + timeout_s
+    last: float | None = None
+    while time.monotonic() < deadline:
+        tel = ctrl.get_telemetry()
+        if tel.local_position is not None:
+            last = -tel.local_position[2]  # NED z is down; flip
+            if reached(last):
+                return last
+        time.sleep(0.2)
+
+    seen = f"{last:.2f} m" if last is not None else "no position telemetry"
+    raise RuntimeError(
+        f"Vehicle did not {what} within {timeout_s:.0f} s (last: {seen}). "
+        f"Check the PX4 log for the reason:\n"
+        f"    ulog_messages <newest>.ulg | grep -viE 'perf|excluded'"
+    )
+
+
 def fly_takeoff_hover_land(takeoff_alt_m: float, hover_secs: float) -> None:
     """Connect to PX4, arm, takeoff, hover, land.
 
@@ -697,34 +728,36 @@ def fly_takeoff_hover_land(takeoff_alt_m: float, hover_secs: float) -> None:
                     ) from exc
                 time.sleep(2.0)
 
+        # AUTO_TAKEOFF, not MAV_CMD_NAV_TAKEOFF.  PX4 v1.17 acks the older
+        # command and then ignores it — the vehicle sits armed on the ground
+        # until "Disarmed by preflight inaction" ~10 s later.  MavlinkController
+        # documents this and provides the mode switch; use it.
         print(f"Taking off to {takeoff_alt_m:.1f} m…")
-        ctrl.takeoff(takeoff_alt_m, timeout_s=5.0)
+        ctrl.takeoff_via_mode(timeout_s=5.0)
 
-        # Wait for altitude to reach target.
-        deadline = time.monotonic() + 15.0
-        while time.monotonic() < deadline:
-            tel = ctrl.get_telemetry()
-            if tel.local_position is not None:
-                alt = -tel.local_position[2]  # NED z is down; flip
-                if abs(alt - takeoff_alt_m) < 1.5:
-                    print(f"  Reached {alt:.2f} m")
-                    break
-            time.sleep(0.2)
+        # An ack is not liftoff, so measure.  This used to fall through on
+        # timeout, which let the pipeline print "Landed." and then
+        # "✓ Flight pipeline complete" for a drone that never left the ground.
+        alt = _wait_for_altitude(
+            ctrl,
+            lambda a: abs(a - takeoff_alt_m) < 1.5,
+            timeout_s=30.0,
+            what=f"climb to {takeoff_alt_m:.1f} m",
+        )
+        print(f"  Reached {alt:.2f} m")
 
         print(f"Hovering for {hover_secs:.1f} s…")
         time.sleep(hover_secs)
 
         print("Landing…")
-        ctrl.land(timeout_s=5.0)
-
-        # Wait until back on the ground.
-        deadline = time.monotonic() + 30.0
-        while time.monotonic() < deadline:
-            tel = ctrl.get_telemetry()
-            if tel.local_position is not None and -tel.local_position[2] < 0.5:
-                print("  Landed.")
-                break
-            time.sleep(0.5)
+        ctrl.land_via_mode(timeout_s=5.0)
+        _wait_for_altitude(
+            ctrl,
+            lambda a: a < 0.5,
+            timeout_s=60.0,
+            what="descend to the ground",
+        )
+        print("  Landed.")
 
         print("Disarming…")
         ctrl.disarm(timeout_s=5.0)
