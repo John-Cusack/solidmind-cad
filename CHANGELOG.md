@@ -7,6 +7,11 @@ and this project aims to follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.4.0] — 2026-08-04
+
+One contract addition, and the tooling that goes with it. Additive within
+contract v1.x — nothing an existing client or engine has to change.
+
 ### Added
 - **`runtime_mode` gains a third value: `unavailable`** (contract §2, additive
   within v1.x). It says the bridge speaks the contract but the thing it drives
@@ -24,6 +29,15 @@ and this project aims to follow [Semantic Versioning](https://semver.org/).
     do with the actual problem.
   - Clients testing `mode == "real"` are unaffected — `unavailable` is not
     `real`, which is the answer they needed.
+
+### Changed
+- **`scripts/verify_engine_repos.sh` looks where the descriptors point.** It
+  resolved the engine repositories as core's siblings — where a fresh
+  `split_engines.sh` drops them — while `engines.d/*.toml` names `~/repos`,
+  which is what `sim.start_engine` actually launches. With a single checkout in
+  the place the descriptors name, the script reported every repository missing.
+  It now prefers the siblings when they are there, falls back to `~/repos`, and
+  prints which it chose. `--dest` still overrides both.
 
 ## [0.3.1] — 2026-08-04
 
