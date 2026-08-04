@@ -169,7 +169,12 @@ jobs:
           cache: pip
 
       - name: Install ruff
-        run: python -m pip install "ruff>=0.6,<1"
+        # Pinned, not a range. A ruff release can change what "clean" means —
+        # 0.16 turned on formatting of Python inside Markdown fences, and CI
+        # went red on two docs files nobody had touched. Keep this equal to the
+        # `dev` extra in pyproject.toml so a local run and CI agree; bump both
+        # together, deliberately, in one commit.
+        run: python -m pip install "ruff==0.16.1"
 
       - name: Ruff check
         run: ruff check .
