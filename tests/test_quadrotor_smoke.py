@@ -77,6 +77,7 @@ class TestQuadrotorSmoke(unittest.TestCase):
 
         # 1. Canonical package (core's only output), then engine-side SDF.
         from gazebo_bridge.package_to_sdf import compile_package_to_sdf
+
         from server.sim_package_manifest import build_manifest, write_manifest
 
         pkg_dir = self.px4 / "Tools" / "simulation" / "gz" / "models" / "smoke_test_quad"

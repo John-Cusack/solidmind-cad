@@ -315,6 +315,7 @@ def export_sim_package_with_px4(
     """
     from gazebo_bridge.package_to_sdf import compile_and_validate
     from gazebo_bridge.px4_airframe import generate_from_package
+
     from server.tools_cad import cad_export_sim_package
 
     _banner("Stage 2b: Export sim package + PX4 airframe")

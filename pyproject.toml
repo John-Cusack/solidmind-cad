@@ -101,6 +101,18 @@ extend-exclude = [
   "docs",
 ]
 
+[tool.ruff.lint.isort]
+# The engines are separate distributions now, not directories in this tree, so
+# ruff cannot infer them from the layout — and a checkout with one pip-installed
+# would sort it differently from one without. Naming them keeps import order
+# identical everywhere, which is what made CI disagree with a local run.
+known-third-party = [
+  "chrono_bridge",
+  "gazebo_bridge",
+  "isaac_bridge",
+  "rl_training",
+]
+
 [tool.ruff.lint]
 # Cleaned up and enforcing. Suppressions below are reserved for genuine false
 # positives and one deliberate codebase convention — everything else is fixed.
