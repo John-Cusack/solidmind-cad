@@ -98,8 +98,32 @@ about an engine is hardcoded in core.
 | `contract_versions_supported` | array of string | yes | Umbrella contract majors, e.g. `["1"]` |
 | `engine` | string | yes | Engine identity slug, lowercase (`gazebo`, `isaac`, `chrono`) |
 | `engine_version` | string | yes | Underlying engine version, or the bridge's version when the engine has none (stub modes) |
-| `runtime_mode` | string | yes | `real` when driving an actual engine, `stub` for the in-memory reference implementation |
+| `runtime_mode` | string | yes | `real`, `stub` or `unavailable` — see below |
 | `capabilities` | object | yes | See below |
+
+**`runtime_mode`** answers one question: can the caller trust numbers from
+this engine?
+
+| Value | Meaning |
+|---|---|
+| `real` | Driving an actual engine. Results are physics. |
+| `stub` | An in-memory implementation standing in for one. It answers `simulate` and returns well-formed results, but they are not the engine's physics. |
+| `unavailable` | The bridge speaks the contract; the thing it drives is not there — not installed, not built, not reachable. `simulate` **MUST** fail rather than return a substitute. |
+
+`unavailable` exists because the honest answer was otherwise unsayable. A shim
+whose backend is missing is not driving an engine, so it is not `real`; and it
+has no in-memory implementation either, so it is not `stub`. Chrono's shim
+reported `real` with no daemon built and answered `ENGINE_ERROR` to everything
+— a claim the vocabulary gave it no way to correct.
+
+An engine reporting `unavailable` **MUST NOT** return a successful `simulate`.
+Reporting it and then producing numbers is the fabrication this field exists to
+prevent, and the TCK checks for exactly that. Say why in the error message: the
+caller usually has to install or build something, and the engine knows what.
+
+This value is additive within v1.x. A client testing `mode == "real"` keeps
+working — `unavailable` is not `real`, which is the answer it needed. Clients
+that enumerate the vocabulary MUST tolerate values they do not know (§2).
 
 **`capabilities`:**
 

@@ -59,7 +59,7 @@ def run_tck(
         if "package" in tiers:
             tier_package(client, report, capabilities, package_dir)
         if "results" in tiers:
-            tier_results(client, report, schema_dir)
+            tier_results(client, report, schema_dir, runtime_mode)
         if "sessions" in tiers:
             tier_sessions(client, report, capabilities)
         if "physics" in tiers:

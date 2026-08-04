@@ -173,6 +173,53 @@ class TestTckCatchesNonConformance(unittest.TestCase):
         self.assertEqual([c.outcome for c in physics.checks], [Outcome.SKIP])
         self.assertIn("'mechanism' not advertised", physics.checks[0].detail or "")
 
+    def test_unavailable_engine_passes_when_it_refuses_to_simulate(self) -> None:
+        """An engine whose backend is missing is honest, not broken.
+
+        ``unavailable`` exists because that state was unsayable: a shim with no
+        backend is not driving an engine, so not ``real``, and has nothing
+        in-memory either, so not ``stub``. Reporting it and refusing to
+        simulate is correct behaviour and the kit says so.
+        """
+        from reference_engine import runtime as runtime_module
+
+        original = runtime_module.RUNTIME_MODE
+        runtime_module.RUNTIME_MODE = "unavailable"
+        try:
+            with _ReferenceEngine() as engine:
+                report = run_tck(port=engine.port, tiers=("results", "physics"), latency_samples=1)
+        finally:
+            runtime_module.RUNTIME_MODE = original
+
+        results = next(t for t in report.tiers if t.tier == "3. results")
+        outcomes = [c.outcome for c in results.checks]
+        self.assertIn(Outcome.SKIP, outcomes, [c.name for c in results.checks])
+        physics = next(t for t in report.tiers if t.tier == "5. physics sanity")
+        self.assertEqual([c.outcome for c in physics.checks], [Outcome.SKIP])
+        self.assertIn("unavailable", physics.checks[0].detail or "")
+
+    def test_unavailable_engine_that_still_answers_is_caught(self) -> None:
+        """Claiming unavailable and then returning numbers is fabrication.
+
+        This is the failure the value exists to expose, so the kit must fail it
+        rather than take the label at face value.
+        """
+        from reference_engine import runtime as runtime_module
+
+        original = runtime_module.RUNTIME_MODE
+        runtime_module.RUNTIME_MODE = "unavailable"
+        try:
+            with _ReferenceEngine() as engine:
+                report = run_tck(port=engine.port, tiers=("results",), latency_samples=1)
+        finally:
+            runtime_module.RUNTIME_MODE = original
+
+        # The reference engine simulates happily, so it contradicts its own
+        # claim — exactly the case this check is for.
+        self.assertFalse(report.passed)
+        failures = [check.name for _tier, check in report.failures]
+        self.assertIn("an unavailable engine refuses to simulate", failures)
+
     def test_unreachable_engine_raises(self) -> None:
         from tck.client import TckConnectionError
 

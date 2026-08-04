@@ -31,6 +31,12 @@ ENGINE_VERSION = "1.0.0"
 PROTOCOL_VERSION = "1.0.0"
 CONTRACT_VERSIONS_SUPPORTED = ("1",)
 
+#: The reference engine is always itself — there is no stub of a stub, and
+#: nothing external for it to be missing.  It computes real (if simple)
+#: physics.  Declared rather than inlined so a test can pose as an engine in
+#: another mode without a second implementation (contract §2, runtime_mode).
+RUNTIME_MODE = "real"
+
 CAPABILITIES: dict[str, Any] = {
     "modes": ["batch", "session", "teleop"],
     "formats": ["package", "mechanism", "urdf"],
@@ -71,9 +77,7 @@ class ReferenceRuntime:
             "contract_versions_supported": list(CONTRACT_VERSIONS_SUPPORTED),
             "engine": ENGINE_NAME,
             "engine_version": ENGINE_VERSION,
-            # The reference engine is always itself — there is no stub of a
-            # stub.  It computes real (if simple) physics.
-            "runtime_mode": "real",
+            "runtime_mode": RUNTIME_MODE,
             "capabilities": {
                 "modes": list(CAPABILITIES["modes"]),
                 "formats": list(CAPABILITIES["formats"]),
