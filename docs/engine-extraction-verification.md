@@ -209,6 +209,29 @@ under a burst, and tracks per command rather than per engine.
 
 ---
 
+## 10. The engines work from a clean clone
+
+**Status: verified.**
+
+Not an acceptance criterion, but the question the criteria exist to answer.
+All four repositories were cloned fresh from GitHub into `~/repos` — where the
+descriptors point — started through core's own `sim.start_engine`, and driven
+through `motion.simulate`.
+
+| Engine | Result |
+|---|---|
+| reference | started, gear pair 20:40 → `gear_b = -300 rpm` (halved and reversed) |
+| gazebo | started from the fresh clone; ingested a core-written sim package and compiled its own SDF |
+| isaac | started from the fresh clone with real Isaac Sim |
+| chrono | started, then failed with `CHRONO_CRASHED` naming the unbuilt daemon — correct, and its `install_hint` says how to build it |
+
+This is where the **model-format gap** surfaced: core sent an in-band mechanism
+to Gazebo, which advertises `package`, `sdf` and `urdf` and never claimed to
+read a mechanism. Gazebo answered anyway, and the gear pair came back with both
+gears at the same speed. Neither side enforced the contract. Fixed on both:
+`server/tools_motion.py` refuses the call and names the formats the engine does
+take, and the Gazebo runtime no longer fabricates results in real mode.
+
 ## What remains
 
 | Item | Status |
@@ -219,4 +242,5 @@ under a burst, and tracks per command rather than per engine.
 | Built-wheel inspection | **done** — §6 above |
 | Gazebo real-runtime leg | **done** — 5 tests spawn and step a live Gazebo Harmonic world, and the TCK runs against a real-runtime bridge; found the fabricated-results bug in §3 |
 | Isaac real-runtime leg | **done** — 13 tests against Isaac Sim 5.1 on an RTX 3090, TCK conformant in `runtime_mode: "real"`; §4 |
+| End-to-end from fresh clones | **done** — all four repos cloned from GitHub into `~/repos`, started through `sim.start_engine`, driven through `motion.simulate`; found the model-format gap below |
 | Descriptor launch commands | **done** — the split left both `scripts/run_*_bridge.sh` wrappers behind in core, so `sim.start_engine` would have run a file that did not exist. Restored to their repos; `tests/test_engine_registry.py::TestShippedDescriptorsPointAtRealCommands` now checks every launch target wherever the engine is cloned |
