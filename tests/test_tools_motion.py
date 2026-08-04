@@ -763,10 +763,18 @@ class TestSimulate(TestMotionToolsBase):
         if sim_result["ok"]:
             self.assertEqual(sim_result["backend_used"], "isaac")
         else:
-            # Bridge unavailable, or bridge rejects unsupported joints — both valid.
+            # Every honest way this can fail: no bridge to ask, a bridge that
+            # rejects the joint type, or — when Isaac is actually up — a
+            # refusal to take an in-band mechanism, which it does not
+            # advertise.  What must not happen is a fabricated success.
             self.assertIn(
                 sim_result["error"]["code"],
-                {"BACKEND_UNAVAILABLE_CHOOSE", "UNSUPPORTED_JOINT_TYPE", "ISAAC_CONNECTION_LOST"},
+                {
+                    "BACKEND_UNAVAILABLE_CHOOSE",
+                    "UNSUPPORTED_JOINT_TYPE",
+                    "ISAAC_CONNECTION_LOST",
+                    "UNSUPPORTED_MODEL_FORMAT",
+                },
             )
 
     def test_simulate_explicit_chrono_no_daemon(self):

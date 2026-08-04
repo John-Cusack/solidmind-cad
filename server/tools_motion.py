@@ -1217,6 +1217,38 @@ def _run_urdf_preflight(urdf_path: str | None) -> dict[str, Any] | None:
     }
 
 
+def _reject_unsupported_model_format(
+    engine: str,
+    *,
+    package_path: str | None,
+    urdf_path: str | None,
+    sdf_path: str | None,
+) -> dict[str, Any] | None:
+    """Refuse to hand an engine a model format it never advertised.
+
+    With no model file the in-band mechanism *is* the model, so the engine has
+    to accept ``formats: mechanism``. Gazebo ingests packages, SDF and URDF and
+    never claimed to read a mechanism; sent one anyway it answered with
+    synthetic numbers, and a 20:40 gear pair came back at a ratio of 1.0 —
+    plausible, and entirely invented.
+
+    Capability honesty runs both ways: an engine must implement what it
+    advertises, and core must not ask for what it doesn't. Returns None when
+    the call is fine, or when the engine is unreachable and cannot say.
+    """
+    if any(_has_sim_path(p) for p in (package_path, urdf_path, sdf_path)):
+        return None
+    if sim_adapter.supports_format(engine, "mechanism") is not False:
+        return None
+    formats = sim_adapter.capabilities(engine).get("formats") or []
+    return _error_result(
+        "UNSUPPORTED_MODEL_FORMAT",
+        f"{engine} does not ingest an in-band mechanism (it accepts "
+        f"{sorted(formats)}). Write a sim package with cad.export_sim_package "
+        "and pass its directory as package_path.",
+    )
+
+
 def _simulate_with_engine(
     engine: str,
     mech: Mechanism,
@@ -1248,6 +1280,15 @@ def _simulate_with_engine(
             f"Model pre-flight found {len(preflight['blockers'])} blocker(s): "
             + "; ".join(b["message"] for b in preflight["blockers"]),
         )
+
+    format_error = _reject_unsupported_model_format(
+        engine,
+        package_path=package_path,
+        urdf_path=urdf_path,
+        sdf_path=sdf_path,
+    )
+    if format_error is not None:
+        return format_error
 
     model_args: dict[str, Any] = {
         "mechanism": mech.to_dict(),
@@ -1863,6 +1904,15 @@ def motion_teleop_start(
             f"Model pre-flight found {len(preflight['blockers'])} blocker(s): "
             + "; ".join(b["message"] for b in preflight["blockers"]),
         )
+
+    format_error = _reject_unsupported_model_format(
+        selected_backend,
+        package_path=package_path,
+        urdf_path=urdf_path,
+        sdf_path=sdf_path,
+    )
+    if format_error is not None:
+        return format_error
 
     result = sim_adapter.call(
         selected_backend,

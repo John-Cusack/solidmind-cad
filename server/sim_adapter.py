@@ -113,6 +113,23 @@ def supports_mode(engine: str, mode: str) -> bool | None:
     return mode in (caps.get("modes") or [])
 
 
+def supports_format(engine: str, model_format: str) -> bool | None:
+    """True/False when the engine answers, None when it is unreachable.
+
+    Formats are as load-bearing as modes: handing an engine a model it never
+    claimed to read is how core got a gear ratio of 1.0 out of Gazebo. It
+    ingests packages, SDF and URDF — never an in-band mechanism — and answered
+    one anyway, with numbers nobody computed.
+    """
+    client = get_client(engine)
+    if client is None:
+        return None
+    caps = client.capabilities()
+    if not caps:
+        return None
+    return model_format in (caps.get("formats") or [])
+
+
 def supports_feature(engine: str, feature: str) -> bool | None:
     client = get_client(engine)
     if client is None:
