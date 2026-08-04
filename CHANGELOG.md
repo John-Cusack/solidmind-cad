@@ -7,6 +7,24 @@ and this project aims to follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- **`runtime_mode` gains a third value: `unavailable`** (contract §2, additive
+  within v1.x). It says the bridge speaks the contract but the thing it drives
+  is not there — not installed, not built, not reachable. The honest answer was
+  previously unsayable: a shim with no backend is not driving an engine, so not
+  `real`, and has no in-memory implementation either, so not `stub`. Chrono's
+  shim reported `real` with no daemon built while answering `ENGINE_ERROR` to
+  everything.
+  - An engine reporting it **MUST NOT** return a successful `simulate`, and the
+    TCK checks exactly that — claiming `unavailable` and then producing numbers
+    is the fabrication the field exists to prevent.
+  - A daemonless Chrono is now **conformant**: its bridge is correct, it says
+    plainly what is missing, and it refuses rather than substituting. It used
+    to be non-conformant with a failure about gear ratios, which had nothing to
+    do with the actual problem.
+  - Clients testing `mode == "real"` are unaffected — `unavailable` is not
+    `real`, which is the answer they needed.
+
 ## [0.3.1] — 2026-08-04
 
 A bug fix for anyone running an engine with a native process underneath it,

@@ -78,8 +78,8 @@ def tier_protocol(client: TckClient, report: TckReport) -> tuple[TierResult, dic
         isinstance(hello.get("engine"), str) and bool(hello.get("engine")),
     )
     tier.expect(
-        "hello declares a runtime_mode of real or stub",
-        hello.get("runtime_mode") in ("real", "stub"),
+        "hello declares a runtime_mode of real, stub or unavailable",
+        hello.get("runtime_mode") in ("real", "stub", "unavailable"),
         f"got {hello.get('runtime_mode')!r}",
     )
 
@@ -246,10 +246,34 @@ def tier_results(
     client: TckClient,
     report: TckReport,
     schema_dir: Path | None = None,
+    runtime_mode: str = "real",
 ) -> TierResult:
     """``simulate`` output validates against the published result schema."""
     tier = report.tier("3. results")
     response = client.request("simulate", _simple_mechanism_args())
+
+    if runtime_mode == "unavailable":
+        # The engine has told us its backend is missing. The contract says it
+        # must then fail rather than substitute — an engine that answers with
+        # numbers anyway is fabricating, which is the thing runtime_mode exists
+        # to expose. There is no result to shape-check either way.
+        tier.expect(
+            "an unavailable engine refuses to simulate",
+            not response.get("ok"),
+            "returned a successful simulate while reporting runtime_mode='unavailable'",
+        )
+        code = _error_code(response)
+        tier.expect(
+            "its refusal carries an error code",
+            isinstance(code, str) and bool(code),
+            f"got {code!r}",
+        )
+        tier.skip(
+            "result shape and schema",
+            "engine reports runtime_mode='unavailable' — there are no results to check",
+        )
+        return tier
+
     if not response.get("ok"):
         tier.fail("simulate answers", json.dumps(response.get("error", {}))[:200])
         return tier
@@ -395,17 +419,18 @@ def tier_physics(
 
     This is the tier that separates "speaks the protocol" from "simulates
     correctly".  Three things legitimately skip it: an engine reporting
-    ``runtime_mode: "stub"`` (it never claimed to compute physics), an engine
+    ``runtime_mode`` of ``"stub"`` or ``"unavailable"`` (neither claims to
+    compute physics), an engine
     that does not advertise the ``mechanism`` format (these scenarios are
     in-band mechanisms — judging an engine on an input it never claimed to
     ingest is the TCK's error, not the engine's), and a kinematics-only engine
     that reports no ``steady_state_speeds``.
     """
     tier = report.tier("5. physics sanity")
-    if runtime_mode == "stub":
+    if runtime_mode in ("stub", "unavailable"):
         tier.skip(
             "physics sanity scenarios",
-            "engine reports runtime_mode='stub' — physics applies to real engines",
+            f"engine reports runtime_mode={runtime_mode!r} — physics applies to real engines",
         )
         return tier
     formats = (capabilities or {}).get("formats") or []
