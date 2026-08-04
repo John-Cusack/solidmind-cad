@@ -16,6 +16,33 @@ class Prompt:
 
 
 @lru_cache(maxsize=1)
+def _backend_selection_guidance() -> str:
+    """Backend guidance built from the engine registry.
+
+    Which engines exist and what each is good for are descriptor data
+    (``engines.d/``), so a third-party engine becomes *recommendable* to the
+    model by dropping in a file — no prompt edit (Principle 8).
+    """
+    from server.engine_registry import default_engine, engine_names, when_to_use
+
+    names = engine_names()
+    if not names:
+        return "No simulation engines are registered.\n"
+
+    default = default_engine()
+    lines = ["Pick a backend based on what is being simulated:\n"]
+    for name in names:
+        guidance = when_to_use(name) or "No guidance recorded for this engine."
+        marker = " (default)" if name == default else ""
+        lines.append(f"- **{name}**{marker} — {guidance}\n")
+    lines.append(
+        "Engines advertise what they support (batch, sessions, teleop, screenshots) "
+        "in their handshake; sim.engine_status reports which are running.\n"
+        "If the user explicitly requests a backend, use it. Otherwise select by robot type.\n"
+    )
+    return "".join(lines)
+
+
 def _prompts() -> dict[str, Prompt]:
     return {
         "cad_copilot_system": Prompt(
@@ -360,22 +387,14 @@ def _prompts() -> dict[str, Prompt]:
                 "'3D print a pen holder for my desk' clearly doesn't.\n"
                 "\n"
                 "## Simulation backend selection\n"
-                "Three Tier 3 backends are available. Pick based on the robot type:\n"
-                "- **gazebo** — drones, multirotors, fixed-wing, wheeled vehicles, rovers, CPU-only hosts.\n"
-                "  Teleop adds vy_mps (lateral) and vz_mps (vertical) for flight control.\n"
-                "- **isaac** (default) — legged robots, hexapods, bipeds, articulated arms, manipulators.\n"
-                "  GPU-accelerated contact physics. Teleop: vx_mps, yaw_rate_rps, body_height_m.\n"
-                "- **chrono** — gear trains, linkages, cam mechanisms. Batch only, no teleop.\n"
-                "\n"
-                "If the user explicitly requests a backend, use it. Otherwise select by robot type.\n"
-                "\n"
-                "## Sim pipeline verification\n"
+                + _backend_selection_guidance()
+                + "\n## Sim pipeline verification\n"
                 "After exporting a mechanism to URDF (cad.export_sim_package with mechanism_id),\n"
                 "ALWAYS verify the export before running simulation:\n"
                 "1. Call motion.verify_sim_package(mechanism_id, urdf_path=...) to check:\n"
                 "   - All mechanism parts have FreeCAD bodies (stage 1)\n"
                 "   - URDF has correct links, joints, mesh files, mass/inertia (stage 2)\n"
-                "2. If check_isaac=true after Isaac import, also verifies:\n"
+                "2. If check_engine=true after loading the model, also verifies:\n"
                 "   - Isaac joint/DOF counts match URDF (stage 3)\n"
                 "   - All joints have drive configuration\n"
                 "3. Review any blockers/warnings before proceeding to simulation.\n"

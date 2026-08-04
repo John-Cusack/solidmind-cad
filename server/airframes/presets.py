@@ -2,7 +2,7 @@
 
 Each preset returns a fully-populated :class:`MulticopterAirframe`
 that can be passed straight to ``to_sim_model`` /
-``to_px4_airframe_params``.  Useful for:
+``to_drone_config``.  Useful for:
 
 - Regression tests that need a known-good drone literal.
 - Example scripts that don't want to copy 50 lines of dataclass

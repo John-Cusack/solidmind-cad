@@ -87,7 +87,7 @@ ROTORS = [
     # motor 0 front-right, 1 rear-left (CCW pair), 2 front-left,
     # 3 rear-right (CW pair).  rotor_FR sits at +X (forward) and
     # -Y (right in FLU); the CA_ROTOR conversion in
-    # server.px4_airframe_generator.extract_rotors() negates Y for
+    # gazebo_bridge.px4_airframe.rotors_from_manifest() negates Y for
     # PX4's FRD frame.
     ("rotor_FR", ARM_OFFSET_MM, -ARM_OFFSET_MM, "ccw"),  # front-right
     ("rotor_RL", -ARM_OFFSET_MM, ARM_OFFSET_MM, "ccw"),  # rear-left
@@ -307,7 +307,15 @@ def export_sim_package_with_px4(
     output_dir: Path,
     px4_install: Path,
 ) -> dict[str, Any]:
-    """Export STL + URDF + SDF + PX4 airframe init script in one call."""
+    """Export the canonical package, then compile SDF + PX4 airframe from it.
+
+    Core writes meshes + ``manifest.json`` + URDF and nothing vendor-specific;
+    the Gazebo bridge turns that package into an SDF with motor plugins and a
+    PX4 airframe init script (``docs/engine-contract.md`` §6).
+    """
+    from gazebo_bridge.package_to_sdf import compile_and_validate
+    from gazebo_bridge.px4_airframe import generate_from_package
+
     from server.tools_cad import cad_export_sim_package
 
     _banner("Stage 2b: Export sim package + PX4 airframe")
@@ -317,20 +325,16 @@ def export_sim_package_with_px4(
                 "index": idx,
                 "joint": f"{rotor_name}_joint",
                 "direction": direction,
-                # Body-frame position in metres for the airframe generator.
+                # Body-frame position in metres, FLU convention.
                 "position_m": (dx / 1000.0, dy / 1000.0, 0.0),
             }
             for idx, (rotor_name, dx, dy, direction) in enumerate(ROTORS)
         ],
         "sensors": True,
-        "px4": True,
-        "register_airframe": True,
-        "px4_install_path": str(px4_install),
     }
     output_dir.mkdir(parents=True, exist_ok=True)
     result = cad_export_sim_package(
         mechanism_id=mechanism_id,
-        emit_sdf=True,
         ground_clearance_m=0.05,
         drone_config=drone_config,
         output_dir=str(output_dir),
@@ -338,6 +342,19 @@ def export_sim_package_with_px4(
     if not result.get("ok"):
         raise RuntimeError(f"cad.export_sim_package failed: {result.get('error')}")
 
+    compiled = compile_and_validate(str(output_dir))
+    result["sdf_path"] = compiled["sdf_path"]
+    if compiled["findings"]:
+        result["sdf_validation"] = compiled["findings"]
+
+    result.update(
+        generate_from_package(
+            str(output_dir),
+            install_path=str(px4_install),
+        )
+    )
+
+    print(f"  Manifest: {result.get('manifest_path')}")
     print(f"  SDF: {result.get('sdf_path')}")
     print(f"  URDF: {result.get('urdf_path')}")
     print(f"  Airframe ID: {result.get('airframe_id')}")
@@ -346,8 +363,6 @@ def export_sim_package_with_px4(
     print(f"  Arm length: {result.get('airframe_arm_length_m', 0):.3f} m")
     print(f"  Hover throttle: {result.get('airframe_hover_throttle', 0):.3f}")
 
-    if result.get("airframe_error"):
-        raise RuntimeError(f"airframe generation failed: {result['airframe_error']}")
     return result
 
 
@@ -568,7 +583,7 @@ def fly_takeoff_hover_land(takeoff_alt_m: float, hover_secs: float) -> None:
     will invoke the same code path once the recording prompt drives
     flight via ``motion.teleop_command``.
     """
-    from server.mavlink_controller import MavlinkController, MavlinkError
+    from gazebo_bridge.mavlink_controller import MavlinkController, MavlinkError
 
     _banner("Stage 5: Flight (arm → takeoff → hover → land)")
     ctrl = MavlinkController(udp_url="udp:127.0.0.1:14540")

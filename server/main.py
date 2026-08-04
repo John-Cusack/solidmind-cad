@@ -28,6 +28,33 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 _LOG_DIR = _PROJECT_ROOT / ".solidmind" / "logs"
 
 
+def _package_version() -> str:
+    """This package's version — one source of truth, read not hardcoded.
+
+    The MCP handshake used to carry its own copy of the version string, which
+    is one more place to forget on a release. Installed metadata is the
+    authority, but this server is usually run straight from a checkout
+    (``python3 -m server.main``) where there is none, so fall back to the
+    pyproject that metadata would have been built from.
+    """
+    try:
+        import importlib.metadata
+
+        return importlib.metadata.version("solidmind-cad")
+    except Exception:  # noqa: BLE001 — not installed; read the source of truth
+        pass
+    try:
+        import tomllib
+
+        with open(_PROJECT_ROOT / "pyproject.toml", "rb") as fh:
+            return str(tomllib.load(fh)["project"]["version"])
+    except Exception:  # noqa: BLE001 — version reporting is never fatal
+        return "0+unknown"
+
+
+_VERSION = _package_version()
+
+
 # ---------------------------------------------------------------------------
 # Extension pack discovery
 # ---------------------------------------------------------------------------
@@ -254,11 +281,9 @@ from server.tools_motion import (
     motion_create_assembly,
     motion_define_mechanism,
     motion_drive_joint,
-    motion_isaac_launch,
-    motion_isaac_screenshot,
-    motion_isaac_stop,
     motion_list_mechanisms,
     motion_propagate_motion,
+    motion_screenshot,
     motion_simulate,
     motion_teleop_command,
     motion_teleop_start,
@@ -1319,9 +1344,11 @@ def _cad_tool_list() -> list[dict[str, Any]]:
         {
             "name": "cad.export_sim_package",
             "description": (
-                "Export all (or specified) bodies as individual meshes + optionally generate URDF from mechanism. "
-                "One MCP call that exports each body as a separate mesh file with its placement, "
-                "and generates a URDF file if a mechanism_id is provided. Ready for Isaac Sim import."
+                "Export a canonical sim package: per-body meshes + manifest.json (+ URDF when a "
+                "mechanism_id is given). One MCP call that exports each body as a separate mesh "
+                "file with its placement and writes the manifest every simulation engine reads. "
+                "Pass the output_dir to motion.simulate as package_path — engines compile their "
+                "own native format (Gazebo SDF, PX4 airframe params) from the package."
             ),
             "inputSchema": {
                 "type": "object",
@@ -1340,30 +1367,18 @@ def _cad_tool_list() -> list[dict[str, Any]]:
                         "type": "string",
                         "description": "Mechanism handle from motion.define_mechanism — triggers URDF generation",
                     },
-                    "emit_sdf": {
-                        "type": "boolean",
-                        "default": False,
-                        "description": (
-                            "When mechanism_id is provided, also emit an SDF artifact beside URDF. "
-                            "Recommended for Gazebo-native drone simulation."
-                        ),
-                    },
                     "drone_config": {
                         "type": "object",
                         "description": (
-                            "Optional drone configuration. When present alongside emit_sdf=true, the "
-                            "SDF embeds a canonical Gazebo MulticopterMotorModel plugin per rotor and "
-                            "(by default) IMU/GPS/baro/magnetometer sensors on the root link. Keys:\n"
+                            "Optional drone configuration. Its rotors and sensors become abstract "
+                            "actuators/sensors entries in manifest.json; the engine compiles them "
+                            "into its own motor model and autopilot params at load time. Keys:\n"
                             "  rotors: list of {index, joint, direction ('ccw'|'cw'), [link, "
-                            "position_m, motor_constant, max_rot_velocity, moment_constant]}\n"
+                            "position_m, motor_constant, max_rot_velocity, min_rot_velocity, "
+                            "moment_constant]}\n"
                             "  sensors: bool (default True) or fine-grained dict\n"
-                            "  px4: bool — when True, also generates a PX4 airframe params script "
-                            "(see server.px4_airframe_generator). Result includes airframe_id and "
-                            "airframe_path.\n"
-                            "  register_airframe: bool (default True when px4=True) — drop the script "
-                            "into the PX4 install dir.\n"
-                            "  px4_install_path: optional override for the PX4 directory "
-                            "(defaults to SOLIDMIND_PX4_INSTALL or ~/repos/PX4-Autopilot)."
+                            "PX4 airframe params are generated bridge-side: pass px4=true to "
+                            "motion.simulate/motion.teleop_start alongside package_path."
                         ),
                     },
                     "ground_clearance_m": {
@@ -3358,17 +3373,15 @@ def _motion_tool_list() -> list[dict[str, Any]]:
                         "exclusiveMinimum": 0,
                         "description": "Output sampling interval in seconds (> 0, >= dt_s, <= duration_s).",
                     },
-                    "backend": {
-                        "type": "string",
-                        "enum": ["isaac", "chrono", "gazebo"],
-                        "default": "isaac",
-                        "description": "Simulation backend. Defaults to isaac.",
-                    },
+                    "backend": _engine_enum_property("Simulation backend."),
                     "mode": {
                         "type": "string",
                         "enum": ["batch", "teleop"],
                         "default": "batch",
-                        "description": "Isaac and Gazebo support batch and teleop. Chrono supports batch only.",
+                        "description": (
+                            "Batch runs to completion; teleop opens an interactive session. "
+                            "Engines advertise which they support — sim.engine_status lists them."
+                        ),
                     },
                     "profile": {
                         "type": "object",
@@ -3381,11 +3394,28 @@ def _motion_tool_list() -> list[dict[str, Any]]:
                             "Enables physics-based articulation simulation with Isaac."
                         ),
                     },
+                    "package_path": {
+                        "type": "string",
+                        "description": (
+                            "Path to the sim package directory from cad.export_sim_package "
+                            "(the one containing manifest.json). Preferred input for Gazebo: "
+                            "the bridge compiles its own SDF from it at load time."
+                        ),
+                    },
                     "sdf_path": {
                         "type": "string",
                         "description": (
-                            "Path to SDF file from cad.export_sim_package(emit_sdf=true). "
-                            "For Gazebo backend, provide urdf_path or sdf_path (sdf preferred)."
+                            "Path to a hand-written SDF file. Prefer package_path; this is for "
+                            "models core did not produce."
+                        ),
+                    },
+                    "px4": {
+                        "type": "boolean",
+                        "default": False,
+                        "description": (
+                            "Gazebo backend: generate and register a PX4 airframe init script "
+                            "from the package. Requires package_path. PX4 must be rebuilt for a "
+                            "new airframe to be selectable via PX4_SIM_MODEL."
                         ),
                     },
                     "import_config": {
@@ -3421,12 +3451,9 @@ def _motion_tool_list() -> list[dict[str, Any]]:
                 "type": "object",
                 "properties": {
                     "mechanism_id": {"type": "string", "description": "Mechanism handle"},
-                    "backend": {
-                        "type": "string",
-                        "enum": ["isaac", "gazebo"],
-                        "default": "isaac",
-                        "description": "Teleop backend (isaac or gazebo).",
-                    },
+                    "backend": _engine_enum_property(
+                        "Teleop backend; only engines advertising teleop can start a session."
+                    ),
                     "profile": {
                         "type": "object",
                         "description": (
@@ -3453,11 +3480,18 @@ def _motion_tool_list() -> list[dict[str, Any]]:
                             "Enables physics-based articulation teleop with Isaac."
                         ),
                     },
+                    "package_path": {
+                        "type": "string",
+                        "description": (
+                            "Path to the sim package directory from cad.export_sim_package. "
+                            "Preferred input for Gazebo teleop."
+                        ),
+                    },
                     "sdf_path": {
                         "type": "string",
                         "description": (
-                            "Path to SDF file from cad.export_sim_package(emit_sdf=true). "
-                            "For Gazebo backend, provide urdf_path or sdf_path."
+                            "Path to a hand-written SDF file. Prefer package_path; this is for "
+                            "models core did not produce."
                         ),
                     },
                     "import_config": {
@@ -3554,15 +3588,19 @@ def _motion_tool_list() -> list[dict[str, Any]]:
             },
         },
         {
-            "name": "motion.isaac_screenshot",
+            "name": "motion.screenshot",
             "description": (
-                "Capture the Isaac Sim viewport as a PNG image. "
-                "Use after importing a URDF or running a simulation to visually inspect the scene. "
-                "Optionally reposition the camera before capture."
+                "Capture the simulation engine's viewport as a PNG image. "
+                "Use after loading a model or running a simulation to visually inspect the "
+                "scene. Only engines that advertise a 'screenshot' capability can answer; "
+                "ask sim.engine_status to see which do."
             ),
             "inputSchema": {
                 "type": "object",
                 "properties": {
+                    "backend": _engine_enum_property(
+                        "Engine to capture from. Defaults to the registry default."
+                    ),
                     "width": {
                         "type": "integer",
                         "default": 1280,
@@ -3596,53 +3634,6 @@ def _motion_tool_list() -> list[dict[str, Any]]:
             },
         },
         {
-            "name": "motion.isaac_launch",
-            "description": (
-                "Launch the Isaac Sim bridge as a managed subprocess. Spawns the bridge process "
-                "and waits for it to accept TCP connections (up to timeout). If the bridge is "
-                "already running, returns immediately. Use before any Isaac Sim operations "
-                "(teleop, simulate, screenshot) if the bridge is not already started."
-            ),
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "headless": {
-                        "type": "boolean",
-                        "default": False,
-                        "description": "Run Isaac Sim without GUI window (for CI/remote)",
-                    },
-                    "port": {
-                        "type": "integer",
-                        "default": 9878,
-                        "description": "TCP port for the bridge server",
-                    },
-                    "environment": {
-                        "type": "string",
-                        "default": "full_warehouse.usd",
-                        "description": "Isaac Sim environment/scene to load",
-                    },
-                    "timeout_s": {
-                        "type": "number",
-                        "default": 120.0,
-                        "description": "Max seconds to wait for bridge to become ready",
-                    },
-                },
-                "additionalProperties": False,
-            },
-        },
-        {
-            "name": "motion.isaac_stop",
-            "description": (
-                "Stop the managed Isaac Sim bridge subprocess. Sends SIGTERM and waits "
-                "for clean exit. Only affects bridges launched via motion.isaac_launch."
-            ),
-            "inputSchema": {
-                "type": "object",
-                "properties": {},
-                "additionalProperties": False,
-            },
-        },
-        {
             "name": "motion.verify_sim_package",
             "description": (
                 "Verify that a mechanism exported correctly through the FreeCAD → URDF → Isaac pipeline. "
@@ -3667,14 +3658,14 @@ def _motion_tool_list() -> list[dict[str, Any]]:
                         "type": "string",
                         "description": "FreeCAD document name (optional, for stage 1 model tree check)",
                     },
-                    "check_isaac": {
+                    "check_engine": {
                         "type": "boolean",
                         "default": False,
                         "description": "If true, also query Isaac Sim scene and compare against URDF (stage 3)",
                     },
                     "prim_path": {
                         "type": "string",
-                        "description": "USD prim path to diagnose in Isaac (default '/'). Only used if check_isaac=true.",
+                        "description": "Scene path to diagnose (default '/'). Only used if check_engine=true.",
                     },
                 },
                 "required": ["mechanism_id"],
@@ -5108,14 +5099,15 @@ def _sim_tool_list() -> list[dict[str, Any]]:
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "backend": {
-                        "type": "string",
-                        "enum": ["chrono", "gazebo", "isaac"],
-                        "description": "Which simulation backend to start",
-                    },
+                    "backend": _engine_enum_property(
+                        "Which simulation backend to start.", include_default=False
+                    ),
                     "port": {
                         "type": "integer",
-                        "description": "Override default port (chrono=9877, gazebo=9879, isaac=9878)",
+                        "description": (
+                            "Override the descriptor's port (see engines.d/, or "
+                            "SOLIDMIND_<ENGINE>_PORT)"
+                        ),
                     },
                     "headless": {
                         "type": "boolean",
@@ -5143,10 +5135,9 @@ def _sim_tool_list() -> list[dict[str, Any]]:
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "backend": {
-                        "type": "string",
-                        "enum": ["chrono", "gazebo", "isaac"],
-                    },
+                    "backend": _engine_enum_property(
+                        "Which simulation backend to stop.", include_default=False
+                    ),
                 },
                 "required": ["backend"],
                 "additionalProperties": False,
@@ -5209,6 +5200,27 @@ def _decide_tool_list() -> list[dict[str, Any]]:
             },
         },
     ]
+
+
+def _engine_enum_property(description: str, *, include_default: bool = True) -> dict[str, Any]:
+    """Backend property generated from the engine registry.
+
+    The enum, the default and the per-engine guidance are all descriptor data
+    (``engines.d/``), so installing a third-party engine widens the tool
+    surface without a core edit — and uninstalling one narrows it.
+    """
+    from server.engine_registry import default_engine, engine_names, when_to_use
+
+    names = engine_names()
+    guidance = "  ".join(f"{name}: {when_to_use(name)}" for name in names if when_to_use(name))
+    prop: dict[str, Any] = {
+        "type": "string",
+        "enum": names,
+        "description": f"{description} {guidance}".strip(),
+    }
+    if include_default:
+        prop["default"] = default_engine()
+    return prop
 
 
 def _tool_list() -> list[dict[str, Any]]:
@@ -5374,9 +5386,7 @@ _MOTION_DISPATCH: dict[str, Any] = {
     "motion.teleop_command": motion_teleop_command,
     "motion.teleop_state": motion_teleop_state,
     "motion.teleop_stop": motion_teleop_stop,
-    "motion.isaac_screenshot": motion_isaac_screenshot,
-    "motion.isaac_launch": motion_isaac_launch,
-    "motion.isaac_stop": motion_isaac_stop,
+    "motion.screenshot": motion_screenshot,
     "motion.verify_sim_package": motion_verify_sim_package,
 }
 
@@ -5479,7 +5489,7 @@ def serve() -> int:
             if method == "initialize":
                 result = {
                     "protocolVersion": "2024-11-05",
-                    "serverInfo": {"name": "solidmind-cad", "version": "0.2.0"},
+                    "serverInfo": {"name": "solidmind-cad", "version": _VERSION},
                     "capabilities": {"tools": {}, "resources": {}, "prompts": {}},
                 }
                 _send(_rpc_result(rpc_id, result))

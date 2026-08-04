@@ -1,8 +1,8 @@
 """Shared planetary gear set detection and kinematics.
 
-Extracted from ``simulation_spec_builder`` so both the Chrono planner and
-the motion validation / animation pipeline can reuse the same topology
-detection logic.
+Used by motion validation and the animation pipeline.  The Chrono bridge
+carries its own port of this detection (``chrono_bridge/mechanism.py``) —
+engine repositories cannot import core.
 """
 
 from __future__ import annotations

@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "solidmind-cad"
-version = "0.2.0"
+version = "0.3.0"
 description = "FreeCAD-integrated CAD co-pilot driven by MCP — PartDesign workbench + manufacturing readiness"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -101,6 +101,18 @@ extend-exclude = [
   "docs",
 ]
 
+[tool.ruff.lint.isort]
+# The engines are separate distributions now, not directories in this tree, so
+# ruff cannot infer them from the layout — and a checkout with one pip-installed
+# would sort it differently from one without. Naming them keeps import order
+# identical everywhere, which is what made CI disagree with a local run.
+known-third-party = [
+  "chrono_bridge",
+  "gazebo_bridge",
+  "isaac_bridge",
+  "rl_training",
+]
+
 [tool.ruff.lint]
 # Cleaned up and enforcing. Suppressions below are reserved for genuine false
 # positives and one deliberate codebase convention — everything else is fixed.
@@ -133,3 +145,30 @@ ignore = [
 manifest-path = "geometry/Cargo.toml"
 python-source = "."
 module-name = "solidmind_geometry"
+# The wheel ships core only: the contract, the orchestration, the reference
+# engine and the conformance kit.  Engines live in their own repositories on
+# their own interpreters (docs/engine-integration-architecture.md §4), so
+# shipping their code to every user would be exactly the coupling the split
+# removed.  Without an explicit list maturin sweeps in every top-level package
+# it finds — including engines still present in a working checkout.
+include = [
+    { path = "server/**/*.py", format = "wheel" },
+    { path = "geometry/**/*.py", format = "wheel" },
+    { path = "solidmind_geometry/**/*.py", format = "wheel" },
+    { path = "reference_engine/**/*.py", format = "wheel" },
+    { path = "tck/**/*.py", format = "wheel" },
+    { path = "tck/fixtures/**/*", format = "wheel" },
+    { path = "engines.d/*.toml", format = "wheel" },
+    { path = "schemas/*.json", format = "wheel" },
+    { path = "feature_support/*.yml", format = "wheel" },
+]
+exclude = [
+    { path = "isaac_bridge/**/*", format = "wheel" },
+    { path = "gazebo_bridge/**/*", format = "wheel" },
+    { path = "chrono_bridge/**/*", format = "wheel" },
+    { path = "chrono_daemon/**/*", format = "wheel" },
+    { path = "rl_training/**/*", format = "wheel" },
+    { path = "tests/**/*", format = "wheel" },
+    { path = "examples/**/*", format = "wheel" },
+    { path = "training_runs/**/*", format = "wheel" },
+]

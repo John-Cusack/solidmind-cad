@@ -23,10 +23,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
-import socket
-import subprocess
 import sys
-import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -95,8 +92,6 @@ FEA_CONVERGENCE_TOL = 0.10
 # hold force still sizes the spring seat and the rod's buckling; only the latch
 # tooth sees this amplified catch load. (ROADMAP Move 4 #4.)
 LATCH_IMPACT_FACTOR = 2.0
-
-_CHRONO_DAEMON = Path(__file__).resolve().parents[2] / "chrono_daemon" / "build" / "chrono_daemon"
 
 # PETG isn't in the core material DB — supply an inline fallback.
 _PETG = {
@@ -242,19 +237,6 @@ def synthesize(
 # --------------------------------------------------------------------------- #
 # Simulate (dynamic): Chrono spring-plunger run → dart-exit velocity
 # --------------------------------------------------------------------------- #
-def _wait_listening(port: int, timeout_s: float = 5.0) -> bool:
-    deadline = time.monotonic() + timeout_s
-    while time.monotonic() < deadline:
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.settimeout(0.2)
-            try:
-                s.connect(("127.0.0.1", port))
-                return True
-            except OSError:
-                time.sleep(0.05)
-    return False
-
-
 def chrono_plunger_velocity(
     *,
     spring_k_n_per_m: float,
@@ -265,80 +247,75 @@ def chrono_plunger_velocity(
     """Lossless plunger exit velocity from a real Chrono spring-plunger run.
 
     The spring accelerates the plunger (which carries the dart); this validates
-    the spring→plunger *mechanical* energy delivery against the analytical
+    the spring->plunger *mechanical* energy delivery against the analytical
     ``sqrt(k x^2 / m_plunger)``. Frictionless, so it's the no-loss upper bound.
-    Returns (peak_speed_m_s, motion_trace) or (None, []) if the daemon isn't
-    built.
+    Returns (peak_speed_m_s, motion_trace) or (None, []) if Chrono isn't there.
+
+    Driven the way a user drives it: start the engine, hand it a neutral
+    mechanism, read a contract-shaped result. This used to spawn the Chrono
+    daemon binary and hand-patch its native spec to seat the plunger at ``z0``
+    — both of which left with the engine. The seating is a frame choice, not
+    physics: what the spring feels is the compression, so a rest length of
+    ``pullback_m`` about a joint at the origin is the same run, and the reported
+    speeds come from differences, where any offset cancels.
     """
-    if not (_CHRONO_DAEMON.is_file()):
-        log.say("Simulate", "Chrono SKIPPED (daemon not built); using analytical value")
+    from server.tools_motion import motion_define_mechanism, motion_simulate
+    from server.tools_sim import sim_start_engine
+
+    started = sim_start_engine(backend="chrono")
+    if not started.get("ok"):
+        detail = (started.get("error") or {}).get("message", "unavailable")
+        log.say("Simulate", f"Chrono SKIPPED ({detail}); using analytical value")
         return None, []
 
-    from server.chrono_client import ChronoClient
-    from server.motion_models import JointEdge, JointType, Mechanism, PartNode
-    from server.simulation_spec_builder import build_simulation_spec
-
-    z0 = 0.005  # initial plunger offset; spring rest = z0 + pullback (compressed)
-    rest = z0 + pullback_m
-    mech = Mechanism(
-        name="foam_dart_dynamics",
-        parts=(
-            PartNode(id="frame", is_ground=True),
-            PartNode(id="plunger", mass_kg=plunger_mass_kg, inertia_kg_m2=1e-5),
-        ),
-        joints=(
-            JointEdge(
-                id="slide",
-                joint_type=JointType.PRISMATIC,
-                parent_part="frame",
-                child_part="plunger",
-                axis=(0.0, 0.0, 1.0),
-                origin=(0.0, 0.0, 0.0),
-                spring_k_n_per_m=spring_k_n_per_m,
-                spring_rest_length_m=rest,
-            ),
-        ),
-        drives=(),
+    defined = motion_define_mechanism(
+        mechanism={
+            "name": "foam_dart_dynamics",
+            "parts": [
+                {"id": "frame", "is_ground": True},
+                {"id": "plunger", "mass_kg": plunger_mass_kg, "inertia_kg_m2": 1e-5},
+            ],
+            "joints": [
+                {
+                    "id": "slide",
+                    "joint_type": "prismatic",
+                    "parent_part": "frame",
+                    "child_part": "plunger",
+                    "axis": [0.0, 0.0, 1.0],
+                    "origin": [0.0, 0.0, 0.0],
+                    "spring_k_n_per_m": spring_k_n_per_m,
+                    "spring_rest_length_m": pullback_m,
+                }
+            ],
+            "drives": [],
+        }
     )
-    spec = build_simulation_spec(mech)
-    for obj in spec["objects"]:
-        if obj.get("type") == "body" and obj["id"] == "plunger":
-            obj["pos"] = [0.0, 0.0, z0]
-
-    port = 19888
-    proc = subprocess.Popen(
-        [str(_CHRONO_DAEMON), "--host", "127.0.0.1", "--port", str(port)],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    try:
-        if not _wait_listening(port, 5.0):
-            log.say("Simulate", "Chrono SKIPPED (daemon failed to start)")
-            return None, []
-        client = ChronoClient(host="127.0.0.1", port=port)
-        client.connect(timeout=2.0)
-        try:
-            result = client.simulate(
-                simulation_spec=spec, duration_s=0.04, dt_s=1e-5, output_interval=1e-4
-            )
-        finally:
-            client.disconnect()
-    except Exception as exc:  # connect/sim/protocol error → degrade, don't crash
-        log.say("Simulate", f"Chrono SKIPPED (sim error: {exc})")
+    if not defined.get("ok"):
+        log.say("Simulate", f"Chrono SKIPPED (mechanism rejected: {defined.get('error')})")
         return None, []
-    finally:
-        proc.terminate()
-        try:
-            proc.wait(timeout=2.0)
-        except subprocess.TimeoutExpired:
-            proc.kill()
 
-    ts = result.get("time_series", [])
-    samples = [(s["t"], s["parts"]["plunger"]["pos"][2]) for s in ts]
-    # A degenerate trace (≤1 sample) yields no real velocity — report SKIPPED
+    result = motion_simulate(
+        mechanism_id=defined["mechanism_id"],
+        backend="chrono",
+        duration_s=0.04,
+        dt_s=1e-5,
+        output_interval=1e-4,
+    )
+    if not result.get("ok"):
+        log.say("Simulate", f"Chrono SKIPPED (sim error: {result.get('error')})")
+        return None, []
+
+    body = result.get("results") or result
+    ts = body.get("time_series") or []
+    samples = [
+        (s["t"], s["parts"]["plunger"]["pos"][2])
+        for s in ts
+        if isinstance(s.get("parts", {}).get("plunger"), dict) and "pos" in s["parts"]["plunger"]
+    ]
+    # A degenerate trace (<=1 sample) yields no real velocity - report SKIPPED
     # rather than a faked 0.0 m/s that would look like a genuine measurement.
     if len(samples) < 2:
-        log.say("Simulate", "Chrono SKIPPED (degenerate trace — no usable samples)")
+        log.say("Simulate", "Chrono SKIPPED (degenerate trace - no usable samples)")
         return None, []
     trace: list[dict[str, float]] = []
     peak = 0.0

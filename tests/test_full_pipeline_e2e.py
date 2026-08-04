@@ -28,7 +28,7 @@ import unittest
 from pathlib import Path
 from typing import Any
 
-from tests.conftest import GazeboStubBridge, mechanism_factory, unused_tcp_port
+from tests.conftest import ReferenceEngineFixture, mechanism_factory, unused_tcp_port
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
@@ -37,10 +37,11 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 # ---------------------------------------------------------------------------
 
 requires_chrono = unittest.skipUnless(
-    # Must have the actual compiled binary — run.sh is only the wrapper
-    # script and is checked into the repo, so testing for run.sh alone
-    # makes the skip a no-op on fresh clones.
-    os.path.isfile("chrono_daemon/build/chrono_daemon"),
+    # The engine lives in solidmind-engine-chrono now, and needs its C++
+    # daemon built there.  Core cannot run it from its own checkout.
+    os.path.isfile(
+        os.path.expanduser("~/repos/solidmind-engine-chrono/chrono_daemon/build/chrono_daemon")
+    ),
     "Chrono daemon binary not built (chrono_daemon/build/chrono_daemon)",
 )
 
@@ -319,7 +320,7 @@ class TestFullPipelineE2E(unittest.TestCase):
         """Gazebo stub returns time_series with joint_efforts."""
         port = unused_tcp_port()
         mech = mechanism_factory("gear_pair")
-        with GazeboStubBridge(port) as bridge:
+        with ReferenceEngineFixture(port) as bridge:
             resp = _send_command(
                 bridge.host,
                 bridge.port,
@@ -465,36 +466,28 @@ class TestFullPipelineE2E(unittest.TestCase):
 
     @requires_chrono
     def test_30_chrono_simulate(self) -> None:
-        """Chrono daemon: gear_a=1000, gear_b=-500 RPM."""
+        """Chrono over the contract: gear_a=1000, gear_b=-500 RPM.
+
+        Core sends the neutral mechanism; the chrono bridge compiles it into
+        Chrono's own spec on its side of the boundary.  Core no longer knows
+        what a Chrono spec looks like.
+        """
         from server import motion_store
-        from server.simulation_spec_builder import (
-            add_derived_speeds,
-            build_simulation_spec,
-            validate_simulation_spec,
-        )
+        from server.sim_adapter import call as engine_call
 
         mech = motion_store.get(self._mech_id)
         self.assertIsNotNone(mech, "Mechanism not in store")
 
-        spec = build_simulation_spec(mech)
-        issues = validate_simulation_spec(spec)
-        self.assertEqual(issues, [], f"Spec validation failed: {issues}")
-
-        port = unused_tcp_port()
-        with _ChronoDaemon(port) as daemon:
-            resp = daemon.send(
-                "simulate",
-                {
-                    "simulation_spec": spec,
-                    "duration_s": 0.5,
-                    "dt_s": 0.001,
-                    "output_interval": 0.05,
-                },
-            )
-
-        self.assertTrue(resp["ok"], resp)
-        result = resp["result"]
-        add_derived_speeds(result, spec)
+        result = engine_call(
+            "chrono",
+            "simulate",
+            mechanism=mech.to_dict(),
+            duration_s=0.5,
+            dt_s=0.001,
+            output_interval=0.05,
+        )
+        if not result.get("ok"):
+            self.skipTest(f"chrono engine unavailable: {result.get('error')}")
 
         ss = result["summary"]["steady_state_speeds"]
         self.assertAlmostEqual(ss["gear_a"], 1000.0, places=0)
@@ -575,7 +568,7 @@ class TestFullPipelineE2E(unittest.TestCase):
         # Step 1: Gazebo stub → peak joint force
         port = unused_tcp_port()
         mech = mechanism_factory("gear_pair")
-        with GazeboStubBridge(port) as bridge:
+        with ReferenceEngineFixture(port) as bridge:
             sim_resp = _send_command(
                 bridge.host,
                 bridge.port,

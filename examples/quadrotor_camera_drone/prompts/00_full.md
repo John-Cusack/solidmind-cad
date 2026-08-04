@@ -100,7 +100,6 @@ Phase 5 — Verify it flies (PX4 + Gazebo)
 
 2. Export sim package + PX4 airframe params via cad.export_sim_package:
    - mechanism_id = <id from step 1>
-   - emit_sdf = true
    - drone_config = {
        "rotors": [
          {"index": 0, "joint": "rotor_FL_joint", "direction": "ccw", "position_m": (0.2475, 0.2475, 0)},
@@ -109,9 +108,11 @@ Phase 5 — Verify it flies (PX4 + Gazebo)
          {"index": 3, "joint": "rotor_RL_joint", "direction": "cw",  "position_m": (-0.2475, 0.2475, 0)},
        ],
        "sensors": True,
-       "px4": True,
-       "register_airframe": True,
      }
+
+   The export writes meshes + manifest.json + URDF. Then start the drone in
+   Gazebo with the package, asking the bridge for PX4 params:
+     motion.simulate(mechanism_id=..., backend="gazebo", package_path=<output_dir>, px4=true)
 
    Report airframe_id (a SYS_AUTOSTART number in 50000-50999), airframe_path, computed hover_throttle.
 

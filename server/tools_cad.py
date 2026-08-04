@@ -1055,26 +1055,26 @@ def cad_export_sim_package(
     format: str = "stl",
     output_dir: str | None = None,
     mechanism_id: str | None = None,
-    emit_sdf: bool = False,
     ground_clearance_m: float | None = None,
     drone_config: dict[str, Any] | None = None,
     doc: str | None = None,
 ) -> dict[str, Any]:
-    """Export bodies as individual meshes + optionally generate URDF from mechanism.
+    """Export a canonical sim package: meshes + ``manifest.json`` + URDF.
 
     One MCP call that:
     1. Exports all (or specified) bodies as individual STLs — one TCP round trip
     2. Returns each body's Placement (position + rotation quaternion)
-    3. If ``mechanism_id`` is provided, generates URDF from the mechanism definition
-    4. If ``emit_sdf=True``, also emits SDF beside URDF for Gazebo workflows
-    5. If ``drone_config`` is provided alongside ``emit_sdf``, the SDF embeds the
-       Gazebo multicopter motor model plugin (``rotors`` list, etc.) so the model
-       is hover-ready under ``motion.simulate(backend="gazebo")``.
-    6. If ``drone_config["px4"]=True``, also generates a PX4 airframe init
-       script and (when ``register_airframe=True``) drops it into the
-       configured PX4 install directory.  The result includes
-       ``airframe_id`` (SYS_AUTOSTART) and ``airframe_path``.  PX4 must
-       be rebuilt for the new airframe to be available to ``PX4_SIM_MODEL``.
+    3. Writes ``manifest.json``, the canonical model description every engine
+       reads (``docs/engine-contract.md`` §6)
+    4. If ``mechanism_id`` is provided, also generates a URDF from the mechanism
+       definition — the one courtesy dialect core emits
+    5. If ``drone_config`` is provided, its rotors and sensors become abstract
+       ``actuators``/``sensors`` entries in the manifest
+
+    Vendor formats are **not** written here. Gazebo's SDF, its motor plugins
+    and any PX4 airframe script are compiled by the gazebo bridge from this
+    package at load time — pass ``package_path`` (the ``output_dir``) to
+    ``motion.simulate(backend="gazebo")``.
     """
     import os
 
@@ -1082,10 +1082,8 @@ def cad_export_sim_package(
     from server.sim_export import (
         MeshBBox,
         build_sim_model,
-        validate_sdf,
         validate_urdf,
         validate_urdf_fk,
-        write_sdf,
         write_urdf,
     )
 
@@ -1099,6 +1097,10 @@ def cad_export_sim_package(
         kwargs["doc"] = doc
 
     result = client.send_command("export_sim_package", **kwargs)
+
+    # Populated below when a mechanism is supplied; drives the manifest's
+    # full (links + joints + inertia) vs reduced (bodies-only) mode.
+    sim_model = None
 
     # Generate URDF if mechanism_id provided
     if mechanism_id is not None:
@@ -1176,63 +1178,39 @@ def cad_export_sim_package(
         if blockers:
             result["urdf_validation_blocked"] = True
 
-        if emit_sdf:
-            sdf_path = os.path.join(pkg_dir, f"{sim_model.name}.sdf")
-            sdf_path = write_sdf(
-                sim_model,
-                sdf_path,
-                base_dir=pkg_dir,
-                absolute_mesh_paths=True,
-                drone_config=drone_config,
-            )
-            sdf_findings = validate_sdf(sdf_path, drone_mode=drone_config is not None)
-            result["sdf_path"] = sdf_path
-            if sdf_findings:
-                result["sdf_validation"] = [f.to_dict() for f in sdf_findings]
+    # ------------------------------------------------------------------
+    # Canonical manifest — Engine Integration Contract v1 §6.  Written for
+    # both modes so a non-Python engine has something on disk to read.
+    # A manifest failure must not sink an otherwise-successful export, so it
+    # is reported as a key on the result rather than raised.
+    # ------------------------------------------------------------------
+    from server.sim_package_manifest import build_manifest, write_manifest
 
-            # Phase 4: optional PX4 airframe params generation.  Triggered
-            # by drone_config["px4"] = True.  Produces the shell-style
-            # init file PX4 reads at boot and (by default) drops it into
-            # the configured PX4 install path so the next ``make px4_sitl``
-            # build picks it up.
-            if drone_config is not None and drone_config.get("px4"):
-                from server.px4_airframe_generator import (
-                    AirframeGeneratorError,
-                    format_airframe_init_script,
-                    generate_airframe_params,
-                    register_airframe,
-                )
-
-                try:
-                    airframe_params = generate_airframe_params(
-                        model_name=sim_model.name,
-                        sim_model=sim_model,
-                        drone_config=drone_config,
-                    )
-                    result["airframe_id"] = airframe_params.sys_autostart
-                    result["airframe_name"] = airframe_params.name
-                    result["airframe_mass_kg"] = airframe_params.mass_kg
-                    result["airframe_arm_length_m"] = airframe_params.arm_length_m
-                    result["airframe_hover_throttle"] = airframe_params.hover_throttle
-
-                    if drone_config.get("register_airframe", True):
-                        airframe_path = register_airframe(
-                            airframe_params,
-                            install_path=drone_config.get("px4_install_path"),
-                        )
-                        result["airframe_path"] = str(airframe_path)
-                    else:
-                        # Operator wants the script body without writing it.
-                        result["airframe_script"] = format_airframe_init_script(
-                            airframe_params,
-                        )
-                except AirframeGeneratorError as exc:
-                    result["airframe_error"] = {
-                        "code": exc.code or "AIRFRAME_GENERATION_FAILED",
-                        "message": str(exc),
-                    }
+    pkg_dir = result.get("output_dir", output_dir or ".")
+    try:
+        manifest = build_manifest(
+            name=(sim_model.name if sim_model is not None else _package_name(pkg_dir)),
+            output_dir=pkg_dir,
+            body_manifest=result.get("bodies", []),
+            sim_model=sim_model,
+            drone_config=drone_config,
+        )
+        result["manifest_path"] = write_manifest(manifest, pkg_dir)
+    except OSError as exc:
+        result["manifest_error"] = {
+            "code": "MANIFEST_WRITE_FAILED",
+            "message": str(exc),
+        }
 
     return {"ok": True, **result}
+
+
+def _package_name(pkg_dir: str) -> str:
+    """Name for a bodies-only package — the export directory's basename."""
+    import os
+
+    base = os.path.basename(os.path.normpath(pkg_dir))
+    return base or "sim_package"
 
 
 @_wrap

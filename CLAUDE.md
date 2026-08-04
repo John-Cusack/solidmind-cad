@@ -16,9 +16,10 @@ python3 -m unittest tests.test_tools_cad  # Run a single test module
 ```
 Claude Code CLI ──stdio──▶ MCP Bridge Server ──TCP socket──▶ FreeCAD Addon
                            (server/main.py)     :9876         (freecad_addon/)
-                               ├─ TCP :9877 ──▶ Chrono Daemon (optional, C++ MBS)
-                               ├─ TCP :9878 ──▶ Isaac Bridge  (optional, GPU sim)
-                               ├─ TCP :9879 ──▶ Gazebo Bridge (optional, CPU sim)
+                               ├─ TCP :9880 ──▶ Reference Engine (ships with core)
+                               ├─ TCP :9877 ──▶ solidmind-engine-chrono  (sibling repo)
+                               ├─ TCP :9878 ──▶ solidmind-engine-isaac   (sibling repo)
+                               ├─ TCP :9879 ──▶ solidmind-engine-gazebo  (sibling repo)
                                ├─ Field solvers  ──▶ CalculiX (structural FEA, subprocess)
                                │                    SU2 (RANS CFD, subprocess)
                                │                    DUST (vortex particle, subprocess)

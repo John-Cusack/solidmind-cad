@@ -22,7 +22,7 @@ from server.sim_verify import (
     verify_mechanism_vs_tree,
     verify_mechanism_vs_urdf,
     verify_sim_package,
-    verify_urdf_vs_isaac,
+    verify_urdf_vs_diagnose,
 )
 
 
@@ -283,7 +283,62 @@ class TestVerifyMechanismVsUrdf(unittest.TestCase):
             self.assertEqual(len(type_findings), 1)
 
 
-class TestVerifyUrdfVsIsaac(unittest.TestCase):
+class TestVerifyUrdfVsDiagnose(unittest.TestCase):
+    """One generic check against the contract's normalized diagnose report.
+
+    The fixtures are raw Isaac scene reports run through the *engine's* own
+    normalizer, so this also pins that the two halves agree: if the bridge
+    stops emitting what core reads, these fail.
+    """
+
+    @staticmethod
+    def _diagnose(
+        type_counts: dict[str, int],
+        joint_details: list[dict[str, Any]],
+        articulation: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Build the contract's normalized diagnose shape (§3.3).
+
+        Engines produce this from their own scene graph — Isaac's normalizer
+        moved out with the split — so core's checker is tested against the
+        shape itself rather than any one engine's translation of it.
+        """
+        generic = {
+            "PhysicsRevoluteJoint": "revolute",
+            "PhysicsPrismaticJoint": "prismatic",
+            "PhysicsFixedJoint": "fixed",
+        }
+        counts: dict[str, int] = {}
+        for usd_type, count in type_counts.items():
+            if usd_type in generic:
+                counts[generic[usd_type]] = counts.get(generic[usd_type], 0) + count
+
+        joints = []
+        for detail in joint_details:
+            kind = generic.get(str(detail.get("type", "")), "other")
+            entry: dict[str, Any] = {
+                "name": detail.get("path", ""),
+                "type": kind,
+                "connected": bool(detail.get("physics_body0"))
+                and bool(detail.get("physics_body1")),
+            }
+            namespace = "angular" if kind == "revolute" else "linear"
+            stiffness = detail.get(f"drive_{namespace}_stiffness")
+            damping = detail.get(f"drive_{namespace}_damping")
+            if stiffness is not None or damping is not None:
+                entry["has_drive"] = bool((stiffness or 0.0) or (damping or 0.0))
+            joints.append(entry)
+
+        normalized: dict[str, Any] = {
+            "joint_counts": counts,
+            "joint_total": sum(counts.values()),
+            "joints": joints,
+        }
+        if articulation:
+            normalized["dof_count"] = articulation["dof_count"]
+            normalized["dof_names"] = list(articulation.get("dof_names", []))
+        return normalized
+
     def test_diagnose_error(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             urdf_path = _write_urdf(
@@ -291,9 +346,9 @@ class TestVerifyUrdfVsIsaac(unittest.TestCase):
                 joints=[],
                 tmpdir=tmpdir,
             )
-            findings = verify_urdf_vs_isaac(urdf_path, {"error": "Stage not available"})
+            findings = verify_urdf_vs_diagnose(urdf_path, {"error": "Stage not available"})
             self.assertEqual(len(findings), 1)
-            self.assertEqual(findings[0].rule_id, "isaac_diagnose_error")
+            self.assertEqual(findings[0].rule_id, "diagnose_error")
 
     def test_matching_counts(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -304,9 +359,9 @@ class TestVerifyUrdfVsIsaac(unittest.TestCase):
                 ],
                 tmpdir=tmpdir,
             )
-            isaac_diag: dict[str, Any] = {
-                "type_counts": {"PhysicsRevoluteJoint": 1, "Xform": 2},
-                "joint_details": [
+            diagnose = self._diagnose(
+                {"PhysicsRevoluteJoint": 1, "Xform": 2},
+                [
                     {
                         "path": "/robot/j1",
                         "type": "PhysicsRevoluteJoint",
@@ -316,17 +371,21 @@ class TestVerifyUrdfVsIsaac(unittest.TestCase):
                         "drive_angular_damping": 100,
                     },
                 ],
-                "articulation_info": {
-                    "prim_path": "/robot",
-                    "dof_count": 1,
-                    "dof_names": ["j1"],
-                },
-            }
-            findings = verify_urdf_vs_isaac(urdf_path, isaac_diag)
-            blockers = [f for f in findings if f.severity == Severity.BLOCK]
-            self.assertEqual(len(blockers), 0)
+                {"prim_path": "/robot", "dof_count": 1, "dof_names": ["j1"]},
+            )
+            findings = verify_urdf_vs_diagnose(urdf_path, diagnose)
+            self.assertEqual([f for f in findings if f.severity == Severity.BLOCK], [])
 
-    def test_missing_joints_in_isaac(self) -> None:
+    def test_vendor_vocabulary_stays_engine_side(self) -> None:
+        """The normalized block speaks generic joint types, not USD ones."""
+        diagnose = self._diagnose(
+            {"PhysicsRevoluteJoint": 2, "PhysicsFixedJoint": 1, "Xform": 5},
+            [],
+        )
+        self.assertEqual(diagnose["joint_counts"], {"revolute": 2, "fixed": 1})
+        self.assertEqual(diagnose["joint_total"], 3)
+
+    def test_missing_joints_in_engine(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             urdf_path = _write_urdf(
                 links=[{"name": "a"}, {"name": "b"}, {"name": "c"}],
@@ -336,13 +395,10 @@ class TestVerifyUrdfVsIsaac(unittest.TestCase):
                 ],
                 tmpdir=tmpdir,
             )
-            isaac_diag: dict[str, Any] = {
-                "type_counts": {"PhysicsRevoluteJoint": 1},
-                "joint_details": [],
-            }
-            findings = verify_urdf_vs_isaac(urdf_path, isaac_diag)
-            count_findings = [f for f in findings if "count" in f.rule_id]
-            self.assertTrue(len(count_findings) >= 1)
+            findings = verify_urdf_vs_diagnose(
+                urdf_path, self._diagnose({"PhysicsRevoluteJoint": 1}, [])
+            )
+            self.assertTrue([f for f in findings if "count" in f.rule_id])
 
     def test_dof_count_low(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -354,31 +410,38 @@ class TestVerifyUrdfVsIsaac(unittest.TestCase):
                 ],
                 tmpdir=tmpdir,
             )
-            isaac_diag: dict[str, Any] = {
-                "type_counts": {"PhysicsRevoluteJoint": 2},
-                "joint_details": [],
-                "articulation_info": {
-                    "prim_path": "/robot",
-                    "dof_count": 1,
-                    "dof_names": ["j1"],
-                },
-            }
-            findings = verify_urdf_vs_isaac(urdf_path, isaac_diag)
-            dof_findings = [f for f in findings if f.rule_id == "isaac_dof_count_low"]
-            self.assertEqual(len(dof_findings), 1)
+            diagnose = self._diagnose(
+                {"PhysicsRevoluteJoint": 2},
+                [],
+                {"prim_path": "/robot", "dof_count": 1, "dof_names": ["j1"]},
+            )
+            findings = verify_urdf_vs_diagnose(urdf_path, diagnose)
+            self.assertEqual(len([f for f in findings if f.rule_id == "diagnose_dof_count_low"]), 1)
+
+    def test_no_dof_report_is_a_note(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            urdf_path = _write_urdf(
+                links=[{"name": "a"}, {"name": "b"}],
+                joints=[{"name": "j1", "type": "revolute", "parent": "a", "child": "b"}],
+                tmpdir=tmpdir,
+            )
+            findings = verify_urdf_vs_diagnose(
+                urdf_path, self._diagnose({"PhysicsRevoluteJoint": 1}, [])
+            )
+            notes = [f for f in findings if f.rule_id == "diagnose_no_dof_report"]
+            self.assertEqual(len(notes), 1)
+            self.assertEqual(notes[0].severity, Severity.NOTE)
 
     def test_joint_no_drive(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             urdf_path = _write_urdf(
                 links=[{"name": "a"}, {"name": "b"}],
-                joints=[
-                    {"name": "j1", "type": "revolute", "parent": "a", "child": "b"},
-                ],
+                joints=[{"name": "j1", "type": "revolute", "parent": "a", "child": "b"}],
                 tmpdir=tmpdir,
             )
-            isaac_diag: dict[str, Any] = {
-                "type_counts": {"PhysicsRevoluteJoint": 1},
-                "joint_details": [
+            diagnose = self._diagnose(
+                {"PhysicsRevoluteJoint": 1},
+                [
                     {
                         "path": "/robot/j1",
                         "type": "PhysicsRevoluteJoint",
@@ -388,23 +451,22 @@ class TestVerifyUrdfVsIsaac(unittest.TestCase):
                         "drive_angular_damping": 0,
                     },
                 ],
-            }
-            findings = verify_urdf_vs_isaac(urdf_path, isaac_diag)
-            drive_findings = [f for f in findings if f.rule_id == "isaac_joint_no_drive"]
-            self.assertEqual(len(drive_findings), 1)
+            )
+            findings = verify_urdf_vs_diagnose(urdf_path, diagnose)
+            self.assertEqual(
+                len([f for f in findings if f.rule_id == "diagnose_joint_no_drive"]), 1
+            )
 
     def test_joint_missing_body_target(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             urdf_path = _write_urdf(
                 links=[{"name": "a"}, {"name": "b"}],
-                joints=[
-                    {"name": "j1", "type": "revolute", "parent": "a", "child": "b"},
-                ],
+                joints=[{"name": "j1", "type": "revolute", "parent": "a", "child": "b"}],
                 tmpdir=tmpdir,
             )
-            isaac_diag: dict[str, Any] = {
-                "type_counts": {"PhysicsRevoluteJoint": 1},
-                "joint_details": [
+            diagnose = self._diagnose(
+                {"PhysicsRevoluteJoint": 1},
+                [
                     {
                         "path": "/robot/j1",
                         "type": "PhysicsRevoluteJoint",
@@ -412,10 +474,33 @@ class TestVerifyUrdfVsIsaac(unittest.TestCase):
                         "physics_body1": ["/b"],
                     },
                 ],
-            }
-            findings = verify_urdf_vs_isaac(urdf_path, isaac_diag)
-            body_findings = [f for f in findings if f.rule_id == "isaac_joint_missing_body_target"]
-            self.assertEqual(len(body_findings), 1)
+            )
+            findings = verify_urdf_vs_diagnose(urdf_path, diagnose)
+            self.assertEqual(
+                len([f for f in findings if f.rule_id == "diagnose_joint_disconnected"]), 1
+            )
+
+    def test_absent_drive_data_is_not_a_finding(self) -> None:
+        """No drive attributes at all is missing data, not a broken joint."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            urdf_path = _write_urdf(
+                links=[{"name": "a"}, {"name": "b"}],
+                joints=[{"name": "j1", "type": "revolute", "parent": "a", "child": "b"}],
+                tmpdir=tmpdir,
+            )
+            diagnose = self._diagnose(
+                {"PhysicsRevoluteJoint": 1},
+                [
+                    {
+                        "path": "/robot/j1",
+                        "type": "PhysicsRevoluteJoint",
+                        "physics_body0": ["/a"],
+                        "physics_body1": ["/b"],
+                    },
+                ],
+            )
+            findings = verify_urdf_vs_diagnose(urdf_path, diagnose)
+            self.assertEqual([f for f in findings if f.rule_id == "diagnose_joint_no_drive"], [])
 
 
 class TestVerifySimPackageCombined(unittest.TestCase):
@@ -471,13 +556,13 @@ class TestVerifySimPackageCombined(unittest.TestCase):
                 mechanism=mech,
                 model_tree_bodies=bodies,
                 urdf_path=urdf_path,
-                isaac_diagnose=isaac_diag,
+                diagnose=isaac_diag,
             )
 
             self.assertEqual(len(result["stages_run"]), 3)
             self.assertIn("mechanism_vs_freecad", result["stages_run"])
             self.assertIn("mechanism_vs_urdf", result["stages_run"])
-            self.assertIn("urdf_vs_isaac", result["stages_run"])
+            self.assertIn("urdf_vs_diagnose", result["stages_run"])
             self.assertEqual(result["blockers"], 0)
             self.assertTrue(result["passed"])
 

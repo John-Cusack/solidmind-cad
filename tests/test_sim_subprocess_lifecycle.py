@@ -43,20 +43,20 @@ class SubprocessLifecycleBase(unittest.TestCase):
 
 
 class TestStartStubGazeboBecomesReady(SubprocessLifecycleBase):
-    """start_engine('gazebo', runtime='stub') spawns process, health check passes."""
+    """start_engine('reference') spawns process, health check passes."""
 
-    def test_start_stub_gazebo_becomes_ready(self):
+    def test_start_reference_engine_becomes_ready(self):
         port = unused_tcp_port()
-        result = start_engine("gazebo", port=port, runtime="stub", timeout_s=15.0)
+        result = start_engine("reference", port=port, timeout_s=15.0)
         self.assertTrue(result["ok"], f"start_engine failed: {result}")
         self.assertIn(result["status"], ("started", "already_running"))
-        self.assertEqual(result["backend"], "gazebo")
+        self.assertEqual(result["backend"], "reference")
         self.assertEqual(result["port"], port)
         self.assertIsNotNone(result.get("pid"))
 
         # Verify engine state
         with _lock:
-            state = _engines.get("gazebo")
+            state = _engines.get("reference")
             self.assertIsNotNone(state)
             self.assertEqual(state.status, EngineStatus.READY)
 
@@ -66,16 +66,16 @@ class TestStopEngineGraceful(SubprocessLifecycleBase):
 
     def test_stop_engine_graceful(self):
         port = unused_tcp_port()
-        start_result = start_engine("gazebo", port=port, runtime="stub", timeout_s=15.0)
+        start_result = start_engine("reference", port=port, timeout_s=15.0)
         self.assertTrue(start_result["ok"], start_result)
         start_result["pid"]
 
-        stop_result = stop_engine("gazebo", drain_timeout_s=5.0)
+        stop_result = stop_engine("reference", drain_timeout_s=5.0)
         self.assertTrue(stop_result["ok"], stop_result)
         self.assertEqual(stop_result["status"], "stopped")
 
         with _lock:
-            state = _engines.get("gazebo")
+            state = _engines.get("reference")
             self.assertIsNotNone(state)
             self.assertEqual(state.status, EngineStatus.STOPPED)
 
@@ -85,11 +85,11 @@ class TestStartTwiceIdempotent(SubprocessLifecycleBase):
 
     def test_start_twice_idempotent(self):
         port = unused_tcp_port()
-        r1 = start_engine("gazebo", port=port, runtime="stub", timeout_s=15.0)
+        r1 = start_engine("reference", port=port, timeout_s=15.0)
         self.assertTrue(r1["ok"], r1)
         pid1 = r1["pid"]
 
-        r2 = start_engine("gazebo", port=port, runtime="stub", timeout_s=15.0)
+        r2 = start_engine("reference", port=port, timeout_s=15.0)
         self.assertTrue(r2["ok"], r2)
         self.assertEqual(r2["status"], "already_running")
         # Should be same PID (or at least not a new process)
@@ -108,7 +108,7 @@ class TestPortConflict(SubprocessLifecycleBase):
         blocker.bind(("127.0.0.1", port))
         blocker.listen(1)
         try:
-            result = start_engine("gazebo", port=port, runtime="stub", timeout_s=5.0)
+            result = start_engine("reference", port=port, timeout_s=5.0)
             # Should detect as external already_running (tcp_ping succeeds)
             # OR port_unavailable (tcp_ping fails but port can't be bound)
             # The blocker socket accepts connections but doesn't respond to health check
@@ -126,7 +126,7 @@ class TestCrashDetectedByStatus(SubprocessLifecycleBase):
 
     def test_crash_detected_by_status(self):
         port = unused_tcp_port()
-        result = start_engine("gazebo", port=port, runtime="stub", timeout_s=15.0)
+        result = start_engine("reference", port=port, timeout_s=15.0)
         self.assertTrue(result["ok"], result)
         pid = result["pid"]
 
@@ -137,9 +137,9 @@ class TestCrashDetectedByStatus(SubprocessLifecycleBase):
 
         status = engine_status()
         self.assertTrue(status["ok"])
-        gazebo_status = status["engines"]["gazebo"]
-        self.assertEqual(gazebo_status["status"], "failed")
-        self.assertIn("Process exited", gazebo_status["error"])
+        reference_status = status["engines"]["reference"]
+        self.assertEqual(reference_status["status"], "failed")
+        self.assertIn("Process exited", reference_status["error"])
 
 
 class TestMonitorDetectsCrash(SubprocessLifecycleBase):
@@ -147,7 +147,7 @@ class TestMonitorDetectsCrash(SubprocessLifecycleBase):
 
     def test_monitor_detects_crash(self):
         port = unused_tcp_port()
-        result = start_engine("gazebo", port=port, runtime="stub", timeout_s=15.0)
+        result = start_engine("reference", port=port, timeout_s=15.0)
         self.assertTrue(result["ok"], result)
         pid = result["pid"]
 
@@ -161,7 +161,7 @@ class TestMonitorDetectsCrash(SubprocessLifecycleBase):
             detected = False
             while time.monotonic() < deadline:
                 with _lock:
-                    state = _engines.get("gazebo")
+                    state = _engines.get("reference")
                     if state and state.status == EngineStatus.FAILED:
                         detected = True
                         break
@@ -173,17 +173,17 @@ class TestMonitorDetectsCrash(SubprocessLifecycleBase):
 
 
 class TestShutdownAll(SubprocessLifecycleBase):
-    """Start gazebo stub, shutdown_all(), verify all stopped."""
+    """Start reference stub, shutdown_all(), verify all stopped."""
 
     def test_shutdown_all(self):
         port = unused_tcp_port()
-        result = start_engine("gazebo", port=port, runtime="stub", timeout_s=15.0)
+        result = start_engine("reference", port=port, timeout_s=15.0)
         self.assertTrue(result["ok"], result)
 
         shutdown_all()
 
         with _lock:
-            state = _engines.get("gazebo")
+            state = _engines.get("reference")
             if state is not None:
                 self.assertEqual(state.status, EngineStatus.STOPPED)
 

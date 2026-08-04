@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 import unittest
+from unittest.mock import patch
 
 from server import motion_store
 from server.motion_models import (
@@ -23,10 +24,6 @@ from server.tools_motion import (
     motion_list_mechanisms,
     motion_propagate_motion,
     motion_simulate,
-    motion_teleop_command,
-    motion_teleop_start,
-    motion_teleop_state,
-    motion_teleop_stop,
     motion_validate,
 )
 
@@ -766,10 +763,18 @@ class TestSimulate(TestMotionToolsBase):
         if sim_result["ok"]:
             self.assertEqual(sim_result["backend_used"], "isaac")
         else:
-            # Bridge unavailable, or bridge rejects unsupported joints — both valid.
+            # Every honest way this can fail: no bridge to ask, a bridge that
+            # rejects the joint type, or — when Isaac is actually up — a
+            # refusal to take an in-band mechanism, which it does not
+            # advertise.  What must not happen is a fabricated success.
             self.assertIn(
                 sim_result["error"]["code"],
-                {"BACKEND_UNAVAILABLE_CHOOSE", "UNSUPPORTED_JOINT_TYPE", "ISAAC_CONNECTION_LOST"},
+                {
+                    "BACKEND_UNAVAILABLE_CHOOSE",
+                    "UNSUPPORTED_JOINT_TYPE",
+                    "ISAAC_CONNECTION_LOST",
+                    "UNSUPPORTED_MODEL_FORMAT",
+                },
             )
 
     def test_simulate_explicit_chrono_no_daemon(self):
@@ -852,651 +857,72 @@ class TestSimulateSpecValidation(TestMotionToolsBase):
 
 
 class TestSimulateBackendBehavior(TestMotionToolsBase):
-    def _make_mechanism(self) -> str:
+    """Engine-agnostic guards on motion.simulate.
+
+    Routing itself — which engine, session vs single-call, teleop DOFs,
+    unavailable-engine guidance — lives in ``tests/test_motion_engine_routing.py``
+    now that none of it branches on an engine name.
+    """
+
+    def _mechanism_id(self) -> str:
         result = motion_define_mechanism(
             {
-                "name": "backend_behavior",
-                "parts": [{"id": "a"}, {"id": "b"}, {"id": "f", "is_ground": True}],
+                "name": "gear_pair",
+                "parts": [{"id": "frame", "is_ground": True}, {"id": "gear_a"}],
                 "joints": [
                     {
-                        "id": "mesh",
-                        "joint_type": "gear_mesh",
-                        "parent_part": "a",
-                        "child_part": "b",
-                        "teeth_parent": 20,
-                        "teeth_child": 40,
+                        "id": "rev_a",
+                        "joint_type": "revolute",
+                        "parent_part": "frame",
+                        "child_part": "gear_a",
                     }
                 ],
-                "drives": [{"joint_id": "mesh", "speed_rpm": 1000}],
+                "drives": [{"joint_id": "rev_a", "speed_rpm": 600.0}],
             }
         )
-        return result["mechanism_id"]
+        return str(result["mechanism_id"])
 
-    def test_invalid_backend(self):
-        mid = self._make_mechanism()
-        result = motion_simulate(mid, backend="invalid")
+    def test_rejects_invalid_numeric_params(self) -> None:
+        mid = self._mechanism_id()
+        for kwargs in (
+            {"duration_s": 0.0},
+            {"dt_s": 0.0},
+            {"output_interval": -1.0},
+            {"dt_s": 2.0, "duration_s": 1.0},
+        ):
+            result = motion_simulate(mid, backend="chrono", **kwargs)
+            self.assertFalse(result["ok"], kwargs)
+            self.assertEqual(result["error"]["code"], "INVALID_INPUT")
+
+    def test_rejects_unknown_mode(self) -> None:
+        mid = self._mechanism_id()
+        result = motion_simulate(mid, backend="chrono", mode="nonsense")
         self.assertFalse(result["ok"])
         self.assertEqual(result["error"]["code"], "INVALID_INPUT")
 
-    def test_chrono_rejects_teleop_mode(self):
-        mid = self._make_mechanism()
-        result = motion_simulate(mid, backend="chrono", mode="teleop")
-        self.assertFalse(result["ok"])
-        self.assertEqual(result["error"]["code"], "INVALID_INPUT")
-
-    def test_no_silent_fallback_when_isaac_unavailable(self):
-        from unittest.mock import patch
-
-        mid = self._make_mechanism()
+    def test_engine_error_is_propagated_verbatim(self) -> None:
+        """A refusal from the engine reaches the caller with its own code."""
+        mid = self._mechanism_id()
+        engine_error = {
+            "ok": False,
+            "error": {"code": "UNSUPPORTED_JOINT_TYPE", "message": "gear_mesh unsupported"},
+        }
         with (
-            patch(
-                "server.isaac_adapter.simulate_start",
-                return_value={
-                    "ok": False,
-                    "error": {"code": "ISAAC_NOT_CONNECTED", "message": "unavailable"},
-                },
-            ),
-            patch("server.tools_motion._simulate_with_chrono") as chrono_fallback,
+            patch("server.sim_adapter.call", return_value=engine_error),
+            patch("server.sim_adapter.supports_mode", return_value=False),
         ):
-            result = motion_simulate(mid, backend="isaac")
-        self.assertFalse(result["ok"])
-        self.assertEqual(result["error"]["code"], "BACKEND_UNAVAILABLE_CHOOSE")
-        chrono_fallback.assert_not_called()
-
-    def test_unsupported_joint_type_error_is_propagated(self):
-        from unittest.mock import patch
-
-        mid = self._make_mechanism()
-        with patch(
-            "server.isaac_adapter.simulate_start",
-            return_value={
-                "ok": False,
-                "error": {
-                    "code": "UNSUPPORTED_JOINT_TYPE",
-                    "message": "Unsupported joints present",
-                },
-            },
-        ):
-            result = motion_simulate(mid, backend="isaac")
+            result = motion_simulate(mid, backend="chrono", duration_s=0.1)
         self.assertFalse(result["ok"])
         self.assertEqual(result["error"]["code"], "UNSUPPORTED_JOINT_TYPE")
 
-    def test_simulate_rejects_invalid_numeric_params(self):
-        from unittest.mock import patch
-
-        mid = self._make_mechanism()
-        bad_inputs = [
-            {"duration_s": -1.0},
-            {"duration_s": 0.0},
-            {"duration_s": float("inf")},
-            {"dt_s": 0.0},
-            {"dt_s": -0.001},
-            {"output_interval": 0.0},
-            {"output_interval": -0.01},
-            {"dt_s": 0.01, "output_interval": 0.001},
-            {"duration_s": 0.2, "output_interval": 0.3},
-        ]
-        with patch("server.isaac_adapter.simulate_start") as isaac_start:
-            for kwargs in bad_inputs:
-                with self.subTest(kwargs=kwargs):
-                    result = motion_simulate(mid, backend="isaac", **kwargs)
-                    self.assertFalse(result["ok"])
-                    self.assertEqual(result["error"]["code"], "INVALID_INPUT")
-            isaac_start.assert_not_called()
-
-    def test_gazebo_backend_is_valid(self):
-        mid = self._make_mechanism()
-        # Gazebo bridge may or may not be running.  If not running, we get
-        # BACKEND_UNAVAILABLE_CHOOSE or GAZEBO_CONNECTION_LOST.  If running
-        # but the fake URDF doesn't exist, we get GAZEBO_SPAWN_FAILED.
-        result = motion_simulate(mid, backend="gazebo", urdf_path="/tmp/robot.urdf")
-        if not result["ok"]:
-            self.assertIn(
-                result["error"]["code"],
-                {"BACKEND_UNAVAILABLE_CHOOSE", "GAZEBO_CONNECTION_LOST", "GAZEBO_SPAWN_FAILED"},
-            )
-
-    def test_gazebo_rejects_teleop_mode(self):
-        """Gazebo teleop via motion_simulate should work (not be rejected)."""
-        from unittest.mock import patch
-
-        mid = self._make_mechanism()
-        # Gazebo teleop is valid — but bridge is unavailable
-        with patch(
-            "server.gazebo_adapter.teleop_start",
-            return_value={
-                "ok": False,
-                "error": {"code": "GAZEBO_NOT_CONNECTED", "message": "unavailable"},
-            },
-        ):
-            result = motion_simulate(
-                mid,
-                backend="gazebo",
-                mode="teleop",
-                urdf_path="/tmp/robot.urdf",
-            )
-        self.assertFalse(result["ok"])
-        # Should not be INVALID_INPUT — teleop is valid for gazebo
-        self.assertNotEqual(result["error"]["code"], "INVALID_INPUT")
-
-    def test_no_silent_fallback_when_gazebo_unavailable(self):
-        from unittest.mock import patch
-
-        mid = self._make_mechanism()
+    def test_profile_reaches_the_engine(self) -> None:
+        mid = self._mechanism_id()
         with (
-            patch(
-                "server.gazebo_adapter.simulate",
-                return_value={
-                    "ok": False,
-                    "error": {"code": "GAZEBO_NOT_CONNECTED", "message": "unavailable"},
-                },
-            ),
-            patch("server.tools_motion._simulate_with_chrono") as chrono_fallback,
-            patch("server.tools_motion._simulate_with_isaac") as isaac_fallback,
+            patch("server.sim_adapter.call", return_value={"ok": True}) as call,
+            patch("server.sim_adapter.supports_mode", return_value=False),
         ):
-            result = motion_simulate(mid, backend="gazebo", urdf_path="/tmp/robot.urdf")
-        self.assertFalse(result["ok"])
-        self.assertEqual(result["error"]["code"], "BACKEND_UNAVAILABLE_CHOOSE")
-        chrono_fallback.assert_not_called()
-        isaac_fallback.assert_not_called()
-
-    def test_backend_unavailable_choose_includes_all_backends(self):
-        from unittest.mock import patch
-
-        mid = self._make_mechanism()
-        with patch(
-            "server.gazebo_adapter.simulate",
-            return_value={
-                "ok": False,
-                "error": {"code": "GAZEBO_NOT_CONNECTED", "message": "unavailable"},
-            },
-        ):
-            result = motion_simulate(mid, backend="gazebo", urdf_path="/tmp/robot.urdf")
-        self.assertFalse(result["ok"])
-        choice_backends = {entry["backend"] for entry in result.get("choices", [])}
-        self.assertIn("gazebo", choice_backends)
-        self.assertIn("chrono", choice_backends)
-        self.assertIn("isaac", choice_backends)
-
-    def test_gazebo_requires_urdf_or_sdf_path(self):
-        mid = self._make_mechanism()
-        result = motion_simulate(mid, backend="gazebo")
-        self.assertFalse(result["ok"])
-        self.assertEqual(result["error"]["code"], "INVALID_INPUT")
-        self.assertIn("urdf_path or sdf_path", result["error"]["message"])
-
-    def test_gazebo_accepts_sdf_path_only(self):
-        from unittest.mock import patch
-
-        mid = self._make_mechanism()
-        with patch(
-            "server.gazebo_adapter.simulate",
-            return_value={
-                "ok": False,
-                "error": {"code": "GAZEBO_NOT_CONNECTED", "message": "unavailable"},
-            },
-        ) as gz_sim:
-            result = motion_simulate(mid, backend="gazebo", sdf_path="/tmp/robot.sdf")
-        self.assertFalse(result["ok"])
-        gz_sim.assert_called_once()
-
-    def test_simulate_rejects_non_object_profile(self):
-        mid = self._make_mechanism()
-        result = motion_simulate(mid, backend="isaac", profile="fast")  # type: ignore[arg-type]
-        self.assertFalse(result["ok"])
-        self.assertEqual(result["error"]["code"], "INVALID_INPUT")
-
-    def test_batch_simulate_forwards_profile(self):
-        from unittest.mock import patch
-
-        mid = self._make_mechanism()
-        with (
-            patch(
-                "server.isaac_adapter.simulate_start",
-                return_value={
-                    "ok": True,
-                    "session_id": "sim_mock",
-                    "status": "complete",
-                    "target_steps": 100,
-                    "steady_state_speeds": {},
-                    "profile_used": {"stiffness": 0.2},
-                },
-            ) as isaac_start,
-            patch(
-                "server.isaac_adapter.simulate_status",
-                return_value={
-                    "ok": True,
-                    "status": "complete",
-                    "completed_steps": 100,
-                    "target_steps": 100,
-                    "samples_count": 0,
-                },
-            ),
-            patch(
-                "server.isaac_adapter.simulate_stop",
-                return_value={
-                    "ok": True,
-                    "stopped": True,
-                    "completed_steps": 100,
-                    "target_steps": 100,
-                    "samples": [],
-                },
-            ),
-        ):
-            result = motion_simulate(mid, backend="isaac", profile={"stiffness": 0.2})
-        self.assertTrue(result["ok"])
-        self.assertEqual(isaac_start.call_args.kwargs.get("profile"), {"stiffness": 0.2})
-
-
-class TestTeleopTools(TestMotionToolsBase):
-    def _make_mechanism(self) -> str:
-        result = motion_define_mechanism(
-            {
-                "name": "teleop_test",
-                "parts": [{"id": "base"}, {"id": "frame", "is_ground": True}],
-                "joints": [
-                    {
-                        "id": "base_rev",
-                        "joint_type": "revolute",
-                        "parent_part": "frame",
-                        "child_part": "base",
-                    }
-                ],
-                "drives": [{"joint_id": "base_rev", "speed_rpm": 100.0}],
-            }
-        )
-        return result["mechanism_id"]
-
-    def test_teleop_lifecycle(self):
-        from unittest.mock import patch
-
-        mid = self._make_mechanism()
-        with (
-            patch(
-                "server.isaac_adapter.teleop_start",
-                return_value={
-                    "ok": True,
-                    "session_id": "sess_1",
-                    "status": "started",
-                },
-            ),
-            patch(
-                "server.isaac_adapter.teleop_command",
-                return_value={
-                    "ok": True,
-                    "applied": True,
-                },
-            ),
-            patch(
-                "server.isaac_adapter.teleop_state",
-                return_value={
-                    "ok": True,
-                    "state": {"vx_mps": 0.2},
-                },
-            ),
-            patch(
-                "server.isaac_adapter.teleop_stop",
-                return_value={
-                    "ok": True,
-                    "stopped": True,
-                },
-            ),
-        ):
-            start = motion_teleop_start(mid)
-            self.assertTrue(start["ok"])
-            self.assertEqual(start["session_id"], "sess_1")
-            self.assertEqual(start["mode_used"], "teleop")
-
-            cmd = motion_teleop_command("sess_1", vx_mps=0.2, yaw_rate_rps=0.1, body_height_m=0.0)
-            self.assertTrue(cmd["ok"])
-
-            state = motion_teleop_state("sess_1")
-            self.assertTrue(state["ok"])
-            self.assertIn("state", state)
-
-            stop = motion_teleop_stop("sess_1")
-            self.assertTrue(stop["ok"])
-
-    def test_teleop_start_missing_session_id_is_protocol_error(self):
-        from unittest.mock import patch
-
-        mid = self._make_mechanism()
-        with patch(
-            "server.isaac_adapter.teleop_start",
-            return_value={
-                "ok": True,
-                "status": "started",
-            },
-        ):
-            start = motion_teleop_start(mid)
-        self.assertFalse(start["ok"])
-        self.assertEqual(start["error"]["code"], "ISAAC_PROTOCOL_ERROR")
-
-    def test_unknown_remote_session_evicts_local_session_on_command(self):
-        from unittest.mock import patch
-
-        mid = self._make_mechanism()
-        with patch(
-            "server.isaac_adapter.teleop_start",
-            return_value={
-                "ok": True,
-                "session_id": "sess_evict",
-                "status": "started",
-            },
-        ):
-            started = motion_teleop_start(mid)
-        self.assertTrue(started["ok"])
-
-        with patch(
-            "server.isaac_adapter.teleop_command",
-            return_value={
-                "ok": False,
-                "error": {"code": "ISAAC_UNKNOWN_SESSION", "message": "unknown session sess_evict"},
-            },
-        ):
-            cmd = motion_teleop_command("sess_evict", vx_mps=0.1)
-        self.assertFalse(cmd["ok"])
-        self.assertEqual(cmd["error"]["code"], "ISAAC_UNKNOWN_SESSION")
-
-        state = motion_teleop_state("sess_evict")
-        self.assertFalse(state["ok"])
-        self.assertEqual(state["error"]["code"], "NOT_FOUND")
-
-    def test_unknown_remote_session_evicts_local_session_on_stop(self):
-        from unittest.mock import patch
-
-        mid = self._make_mechanism()
-        with patch(
-            "server.isaac_adapter.teleop_start",
-            return_value={
-                "ok": True,
-                "session_id": "sess_stop",
-            },
-        ):
-            started = motion_teleop_start(mid)
-        self.assertTrue(started["ok"])
-
-        with patch(
-            "server.isaac_adapter.teleop_stop",
-            return_value={
-                "ok": False,
-                "error": {"code": "ISAAC_COMMAND_ERROR", "message": "unknown session sess_stop"},
-            },
-        ):
-            stopped = motion_teleop_stop("sess_stop")
-        self.assertFalse(stopped["ok"])
-
-        retry = motion_teleop_stop("sess_stop")
-        self.assertFalse(retry["ok"])
-        self.assertEqual(retry["error"]["code"], "NOT_FOUND")
-
-    def test_simulate_teleop_mode_routes_to_session_start(self):
-        from unittest.mock import patch
-
-        mid = self._make_mechanism()
-        with patch(
-            "server.isaac_adapter.teleop_start",
-            return_value={
-                "ok": True,
-                "session_id": "sess_sim_mode",
-            },
-        ) as teleop_start:
-            result = motion_simulate(
-                mid,
-                backend="isaac",
-                mode="teleop",
-                profile={"linear_speed_mps": 0.5},
-            )
-        self.assertTrue(result["ok"])
-        self.assertEqual(result["mode_used"], "teleop")
-        teleop_start.assert_called_once()
-        # Auto-profile merges mechanism-derived fields with user-provided ones.
-        # Check that user field is preserved, not exact equality.
-        actual_profile = teleop_start.call_args.kwargs.get("profile", {})
-        self.assertEqual(actual_profile.get("linear_speed_mps"), 0.5)
-
-    def test_gazebo_teleop_lifecycle(self):
-        from unittest.mock import patch
-
-        mid = self._make_mechanism()
-        with (
-            patch(
-                "server.gazebo_adapter.teleop_start",
-                return_value={
-                    "ok": True,
-                    "session_id": "gz_sess_1",
-                    "status": "started",
-                },
-            ),
-            patch(
-                "server.gazebo_adapter.teleop_command",
-                return_value={
-                    "ok": True,
-                    "applied": True,
-                },
-            ),
-            patch(
-                "server.gazebo_adapter.teleop_state",
-                return_value={
-                    "ok": True,
-                    "state": {"vx_mps": 0.2, "vy_mps": 0.1, "vz_mps": 0.0},
-                },
-            ),
-            patch(
-                "server.gazebo_adapter.teleop_stop",
-                return_value={
-                    "ok": True,
-                    "stopped": True,
-                },
-            ),
-        ):
-            start = motion_teleop_start(mid, backend="gazebo", urdf_path="/tmp/robot.urdf")
-            self.assertTrue(start["ok"])
-            self.assertEqual(start["session_id"], "gz_sess_1")
-            self.assertEqual(start["backend_used"], "gazebo")
-
-            cmd = motion_teleop_command(
-                "gz_sess_1",
-                vx_mps=0.2,
-                yaw_rate_rps=0.1,
-                body_height_m=0.0,
-                vy_mps=0.1,
-                vz_mps=0.0,
-            )
-            self.assertTrue(cmd["ok"])
-            self.assertEqual(cmd["backend_used"], "gazebo")
-
-            state = motion_teleop_state("gz_sess_1")
-            self.assertTrue(state["ok"])
-
-            stop = motion_teleop_stop("gz_sess_1")
-            self.assertTrue(stop["ok"])
-
-    def test_isaac_rejects_nonzero_vy_mps(self):
-        from unittest.mock import patch
-
-        mid = self._make_mechanism()
-        with patch(
-            "server.isaac_adapter.teleop_start",
-            return_value={
-                "ok": True,
-                "session_id": "sess_vy",
-                "status": "started",
-            },
-        ):
-            motion_teleop_start(mid, backend="isaac")
-
-        result = motion_teleop_command("sess_vy", vx_mps=0.0, vy_mps=0.5)
-        self.assertFalse(result["ok"])
-        self.assertEqual(result["error"]["code"], "INVALID_INPUT")
-
-    def test_isaac_rejects_nonzero_vz_mps(self):
-        from unittest.mock import patch
-
-        mid = self._make_mechanism()
-        with patch(
-            "server.isaac_adapter.teleop_start",
-            return_value={
-                "ok": True,
-                "session_id": "sess_vz",
-                "status": "started",
-            },
-        ):
-            motion_teleop_start(mid, backend="isaac")
-
-        result = motion_teleop_command("sess_vz", vz_mps=0.3)
-        self.assertFalse(result["ok"])
-        self.assertEqual(result["error"]["code"], "INVALID_INPUT")
-
-    def test_gazebo_accepts_nonzero_vy_vz(self):
-        from unittest.mock import patch
-
-        mid = self._make_mechanism()
-        with patch(
-            "server.gazebo_adapter.teleop_start",
-            return_value={
-                "ok": True,
-                "session_id": "gz_vy_vz",
-                "status": "started",
-            },
-        ):
-            motion_teleop_start(mid, backend="gazebo", urdf_path="/tmp/robot.urdf")
-
-        with patch(
-            "server.gazebo_adapter.teleop_command",
-            return_value={
-                "ok": True,
-                "applied": True,
-            },
-        ) as gz_cmd:
-            result = motion_teleop_command(
-                "gz_vy_vz",
-                vx_mps=0.1,
-                vy_mps=0.5,
-                vz_mps=0.3,
-            )
-        self.assertTrue(result["ok"])
-        gz_cmd.assert_called_once()
-        call_kwargs = gz_cmd.call_args.kwargs
-        self.assertAlmostEqual(call_kwargs["vy_mps"], 0.5)
-        self.assertAlmostEqual(call_kwargs["vz_mps"], 0.3)
-
-    def test_session_backend_routing_uses_registry_not_hardcode(self):
-        """Teleop command/state/stop should route based on session backend, not hardcoded."""
-        from unittest.mock import patch
-
-        mid = self._make_mechanism()
-        with patch(
-            "server.gazebo_adapter.teleop_start",
-            return_value={
-                "ok": True,
-                "session_id": "gz_route",
-                "status": "started",
-            },
-        ):
-            motion_teleop_start(mid, backend="gazebo", urdf_path="/tmp/robot.urdf")
-
-        # Verify state routes to gazebo, not isaac
-        with (
-            patch(
-                "server.gazebo_adapter.teleop_state",
-                return_value={
-                    "ok": True,
-                    "state": {"vx_mps": 0.0},
-                },
-            ) as gz_state,
-            patch("server.isaac_adapter.teleop_state") as isaac_state,
-        ):
-            motion_teleop_state("gz_route")
-        gz_state.assert_called_once()
-        isaac_state.assert_not_called()
-
-    def test_unknown_session_backend_returns_not_found(self):
-        """A session with an unrecognized backend should return NOT_FOUND."""
-        from server.tools_motion import _active_sessions
-
-        _active_sessions["bad_backend_sess"] = {
-            "mechanism_id": "m1",
-            "backend": "nonexistent",
-            "created_at": 0,
-        }
-        result = motion_teleop_command("bad_backend_sess", vx_mps=0.1)
-        self.assertFalse(result["ok"])
-        self.assertEqual(result["error"]["code"], "NOT_FOUND")
-
-    def test_isaac_backward_compat_zero_vy_vz(self):
-        """Isaac teleop_command should work fine when vy_mps=0 and vz_mps=0."""
-        from unittest.mock import patch
-
-        mid = self._make_mechanism()
-        with patch(
-            "server.isaac_adapter.teleop_start",
-            return_value={
-                "ok": True,
-                "session_id": "sess_compat",
-                "status": "started",
-            },
-        ):
-            motion_teleop_start(mid, backend="isaac")
-
-        with patch(
-            "server.isaac_adapter.teleop_command",
-            return_value={
-                "ok": True,
-                "applied": True,
-            },
-        ) as isaac_cmd:
-            result = motion_teleop_command(
-                "sess_compat",
-                vx_mps=0.2,
-                yaw_rate_rps=0.1,
-                body_height_m=0.0,
-                vy_mps=0.0,
-                vz_mps=0.0,
-            )
-        self.assertTrue(result["ok"])
-        isaac_cmd.assert_called_once()
-
-    def test_gazebo_teleop_requires_urdf_or_sdf_path(self):
-        mid = self._make_mechanism()
-        result = motion_teleop_start(mid, backend="gazebo")
-        self.assertFalse(result["ok"])
-        self.assertEqual(result["error"]["code"], "INVALID_INPUT")
-        self.assertIn("urdf_path or sdf_path", result["error"]["message"])
-
-    def test_gazebo_teleop_rejects_invalid_controller_type(self):
-        mid = self._make_mechanism()
-        result = motion_teleop_start(
-            mid,
-            backend="gazebo",
-            urdf_path="/tmp/robot.urdf",
-            profile={"controller_type": "bad_controller"},
-        )
-        self.assertFalse(result["ok"])
-        self.assertEqual(result["error"]["code"], "INVALID_INPUT")
-
-    def test_gazebo_teleop_accepts_px4_offboard_controller_type(self):
-        from unittest.mock import patch
-
-        mid = self._make_mechanism()
-        with patch(
-            "server.gazebo_adapter.teleop_start",
-            return_value={
-                "ok": True,
-                "session_id": "gz_px4",
-                "status": "started",
-                "controller_type": "px4_offboard",
-            },
-        ) as gz_start:
-            result = motion_teleop_start(
-                mid,
-                backend="gazebo",
-                urdf_path="/tmp/robot.urdf",
-                profile={"controller_type": "px4_offboard"},
-            )
-        self.assertTrue(result["ok"])
-        self.assertEqual(result["session_id"], "gz_px4")
-        self.assertEqual(gz_start.call_args.kwargs["profile"]["controller_type"], "px4_offboard")
+            motion_simulate(mid, backend="chrono", duration_s=0.1, profile={"speed": 3})
+        self.assertEqual(call.call_args.kwargs["profile"], {"speed": 3})
 
 
 class TestBuildProfileFromMechanism(unittest.TestCase):

@@ -3,6 +3,12 @@
 Tools follow the same dispatch pattern as ``tools_motion.py`` and
 ``tools_study.py``.  Phase 1 uses subprocess management directly
 (like ``study_runner.py``).
+
+``rl_training`` owns URDF analysis, env-config generation, training and
+policy export — core only orchestrates.  It runs on Isaac Sim's interpreter,
+which core's venv cannot import from, so every call goes out as a subprocess
+returning JSON: the CLI parity path (``docs/simulation-and-rl.md``).  Core
+imports nothing from the RL package.
 """
 
 from __future__ import annotations
@@ -18,8 +24,6 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from server.urdf_analyzer import analyze_urdf
-
 log = logging.getLogger("solidmind.tools_rl")
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -30,6 +34,67 @@ _active_training: dict[str, dict[str, Any]] = {}
 
 def _error_result(code: str, message: str) -> dict[str, Any]:
     return {"ok": False, "error": {"code": code, "message": message}}
+
+
+def _rl_python() -> str:
+    """Interpreter the RL pipeline runs on — Isaac Sim's, not core's.
+
+    Isaac Lab lives in Isaac's bundled Python; core's venv cannot import it.
+    ``ISAAC_PYTHON`` wins, then the conventional sibling source build, then
+    core's interpreter as a last resort (enough for the URDF-only commands).
+    """
+    candidate = os.environ.get("ISAAC_PYTHON", "")
+    if candidate and os.path.isfile(candidate):
+        return candidate
+    sibling = (
+        _PROJECT_ROOT.parent / "isaacsim" / "_build" / "linux-x86_64" / "release" / "python.sh"
+    )
+    if sibling.is_file():
+        return str(sibling)
+    return sys.executable
+
+
+def _run_rl_cli(command: list[str], *, timeout_s: float = 600.0) -> dict[str, Any]:
+    """Run one ``rl_training.cli`` command and parse its JSON result.
+
+    This is the CLI parity path: core talks to the RL pipeline the way it
+    talks to an engine — a subprocess on its own interpreter, structured
+    output — rather than importing it (``docs/simulation-and-rl.md``).
+    """
+    argv = [_rl_python(), "-m", "rl_training.cli", *command]
+    log.info("rl cli: %s", " ".join(argv))
+    try:
+        proc = subprocess.run(
+            argv,
+            capture_output=True,
+            text=True,
+            cwd=str(_PROJECT_ROOT),
+            timeout=timeout_s,
+            check=False,
+        )
+    except FileNotFoundError as exc:
+        return _error_result(
+            "RL_PIPELINE_UNAVAILABLE",
+            f"Cannot run the RL pipeline: {exc}. Install solidmind-rl and set ISAAC_PYTHON.",
+        )
+    except subprocess.TimeoutExpired:
+        return _error_result("RL_TIMEOUT", f"RL command timed out after {timeout_s}s")
+
+    stdout = (proc.stdout or "").strip()
+    if not stdout:
+        detail = (proc.stderr or "").strip().splitlines()[-1:] or ["no output"]
+        return _error_result(
+            "RL_PIPELINE_UNAVAILABLE",
+            f"RL command produced no result (rc={proc.returncode}): {detail[0]}",
+        )
+    try:
+        # The pipeline may log before its result; the JSON is the last line.
+        result = json.loads(stdout.splitlines()[-1])
+    except json.JSONDecodeError as exc:
+        return _error_result("RL_PROTOCOL_ERROR", f"Unparseable RL result: {exc}")
+    if not isinstance(result, dict):
+        return _error_result("RL_PROTOCOL_ERROR", "RL result was not an object")
+    return result
 
 
 # ------------------------------------------------------------------
@@ -47,44 +112,16 @@ def rl_configure_environment(
     if not os.path.isfile(urdf_path):
         return _error_result("URDF_NOT_FOUND", f"URDF file not found: {urdf_path}")
 
-    try:
-        analysis = analyze_urdf(urdf_path)
-    except Exception as exc:
-        return _error_result("URDF_PARSE_FAILED", f"Failed to parse URDF: {exc}")
-
-    # Default output path
+    command = ["configure", "--urdf", urdf_path, "--num-envs", str(num_envs)]
     if output_path is None:
         output_dir = _PROJECT_ROOT / "training_runs"
         output_dir.mkdir(parents=True, exist_ok=True)
-        output_path = str(output_dir / f"{analysis.robot_name}_env_config.py")
+        # The pipeline names the file after the robot it found in the URDF.
+        command += ["--output", str(output_dir / "env_config.py")]
+    else:
+        command += ["--output", output_path]
 
-    try:
-        from rl_training.env_configurator import generate_env_config
-
-        config_path = generate_env_config(
-            analysis,
-            urdf_path,
-            output_path,
-            num_envs=num_envs,
-        )
-    except Exception as exc:
-        return _error_result("ENV_CONFIG_FAILED", f"Failed to generate env config: {exc}")
-
-    return {
-        "ok": True,
-        "config_path": str(config_path),
-        "analysis": {
-            "robot_name": analysis.robot_name,
-            "morphology": analysis.morphology,
-            "actuated_joints": list(analysis.actuated_joints),
-            "num_joints": len(analysis.actuated_joints),
-            "total_mass_kg": analysis.total_mass_kg,
-            "standing_height_m": analysis.standing_height_m,
-            "base_link": analysis.base_link,
-            "foot_links": list(analysis.foot_links),
-            "joint_limits": {k: list(v) for k, v in analysis.joint_limits.items()},
-        },
-    }
+    return _run_rl_cli(command, timeout_s=300.0)
 
 
 # ------------------------------------------------------------------
@@ -111,7 +148,7 @@ def rl_start_training(
 
     # Build command
     cmd = [
-        sys.executable,
+        _rl_python(),
         "-m",
         "rl_training.train",
         "--env-config",
@@ -123,18 +160,6 @@ def rl_start_training(
         cmd.extend(["--max-iterations", str(max_iterations)])
     if num_envs is not None:
         cmd.extend(["--num-envs", str(num_envs)])
-
-    # Check for Isaac Lab Python override
-    isaac_python = os.environ.get("ISAAC_PYTHON")
-    if not isaac_python:
-        # Auto-detect Isaac Sim Python from source build
-        candidate = (
-            _PROJECT_ROOT.parent / "isaacsim" / "_build" / "linux-x86_64" / "release" / "python.sh"
-        )
-        if candidate.is_file():
-            isaac_python = str(candidate)
-    if isaac_python and os.path.isfile(isaac_python):
-        cmd[0] = isaac_python
 
     log.info("Starting training: %s", " ".join(cmd))
 
@@ -272,7 +297,7 @@ def rl_deploy_policy(
         out = Path(output_dir)
 
     # ── Resolution order ────────────────────────────────────────────
-    # 1. Check if isaaclab_train.py already exported artifacts
+    # 1. Reuse what the trainer already exported, if it is complete.
     existing_policy = out / "policy.pt"
     existing_config = out / "deployment_config.json"
     if existing_policy.is_file() and existing_config.is_file():
@@ -290,61 +315,23 @@ def rl_deploy_policy(
                     "alpha": cfg.get("alpha", alpha),
                     "reused_existing": True,
                 }
-        except Exception:
-            pass  # Fall through to re-export
+        except (OSError, json.JSONDecodeError):
+            pass  # fall through to a real export
 
-    # 2. Read joint_names from training_config.json (written by isaaclab_train.py)
-    joint_names: list[str] = []
-    action_scale: float = 0.3
-    training_config_file = ckpt_dir / "training_config.json"
-    if training_config_file.is_file():
-        try:
-            tc = json.loads(training_config_file.read_text(encoding="utf-8"))
-            joint_names = tc.get("joint_names", [])
-            # Use the average of per-joint scales for scalar fallback
-            per_joint = tc.get("action_scale_per_joint", [])
-            if per_joint:
-                action_scale = sum(per_joint) / len(per_joint)
-        except Exception:
-            pass
-
-    # 3. Fall back to env_config_path import
-    if not joint_names and training_config_file.is_file():
-        try:
-            tc = json.loads(training_config_file.read_text(encoding="utf-8"))
-            env_config_path = tc.get("env_config_path", "")
-            if env_config_path and os.path.isfile(env_config_path):
-                from rl_training.residual_env import build_env_config_from_file
-
-                env_cfg = build_env_config_from_file(env_config_path)
-                joint_names = env_cfg.joint_names or []
-        except Exception:
-            pass
-
-    # 4. Error if joint_names still unresolved
-    if not joint_names:
-        return _error_result(
-            "JOINT_NAMES_NOT_FOUND",
-            "Cannot resolve joint_names from training_config.json or env_config_path. "
-            "Ensure training was completed with isaaclab_train.py or provide a valid "
-            "env_config_path in training_config.json.",
-        )
-
-    try:
-        from rl_training.export_policy import export_policy
-
-        result = export_policy(
-            ckpt_dir,
-            out,
-            joint_names=joint_names,
-            action_scale=action_scale,
-            alpha=alpha,
-        )
-        return {"ok": True, **result}
-    except FileNotFoundError as exc:
-        return _error_result("CHECKPOINT_NOT_FOUND", str(exc))
-    except Exception as exc:
-        return _error_result("EXPORT_FAILED", f"Policy export failed: {exc}")
+    # 2. Otherwise export through the pipeline's own CLI, on its own
+    #    interpreter — torch and the checkpoint format live there, not here.
+    return _run_rl_cli(
+        [
+            "export",
+            "--checkpoint-dir",
+            str(ckpt_dir),
+            "--output-dir",
+            str(out),
+            "--alpha",
+            str(alpha),
+        ],
+        timeout_s=600.0,
+    )
 
 
 # ------------------------------------------------------------------

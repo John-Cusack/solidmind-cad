@@ -7,9 +7,7 @@ afternoon.
 
 from __future__ import annotations
 
-import tempfile
 import unittest
-import xml.etree.ElementTree as ET
 
 from server.airframes import Box, StructuralBody
 from server.airframes.multicopter import MulticopterAirframe, Rotor
@@ -144,60 +142,6 @@ class TestSimModelEmission(unittest.TestCase):
         chassis = next(link for link in sm.links if link.name == "base_link")
         self.assertIsNotNone(chassis.collision_shape)
         self.assertEqual(chassis.collision_shape.kind, "box")
-
-
-class TestSDFEmission(unittest.TestCase):
-    """End-to-end: spec → SimModel → SDF, assert the bug-fixed tags."""
-
-    def _write_sdf(self, af: MulticopterAirframe) -> str:
-        from server.sim_export import write_sdf
-
-        sm = af.to_sim_model()
-        with tempfile.NamedTemporaryFile(suffix=".sdf", delete=False) as f:
-            path = f.name
-        # drone_config tells write_sdf to emit motor plugins
-        cfg = {
-            "rotors": [
-                {"index": i, "joint": f"{r.name}_joint", "direction": r.direction, "link": r.name}
-                for i, r in enumerate(af.rotors)
-            ],
-            "sensors": False,  # keep test fast; sensors tested elsewhere
-        }
-        write_sdf(sm, path, drone_config=cfg)
-        return path
-
-    def test_no_joint_pose_in_sdf(self) -> None:
-        """Bug 5 regression: joint <pose> would double-offset rotation axis."""
-        path = self._write_sdf(x500_like())
-        tree = ET.parse(path)
-        for joint_el in tree.iter("joint"):
-            self.assertIsNone(
-                joint_el.find("pose"),
-                f"Joint {joint_el.attrib.get('name')} must omit <pose> "
-                "(SDF 1.10 default = child link frame, which is the joint origin)",
-            )
-
-    def test_motor_plugin_uses_motor_number_and_velocity(self) -> None:
-        """Bugs C-7, C-8, C-9 regression: gz-sim motor plugin tag set."""
-        path = self._write_sdf(x500_like())
-        tree = ET.parse(path)
-        plugins = [
-            p
-            for p in tree.iter("plugin")
-            if "MulticopterMotorModel" in (p.attrib.get("name") or "")
-        ]
-        self.assertEqual(len(plugins), 4)
-        for p in plugins:
-            self.assertIsNotNone(
-                p.find("motorNumber"), "must use <motorNumber>, not <actuator_number>"
-            )
-            self.assertIsNone(
-                p.find("actuator_number"), "<actuator_number> is the wrong tag for gz-sim"
-            )
-            self.assertIsNone(p.find("robotNamespace"), "<robotNamespace> breaks PX4 topic match")
-            mt = p.find("motorType")
-            self.assertIsNotNone(mt, "missing <motorType>velocity</motorType>")
-            self.assertEqual(mt.text, "velocity")
 
 
 # ---------------------------------------------------------------------------

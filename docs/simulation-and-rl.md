@@ -47,6 +47,21 @@ This flow documents the current default RL path (`Isaac Lab + RSL-RL`) exposed b
    - Expected output fields:
      - `ok`, `policy_loaded`, `output_shape`, `action_dim`
 
+### How the rl.* tools reach the pipeline
+
+The RL pipeline runs on Isaac Sim's bundled interpreter — core's venv cannot
+import Isaac Lab — so every `rl.*` tool shells out and parses one JSON object:
+
+```bash
+$ISAAC_PYTHON -m rl_training.cli configure --urdf robot.urdf --output cfg.py
+$ISAAC_PYTHON -m rl_training.cli analyze   --urdf robot.urdf
+$ISAAC_PYTHON -m rl_training.cli export    --checkpoint-dir runs/x
+```
+
+`ISAAC_PYTHON` wins, then the sibling `../isaacsim` source build, then core's
+own interpreter (enough for the URDF-only commands). A missing pipeline comes
+back as `RL_PIPELINE_UNAVAILABLE` rather than an import error.
+
 ### CLI parity path (same training backend, without MCP)
 
 ```bash
@@ -105,7 +120,7 @@ python3 -m unittest tests.test_rl_tools tests.test_rl_deploy_fixes
 ### Lightweight (no external daemons)
 
 ```bash
-python3 -m unittest tests.test_tools_motion tests.test_motion_isaac_integration tests.test_simulation_spec_builder tests.test_chrono_client
+python3 -m unittest tests.test_tools_motion tests.test_motion_isaac_integration tests.test_chrono_spec_builder tests.test_chrono_client
 ```
 
 ### Isaac bridge (runtime-backed)

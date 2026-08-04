@@ -56,6 +56,43 @@ jobs:
       - name: Run unit tests
         run: .venv/bin/python -m unittest --verbose
 
+  tck:
+    name: Contract conformance (TCK vs reference engine)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      # The TCK and the reference engine are pure stdlib; jsonschema is only
+      # needed for the result-schema tier. Nothing else is installed, which is
+      # the point: core proves contract conformance with zero engines present.
+      - name: Install jsonschema
+        run: python -m pip install "jsonschema>=4.10,<5"
+
+      - name: Start the reference engine
+        run: |
+          python -m reference_engine.bridge_server --port 9880 &
+          python - <<'READY'
+          import socket, sys, time
+          deadline = time.monotonic() + 15
+          while time.monotonic() < deadline:
+              try:
+                  socket.create_connection(("127.0.0.1", 9880), timeout=0.2).close()
+                  sys.exit(0)
+              except OSError:
+                  time.sleep(0.2)
+          sys.exit("reference engine did not start")
+          READY
+
+      - name: Run the TCK
+        run: python -m tck --host 127.0.0.1 --port 9880
+
   fea-backend:
     name: FEA solver tests (CalculiX + gmsh)
     runs-on: ubuntu-latest

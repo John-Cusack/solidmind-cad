@@ -6,7 +6,7 @@ the time comes to actually implement plane SITL.
 
 The stubs here construct successfully (so type-checking and tests for
 the shared :class:`~server.airframes.AirframeSpec` Protocol pass) but
-``to_sim_model`` and ``to_px4_airframe_params`` raise
+``to_sim_model`` and ``to_drone_config`` raise
 ``NotImplementedError`` — they're explicitly out-of-scope for the
 current PR.
 
@@ -15,9 +15,9 @@ When fixed-wing comes online, fill in:
 - :meth:`FixedWingAirframe.to_sim_model` — single ground link with
   control-surface revolute joints (ailerons, elevator, rudder), one
   motor link with a continuous joint along ``+X``.
-- :meth:`FixedWingAirframe.to_px4_airframe_params` — uses
-  ``CA_AIRFRAME = 3`` and a different PID gain set (``FW_*RATE_P``
-  rather than ``MC_*RATE_P``).
+- :meth:`FixedWingAirframe.to_drone_config` — abstract motor and
+  control-surface actuators; the engine maps them to ``CA_AIRFRAME=3``
+  and the ``FW_*RATE_P`` gain set.
 - :meth:`FixedWingAirframe.trim_throttle` — fixed-wing analogue of
   multicopter's ``hover_throttle``; depends on wing area, drag
   coefficient, and target cruise speed.
@@ -26,12 +26,11 @@ When fixed-wing comes online, fill in:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from server.airframes import SensorPack, StructuralBody
 
 if TYPE_CHECKING:
-    from server.px4_airframe_generator import AirframeParams
     from server.sim_export import SimModel
 
 
@@ -94,10 +93,10 @@ class FixedWingAirframe:
             "fixed-wing SITL is on the roadmap."
         )
 
-    def to_px4_airframe_params(self) -> AirframeParams:
+    def to_drone_config(self) -> dict[str, Any]:
         raise NotImplementedError(
-            "FixedWingAirframe.to_px4_airframe_params is a stub. Will "
-            "use CA_AIRFRAME=3 (Plane) and FW_*RATE_P gains."
+            "FixedWingAirframe.to_drone_config is a stub. Rotor/control-surface "
+            "actuators need the same abstract spec multicopters emit."
         )
 
     def ca_airframe_id(self) -> int:

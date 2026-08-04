@@ -1,0 +1,12 @@
+# The reference engine — core's own implementation of the contract.
+#
+# Always available (pure Python, no install), which is what lets core's CI run
+# green with zero engines installed.  Clone it to start a new engine:
+# reference_engine/ is a complete worked example of docs/engine-contract.md.
+
+name = "reference"
+port = 9880
+when_to_use = "Always available, no install. Analytic gear trains, pendulums and free fall — use it to check a pipeline end to end before reaching for a real engine."
+install_hint = "Nothing to install: sim.start_engine('reference')"
+
+launch = ["${PYTHON}", "-m", "reference_engine.bridge_server", "--port", "${PORT}"]

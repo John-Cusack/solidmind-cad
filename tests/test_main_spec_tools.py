@@ -156,12 +156,17 @@ class TestMainSpecTools(unittest.TestCase):
         self.assertEqual(props["vy_mps"]["default"], 0.0)
         self.assertEqual(props["vz_mps"]["default"], 0.0)
 
-    def test_cad_export_sim_package_schema_has_emit_sdf(self) -> None:
+    def test_cad_export_sim_package_schema_emits_no_vendor_formats(self) -> None:
+        """Core writes manifest + meshes + URDF; engines compile their own."""
         tool = next(t for t in mcp_main._tool_list() if t.get("name") == "cad.export_sim_package")
         props = tool["inputSchema"]["properties"]
-        self.assertIn("emit_sdf", props)
-        self.assertEqual(props["emit_sdf"]["type"], "boolean")
-        self.assertFalse(props["emit_sdf"]["default"])
+        self.assertNotIn("emit_sdf", props)
+
+    def test_motion_simulate_schema_has_package_path(self) -> None:
+        tool = next(t for t in mcp_main._tool_list() if t.get("name") == "motion.simulate")
+        props = tool["inputSchema"]["properties"]
+        self.assertIn("package_path", props)
+        self.assertIn("px4", props)
 
     def test_cad_export_sim_package_schema_has_drone_config(self) -> None:
         tool = next(t for t in mcp_main._tool_list() if t.get("name") == "cad.export_sim_package")

@@ -11,8 +11,10 @@ import logging
 import math
 import os
 import time
-from typing import Any, Literal
+from typing import Any
 
+from server import sim_adapter
+from server.engine_registry import default_engine, engine_names
 from server.motion_models import (
     JointEdge,
     JointType,
@@ -47,11 +49,7 @@ _assembly_link_maps: dict[str, dict[str, str]] = {}
 # Active Isaac sessions keyed by session_id (teleop and interactive sim).
 _active_sessions: dict[str, dict[str, Any]] = {}
 
-_SIM_BACKENDS = {"chrono", "isaac", "gazebo"}
-_TELEOP_BACKENDS = {"isaac", "gazebo"}
 _SIM_MODES = {"batch", "teleop"}
-_DEFAULT_SIM_BACKEND: Literal["isaac"] = "isaac"
-_GAZEBO_CONTROLLER_TYPES = {"multirotor_direct", "px4_offboard"}
 
 
 def _error_result(code: str, message: str) -> dict[str, Any]:
@@ -151,9 +149,26 @@ def _extract_peak_joint_forces(
 
 
 def _normalize_backend(backend: str | None) -> str:
+    """Resolve a backend name; the default comes from the registry, not core."""
     if backend is None:
-        return _DEFAULT_SIM_BACKEND
+        return default_engine()
     return str(backend).strip().lower()
+
+
+def _validate_backend(backend: str, *, mode: str = "batch") -> str | None:
+    """Return an error message when *backend* can't serve *mode*.
+
+    Existence is a registry question; whether it can run teleop is a
+    handshake question (Principle 7 — capabilities are negotiated, not
+    assumed).  An engine that is registered but not running is not an input
+    error: the call proceeds and fails with a "start it with…" message.
+    """
+    names = engine_names()
+    if backend not in names:
+        return f"backend must be one of {sorted(names)}"
+    if mode == "teleop" and sim_adapter.supports_mode(backend, "teleop") is False:
+        return f"the {backend} engine does not advertise teleop support"
+    return None
 
 
 def _normalize_mode(mode: str | None) -> str:
@@ -168,7 +183,7 @@ def _backend_unavailable_result(
     *,
     unavailable_code: str,
 ) -> dict[str, Any]:
-    alternates = sorted(_SIM_BACKENDS - {requested_backend})
+    alternates = [name for name in engine_names() if name != requested_backend]
     choices: list[dict[str, str]] = [
         {
             "action": "retry_with_backend",
@@ -230,7 +245,10 @@ def _is_unknown_session_error(result: dict[str, Any]) -> bool:
     if not isinstance(err, dict):
         return False
     code = str(err.get("code", "")).strip().upper()
+    # SESSION_NOT_FOUND is the contract code; the vendor-prefixed spellings
+    # are what older bridges send.
     if code in {
+        "SESSION_NOT_FOUND",
         "ISAAC_UNKNOWN_SESSION",
         "ISAAC_SESSION_NOT_FOUND",
         "GAZEBO_UNKNOWN_SESSION",
@@ -245,10 +263,17 @@ def _has_sim_path(path: str | None) -> bool:
     return bool(path and str(path).strip())
 
 
-def _validate_gazebo_sim_paths(urdf_path: str | None, sdf_path: str | None) -> str | None:
-    if _has_sim_path(urdf_path) or _has_sim_path(sdf_path):
+def _validate_gazebo_sim_paths(
+    urdf_path: str | None,
+    sdf_path: str | None,
+    package_path: str | None = None,
+) -> str | None:
+    if _has_sim_path(package_path) or _has_sim_path(urdf_path) or _has_sim_path(sdf_path):
         return None
-    return "Gazebo simulation requires at least one model path: provide urdf_path or sdf_path."
+    return (
+        "Gazebo simulation requires a model: provide package_path (preferred), "
+        "urdf_path, or sdf_path."
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1150,200 +1175,6 @@ def motion_check_interference(
 # ---------------------------------------------------------------------------
 
 
-def _simulate_with_chrono(
-    mech: Mechanism,
-    *,
-    duration_s: float,
-    dt_s: float,
-    output_interval: float,
-) -> dict[str, Any]:
-    """Run dynamic simulation via the Chrono daemon for one mechanism."""
-    # Lazy import to avoid import-time dependency on chrono_client
-    from server.chrono_client import ChronoCommandError, ChronoConnectionError, get_client
-
-    client = get_client()
-    if client is None:
-        return _backend_unavailable_result(
-            "chrono",
-            (
-                "Chrono daemon not running on localhost:9877. "
-                "Start it with: chrono_daemon/run.sh "
-                "(or systemctl --user start chrono-daemon)."
-            ),
-            unavailable_code="CHRONO_NOT_CONNECTED",
-        )
-
-    # Build simulation spec (Python planner -> C++ executor)
-    from server.simulation_spec_builder import (
-        add_derived_speeds,
-        build_simulation_spec,
-        validate_simulation_spec,
-    )
-
-    spec = build_simulation_spec(mech)
-
-    # Pre-flight: catch referential integrity issues before the C++ round-trip.
-    spec_issues = validate_simulation_spec(spec)
-    if spec_issues:
-        return _error_result(
-            "SIMULATION_SPEC_INVALID",
-            "Simulation spec failed pre-flight validation:\n"
-            + "\n".join(f"  - {issue}" for issue in spec_issues),
-        )
-
-    try:
-        result = client.simulate(
-            simulation_spec=spec,
-            duration_s=duration_s,
-            dt_s=dt_s,
-            output_interval=output_interval,
-        )
-    except ChronoConnectionError as exc:
-        return _error_result("CHRONO_CONNECTION_LOST", str(exc))
-    except ChronoCommandError as exc:
-        return _error_result("CHRONO_COMMAND_ERROR", str(exc))
-    except Exception as exc:
-        return _error_result("CHRONO_ERROR", str(exc))
-
-    # Post-process: compute derived planet speeds from sun/carrier.
-    add_derived_speeds(result, spec)
-
-    # Surface C++ build warnings.
-    build_warnings = result.pop("warnings", [])
-
-    # Post-flight: detect zero-motion (all steady-state speeds are zero).
-    diagnostics: list[str] = []
-    ss_speeds = result.get("summary", {}).get("steady_state_speeds", {})
-    if ss_speeds and all(abs(v) < 1e-6 for v in ss_speeds.values()):
-        diagnostics.append(
-            "All steady-state speeds are zero — the simulation produced no motion. "
-            "This usually means a motor failed to attach to its target shaft/body. "
-            "Check build_warnings for details."
-        )
-
-    response: dict[str, Any] = {
-        "ok": True,
-        **result,
-        "backend_used": "chrono",
-        "mode_used": "batch",
-    }
-    if build_warnings:
-        response["build_warnings"] = build_warnings
-    if diagnostics:
-        response["diagnostics"] = diagnostics
-
-    # Extract peak joint forces from Chrono time series if present
-    ts = result.get("time_series", [])
-    peak_forces = _extract_peak_joint_forces(ts)
-    if peak_forces:
-        response.setdefault("summary", {})["peak_joint_forces"] = peak_forces
-    # Also check if Chrono daemon returned peak_joint_forces directly
-    chrono_peaks = result.get("summary", {}).get("peak_joint_forces")
-    if chrono_peaks and isinstance(chrono_peaks, dict):
-        response.setdefault("summary", {})["peak_joint_forces"] = chrono_peaks
-
-    return response
-
-
-def _simulate_with_gazebo(
-    mech: Mechanism,
-    *,
-    duration_s: float,
-    dt_s: float,
-    output_interval: float,
-    profile: dict[str, Any],
-    urdf_path: str | None = None,
-    sdf_path: str | None = None,
-    import_config: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    """Run batch simulation via the optional Gazebo sidecar (single-call)."""
-    model_path_error = _validate_gazebo_sim_paths(urdf_path, sdf_path)
-    if model_path_error is not None:
-        return _error_result("INVALID_INPUT", model_path_error)
-
-    preflight = (
-        _run_sdf_preflight(sdf_path) if _has_sim_path(sdf_path) else _run_urdf_preflight(urdf_path)
-    )
-    if preflight and preflight["blockers"]:
-        return _error_result(
-            "URDF_VALIDATION_FAILED" if not _has_sim_path(sdf_path) else "SDF_VALIDATION_FAILED",
-            f"Model pre-flight found {len(preflight['blockers'])} blocker(s): "
-            + "; ".join(b["message"] for b in preflight["blockers"]),
-        )
-
-    from server import gazebo_adapter
-
-    result = gazebo_adapter.simulate(
-        mechanism=mech,
-        duration_s=duration_s,
-        dt_s=dt_s,
-        output_interval=output_interval,
-        profile=profile,
-        urdf_path=urdf_path,
-        sdf_path=sdf_path,
-        import_config=import_config,
-    )
-    if not result.get("ok", False):
-        err = result.get("error", {})
-        code = err.get("code", "GAZEBO_COMMAND_ERROR")
-        if code == "GAZEBO_NOT_CONNECTED":
-            return _backend_unavailable_result(
-                "gazebo",
-                err.get("message", "Gazebo bridge is not available."),
-                unavailable_code=code,
-            )
-        return result
-    result["backend_used"] = "gazebo"
-    result["mode_used"] = "batch"
-    if preflight:
-        result["urdf_validation" if not _has_sim_path(sdf_path) else "sdf_validation"] = preflight
-
-    # Extract peak joint forces from Gazebo time series if present
-    ts = result.get("time_series", [])
-    peak_forces = _extract_peak_joint_forces(ts)
-    if peak_forces:
-        result.setdefault("summary", {})["peak_joint_forces"] = peak_forces
-
-    return result
-
-
-def _simulate_with_isaac_legacy(
-    mech: Mechanism,
-    *,
-    duration_s: float,
-    dt_s: float,
-    output_interval: float,
-    profile: dict[str, Any],
-    urdf_path: str | None = None,
-    import_config: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    """Fallback: use the old monolithic simulate command for old bridges."""
-    from server import isaac_adapter
-
-    result = isaac_adapter.simulate(
-        mechanism=mech,
-        duration_s=duration_s,
-        dt_s=dt_s,
-        output_interval=output_interval,
-        profile=profile,
-        urdf_path=urdf_path,
-        import_config=import_config,
-    )
-    if not result.get("ok", False):
-        err = result.get("error", {})
-        code = err.get("code", "ISAAC_ERROR")
-        if code == "ISAAC_NOT_CONNECTED":
-            return _backend_unavailable_result(
-                "isaac",
-                err.get("message", "Isaac bridge is not available."),
-                unavailable_code=code,
-            )
-        return result
-    result["backend_used"] = "isaac"
-    result["mode_used"] = "batch"
-    return result
-
-
 def _run_urdf_preflight(urdf_path: str | None) -> dict[str, Any] | None:
     """Run URDF structural validation if a path is provided.
 
@@ -1386,39 +1217,40 @@ def _run_urdf_preflight(urdf_path: str | None) -> dict[str, Any] | None:
     }
 
 
-def _run_sdf_preflight(sdf_path: str | None) -> dict[str, Any] | None:
-    """Run SDF structural validation if a path is provided."""
-    if sdf_path is None:
+def _reject_unsupported_model_format(
+    engine: str,
+    *,
+    package_path: str | None,
+    urdf_path: str | None,
+    sdf_path: str | None,
+) -> dict[str, Any] | None:
+    """Refuse to hand an engine a model format it never advertised.
+
+    With no model file the in-band mechanism *is* the model, so the engine has
+    to accept ``formats: mechanism``. Gazebo ingests packages, SDF and URDF and
+    never claimed to read a mechanism; sent one anyway it answered with
+    synthetic numbers, and a 20:40 gear pair came back at a ratio of 1.0 —
+    plausible, and entirely invented.
+
+    Capability honesty runs both ways: an engine must implement what it
+    advertises, and core must not ask for what it doesn't. Returns None when
+    the call is fine, or when the engine is unreachable and cannot say.
+    """
+    if any(_has_sim_path(p) for p in (package_path, urdf_path, sdf_path)):
         return None
-    if not os.path.isfile(sdf_path):
+    if sim_adapter.supports_format(engine, "mechanism") is not False:
         return None
-
-    try:
-        from server.models import Severity
-        from server.sim_export import validate_sdf
-    except ImportError:
-        log.debug("sim_export.validate_sdf not available, skipping preflight")
-        return None
-
-    try:
-        findings = validate_sdf(sdf_path)
-    except Exception as exc:
-        log.warning("SDF preflight validation failed: %s", exc)
-        return None
-
-    if not findings:
-        return None
-
-    blockers = [f.to_dict() for f in findings if f.severity == Severity.BLOCK]
-    warnings = [f.to_dict() for f in findings if f.severity == Severity.WARN]
-    notes = [f.to_dict() for f in findings if f.severity == Severity.NOTE]
-
-    if not blockers and not warnings and not notes:
-        return None
-    return {"blockers": blockers, "warnings": warnings, "notes": notes}
+    formats = sim_adapter.capabilities(engine).get("formats") or []
+    return _error_result(
+        "UNSUPPORTED_MODEL_FORMAT",
+        f"{engine} does not ingest an in-band mechanism (it accepts "
+        f"{sorted(formats)}). Write a sim package with cad.export_sim_package "
+        "and pass its directory as package_path.",
+    )
 
 
-def _simulate_with_isaac(
+def _simulate_with_engine(
+    engine: str,
     mech: Mechanism,
     *,
     duration_s: float,
@@ -1426,124 +1258,202 @@ def _simulate_with_isaac(
     output_interval: float,
     profile: dict[str, Any],
     urdf_path: str | None = None,
+    sdf_path: str | None = None,
+    package_path: str | None = None,
+    px4: bool = False,
     import_config: dict[str, Any] | None = None,
     verify: bool = True,
 ) -> dict[str, Any]:
-    """Run simulation via the optional Isaac sidecar using session lifecycle."""
-    # URDF pre-flight validation
-    preflight = _run_urdf_preflight(urdf_path)
+    """Run a batch simulation on *engine*, whichever engine that is.
+
+    Two shapes exist in the contract and the engine's handshake picks between
+    them: engines advertising ``modes: session`` are started and polled
+    (``simulate_start`` / ``simulate_status`` / ``simulate_stop``), everything
+    else answers a single ``simulate``.  Nothing here branches on a name.
+    """
+    # Core pre-flights only the URDF it wrote itself; packages and vendor
+    # dialects are validated by the engine that compiles them.
+    preflight = None if _has_sim_path(package_path) else _run_urdf_preflight(urdf_path)
     if preflight and preflight["blockers"]:
         return _error_result(
             "URDF_VALIDATION_FAILED",
-            f"URDF pre-flight found {len(preflight['blockers'])} blocker(s): "
+            f"Model pre-flight found {len(preflight['blockers'])} blocker(s): "
             + "; ".join(b["message"] for b in preflight["blockers"]),
         )
 
-    from server import isaac_adapter
-
-    # Start session
-    start_result = isaac_adapter.simulate_start(
-        mechanism=mech,
-        duration_s=duration_s,
-        dt_s=dt_s,
-        output_interval=output_interval,
-        profile=profile,
+    format_error = _reject_unsupported_model_format(
+        engine,
+        package_path=package_path,
         urdf_path=urdf_path,
-        import_config=import_config,
-        verify=verify,
+        sdf_path=sdf_path,
     )
+    if format_error is not None:
+        return format_error
+
+    model_args: dict[str, Any] = {
+        "mechanism": mech.to_dict(),
+        "duration_s": duration_s,
+        "dt_s": dt_s,
+        "output_interval": output_interval,
+        "profile": profile or {},
+        "urdf_path": urdf_path,
+        "sdf_path": sdf_path,
+        "package_path": package_path,
+        "import_config": import_config,
+    }
+    if px4:
+        model_args["px4"] = True
+
+    if sim_adapter.supports_mode(engine, "session"):
+        response = _simulate_session(engine, model_args, verify=verify, duration_s=duration_s)
+    else:
+        response = _simulate_once(engine, model_args, duration_s=duration_s)
+
+    if not response.get("ok", False):
+        return _engine_error_result(engine, response)
+
+    response["backend_used"] = engine
+    response.setdefault("mode_used", "batch")
+    if preflight:
+        response["urdf_validation"] = preflight
+
+    # Peak joint forces feed Tier 3.5 (analysis.stress_from_simulation); take
+    # the engine's own summary when it reports one, else derive from the
+    # time series.
+    summary = response.setdefault("summary", {})
+    if not summary.get("peak_joint_forces"):
+        peaks = _extract_peak_joint_forces(response.get("time_series", []))
+        if peaks:
+            summary["peak_joint_forces"] = peaks
+
+    build_warnings = response.pop("warnings", None)
+    if build_warnings:
+        response["build_warnings"] = build_warnings
+
+    diagnostics = _zero_motion_diagnostics(summary)
+    if diagnostics:
+        response["diagnostics"] = diagnostics
+    return response
+
+
+def _simulate_once(
+    engine: str,
+    model_args: dict[str, Any],
+    *,
+    duration_s: float,
+) -> dict[str, Any]:
+    """Single-call batch simulation (the contract's required floor)."""
+    result = sim_adapter.call(
+        engine,
+        "simulate",
+        timeout=max(120.0, duration_s * 100),
+        **model_args,
+    )
+    if not result.get("ok", False):
+        return result
+    normalized = sim_adapter.normalize_simulate_result(result)
+    normalized["ok"] = True
+    return normalized
+
+
+def _simulate_session(
+    engine: str,
+    model_args: dict[str, Any],
+    *,
+    verify: bool,
+    duration_s: float,
+) -> dict[str, Any]:
+    """Session-based simulation: start, poll, collect.
+
+    Session engines can stream progress and hold an interactive scene open,
+    which single-call engines cannot.
+    """
+    start_result = sim_adapter.call(engine, "simulate_start", verify=verify, **model_args)
     if not start_result.get("ok", False):
-        err = start_result.get("error", {})
-        code = err.get("code", "ISAAC_ERROR")
-        if code == "ISAAC_NOT_CONNECTED":
-            return _backend_unavailable_result(
-                "isaac",
-                err.get("message", "Isaac bridge is not available."),
-                unavailable_code=code,
-            )
-        # Fallback: old bridge without simulate_start support
-        if code == "UNKNOWN_COMMAND":
-            return _simulate_with_isaac_legacy(
-                mech,
-                duration_s=duration_s,
-                dt_s=dt_s,
-                output_interval=output_interval,
-                profile=profile,
-                urdf_path=urdf_path,
-                import_config=import_config,
-            )
+        code = start_result.get("error", {}).get("code", "")
+        # An engine that advertises sessions but rejects the verb is stale;
+        # fall back to the required floor rather than failing the run.
+        if code in ("UNSUPPORTED_COMMAND", "UNKNOWN_COMMAND"):
+            return _simulate_once(engine, model_args, duration_s=duration_s)
         return start_result
 
     session_id = str(start_result.get("session_id", "")).strip()
     if not session_id:
-        return _error_result("ISAAC_PROTOCOL_ERROR", "simulate_start missing session_id")
+        return _error_result("ENGINE_PROTOCOL_ERROR", "simulate_start returned no session_id")
 
-    # Interactive mode: return immediately, store session for later stop
+    # Interactive sessions stay open; hand the id back for a later stop.
     if start_result.get("interactive"):
         _active_sessions[session_id] = {
             "mechanism_id": None,
-            "backend": "isaac",
+            "backend": engine,
             "session_type": "simulate",
             "created_at": time.time(),
         }
-        return {
-            "ok": True,
-            "backend_used": "isaac",
-            "mode_used": "interactive",
-            **start_result,
-        }
+        return {**start_result, "mode_used": "interactive"}
 
-    # Batch mode: poll until complete
     while True:
-        status_result = isaac_adapter.simulate_status(session_id=session_id)
+        status_result = sim_adapter.call(engine, "simulate_status", session_id=session_id)
         if not status_result.get("ok", False):
             return status_result
         if status_result.get("status") == "complete":
             break
         time.sleep(0.01)
 
-    # Stop and collect results
-    stop_result = isaac_adapter.simulate_stop(session_id=session_id)
+    stop_result = sim_adapter.call(engine, "simulate_stop", session_id=session_id)
     if not stop_result.get("ok", False):
         return stop_result
 
-    # Build backward-compatible response
     samples = stop_result.get("samples", [])
-    speeds = start_result.get("steady_state_speeds", {})
+    summary: dict[str, Any] = {
+        "simulation_time_s": duration_s,
+        "dt_s": model_args.get("dt_s"),
+        "time_steps": stop_result.get("target_steps", 0),
+        "output_samples": len(samples),
+        "steady_state_speeds": start_result.get("steady_state_speeds", {}),
+        "engine_mode": start_result.get("engine_mode")
+        or ("urdf" if start_result.get("prim_path") else "reference"),
+    }
+    for key in ("prim_path", "joint_count", "link_count"):
+        if start_result.get(key) is not None:
+            summary[key] = start_result[key]
 
-    # Extract peak joint efforts from time series
-    peak_joint_forces = _extract_peak_joint_forces(samples)
-
-    result: dict[str, Any] = {
+    response: dict[str, Any] = {
         "ok": True,
         "time_series": samples,
-        "summary": {
-            "simulation_time_s": duration_s,
-            "time_steps": stop_result.get("target_steps", 0),
-            "output_samples": len(samples),
-            "steady_state_speeds": speeds,
-            "engine_mode": "isaac_urdf" if start_result.get("prim_path") else "reference",
-        },
+        "summary": summary,
         "profile_used": start_result.get("profile_used", {}),
-        "backend_used": "isaac",
-        "mode_used": "batch",
     }
-    if peak_joint_forces:
-        result["summary"]["peak_joint_forces"] = peak_joint_forces
-    if start_result.get("prim_path"):
-        result["summary"]["prim_path"] = start_result["prim_path"]
-        result["summary"]["joint_count"] = start_result.get("joint_count", 0)
-        result["summary"]["link_count"] = start_result.get("link_count", 0)
     warnings = start_result.get("warnings") or stop_result.get("warnings")
     if warnings:
-        result["warnings"] = warnings
-    # Include URDF pre-flight findings (non-blocker warnings/notes)
-    if preflight:
-        result["urdf_validation"] = preflight
-    # Forward verification images from the bridge
+        response["warnings"] = warnings
     if start_result.get("verification_images"):
-        result["verification_images"] = start_result["verification_images"]
-    return result
+        response["verification_images"] = start_result["verification_images"]
+    return response
+
+
+def _engine_error_result(engine: str, response: dict[str, Any]) -> dict[str, Any]:
+    """Turn an adapter error into guidance, without naming engines in code."""
+    err = response.get("error", {})
+    code = err.get("code", "ENGINE_COMMAND_ERROR")
+    if code == sim_adapter.NOT_CONNECTED:
+        return _backend_unavailable_result(
+            engine,
+            err.get("message", sim_adapter.not_connected_message(engine)),
+            unavailable_code=code,
+        )
+    return response
+
+
+def _zero_motion_diagnostics(summary: dict[str, Any]) -> list[str]:
+    """Flag a run where nothing moved — usually an unattached motor."""
+    speeds = summary.get("steady_state_speeds", {})
+    if speeds and all(abs(v) < 1e-6 for v in speeds.values()):
+        return [
+            "All steady-state speeds are zero — the simulation produced no motion. "
+            "This usually means a motor failed to attach to its target shaft or body. "
+            "Check build_warnings for details."
+        ]
+    return []
 
 
 def motion_simulate(
@@ -1556,6 +1466,8 @@ def motion_simulate(
     profile: dict[str, Any] | None = None,
     urdf_path: str | None = None,
     sdf_path: str | None = None,
+    package_path: str | None = None,
+    px4: bool = False,
     import_config: dict[str, Any] | None = None,
     verify: bool = True,
     capture: list[str] | None = None,
@@ -1597,26 +1509,14 @@ def motion_simulate(
     if param_error is not None:
         return _error_result("INVALID_INPUT", param_error)
 
-    if selected_backend not in _SIM_BACKENDS:
-        return _error_result(
-            "INVALID_INPUT",
-            f"backend must be one of {sorted(_SIM_BACKENDS)}",
-        )
+    backend_error = _validate_backend(selected_backend, mode=selected_mode)
+    if backend_error is not None:
+        return _error_result("INVALID_INPUT", backend_error)
     if selected_mode not in _SIM_MODES:
         return _error_result(
             "INVALID_INPUT",
             f"mode must be one of {sorted(_SIM_MODES)}",
         )
-
-    if selected_mode == "teleop" and selected_backend not in _TELEOP_BACKENDS:
-        return _error_result(
-            "INVALID_INPUT",
-            f"mode='teleop' is only supported with backends {sorted(_TELEOP_BACKENDS)}",
-        )
-    if selected_backend == "gazebo":
-        path_error = _validate_gazebo_sim_paths(urdf_path, sdf_path)
-        if path_error is not None:
-            return _error_result("INVALID_INPUT", path_error)
 
     if selected_mode == "teleop":
         response = motion_teleop_start(
@@ -1625,17 +1525,13 @@ def motion_simulate(
             profile=profile or {},
             urdf_path=urdf_path,
             sdf_path=sdf_path,
+            package_path=package_path,
+            px4=px4,
             import_config=import_config,
         )
-    elif selected_backend == "chrono":
-        response = _simulate_with_chrono(
-            mech,
-            duration_s=duration_s,
-            dt_s=dt_s,
-            output_interval=output_interval,
-        )
-    elif selected_backend == "gazebo":
-        response = _simulate_with_gazebo(
+    else:
+        response = _simulate_with_engine(
+            selected_backend,
             mech,
             duration_s=duration_s,
             dt_s=dt_s,
@@ -1643,16 +1539,8 @@ def motion_simulate(
             profile=profile or {},
             urdf_path=urdf_path,
             sdf_path=sdf_path,
-            import_config=import_config,
-        )
-    else:
-        response = _simulate_with_isaac(
-            mech,
-            duration_s=duration_s,
-            dt_s=dt_s,
-            output_interval=output_interval,
-            profile=profile or {},
-            urdf_path=urdf_path,
+            package_path=package_path,
+            px4=px4,
             import_config=import_config,
             verify=verify,
         )
@@ -1680,7 +1568,7 @@ def motion_verify_sim_package(
     mechanism_id: str,
     urdf_path: str | None = None,
     doc: str | None = None,
-    check_isaac: bool = False,
+    check_engine: bool = False,
     prim_path: str | None = None,
 ) -> dict[str, Any]:
     """Verify that a mechanism exported correctly through the sim pipeline.
@@ -1688,7 +1576,7 @@ def motion_verify_sim_package(
     Runs up to 3 verification stages:
     1. Mechanism vs FreeCAD model tree (always, if FreeCAD connected)
     2. Mechanism vs URDF file (if urdf_path provided)
-    3. URDF vs Isaac USD scene (if check_isaac=True and Isaac bridge available)
+    3. URDF vs the engine's normalized diagnose report (if check_engine=True)
 
     Returns a report with findings classified as block/warn/note.
     """
@@ -1709,28 +1597,26 @@ def motion_verify_sim_package(
     except Exception as exc:
         log.warning("Could not get model tree for verify: %s", exc)
 
-    # Stage 3: Get Isaac scene state (if requested)
-    isaac_diagnose: dict[str, Any] | None = None
-    if check_isaac:
+    # Stage 3: Ask the engine for its scene report (normalized by contract,
+    # so the comparison downstream is engine-agnostic).
+    diagnose: dict[str, Any] | None = None
+    if check_engine:
         try:
-            from server.isaac_client import get_client as get_isaac_client
-
-            client = get_isaac_client()
-            if client is not None:
-                diag_result = client.send_command(
-                    "diagnose",
-                    prim_path=prim_path or "/",
-                )
-                if isinstance(diag_result, dict):
-                    isaac_diagnose = diag_result
+            diag_result = sim_adapter.call(
+                _normalize_backend(None),
+                "diagnose",
+                prim_path=prim_path or "/",
+            )
+            if diag_result.get("ok"):
+                diagnose = {k: v for k, v in diag_result.items() if k != "ok"}
         except Exception as exc:
-            log.warning("Could not get Isaac diagnose for verify: %s", exc)
+            log.warning("Could not get engine diagnose for verify: %s", exc)
 
     result = verify_sim_package(
         mechanism=mech,
         model_tree_bodies=model_tree_bodies,
         urdf_path=urdf_path,
-        isaac_diagnose=isaac_diagnose,
+        diagnose=diagnose,
     )
 
     return {"ok": True, **result}
@@ -1932,6 +1818,8 @@ def motion_teleop_start(
     profile: dict[str, Any] | None = None,
     urdf_path: str | None = None,
     sdf_path: str | None = None,
+    package_path: str | None = None,
+    px4: bool = False,
     import_config: dict[str, Any] | None = None,
     verify: bool = True,
 ) -> dict[str, Any]:
@@ -1961,11 +1849,9 @@ def motion_teleop_start(
     - ``controller_type`` must be ``multirotor_direct`` or ``px4_offboard``.
     """
     selected_backend = _normalize_backend(backend)
-    if selected_backend not in _TELEOP_BACKENDS:
-        return _error_result(
-            "INVALID_INPUT",
-            f"motion.teleop_start only supports backends {sorted(_TELEOP_BACKENDS)}",
-        )
+    backend_error = _validate_backend(selected_backend, mode="teleop")
+    if backend_error is not None:
+        return _error_result("INVALID_INPUT", backend_error)
     if profile is not None and not isinstance(profile, dict):
         return _error_result("INVALID_INPUT", "profile must be an object")
     profile_obj = profile or {}
@@ -1974,21 +1860,26 @@ def motion_teleop_start(
     if mech is None:
         return _error_result("NOT_FOUND", f"No mechanism with id '{mechanism_id}'")
 
-    # Auto-populate profile from mechanism when fields are missing.
-    # Only for Isaac backend — Gazebo uses a different controller model
-    # (multirotor_direct, px4_offboard) that doesn't match hexapod profiles.
-    if selected_backend == "isaac":
-        auto_profile = _build_profile_from_mechanism(mech)
-        if auto_profile:
-            merged = {**auto_profile, **profile_obj}
-            profile_obj = merged
+    # Auto-populate the profile from the mechanism when fields are missing.
+    # Joint names, gait groups and stance height are derived from the
+    # kinematics, so they matter to an engine that drives joints and are
+    # inert to one that drives body velocities — and the caller's own values
+    # always win the merge.  The import-config defaults below are gated on
+    # the engine advertising `import_urdf`, since they only mean anything to
+    # an engine that imports a URDF.
+    auto_profile = _build_profile_from_mechanism(mech)
+    if auto_profile:
+        profile_obj = {**auto_profile, **profile_obj}
 
-        # Auto-compute spawn_height from stance geometry so the robot
-        # doesn't clip through the ground on the first physics step.
+    # Import-config defaults only mean something to an engine that imports a
+    # URDF, so they are gated on that capability rather than on a name.
+    if sim_adapter.supports_feature(selected_backend, "import_urdf"):
         ic = import_config or {}
         if "spawn_height" not in ic:
+            # Spawn clear of the ground so the robot doesn't clip through on
+            # the first physics step.
             stance_h = profile_obj.get("stance_height", -0.09)
-            margin = 0.02  # 2 cm clearance above ground
+            margin = 0.02  # 2 cm clearance
             computed_spawn = abs(stance_h) + margin
             ic = {**ic, "spawn_height": computed_spawn}
             log.info(
@@ -1997,74 +1888,48 @@ def motion_teleop_start(
                 abs(stance_h),
                 margin,
             )
-            import_config = ic
-
-        # Default to mobile robot type so Isaac uses free-base defaults
         if "robot_type" not in ic:
-            import_config = {**(import_config or {}), "robot_type": "mobile"}
+            # Free-base defaults suit a walking or rolling robot.
+            ic = {**ic, "robot_type": "mobile"}
+        import_config = ic
 
-    if selected_backend == "gazebo":
-        path_error = _validate_gazebo_sim_paths(urdf_path, sdf_path)
-        if path_error is not None:
-            return _error_result("INVALID_INPUT", path_error)
-
-        controller_type = (
-            str(profile_obj.get("controller_type", "multirotor_direct")).strip().lower()
-        )
-        if controller_type not in _GAZEBO_CONTROLLER_TYPES:
-            return _error_result(
-                "INVALID_INPUT",
-                (
-                    "For Gazebo teleop, profile.controller_type must be "
-                    "'multirotor_direct' or 'px4_offboard'."
-                ),
-            )
-
-    preflight = (
-        _run_sdf_preflight(sdf_path) if _has_sim_path(sdf_path) else _run_urdf_preflight(urdf_path)
-    )
+    # Controller vocabulary belongs to the engine: it knows which controllers
+    # it implements and answers with its own error if asked for another.
+    # SDF is compiled and validated engine-side; core pre-flights only its
+    # own URDF.
+    preflight = None if _has_sim_path(package_path) else _run_urdf_preflight(urdf_path)
     if preflight and preflight["blockers"]:
         return _error_result(
-            "URDF_VALIDATION_FAILED" if not _has_sim_path(sdf_path) else "SDF_VALIDATION_FAILED",
+            "URDF_VALIDATION_FAILED",
             f"Model pre-flight found {len(preflight['blockers'])} blocker(s): "
             + "; ".join(b["message"] for b in preflight["blockers"]),
         )
 
-    if selected_backend == "gazebo":
-        from server import gazebo_adapter
+    format_error = _reject_unsupported_model_format(
+        selected_backend,
+        package_path=package_path,
+        urdf_path=urdf_path,
+        sdf_path=sdf_path,
+    )
+    if format_error is not None:
+        return format_error
 
-        result = gazebo_adapter.teleop_start(
-            mechanism=mech,
-            profile=profile_obj,
-            urdf_path=urdf_path,
-            sdf_path=sdf_path,
-            import_config=import_config,
-            verify=verify,
-        )
-        not_connected_code = "GAZEBO_NOT_CONNECTED"
-        protocol_error_code = "GAZEBO_PROTOCOL_ERROR"
-    else:
-        from server import isaac_adapter
-
-        result = isaac_adapter.teleop_start(
-            mechanism=mech,
-            profile=profile_obj,
-            urdf_path=urdf_path,
-            import_config=import_config,
-            verify=verify,
-        )
-        not_connected_code = "ISAAC_NOT_CONNECTED"
-        protocol_error_code = "ISAAC_PROTOCOL_ERROR"
+    result = sim_adapter.call(
+        selected_backend,
+        "teleop_start",
+        mechanism=mech.to_dict(),
+        profile=profile_obj,
+        urdf_path=urdf_path,
+        sdf_path=sdf_path,
+        package_path=package_path,
+        px4=px4 or None,
+        import_config=import_config,
+        verify=verify,
+    )
+    protocol_error_code = sim_adapter.PROTOCOL_ERROR
 
     if not result.get("ok", False):
-        err = result.get("error", {})
-        if err.get("code") == not_connected_code:
-            return _backend_unavailable_result(
-                selected_backend,
-                err.get("message", f"{selected_backend} bridge is not available."),
-                unavailable_code=not_connected_code,
-            )
-        return result
+        return _engine_error_result(selected_backend, result)
 
     session_id_val = str(result.get("session_id", "")).strip()
     if not session_id_val:
@@ -2085,7 +1950,7 @@ def motion_teleop_start(
     }
     # Include URDF pre-flight findings (non-blocker warnings/notes)
     if preflight:
-        response["urdf_validation" if not _has_sim_path(sdf_path) else "sdf_validation"] = preflight
+        response["urdf_validation"] = preflight
     return response
 
 
@@ -2109,35 +1974,29 @@ def motion_teleop_command(
 
     session_backend = session.get("backend", "isaac")
 
-    # Isaac does not support vy_mps / vz_mps — reject non-zero values
-    if session_backend == "isaac" and (vy_mps != 0.0 or vz_mps != 0.0):
-        return _error_result(
-            "INVALID_INPUT",
-            "Isaac backend does not support vy_mps/vz_mps; only Gazebo accepts lateral/vertical velocities.",
-        )
+    # An engine declares the teleop axes it honours; commanding one it does
+    # not accept is an error rather than a silently dropped setpoint.
+    command = {
+        "vx_mps": vx_mps,
+        "vy_mps": vy_mps,
+        "vz_mps": vz_mps,
+        "yaw_rate_rps": yaw_rate_rps,
+        "body_height_m": body_height_m,
+    }
+    accepted = sim_adapter.teleop_dofs(session_backend)
+    if accepted is not None:
+        unsupported = [
+            axis for axis, value in command.items() if value != 0.0 and axis not in accepted
+        ]
+        if unsupported:
+            return _error_result(
+                "INVALID_INPUT",
+                f"The {session_backend} engine does not accept "
+                f"{', '.join(sorted(unsupported))}; it advertises {sorted(accepted)}.",
+            )
+        command = {axis: value for axis, value in command.items() if axis in accepted}
 
-    if session_backend == "gazebo":
-        from server import gazebo_adapter
-
-        result = gazebo_adapter.teleop_command(
-            session_id=session_id,
-            vx_mps=vx_mps,
-            yaw_rate_rps=yaw_rate_rps,
-            body_height_m=body_height_m,
-            vy_mps=vy_mps,
-            vz_mps=vz_mps,
-        )
-    elif session_backend == "isaac":
-        from server import isaac_adapter
-
-        result = isaac_adapter.teleop_command(
-            session_id=session_id,
-            vx_mps=vx_mps,
-            yaw_rate_rps=yaw_rate_rps,
-            body_height_m=body_height_m,
-        )
-    else:
-        return _error_result("NOT_FOUND", f"Unknown session backend '{session_backend}'")
+    result = sim_adapter.call(session_backend, "teleop_command", session_id=session_id, **command)
 
     if not result.get("ok", False):
         if _is_unknown_session_error(result):
@@ -2160,16 +2019,7 @@ def motion_teleop_state(session_id: str) -> dict[str, Any]:
 
     session_backend = session.get("backend", "isaac")
 
-    if session_backend == "gazebo":
-        from server import gazebo_adapter
-
-        result = gazebo_adapter.teleop_state(session_id=session_id)
-    elif session_backend == "isaac":
-        from server import isaac_adapter
-
-        result = isaac_adapter.teleop_state(session_id=session_id)
-    else:
-        return _error_result("NOT_FOUND", f"Unknown session backend '{session_backend}'")
+    result = sim_adapter.call(session_backend, "teleop_state", session_id=session_id)
 
     if not result.get("ok", False):
         if _is_unknown_session_error(result):
@@ -2192,16 +2042,7 @@ def motion_teleop_stop(session_id: str) -> dict[str, Any]:
 
     session_backend = session.get("backend", "isaac")
 
-    if session_backend == "gazebo":
-        from server import gazebo_adapter
-
-        result = gazebo_adapter.teleop_stop(session_id=session_id)
-    elif session_backend == "isaac":
-        from server import isaac_adapter
-
-        result = isaac_adapter.teleop_stop(session_id=session_id)
-    else:
-        return _error_result("NOT_FOUND", f"Unknown session backend '{session_backend}'")
+    result = sim_adapter.call(session_backend, "teleop_stop", session_id=session_id)
 
     if not result.get("ok", False):
         if _is_unknown_session_error(result):
@@ -2216,58 +2057,48 @@ def motion_teleop_stop(session_id: str) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-def motion_isaac_screenshot(
+def motion_screenshot(
+    backend: str | None = None,
     width: int = 1280,
     height: int = 720,
     camera_position: list[float] | None = None,
     camera_target: list[float] | None = None,
     target: str | None = None,
 ) -> dict[str, Any]:
-    """Capture the Isaac Sim viewport and return as base64 PNG.
+    """Capture the engine's viewport and return it as a base64 PNG.
 
-    *target* is a preset name (``"iso"``, ``"front"``, ``"top"``,
-    ``"right"``, ``"back"``, ``"bottom"``, ``"left"``).  When set and
-    no explicit ``camera_position`` is given, the camera auto-frames
-    from that direction.
+    Capability-gated: only engines advertising the ``screenshot`` feature in
+    their handshake can answer, and asking one that cannot says so rather than
+    failing obscurely.
 
-    The returned dict includes ``image_base64`` which the MCP response
-    handler in ``server/main.py`` automatically extracts into an MCP
-    image content block.
+    *target* is a preset name (``"iso"``, ``"front"``, ``"top"``, ``"right"``,
+    ``"back"``, ``"bottom"``, ``"left"``).  When set and no explicit
+    ``camera_position`` is given, the camera auto-frames from that direction.
+
+    The returned dict includes ``image_base64``, which the MCP response
+    handler in ``server/main.py`` turns into an image content block.
     """
-    from server import isaac_adapter
+    engine = _normalize_backend(backend)
+    names = engine_names()
+    if engine not in names:
+        return _error_result("INVALID_INPUT", f"backend must be one of {sorted(names)}")
 
-    return isaac_adapter.isaac_screenshot(
+    supported = sim_adapter.supports_feature(engine, "screenshot")
+    if supported is False:
+        return _error_result(
+            "UNSUPPORTED_CAPABILITY",
+            f"The {engine} engine does not advertise a screenshot feature.",
+        )
+
+    result = sim_adapter.call(
+        engine,
+        "screenshot",
         width=width,
         height=height,
         camera_position=camera_position,
         camera_target=camera_target,
         preset=target,
     )
-
-
-def motion_isaac_launch(
-    headless: bool = False,
-    port: int = 9878,
-    environment: str = "full_warehouse.usd",
-    timeout_s: float = 120.0,
-) -> dict[str, Any]:
-    """Launch the Isaac bridge as a managed subprocess.
-
-    Spawns the bridge process and waits for it to accept TCP connections.
-    If the bridge is already running, returns immediately.
-    """
-    from server import isaac_adapter
-
-    return isaac_adapter.launch_bridge(
-        headless=headless,
-        port=port,
-        environment=environment,
-        timeout_s=timeout_s,
-    )
-
-
-def motion_isaac_stop() -> dict[str, Any]:
-    """Stop the managed Isaac bridge subprocess."""
-    from server import isaac_adapter
-
-    return isaac_adapter.stop_bridge()
+    if not result.get("ok", False):
+        return _engine_error_result(engine, result)
+    return result

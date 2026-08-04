@@ -1,0 +1,23 @@
+# Gazebo engine descriptor.  See docs/engine-contract.md §9.
+
+name = "gazebo"
+port = 9879
+when_to_use = "Drones (PX4 SITL), wheeled vehicles, and any CPU-only environment. 5-DOF teleop."
+# The engine lives in its own repository now; core launches it there.
+cwd = "~/repos/solidmind-engine-gazebo"
+install_hint = "git clone https://github.com/John-Cusack/solidmind-engine-gazebo ~/repos/solidmind-engine-gazebo. Stub mode needs nothing further; real physics needs Gazebo Harmonic."
+
+# Default runtime is Gazebo's in-memory stub: useful for wiring checks without
+# a Gazebo install.  Core's own CI engine is reference_engine/, not this.
+launch = [
+    "${PYTHON}",
+    "-m",
+    "gazebo_bridge.bridge_server",
+    "--port",
+    "${PORT}",
+    "--runtime",
+    "stub",
+]
+
+[variants.real]
+launch = ["bash", "scripts/run_gazebo_bridge.sh", "--port", "${PORT}", "--runtime", "real"]

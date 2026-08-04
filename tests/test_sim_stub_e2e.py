@@ -9,7 +9,7 @@ import json
 import socket
 import unittest
 
-from tests.conftest import GazeboStubBridge, mechanism_factory, unused_tcp_port
+from tests.conftest import ReferenceEngineFixture, mechanism_factory, unused_tcp_port
 
 
 def _send_command(host: str, port: int, cmd: str, args: dict | None = None) -> dict:
@@ -36,7 +36,7 @@ class TestPingThroughRealBridge(unittest.TestCase):
 
     def test_ping(self):
         port = unused_tcp_port()
-        with GazeboStubBridge(port) as bridge:
+        with ReferenceEngineFixture(port) as bridge:
             resp = _send_command(bridge.host, bridge.port, "ping")
         self.assertTrue(resp["ok"])
         self.assertTrue(resp["result"]["pong"])
@@ -48,7 +48,7 @@ class TestSimulateReturnTimeSeries(unittest.TestCase):
     def test_simulate_returns_time_series(self):
         port = unused_tcp_port()
         mech = mechanism_factory("gear_pair")
-        with GazeboStubBridge(port) as bridge:
+        with ReferenceEngineFixture(port) as bridge:
             resp = _send_command(
                 bridge.host,
                 bridge.port,
@@ -84,13 +84,14 @@ class TestTeleopFullLifecycle(unittest.TestCase):
 
     def test_teleop_lifecycle(self):
         port = unused_tcp_port()
-        with GazeboStubBridge(port) as bridge:
+        with ReferenceEngineFixture(port) as bridge:
             # Start
             start_resp = _send_command(
                 bridge.host,
                 bridge.port,
                 "teleop_start",
                 {
+                    "mechanism": mechanism_factory("gear_pair"),
                     "profile": {"controller_type": "multirotor_direct"},
                 },
             )
@@ -141,48 +142,16 @@ class TestTeleopFullLifecycle(unittest.TestCase):
             self.assertEqual(stop_resp["result"]["tick_count"], 3)
 
 
-class TestSpawnModel(unittest.TestCase):
-    """spawn_model with dummy path through stub."""
-
-    def test_spawn_model_with_existing_path(self):
-        import os
-        import tempfile
-
-        port = unused_tcp_port()
-        # Create a temp SDF file
-        with tempfile.NamedTemporaryFile(suffix=".sdf", delete=False) as f:
-            f.write(b"<sdf></sdf>")
-            sdf_path = f.name
-
-        try:
-            with GazeboStubBridge(port) as bridge:
-                resp = _send_command(
-                    bridge.host,
-                    bridge.port,
-                    "spawn_model",
-                    {
-                        "sdf_path": sdf_path,
-                        "model_name": "test_model",
-                    },
-                )
-            self.assertTrue(resp["ok"], resp)
-            self.assertTrue(resp["result"]["spawned"])
-            self.assertIsInstance(resp["result"]["entity_id"], int)
-            self.assertEqual(resp["result"]["model_name"], "test_model")
-        finally:
-            os.unlink(sdf_path)
-
-
-class TestDiagnoseReturnsStubMode(unittest.TestCase):
-    """diagnose -> response includes runtime_mode: 'stub'."""
+class TestDiagnoseIsNormalized(unittest.TestCase):
+    """diagnose answers in the contract's normalized shape (§3.3)."""
 
     def test_diagnose(self):
         port = unused_tcp_port()
-        with GazeboStubBridge(port) as bridge:
+        with ReferenceEngineFixture(port) as bridge:
             resp = _send_command(bridge.host, bridge.port, "diagnose", {})
         self.assertTrue(resp["ok"], resp)
-        self.assertEqual(resp["result"]["runtime_mode"], "stub")
-        self.assertTrue(resp["result"]["connected"])
+        self.assertIn("joint_counts", resp["result"])
+        self.assertIn("joint_total", resp["result"])
 
 
 class TestConcurrentSessions(unittest.TestCase):
@@ -190,13 +159,14 @@ class TestConcurrentSessions(unittest.TestCase):
 
     def test_concurrent_sessions(self):
         port = unused_tcp_port()
-        with GazeboStubBridge(port) as bridge:
+        with ReferenceEngineFixture(port) as bridge:
             # Start two sessions
             s1 = _send_command(
                 bridge.host,
                 bridge.port,
                 "teleop_start",
                 {
+                    "mechanism": mechanism_factory("gear_pair"),
                     "profile": {"controller_type": "multirotor_direct"},
                 },
             )
@@ -205,6 +175,7 @@ class TestConcurrentSessions(unittest.TestCase):
                 bridge.port,
                 "teleop_start",
                 {
+                    "mechanism": mechanism_factory("gear_pair"),
                     "profile": {"controller_type": "multirotor_direct"},
                 },
             )

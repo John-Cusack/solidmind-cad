@@ -12,11 +12,11 @@ The concrete spec is responsible for:
 2. Computing the chassis link's inertia by aggregating itself plus
    every :class:`~server.airframes.StructuralBody` via the
    parallel-axis theorem (``server.inertia.aggregate``).
-3. Producing PX4 ``AirframeParams`` with a quadratic-correct hover
+3. Producing abstract rotor specs with a quadratic-correct hover
    throttle.
 
 Any test that constructs a :class:`MulticopterAirframe` literal can
-assert the exact ``SimModel`` and ``AirframeParams`` it produces — no
+assert the exact ``SimModel`` and rotor specs it produces — no
 intermediate FreeCAD documents required.
 """
 
@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from server.airframes import (
     Cylinder,
@@ -42,7 +42,6 @@ from server.inertia import (
 )
 
 if TYPE_CHECKING:
-    from server.px4_airframe_generator import AirframeParams
     from server.sim_export import SimModel
 
 _GRAVITY_MS2 = 9.81
@@ -216,7 +215,7 @@ class MulticopterAirframe:
             ω_hover = sqrt(m · g / (n · K))
             throttle_hover = (ω_hover − ω_min) / (ω_max − ω_min)
 
-        The legacy formula in ``px4_airframe_generator.compute_hover_throttle``
+        The legacy linear formula
         used ``m·g / (n·K·ω_max²)`` — that's the *square* of the
         correct value when ω_min = 0, and worse when ω_min is non-zero.
         For a 1.7 kg drone with stock motor constants it gave 0.488
@@ -306,8 +305,8 @@ class MulticopterAirframe:
         # ``Rotor.position_m`` is in Gazebo's FLU model frame (X forward,
         # Y left, Z up) — the intuitive right-handed convention.  SDF
         # uses this frame directly, so we emit positions as-is.  The
-        # CA_ROTOR params (PX4 FRD body frame) are negated in Y/Z by
-        # ``to_px4_airframe_params``.
+        # CA_ROTOR params (PX4 FRD body frame) negate Y/Z, but that happens
+        # engine-side in ``gazebo_bridge.px4_airframe``.
         rotor_links = []
         rotor_joints = []
         for rotor in self.rotors:
@@ -338,7 +337,16 @@ class MulticopterAirframe:
                     parent=chassis_link.name,
                     child=rotor.name,
                     axis=(0.0, 0.0, 1.0),
-                    origin_xyz=rotor.position_m,
+                    # Joint origins are child-relative-to-parent (URDF/manifest
+                    # convention).  The chassis link sits at the aggregated COM,
+                    # not the model origin, so that offset has to come out of
+                    # the rotor's body-frame position — otherwise forward
+                    # kinematics places every rotor one COM offset too far.
+                    origin_xyz=(
+                        rotor.position_m[0] - chassis_com[0],
+                        rotor.position_m[1] - chassis_com[1],
+                        rotor.position_m[2] - chassis_com[2],
+                    ),
                 )
             )
 
@@ -349,61 +357,41 @@ class MulticopterAirframe:
         )
 
     # ------------------------------------------------------------------
-    # PX4 airframe params
+    # Manifest inputs
     # ------------------------------------------------------------------
 
-    def to_px4_airframe_params(self) -> AirframeParams:
-        """Build the params bundle for ``format_airframe_init_script``."""
-        from server.px4_airframe_generator import (
-            AirframeParams,
-            RotorParams,
-            compute_sys_autostart,
-            seed_pid_gains,
-        )
+    def to_drone_config(self) -> dict[str, Any]:
+        """Rotor + sensor specs in the shape ``cad.export_sim_package`` takes.
 
-        # Use sanitized name with the "gz_" prefix that PX4's CMakeLists
-        # glob requires (init.d-posix/airframes/*_gz_*).  Without the
-        # prefix the gz_<model> make target won't exist.
-        ctor_name = self.name if self.name.startswith("gz_") else f"gz_{self.name}"
+        This is the airframe's contribution to the canonical manifest: abstract
+        rotor physics (position, spin sense, thrust coefficient, rate limits)
+        and which sensors exist.  The engine turns those into its own motor
+        model and autopilot parameters at load time — core never emits either
+        (architecture doc, Principle 3).
 
-        # Convert rotor positions from Gazebo FLU (the SDF frame, where Y
-        # is left and Z is up) to PX4's FRD body frame (Y right, Z down)
-        # by negating Y and Z. The physical SDF position and the
-        # CA_ROTOR moment-arm both refer to the same rotor; only the
-        # axis convention differs.  The legacy drone_config path
-        # (server.px4_airframe_generator.extract_rotors) applies the
-        # same conversion — keep them in sync if you change one.
-        rotors = tuple(
-            RotorParams(
-                px_m=r.position_m[0],
-                py_m=-r.position_m[1],
-                pz_m=-r.position_m[2],
-                direction=r.direction_sign,
-                moment_constant=r.moment_constant,
-                motor_constant=r.motor_constant,
-                max_rot_velocity=r.max_rot_velocity_rad_s,
-            )
-            for r in self.rotors
-        )
-
-        mass_kg = self.total_mass_kg()
-        arm_m = self.arm_length_m()
-        hover = self.hover_throttle()
-        pid = seed_pid_gains(mass_kg=mass_kg, arm_length_m=arm_m, rotor_count=len(rotors))
-
-        return AirframeParams(
-            name=ctor_name,
-            sys_autostart=compute_sys_autostart(ctor_name),
-            rotors=rotors,
-            mass_kg=mass_kg,
-            arm_length_m=arm_m,
-            hover_throttle=hover,
-            motor_min=int(self.rotor_min_velocity_rad_s),
-            motor_max=int(self.rotors[0].max_rot_velocity_rad_s),
-            mc_rollrate_p=pid["mc_rollrate_p"],
-            mc_pitchrate_p=pid["mc_pitchrate_p"],
-            mc_yawrate_p=pid["mc_yawrate_p"],
-        )
+        Positions are body-frame metres in the Gazebo FLU convention, matching
+        both the rotor links in ``to_sim_model`` and the manifest's frames.
+        """
+        return {
+            "rotors": [
+                {
+                    "index": idx,
+                    "name": rotor.name,
+                    "joint": f"{rotor.name}_joint",
+                    "link": rotor.name,
+                    "position_m": list(rotor.position_m),
+                    "direction": rotor.direction,
+                    "motor_constant": rotor.motor_constant,
+                    "moment_constant": rotor.moment_constant,
+                    "max_rot_velocity": rotor.max_rot_velocity_rad_s,
+                    "min_rot_velocity": self.rotor_min_velocity_rad_s,
+                }
+                for idx, rotor in enumerate(self.rotors)
+            ],
+            # SensorPack is a bundle, not per-sensor flags: PX4_DEFAULT means
+            # the full IMU/GPS/baro/mag set, NONE means no sensors at all.
+            "sensors": self.sensors is not SensorPack.NONE,
+        }
 
     # ------------------------------------------------------------------
     # CA_AIRFRAME selector

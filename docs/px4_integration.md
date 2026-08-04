@@ -178,10 +178,13 @@ PX4 SITL listens on several UDP endpoints by default:
 
 The smoke test and bridge connect to **14540**.
 
-## Drone SDF generation (Phase 3 — landed)
+## Drone SDF generation (Phase 3 — landed; moved engine-side)
 
-`server.sim_export.write_sdf` accepts a `drone_config` dict that switches
-the SDF into flight-ready mode:
+SDF is no longer written by core. `cad.export_sim_package` records the
+rotors and sensors below as abstract `actuators`/`sensors` in
+`manifest.json`, and `gazebo_bridge/package_to_sdf.py` compiles them into
+flight-ready SDF when the bridge loads the package. The `drone_config`
+dict is unchanged as *input*:
 
 ```python
 drone_config = {
@@ -221,7 +224,7 @@ The bridge currently has scaffolding (`gazebo_bridge/px4_integration.py`,
 `gazebo_bridge/controllers.py:Px4OffboardController`) but no real
 MAVLink wiring. Phase 2 adds:
 
-- `server/mavlink_controller.py` — async `MavlinkController` class
+- `gazebo_bridge/mavlink_controller.py` — `MavlinkController` class
 - `Px4OffboardController` rewritten to dispatch via the controller
 - `Px4Manager` lifecycle tracks heartbeat instead of just `is_alive()`
 - Real-runtime test suite at `tests/test_gazebo_px4_real_runtime.py`
@@ -231,14 +234,13 @@ Until Phase 2 lands, drive PX4 directly from `pymavlink` scripts
 make `motion.teleop_command` send these commands through the normal
 SolidMind tool surface.
 
-## Parameterized airframe generator (Phase 4 — planned)
+## Parameterized airframe generator (Phase 4 — landed; moved engine-side)
 
 Phase 4 closes the FreeCAD → flying drone loop. The generator at
-`server/px4_airframe_generator.py` will:
+`gazebo_bridge/px4_airframe.py` will:
 
-1. Read `SimModel` (mass, inertia, joint origins) from
-   `cad.export_sim_package`
-2. Read `drone_config["rotors"]` (per-rotor X/Y/Z + direction)
+1. Read `manifest.json` link masses from `cad.export_sim_package`
+2. Read the manifest's rotor actuators (per-rotor X/Y/Z + direction)
 3. Read optional BEMT thrust curve from `study.results`
 4. Compute the motor allocation matrix from the rotor geometry
 5. Seed PID gains from mass + arm length + thrust-to-weight

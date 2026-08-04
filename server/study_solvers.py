@@ -2300,9 +2300,9 @@ class ChronoSolver(SolverAdapter):
 
     def available(self) -> bool:
         try:
-            from server.chrono_client import ChronoClient
+            from server.engine_client import EngineClient
 
-            client = ChronoClient()
+            client = EngineClient("chrono", connect_timeout=1.0)
             client.connect(timeout=1.0)
             ok = client.ping()
             client.disconnect()
@@ -2340,7 +2340,7 @@ class ChronoSolver(SolverAdapter):
         fixed: dict[str, Any],
         config_params: dict[str, Any],
     ) -> dict[str, float]:
-        from server.chrono_client import ChronoClient, ChronoConnectionError
+        from server.engine_client import EngineClient, EngineConnectionError
 
         template = fixed.get("mechanism_template", {})
         if not template:
@@ -2359,18 +2359,22 @@ class ChronoSolver(SolverAdapter):
 
         duration_s = fixed.get("duration_s", config_params.get("duration_s", 1.0))
 
-        client = ChronoClient()
+        client = EngineClient("chrono")
         try:
             client.connect(timeout=5.0)
-            result = client.simulate(
+            result = client.send_command(
+                "simulate",
+                timeout=max(120.0, duration_s * 100),
                 mechanism=mechanism,
                 duration_s=duration_s,
                 dt_s=config_params.get("dt_s", 0.001),
             )
-        except ChronoConnectionError as exc:
-            raise RuntimeError(f"Chrono daemon not available: {exc}") from exc
+        except EngineConnectionError as exc:
+            raise RuntimeError(f"Chrono engine not available: {exc}") from exc
         finally:
             client.disconnect()
+        if not isinstance(result, dict):
+            raise RuntimeError("Chrono engine returned a non-object simulate result")
 
         # Extract metrics from summary
         summary = result.get("summary", {})
