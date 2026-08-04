@@ -53,11 +53,13 @@ Total: 4.2s | 37 bodies | 18 DOF
 Then the orchestrator-side glue (in `build_and_train.sh`) calls:
 
 ```python
-mech_dict = demo.build_mechanism_dict()        # 37-part, 36-joint mechanism
-motion_define_mechanism(mech_dict)              # → mech_id
-cad_export_sim_package(mechanism_id=mech_id,    # → /tmp/v3_orch_pkg/Hexapod_18DOF.urdf
-                       output_dir="/tmp/v3_orch_pkg",
-                       format="stl")
+mech_dict = demo.build_mechanism_dict()  # 37-part, 36-joint mechanism
+motion_define_mechanism(mech_dict)  # → mech_id
+cad_export_sim_package(
+    mechanism_id=mech_id,  # → /tmp/v3_orch_pkg/Hexapod_18DOF.urdf
+    output_dir="/tmp/v3_orch_pkg",
+    format="stl",
+)
 ```
 
 The URDF has 18 revolute joints (`hip_yaw_L1`, `hip_pitch_L1`, `knee_L1`, ..., `knee_R3`) plus 18 fixed servo joints (Isaac merges those during import). After patching auto-generated joint limits (the export pipeline produced an asymmetric knee `[-2.094, 0]` rad; widened to `[-2.094, +2.094]` to match the v3 reference), the URDF imports cleanly into Isaac.

@@ -28,21 +28,21 @@ from gazebo_bridge.px4_airframe import generate_from_package
 from server.airframes.presets import cinema_drone
 from server.sim_package_manifest import build_manifest, write_manifest
 
-af = cinema_drone()              # 5.7 kg X-quad with payload + battery
+af = cinema_drone()  # 5.7 kg X-quad with payload + battery
 pkg_dir = "/tmp/cinema_drone"
 
 # Core side: one neutral package (manifest + meshes).
 manifest = build_manifest(
     name=af.name,
     output_dir=pkg_dir,
-    sim_model=af.to_sim_model(),   # chassis + 4 rotor links
+    sim_model=af.to_sim_model(),  # chassis + 4 rotor links
     drone_config=af.to_drone_config(),
 )
 write_manifest(manifest, pkg_dir)
 
 # Engine side: Gazebo's dialect, compiled from the package.
 compile_package_to_sdf(pkg_dir)
-generate_from_package(pkg_dir)     # writes the PX4 airframe init script
+generate_from_package(pkg_dir)  # writes the PX4 airframe init script
 ```
 
 In a normal session you never call the bridge functions directly —
