@@ -75,7 +75,9 @@ fea-gpu = [
 schemas = ["pydantic>=2.6,<3"]
 orchestrator = ["httpx>=0.27,<1"]
 drone = ["pymavlink>=2.4.40,<3"]
-dev = ["maturin>=1.7,<2", "ruff>=0.6,<1"]
+# ruff is pinned exactly, and CI installs the same version — see
+# .github/workflows/ci.yml. A range lets a release redden main overnight.
+dev = ["maturin>=1.7,<2", "ruff==0.16.1"]
 
 [project.scripts]
 solidmind-cad = "server.main:main"
