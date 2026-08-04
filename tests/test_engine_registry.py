@@ -296,18 +296,28 @@ class TestRateTripwire(unittest.TestCase):
                 tripwire.record("stub", "simulate")
 
     def test_sustained_rate_warns_once(self) -> None:
-        with self.assertLogs("solidmind.engine_client", level="WARNING") as logs:
-            for _ in range(300):
-                tripwire.record("stub", "teleop_command")
+        """A burst inside one window warns exactly once, not per message.
+
+        The clock is frozen rather than raced. The tripwire drops events older
+        than its one-second window, so 300 real calls only exceed 100 msg/s if
+        the loop finishes inside a second — true on a developer machine, not on
+        a loaded CI runner, where this failed with no warning at all. Freezing
+        makes the burst the thing under test instead of the host's speed.
+        """
+        with patch("time.monotonic", return_value=1000.0):
+            with self.assertLogs("solidmind.engine_client", level="WARNING") as logs:
+                for _ in range(300):
+                    tripwire.record("stub", "teleop_command")
         self.assertEqual(len(logs.records), 1, "should warn once, not per message")
         self.assertIn("teleop_command", logs.output[0])
         self.assertIn("msg/s", logs.output[0])
 
     def test_rate_is_per_command(self) -> None:
-        for _ in range(300):
-            tripwire.record("stub", "teleop_command")
-        self.assertGreater(tripwire.rate("stub", "teleop_command"), 100.0)
-        self.assertEqual(tripwire.rate("stub", "simulate"), 0.0)
+        with patch("time.monotonic", return_value=1000.0):
+            for _ in range(300):
+                tripwire.record("stub", "teleop_command")
+            self.assertGreater(tripwire.rate("stub", "teleop_command"), 100.0)
+            self.assertEqual(tripwire.rate("stub", "simulate"), 0.0)
 
     def test_old_events_leave_the_window(self) -> None:
         tripwire.record("stub", "ping")
