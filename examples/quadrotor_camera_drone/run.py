@@ -52,6 +52,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+try:  # imported as a package (tests/test_freecad_to_gazebo.py)
+    from examples.quadrotor_camera_drone import sim_processes
+except ImportError:  # run as a script — sibling module on sys.path[0]
+    import sim_processes  # type: ignore[no-redef]
+
 logger = logging.getLogger("solidmind.examples.camera_drone")
 
 
@@ -564,6 +569,11 @@ def _terminate_process_group(proc: subprocess.Popen[bytes]) -> None:
 
     Terminating the make process alone orphans PX4, which keeps running and
     holds UDP 14540 — so the next run's readiness wait hears a stale vehicle.
+
+    This does *not* reach Gazebo: PX4 starts the server from a transient
+    shell that exits, so it is reparented to init in a different process
+    group and no signal sent here can find it.  ``sim_processes.stop_all``
+    is what cleans that up.
     """
     if proc.poll() is not None:
         return
@@ -590,6 +600,13 @@ def launch_px4_sim(
     Waits up to 30 s for the MAVLink endpoint to come up before returning.
     """
     _banner("Stage 4: Launch PX4 SITL + Gazebo")
+
+    # PX4 attaches to any world already publishing a clock rather than
+    # starting its own, so a server left over from an earlier run would be
+    # inherited silently — with that run's model still in it, and possibly
+    # without the sensor plugins PX4 injects via gz_env.sh.
+    sim_processes.ensure_clean_world()
+
     env = os.environ.copy()
     target = _make_target_name(airframe_name)
     env["PX4_SIM_MODEL"] = target
@@ -836,9 +853,15 @@ def main() -> int:
         print(f"\n{exc}", file=sys.stderr)
         return 2
     finally:
-        if px4_proc is not None and px4_proc.poll() is None:
-            print("Terminating PX4 SITL…")
-            _terminate_process_group(px4_proc)
+        if px4_proc is not None:
+            if px4_proc.poll() is None:
+                print("Terminating PX4 SITL…")
+                _terminate_process_group(px4_proc)
+            # Gazebo is not in PX4's process group and survives it, so it
+            # has to be stopped by name — otherwise it free-runs for hours
+            # and the next run inherits its world.
+            print("Stopping Gazebo…")
+            sim_processes.stop_simulation()
 
     _banner("✓ Flight pipeline complete")
     return 0
