@@ -73,6 +73,22 @@ def _get_host() -> str:
     return resolve_host("")
 
 
+def _engine_log_path(backend: str) -> Path:
+    """Where an engine's output goes. Created on demand, one file per backend."""
+    log_dir = Path(__file__).resolve().parent.parent / ".solidmind" / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    return log_dir / f"engine-{backend}.log"
+
+
+def _read_log_tail(path: Path, *, limit: int = 500) -> str:
+    """The last of an engine's output, for a message a human can act on."""
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace").strip()
+    except OSError:
+        return f"(no output; see {path})"
+    return text[-limit:] if text else f"(no output; see {path})"
+
+
 def _get_port(backend: str) -> int:
     return resolve_port(backend)
 
@@ -342,11 +358,29 @@ def _launch_subprocess(
     host = _get_host()
     logger.info("Launching %s: %s", backend, " ".join(cmd))
 
+    # Engine output goes to a file, never to a pipe nobody drains.
+    #
+    # This used to be stdout=PIPE, stderr=PIPE, read only if the process died
+    # during startup. Two ways that bites: an engine chatty enough to fill the
+    # 64 KB pipe buffer blocks forever on its next write, and — the one that
+    # actually happened — when the launching process exits, the read ends close
+    # and anything still writing gets SIGPIPE. Python ignores SIGPIPE, so a
+    # bridge survives; the C++ daemon underneath it does not. Chrono came up,
+    # reported ready, and was dead by the next command.
+    log_path = _engine_log_path(backend)
+    try:
+        log_handle = open(log_path, "wb")  # noqa: SIM115 — closed when the engine stops
+    except OSError as exc:
+        return _error(
+            f"{backend.upper()}_LAUNCH_FAILED",
+            f"Cannot open the engine log at {log_path}: {exc}",
+        )
+
     try:
         proc = subprocess.Popen(
             cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stdout=log_handle,
+            stderr=subprocess.STDOUT,
             cwd=cwd,
         )
     except FileNotFoundError as exc:
@@ -369,15 +403,10 @@ def _launch_subprocess(
     deadline = time.monotonic() + timeout_s
     while time.monotonic() < deadline:
         if proc.poll() is not None:
-            stderr = ""
-            try:
-                _, err = proc.communicate(timeout=1)
-                stderr = err.decode(errors="replace")[:500]
-            except Exception:
-                pass
+            log_handle.close()
             return _error(
                 f"{backend.upper()}_CRASHED",
-                f"{backend} exited with rc={proc.returncode}: {stderr}",
+                f"{backend} exited with rc={proc.returncode}: {_read_log_tail(log_path)}",
             )
 
         if _tcp_ping(host, port, timeout=1.0):
@@ -395,9 +424,11 @@ def _launch_subprocess(
 
     # Timeout — kill and report
     proc.terminate()
+    log_handle.close()
     return _error(
         f"{backend.upper()}_TIMEOUT",
-        f"{backend} did not become ready within {timeout_s}s",
+        f"{backend} did not become ready within {timeout_s}s. "
+        f"Its log is at {log_path}: {_read_log_tail(log_path)}",
     )
 
 
