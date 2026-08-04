@@ -7,7 +7,38 @@ and this project aims to follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-## [0.3.0] — 2026-08-03
+## [0.3.1] — 2026-08-04
+
+A bug fix for anyone running an engine with a native process underneath it,
+and two pieces of CI hygiene. No API changes.
+
+### Fixed
+- **Engines with a child process died shortly after starting.**
+  `sim.start_engine` spawned every engine with `stdout=PIPE, stderr=PIPE` and
+  read those pipes only if the process died during startup — on the success
+  path nobody drained them. Two consequences: an engine chatty enough to fill
+  the 64 KB pipe buffer blocks forever on its next write, and when the
+  launching process exits the read ends close, so anything still writing gets
+  `SIGPIPE`. Python ignores `SIGPIPE`, so a bridge survives; a native daemon
+  under it does not. Chrono reported `ready` and was a zombie by the next
+  command, with `simulate` answering *"Cannot reach the Chrono daemon"*.
+  Output now goes to `.solidmind/logs/engine-<backend>.log`, and the crash and
+  timeout errors read its tail — so they name the log file rather than losing
+  detail. Gazebo and Isaac were unaffected: their bridges are pure Python.
+- **A rate-tripwire test was timing-dependent.** It fired 300 messages and
+  expected the >100 msg/s warning, which only holds if the loop finishes
+  inside the tripwire's one-second window — true locally, not on a loaded
+  runner, where the burst lands at 101 msg/s, one event either side of the
+  threshold it is testing. The clock is frozen now.
+
+### Changed
+- **ruff is pinned to an exact version** in both the workflow and the `dev`
+  extra, rather than `>=0.6,<1`. A release moved CI to 0.16 mid-stream, which
+  turned on formatting of Python inside Markdown fences and reddened two docs
+  files nobody had touched, while a local run disagreed. The two pins must
+  move together.
+
+## [0.3.0] — 2026-08-04
 
 The simulation engines move out of core and into four sibling repositories,
 joined to it only by a published contract. If you drove Isaac, Gazebo, Chrono
