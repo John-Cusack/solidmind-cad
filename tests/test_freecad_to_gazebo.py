@@ -178,9 +178,26 @@ def _freecad_addon_reachable(host: str = "127.0.0.1", port: int = 9876) -> bool:
         return False
 
 
+def _gazebo_engine_installed() -> bool:
+    """Is solidmind-engine-gazebo importable?
+
+    It compiles the SDF and the PX4 airframe these tests assert on. Since the
+    split it is a separate distribution, so it is optional here — and this
+    guard was missing: the class only skips on FreeCAD, so with FreeCAD
+    running the test failed on ModuleNotFoundError instead of skipping.
+    """
+    import importlib.util
+
+    return importlib.util.find_spec("gazebo_bridge") is not None
+
+
 @unittest.skipUnless(
     _freecad_addon_reachable(),
     "FreeCAD addon not running on 127.0.0.1:9876 — start FreeCAD with the bridge addon",
+)
+@unittest.skipUnless(
+    _gazebo_engine_installed(),
+    "solidmind-engine-gazebo not installed — pip install it to run this",
 )
 class TestFreecadToAirframeIntegration(unittest.TestCase):
     """Build geometry in FreeCAD, export, verify the airframe init.

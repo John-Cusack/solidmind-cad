@@ -44,6 +44,7 @@ import argparse
 import logging
 import math
 import os
+import signal
 import subprocess
 import sys
 import time
@@ -525,8 +526,14 @@ def rebuild_px4_with_airframe(
         patch_airframes_cmakelists(px4_install, airframe_filename)
         print(f"  Registered {airframe_filename} in airframes/CMakeLists.txt")
 
-    sanitized = _make_target_name(airframe_name)
-    cmd = ["make", "px4_sitl_default", sanitized]
+    # Build only. `make px4_sitl_default <model>` is a *run* target: it
+    # builds and then launches PX4, and never returns — so this stage blocked
+    # forever and stages 4 and 5 were unreachable. Stage 4 issues that exact
+    # command, deliberately, under Popen.
+    #
+    # Plain `px4_sitl_default` compiles and regenerates ROMFS, which is what
+    # registers the new airframe; that is all this stage needs.
+    cmd = ["make", "px4_sitl_default"]
     print(f"  Running: {' '.join(cmd)} (cwd={px4_install})")
     print("  This is incremental — should be ~30s after the initial build.")
 
@@ -552,6 +559,27 @@ def rebuild_px4_with_airframe(
 # ---------------------------------------------------------------------------
 
 
+def _terminate_process_group(proc: subprocess.Popen[bytes]) -> None:
+    """Stop PX4 and everything `make` started under it.
+
+    Terminating the make process alone orphans PX4, which keeps running and
+    holds UDP 14540 — so the next run's readiness wait hears a stale vehicle.
+    """
+    if proc.poll() is not None:
+        return
+    try:
+        os.killpg(proc.pid, signal.SIGTERM)
+    except (ProcessLookupError, PermissionError):
+        proc.terminate()
+    try:
+        proc.wait(timeout=10.0)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            proc.kill()
+
+
 def launch_px4_sim(
     px4_install: Path,
     airframe_name: str,
@@ -575,28 +603,39 @@ def launch_px4_sim(
         env=env,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
+        # `make` spawns PX4 as a grandchild; without its own session,
+        # terminating make leaves PX4 running and holding the ports.
+        start_new_session=True,
     )
 
-    # Wait for UDP 14540 to become reachable.
+    # Wait for PX4's offboard heartbeat.
+    #
+    # PX4's onboard link is "udp port 14580 remote port 14540": it *sends* to
+    # 14540, and nothing listens there until a GCS or offboard app binds it.
+    # This used to send an empty datagram to 14540 and block on recvfrom,
+    # waiting for a reply to an ephemeral port that PX4 never addresses — so
+    # readiness could only ever time out. Bind the port PX4 streams to and
+    # wait to hear from it.
     import socket
 
-    deadline = time.monotonic() + 30.0
-    while time.monotonic() < deadline:
-        if proc.poll() is not None:
-            raise RuntimeError(f"PX4 exited during boot (rc={proc.returncode})")
-        try:
-            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
-                sock.settimeout(0.5)
-                sock.bind(("127.0.0.1", 0))
-                sock.sendto(b"", ("127.0.0.1", 14540))
+    timeout_s = 120.0  # Gazebo has to come up too; 30 s was optimistic.
+    deadline = time.monotonic() + timeout_s
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        sock.bind(("127.0.0.1", 14540))
+        sock.settimeout(1.0)
+        while time.monotonic() < deadline:
+            if proc.poll() is not None:
+                raise RuntimeError(f"PX4 exited during boot (rc={proc.returncode})")
+            try:
                 sock.recvfrom(2048)
-                print("PX4 MAVLink endpoint reachable on UDP 14540.")
-                return proc
-        except OSError:
-            time.sleep(1.0)
+            except (TimeoutError, OSError):
+                continue
+            print("PX4 MAVLink heartbeat received on UDP 14540.")
+            return proc
 
-    proc.terminate()
-    raise RuntimeError("PX4 failed to come up within 30 s")
+    _terminate_process_group(proc)
+    raise RuntimeError(f"PX4 failed to come up within {timeout_s:.0f} s")
 
 
 # ---------------------------------------------------------------------------
@@ -623,8 +662,23 @@ def fly_takeoff_hover_land(takeoff_alt_m: float, hover_secs: float) -> None:
         ctrl.start_setpoint_stream()
         time.sleep(1.0)
 
-        print("Arming…")
-        ctrl.arm(timeout_s=5.0)
+        # PX4 answers MAV_RESULT_TEMPORARILY_REJECTED (1) until its preflight
+        # checks pass — the EKF has to converge and SITL's GPS needs a fix,
+        # which takes tens of seconds after boot. A single attempt right after
+        # the first heartbeat is simply too early, so keep asking.
+        print("Arming (waiting for preflight checks to pass)…")
+        arm_deadline = time.monotonic() + 90.0
+        while True:
+            try:
+                ctrl.arm(timeout_s=5.0)
+                break
+            except MavlinkError as exc:
+                if time.monotonic() >= arm_deadline:
+                    raise MavlinkError(
+                        f"PX4 would not arm within 90 s — preflight checks never "
+                        f"passed. Last answer: {exc}"
+                    ) from exc
+                time.sleep(2.0)
 
         print(f"Taking off to {takeoff_alt_m:.1f} m…")
         ctrl.takeoff(takeoff_alt_m, timeout_s=5.0)
@@ -784,11 +838,7 @@ def main() -> int:
     finally:
         if px4_proc is not None and px4_proc.poll() is None:
             print("Terminating PX4 SITL…")
-            px4_proc.terminate()
-            try:
-                px4_proc.wait(timeout=10.0)
-            except subprocess.TimeoutExpired:
-                px4_proc.kill()
+            _terminate_process_group(px4_proc)
 
     _banner("✓ Flight pipeline complete")
     return 0
