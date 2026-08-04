@@ -7,9 +7,19 @@ and this project aims to follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.3.0] — 2026-08-03
+
+The simulation engines move out of core and into four sibling repositories,
+joined to it only by a published contract. If you drove Isaac, Gazebo, Chrono
+or the RL pipeline by importing their packages from this one, that no longer
+works — install the engine you want (`sim.engine_status` names each one's
+install hint) and talk to it through `sim.*` and `motion.*` as before, or use
+the bundled `reference_engine`, which needs nothing. Everything else in this
+release is what that move required, and what verifying it turned up.
+
 ### Added
 - **The engines were verified against real installations, and that is what
-  found the bugs above.** The TCK now has runs on record for Gazebo Harmonic
+  found everything under Fixed.** The TCK now has runs on record for Gazebo Harmonic
   driving a live headless world and for Isaac Sim 5.1 on a GPU
   (`runtime_mode: "real"`, sessions and teleop included), alongside the
   reference engine and Chrono's built daemon. Both engine repos gained
@@ -329,6 +339,10 @@ and this project aims to follow [Semantic Versioning](https://semver.org/).
 - Bundled knowledge content under `me_knowledge/notes` and `me_knowledge/sim_changes` from source control; repository now tracks placeholders only.
 
 ### Fixed
+- **The MCP handshake reports the real version.** `serverInfo.version` carried
+  its own hardcoded copy of the version string, so it still said `0.2.0`. It is
+  now read from installed metadata, falling back to `pyproject.toml` because
+  the server is usually run straight from a checkout.
 - **`motion.simulate` no longer hands an engine a model format it never
   advertised.** With no `package_path`/`urdf_path`/`sdf_path`, the in-band
   mechanism *is* the model, so the engine has to advertise

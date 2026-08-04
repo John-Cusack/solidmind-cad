@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "solidmind-cad"
-version = "0.2.0"
+version = "0.3.0"
 description = "FreeCAD-integrated CAD co-pilot driven by MCP — PartDesign workbench + manufacturing readiness"
 readme = "README.md"
 requires-python = ">=3.12"

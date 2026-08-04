@@ -28,6 +28,33 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 _LOG_DIR = _PROJECT_ROOT / ".solidmind" / "logs"
 
 
+def _package_version() -> str:
+    """This package's version — one source of truth, read not hardcoded.
+
+    The MCP handshake used to carry its own copy of the version string, which
+    is one more place to forget on a release. Installed metadata is the
+    authority, but this server is usually run straight from a checkout
+    (``python3 -m server.main``) where there is none, so fall back to the
+    pyproject that metadata would have been built from.
+    """
+    try:
+        import importlib.metadata
+
+        return importlib.metadata.version("solidmind-cad")
+    except Exception:  # noqa: BLE001 — not installed; read the source of truth
+        pass
+    try:
+        import tomllib
+
+        with open(_PROJECT_ROOT / "pyproject.toml", "rb") as fh:
+            return str(tomllib.load(fh)["project"]["version"])
+    except Exception:  # noqa: BLE001 — version reporting is never fatal
+        return "0+unknown"
+
+
+_VERSION = _package_version()
+
+
 # ---------------------------------------------------------------------------
 # Extension pack discovery
 # ---------------------------------------------------------------------------
@@ -5462,7 +5489,7 @@ def serve() -> int:
             if method == "initialize":
                 result = {
                     "protocolVersion": "2024-11-05",
-                    "serverInfo": {"name": "solidmind-cad", "version": "0.2.0"},
+                    "serverInfo": {"name": "solidmind-cad", "version": _VERSION},
                     "capabilities": {"tools": {}, "resources": {}, "prompts": {}},
                 }
                 _send(_rpc_result(rpc_id, result))
