@@ -7,62 +7,6 @@ and this project aims to follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-### Removed
-- **The simulation engines no longer ship with core.** `isaac_bridge/`,
-  `gazebo_bridge/`, `chrono_bridge/`, `chrono_daemon/` and `rl_training/` are
-  gone from this repository, along with `server/{isaac,gazebo,chrono}_client.py`
-  and `server/{isaac,gazebo}_adapter.py`. They live in
-  `github.com/John-Cusack/solidmind-engine-{isaac,gazebo,chrono}` and
-  `solidmind-rl`, and are reached only over the Engine Integration Contract.
-  **Install the engine you need** — `sim.engine_status` reports an
-  `install_hint` for each — or use the bundled `reference_engine`, which is pure
-  stdlib and needs nothing. Core's wheel now carries explicit maturin
-  include/exclude lists, so it ships the contract, the orchestration, the
-  reference engine and the conformance kit, and no engine code at all.
-
-### Fixed
-- **`motion.simulate` no longer hands an engine a model format it never
-  advertised.** With no `package_path`/`urdf_path`/`sdf_path`, the in-band
-  mechanism *is* the model, so the engine has to advertise
-  `formats: mechanism`. Core was sending one to Gazebo — which ingests
-  packages, SDF and URDF and never claimed otherwise — and Gazebo answered: a
-  20:40 gear pair came back with both gears at the same speed, a ratio of 1.0,
-  plausible and entirely invented. Neither side enforced the contract. Such a
-  call now returns **`UNSUPPORTED_MODEL_FORMAT`** naming the formats the engine
-  does take, on both the batch and teleop paths. An unreachable engine is not
-  second-guessed. *This turns a previously "successful" call into an error —
-  export a sim package with `cad.export_sim_package` and pass `package_path`.*
-- **`sim.start_engine` could not start Isaac or Gazebo.** Both descriptors
-  launch `scripts/run_<engine>_bridge.sh`, and the split left those wrappers
-  behind in core; core would have run a file that did not exist. Restored to
-  their repositories, and `tests/test_engine_registry.py` now checks that every
-  descriptor's launch target resolves wherever the engine is cloned.
-- **The URDF pipeline rewrote its own test fixture.** `write_urdf` transforms
-  meshes in place to link-local coordinates, and `TestURDFGenerationPipeline`
-  handed it the checked-in fixture, so every run shifted `Arm.stl` down another
-  50 mm. The tests passed either way, which was the problem.
-- **An unbuilt `solidmind_geometry` now says so.** The bare
-  `ModuleNotFoundError` named a module nobody writes by hand and took 15 test
-  modules with it, reading like a broken suite rather than a missing build
-  step. It now names the remedy.
-
-### Changed
-- **The TCK skips the physics tier when an engine does not advertise
-  `mechanism`.** Those scenarios are in-band mechanism dicts, so running them
-  against a package-only engine measured nothing and then failed it for the
-  result — the kit's error, not the engine's. It now skips with an explicit
-  reason, the same way tiers 2 and 4 already skip on `package` and `session`.
-  Capability honesty runs both ways: an engine must implement what it
-  advertises, and must not be judged on what it doesn't.
-- **`rl.*` drives the RL pipeline as a subprocess — core imports no engine code
-  at all.** The pipeline runs on Isaac Sim's bundled interpreter, which core's
-  venv cannot import from, so `rl.configure_environment` and `rl.deploy_policy`
-  now shell out to a new `rl_training.cli` (`configure`, `analyze`, `export`)
-  and parse one JSON object back, the same way training already worked. With
-  that, `tests/test_import_boundaries.py` drops its last allowed exception:
-  nothing in `server/` imports an engine package, lazily or otherwise. Step 7
-  of `docs/engine-integration-architecture.md` §7.
-
 ### Added
 - **The engines were verified against real installations, and that is what
   found the bugs above.** The TCK now has runs on record for Gazebo Harmonic
@@ -87,74 +31,6 @@ and this project aims to follow [Semantic Versioning](https://semver.org/).
 - **`pyproject.toml` gained explicit maturin include/exclude lists.** There
   were none, so the wheel would have shipped whatever top-level packages a
   checkout happened to contain — including the engines.
-
-- **Engines are registry data, not a table in core.** Descriptors in
-  `engines.d/*.toml` (and `~/.solidmind/engines.d/` for third parties) now
-  supply every port, launch command, install hint and piece of model-facing
-  guidance core used to hardcode — step 4 of
-  `docs/engine-integration-architecture.md` §7. Dropping in a descriptor adds a
-  backend to the MCP tool enums, the prompt guidance and `sim.start_engine`
-  with no core edit; a descriptor without a `launch` command is attach-only
-  (a user-run daemon or a remote engine).
-  - **One client, one adapter.** `server/engine_client.py` replaces
-    `isaac_client`/`gazebo_client`/`chrono_client`, and `server/sim_adapter.py`
-    replaces `isaac_adapter`/`gazebo_adapter` — about 2,100 lines of
-    near-duplicate code gone. The client caches each engine's `hello` and
-    carries the **msg-rate tripwire** (architecture doc §3.7): sustained
-    >100 msg/s on any command logs a warning, so core can't quietly end up
-    inside a control loop.
-  - **Behaviour comes from the handshake.** `motion.simulate` picks
-    session-based or single-call simulation from the engine's advertised
-    `modes`; teleop is refused when an engine doesn't advertise it; and a new
-    `teleop_dofs` capability (additive, v1.x) means commanding an axis an
-    engine doesn't support is an error instead of a silently dropped setpoint.
-  - **Vendor-named tools folded**: `motion.isaac_launch`/`motion.isaac_stop`
-    are covered by `sim.start_engine`/`sim.stop_engine`, and
-    `motion.isaac_screenshot` becomes capability-gated `motion.screenshot`.
-    `motion.verify_sim_package`'s `check_isaac` is now `check_engine`.
-  - Still name-bound and scheduled for later steps: the chrono *study* solver
-    in `server/study_solvers.py`, and `rl_training`'s `ISAAC_PYTHON` launch.
-- **Dialect inversion: core emits only manifest + meshes + URDF.** Every vendor
-  format is now compiled by the engine that consumes it, at load time, from the
-  canonical package (step 3 of `docs/engine-integration-architecture.md` §7).
-  - **Gazebo**: new `gazebo_bridge/package_to_sdf.py` compiles `manifest.json`
-    into SDF — motor plugins, sensors, primitive-vs-mesh collisions and all —
-    when `spawn_model`/`simulate`/`teleop_start` are given a `package_path`.
-    `server/sim_export.py` loses `write_sdf`/`validate_sdf` and the plugin and
-    sensor emitters; `cad.export_sim_package` loses `emit_sdf`.
-  - **PX4**: `server/px4_airframe_generator.py` moved to
-    `gazebo_bridge/px4_airframe.py` and is manifest-driven. Pass `px4=true` to
-    `motion.simulate`/`motion.teleop_start` alongside `package_path`; core's
-    airframe specs expose `to_drone_config()` instead of
-    `to_px4_airframe_params()`. Rotor positions are now taken relative to the
-    root link, so a chassis away from the origin no longer skews CA_ROTOR arms.
-  - **Chrono**: new `chrono_bridge/` package — a contract server that compiles
-    the neutral mechanism into Chrono's native spec (moved
-    `simulation_spec_builder`) and drives the C++ daemon underneath it.
-    `sim.start_engine("chrono")` starts the pair as one process. Core no longer
-    builds Chrono specs or post-processes planetary speeds.
-  - **`diagnose` is normalized**: engines report generic joint-type counts, DOF
-    and per-joint connectivity (`isaac_bridge/diagnose_normalize.py`), so
-    `server/sim_verify.verify_urdf_vs_isaac` becomes one engine-agnostic
-    `verify_urdf_vs_diagnose`.
-  - Manifest actuators gained `motor_constant`, `max_rot_velocity_rad_s` and
-    `min_rot_velocity_rad_s` (additive, schema v1.x), because `k` and `ω` are
-    not recoverable from thrust alone.
-  - **Not verified here**: the drone SITL end-to-end gate needs Gazebo Harmonic
-    and PX4, neither installed in this environment.
-- **Engine packages no longer import core.** The three reverse imports that
-  blocked splitting the engines into sibling repositories are gone (step 2 of
-  `docs/engine-integration-architecture.md` §7). `isaac_bridge` ships its own
-  contract client (`isaac_bridge/client.py`) instead of borrowing
-  `server.isaac_client`; `server/mavlink_controller.py` moved to
-  `gazebo_bridge/mavlink_controller.py`; `server/urdf_analyzer.py` moved to
-  `rl_training/urdf_analyzer.py`. The `rl.*` tools now import the RL pipeline
-  lazily and return `RL_PIPELINE_UNAVAILABLE` when it is absent, so starting the
-  MCP server never requires it. `tests/test_import_boundaries.py` statically
-  enforces both directions: no `server.*` import anywhere in an engine package,
-  and no module-level core→engine import.
-
-### Added
 - **The engine repositories exist.** `scripts/split_engines.sh` cuts
   `solidmind-engine-isaac`, `solidmind-engine-gazebo`,
   `solidmind-engine-chrono` and `solidmind-rl` out of core with
@@ -177,7 +53,6 @@ and this project aims to follow [Semantic Versioning](https://semver.org/).
   scanning them for `server.*` imports. Every test that reached into core has
   been ported to its repo's own equivalents; no `tests/needs_porting/`
   directory remains anywhere.
-
 - **Reference engine + TCK — conformance is now runnable.** `reference_engine/`
   is core's own implementation of the contract: pure Python, no install, with
   analytic physics (gear-ratio propagation, pendulum period, free fall) so it
@@ -199,7 +74,6 @@ and this project aims to follow [Semantic Versioning](https://semver.org/).
   contract says `INVALID_JSON`/`INVALID_REQUEST` and routed a missing `cmd` to
   the unknown-verb path; both bridges used vendor-prefixed session codes instead
   of `SESSION_NOT_FOUND`; and Isaac omitted the required `summary.dt_s`.
-
 - **Engine Integration Contract v1 — published spec, schemas, and handshake.**
   `docs/engine-contract.md` is now the normative contract between core and any
   simulation engine: NDJSON envelope with an opaque `request_id`, a required
@@ -347,6 +221,86 @@ and this project aims to follow [Semantic Versioning](https://semver.org/).
 - Docker E2E tests now skip cleanly when the optional `httpx` extra is missing (`pip install -e .[orchestrator]`).
 
 ### Changed
+- **Engines are registry data, not a table in core.** Descriptors in
+  `engines.d/*.toml` (and `~/.solidmind/engines.d/` for third parties) now
+  supply every port, launch command, install hint and piece of model-facing
+  guidance core used to hardcode — step 4 of
+  `docs/engine-integration-architecture.md` §7. Dropping in a descriptor adds a
+  backend to the MCP tool enums, the prompt guidance and `sim.start_engine`
+  with no core edit; a descriptor without a `launch` command is attach-only
+  (a user-run daemon or a remote engine).
+  - **One client, one adapter.** `server/engine_client.py` replaces
+    `isaac_client`/`gazebo_client`/`chrono_client`, and `server/sim_adapter.py`
+    replaces `isaac_adapter`/`gazebo_adapter` — about 2,100 lines of
+    near-duplicate code gone. The client caches each engine's `hello` and
+    carries the **msg-rate tripwire** (architecture doc §3.7): sustained
+    >100 msg/s on any command logs a warning, so core can't quietly end up
+    inside a control loop.
+  - **Behaviour comes from the handshake.** `motion.simulate` picks
+    session-based or single-call simulation from the engine's advertised
+    `modes`; teleop is refused when an engine doesn't advertise it; and a new
+    `teleop_dofs` capability (additive, v1.x) means commanding an axis an
+    engine doesn't support is an error instead of a silently dropped setpoint.
+  - **Vendor-named tools folded**: `motion.isaac_launch`/`motion.isaac_stop`
+    are covered by `sim.start_engine`/`sim.stop_engine`, and
+    `motion.isaac_screenshot` becomes capability-gated `motion.screenshot`.
+    `motion.verify_sim_package`'s `check_isaac` is now `check_engine`.
+  - Still name-bound and scheduled for later steps: the chrono *study* solver
+    in `server/study_solvers.py`, and `rl_training`'s `ISAAC_PYTHON` launch.
+- **Dialect inversion: core emits only manifest + meshes + URDF.** Every vendor
+  format is now compiled by the engine that consumes it, at load time, from the
+  canonical package (step 3 of `docs/engine-integration-architecture.md` §7).
+  - **Gazebo**: new `gazebo_bridge/package_to_sdf.py` compiles `manifest.json`
+    into SDF — motor plugins, sensors, primitive-vs-mesh collisions and all —
+    when `spawn_model`/`simulate`/`teleop_start` are given a `package_path`.
+    `server/sim_export.py` loses `write_sdf`/`validate_sdf` and the plugin and
+    sensor emitters; `cad.export_sim_package` loses `emit_sdf`.
+  - **PX4**: `server/px4_airframe_generator.py` moved to
+    `gazebo_bridge/px4_airframe.py` and is manifest-driven. Pass `px4=true` to
+    `motion.simulate`/`motion.teleop_start` alongside `package_path`; core's
+    airframe specs expose `to_drone_config()` instead of
+    `to_px4_airframe_params()`. Rotor positions are now taken relative to the
+    root link, so a chassis away from the origin no longer skews CA_ROTOR arms.
+  - **Chrono**: new `chrono_bridge/` package — a contract server that compiles
+    the neutral mechanism into Chrono's native spec (moved
+    `simulation_spec_builder`) and drives the C++ daemon underneath it.
+    `sim.start_engine("chrono")` starts the pair as one process. Core no longer
+    builds Chrono specs or post-processes planetary speeds.
+  - **`diagnose` is normalized**: engines report generic joint-type counts, DOF
+    and per-joint connectivity (`isaac_bridge/diagnose_normalize.py`), so
+    `server/sim_verify.verify_urdf_vs_isaac` becomes one engine-agnostic
+    `verify_urdf_vs_diagnose`.
+  - Manifest actuators gained `motor_constant`, `max_rot_velocity_rad_s` and
+    `min_rot_velocity_rad_s` (additive, schema v1.x), because `k` and `ω` are
+    not recoverable from thrust alone.
+  - **Not verified here**: the drone SITL end-to-end gate needs Gazebo Harmonic
+    and PX4, neither installed in this environment.
+- **Engine packages no longer import core.** The three reverse imports that
+  blocked splitting the engines into sibling repositories are gone (step 2 of
+  `docs/engine-integration-architecture.md` §7). `isaac_bridge` ships its own
+  contract client (`isaac_bridge/client.py`) instead of borrowing
+  `server.isaac_client`; `server/mavlink_controller.py` moved to
+  `gazebo_bridge/mavlink_controller.py`; `server/urdf_analyzer.py` moved to
+  `rl_training/urdf_analyzer.py`. The `rl.*` tools now import the RL pipeline
+  lazily and return `RL_PIPELINE_UNAVAILABLE` when it is absent, so starting the
+  MCP server never requires it. `tests/test_import_boundaries.py` statically
+  enforces both directions: no `server.*` import anywhere in an engine package,
+  and no module-level core→engine import.
+- **The TCK skips the physics tier when an engine does not advertise
+  `mechanism`.** Those scenarios are in-band mechanism dicts, so running them
+  against a package-only engine measured nothing and then failed it for the
+  result — the kit's error, not the engine's. It now skips with an explicit
+  reason, the same way tiers 2 and 4 already skip on `package` and `session`.
+  Capability honesty runs both ways: an engine must implement what it
+  advertises, and must not be judged on what it doesn't.
+- **`rl.*` drives the RL pipeline as a subprocess — core imports no engine code
+  at all.** The pipeline runs on Isaac Sim's bundled interpreter, which core's
+  venv cannot import from, so `rl.configure_environment` and `rl.deploy_policy`
+  now shell out to a new `rl_training.cli` (`configure`, `analyze`, `export`)
+  and parse one JSON object back, the same way training already worked. With
+  that, `tests/test_import_boundaries.py` drops its last allowed exception:
+  nothing in `server/` imports an engine package, lazily or otherwise. Step 7
+  of `docs/engine-integration-architecture.md` §7.
 - **ROADMAP outer-loop status flips from `◐ well-built but workers
   stubbed` to `✓ closed on 5 part classes`.** The two-loop table and
   the Move-3 priority-stack section are updated accordingly. Move 3
@@ -361,4 +315,41 @@ and this project aims to follow [Semantic Versioning](https://semver.org/).
 - `.gitignore` tightened to catch `*.AppImage`, `*.mp4`, `docs/demo_clips/`, `training_runs/**`, `analyses/`, `watch_*anim*.json`, `type_prompt.sh`, CalculiX solver run artifacts (`*.cvg`, `*.dat`, `*.sta`, `--version.*`), and `requirements-backup.txt`. Added `!docs/images/*.png` exception so README illustrations can be committed.
 
 ### Removed
+- **The simulation engines no longer ship with core.** `isaac_bridge/`,
+  `gazebo_bridge/`, `chrono_bridge/`, `chrono_daemon/` and `rl_training/` are
+  gone from this repository, along with `server/{isaac,gazebo,chrono}_client.py`
+  and `server/{isaac,gazebo}_adapter.py`. They live in
+  `github.com/John-Cusack/solidmind-engine-{isaac,gazebo,chrono}` and
+  `solidmind-rl`, and are reached only over the Engine Integration Contract.
+  **Install the engine you need** — `sim.engine_status` reports an
+  `install_hint` for each — or use the bundled `reference_engine`, which is pure
+  stdlib and needs nothing. Core's wheel now carries explicit maturin
+  include/exclude lists, so it ships the contract, the orchestration, the
+  reference engine and the conformance kit, and no engine code at all.
 - Bundled knowledge content under `me_knowledge/notes` and `me_knowledge/sim_changes` from source control; repository now tracks placeholders only.
+
+### Fixed
+- **`motion.simulate` no longer hands an engine a model format it never
+  advertised.** With no `package_path`/`urdf_path`/`sdf_path`, the in-band
+  mechanism *is* the model, so the engine has to advertise
+  `formats: mechanism`. Core was sending one to Gazebo — which ingests
+  packages, SDF and URDF and never claimed otherwise — and Gazebo answered: a
+  20:40 gear pair came back with both gears at the same speed, a ratio of 1.0,
+  plausible and entirely invented. Neither side enforced the contract. Such a
+  call now returns **`UNSUPPORTED_MODEL_FORMAT`** naming the formats the engine
+  does take, on both the batch and teleop paths. An unreachable engine is not
+  second-guessed. *This turns a previously "successful" call into an error —
+  export a sim package with `cad.export_sim_package` and pass `package_path`.*
+- **`sim.start_engine` could not start Isaac or Gazebo.** Both descriptors
+  launch `scripts/run_<engine>_bridge.sh`, and the split left those wrappers
+  behind in core; core would have run a file that did not exist. Restored to
+  their repositories, and `tests/test_engine_registry.py` now checks that every
+  descriptor's launch target resolves wherever the engine is cloned.
+- **The URDF pipeline rewrote its own test fixture.** `write_urdf` transforms
+  meshes in place to link-local coordinates, and `TestURDFGenerationPipeline`
+  handed it the checked-in fixture, so every run shifted `Arm.stl` down another
+  50 mm. The tests passed either way, which was the problem.
+- **An unbuilt `solidmind_geometry` now says so.** The bare
+  `ModuleNotFoundError` named a module nobody writes by hand and took 15 test
+  modules with it, reading like a broken suite rather than a missing build
+  step. It now names the remedy.
