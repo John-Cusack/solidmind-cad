@@ -30,11 +30,15 @@ from __future__ import annotations
 import argparse
 import math
 import os
-import signal
 import subprocess
 import time
 from dataclasses import dataclass
 from pathlib import Path
+
+try:  # imported as a package
+    from examples.quadrotor_camera_drone import sim_processes
+except ImportError:  # run as a script — sibling module on sys.path[0]
+    import sim_processes  # type: ignore[no-redef]
 
 PX4_INSTALL = Path(
     os.environ.get("SOLIDMIND_PX4_INSTALL", str(Path.home() / "repos" / "PX4-Autopilot"))
@@ -60,8 +64,13 @@ NVIDIA_ENV = {
 
 
 def _pgrep(pattern: str) -> list[int]:
-    out = subprocess.run(["pgrep", "-f", pattern], capture_output=True, text=True)
-    return [int(p) for p in out.stdout.split() if p.isdigit()]
+    """Substring match on full command lines, excluding our own.
+
+    Was ``pgrep -f``, which also matches the caller's command line — the
+    cause of a false "already running" reading and a kill that hit
+    nothing.  See ``sim_processes.find_processes``.
+    """
+    return sim_processes.find_processes(pattern)
 
 
 def _sitl_running() -> bool:
@@ -73,13 +82,17 @@ def _gui_running() -> bool:
 
 
 def _server_running() -> bool:
-    return any(_pgrep("gz-sim-main.*-r -s"))
+    return any(sim_processes.gazebo_server_pids())
 
 
 def cmd_status(_args: argparse.Namespace) -> None:
     rows = [
         ("PX4 SITL", _sitl_running(), " ".join(map(str, _pgrep("px4_sitl_default/bin/px4")))),
-        ("Gazebo srv", _server_running(), " ".join(map(str, _pgrep("gz-sim-main.*-r -s")))),
+        (
+            "Gazebo srv",
+            _server_running(),
+            " ".join(map(str, sim_processes.gazebo_server_pids())),
+        ),
         ("Gazebo GUI", _gui_running(), " ".join(map(str, _pgrep("gz-sim-gui-client")))),
     ]
     width = max(len(r[0]) for r in rows)
@@ -164,25 +177,7 @@ def cmd_start(args: argparse.Namespace) -> None:
 
 def cmd_stop(_args: argparse.Namespace) -> None:
     """Kill SITL + Gazebo cleanly."""
-    targets = [
-        "make px4_sitl_default",
-        "build/px4_sitl_default/bin/px4",
-        "gz-sim-gui-client",
-        "gz-sim-main",
-    ]
-    for pat in targets:
-        pids = _pgrep(pat)
-        for p in pids:
-            try:
-                os.kill(p, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
-    time.sleep(2)
-    for stale in ("/tmp/px4-sock-0", "/tmp/px4_lock-0"):
-        try:
-            Path(stale).unlink()
-        except FileNotFoundError:
-            pass
+    sim_processes.stop_simulation()
     print("stopped")
 
 

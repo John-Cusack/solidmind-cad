@@ -44,12 +44,18 @@ import argparse
 import logging
 import math
 import os
+import signal
 import subprocess
 import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+try:  # imported as a package (tests/test_freecad_to_gazebo.py)
+    from examples.quadrotor_camera_drone import sim_processes
+except ImportError:  # run as a script — sibling module on sys.path[0]
+    import sim_processes  # type: ignore[no-redef]
 
 logger = logging.getLogger("solidmind.examples.camera_drone")
 
@@ -525,8 +531,14 @@ def rebuild_px4_with_airframe(
         patch_airframes_cmakelists(px4_install, airframe_filename)
         print(f"  Registered {airframe_filename} in airframes/CMakeLists.txt")
 
-    sanitized = _make_target_name(airframe_name)
-    cmd = ["make", "px4_sitl_default", sanitized]
+    # Build only. `make px4_sitl_default <model>` is a *run* target: it
+    # builds and then launches PX4, and never returns — so this stage blocked
+    # forever and stages 4 and 5 were unreachable. Stage 4 issues that exact
+    # command, deliberately, under Popen.
+    #
+    # Plain `px4_sitl_default` compiles and regenerates ROMFS, which is what
+    # registers the new airframe; that is all this stage needs.
+    cmd = ["make", "px4_sitl_default"]
     print(f"  Running: {' '.join(cmd)} (cwd={px4_install})")
     print("  This is incremental — should be ~30s after the initial build.")
 
@@ -552,6 +564,32 @@ def rebuild_px4_with_airframe(
 # ---------------------------------------------------------------------------
 
 
+def _terminate_process_group(proc: subprocess.Popen[bytes]) -> None:
+    """Stop PX4 and everything `make` started under it.
+
+    Terminating the make process alone orphans PX4, which keeps running and
+    holds UDP 14540 — so the next run's readiness wait hears a stale vehicle.
+
+    This does *not* reach Gazebo: PX4 starts the server from a transient
+    shell that exits, so it is reparented to init in a different process
+    group and no signal sent here can find it.  ``sim_processes.stop_all``
+    is what cleans that up.
+    """
+    if proc.poll() is not None:
+        return
+    try:
+        os.killpg(proc.pid, signal.SIGTERM)
+    except (ProcessLookupError, PermissionError):
+        proc.terminate()
+    try:
+        proc.wait(timeout=10.0)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            proc.kill()
+
+
 def launch_px4_sim(
     px4_install: Path,
     airframe_name: str,
@@ -562,6 +600,13 @@ def launch_px4_sim(
     Waits up to 30 s for the MAVLink endpoint to come up before returning.
     """
     _banner("Stage 4: Launch PX4 SITL + Gazebo")
+
+    # PX4 attaches to any world already publishing a clock rather than
+    # starting its own, so a server left over from an earlier run would be
+    # inherited silently — with that run's model still in it, and possibly
+    # without the sensor plugins PX4 injects via gz_env.sh.
+    sim_processes.ensure_clean_world()
+
     env = os.environ.copy()
     target = _make_target_name(airframe_name)
     env["PX4_SIM_MODEL"] = target
@@ -575,33 +620,89 @@ def launch_px4_sim(
         env=env,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
+        # `make` spawns PX4 as a grandchild; without its own session,
+        # terminating make leaves PX4 running and holding the ports.
+        start_new_session=True,
     )
 
-    # Wait for UDP 14540 to become reachable.
+    # Wait for PX4's offboard heartbeat.
+    #
+    # PX4's onboard link is "udp port 14580 remote port 14540": it *sends* to
+    # 14540, and nothing listens there until a GCS or offboard app binds it.
+    # This used to send an empty datagram to 14540 and block on recvfrom,
+    # waiting for a reply to an ephemeral port that PX4 never addresses — so
+    # readiness could only ever time out. Bind the port PX4 streams to and
+    # wait to hear from it.
     import socket
 
-    deadline = time.monotonic() + 30.0
-    while time.monotonic() < deadline:
-        if proc.poll() is not None:
-            raise RuntimeError(f"PX4 exited during boot (rc={proc.returncode})")
-        try:
-            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
-                sock.settimeout(0.5)
-                sock.bind(("127.0.0.1", 0))
-                sock.sendto(b"", ("127.0.0.1", 14540))
+    timeout_s = 120.0  # Gazebo has to come up too; 30 s was optimistic.
+    deadline = time.monotonic() + timeout_s
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        sock.bind(("127.0.0.1", 14540))
+        sock.settimeout(1.0)
+        while time.monotonic() < deadline:
+            if proc.poll() is not None:
+                raise RuntimeError(f"PX4 exited during boot (rc={proc.returncode})")
+            try:
                 sock.recvfrom(2048)
-                print("PX4 MAVLink endpoint reachable on UDP 14540.")
-                return proc
-        except OSError:
-            time.sleep(1.0)
+            except (TimeoutError, OSError):
+                continue
+            print("PX4 MAVLink heartbeat received on UDP 14540.")
+            return proc
 
-    proc.terminate()
-    raise RuntimeError("PX4 failed to come up within 30 s")
+    _terminate_process_group(proc)
+    raise RuntimeError(f"PX4 failed to come up within {timeout_s:.0f} s")
 
 
 # ---------------------------------------------------------------------------
 # Stage 5: MAVLink flight
 # ---------------------------------------------------------------------------
+
+
+def _wait_until_disarmed(ctrl: Any, *, timeout_s: float) -> bool:
+    """Wait for PX4 to disarm itself after landing.
+
+    Returns whether it did, so the caller can fall back to an explicit
+    disarm rather than treating the timeout as a failure.
+    """
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        if not ctrl.get_telemetry().armed:
+            return True
+        time.sleep(0.2)
+    return False
+
+
+def _wait_for_altitude(
+    ctrl: Any,
+    reached: Any,
+    *,
+    timeout_s: float,
+    what: str,
+) -> float:
+    """Block until the measured altitude satisfies ``reached``.
+
+    Raises rather than returning, because a silent fall-through here is
+    what let the pipeline report a successful flight for a drone that
+    stayed on the ground the whole time.
+    """
+    deadline = time.monotonic() + timeout_s
+    last: float | None = None
+    while time.monotonic() < deadline:
+        tel = ctrl.get_telemetry()
+        if tel.local_position is not None:
+            last = -tel.local_position[2]  # NED z is down; flip
+            if reached(last):
+                return last
+        time.sleep(0.2)
+
+    seen = f"{last:.2f} m" if last is not None else "no position telemetry"
+    raise RuntimeError(
+        f"Vehicle did not {what} within {timeout_s:.0f} s (last: {seen}). "
+        f"Check the PX4 log for the reason:\n"
+        f"    ulog_messages <newest>.ulg | grep -viE 'perf|excluded'"
+    )
 
 
 def fly_takeoff_hover_land(takeoff_alt_m: float, hover_secs: float) -> None:
@@ -623,40 +724,70 @@ def fly_takeoff_hover_land(takeoff_alt_m: float, hover_secs: float) -> None:
         ctrl.start_setpoint_stream()
         time.sleep(1.0)
 
-        print("Arming…")
-        ctrl.arm(timeout_s=5.0)
+        # PX4 answers MAV_RESULT_TEMPORARILY_REJECTED (1) until its preflight
+        # checks pass — the EKF has to converge and SITL's GPS needs a fix,
+        # which takes tens of seconds after boot. A single attempt right after
+        # the first heartbeat is simply too early, so keep asking.
+        print("Arming (waiting for preflight checks to pass)…")
+        arm_deadline = time.monotonic() + 90.0
+        while True:
+            try:
+                ctrl.arm(timeout_s=5.0)
+                break
+            except MavlinkError as exc:
+                if time.monotonic() >= arm_deadline:
+                    raise MavlinkError(
+                        f"PX4 would not arm within 90 s — preflight checks never "
+                        f"passed. Last answer: {exc}"
+                    ) from exc
+                time.sleep(2.0)
 
+        # AUTO_TAKEOFF, not MAV_CMD_NAV_TAKEOFF.  PX4 v1.17 acks the older
+        # command and then ignores it — the vehicle sits armed on the ground
+        # until "Disarmed by preflight inaction" ~10 s later.  MavlinkController
+        # documents this and provides the mode switch; use it.
+        # The altitude has to be passed: AUTO_TAKEOFF has no altitude of its
+        # own and falls back to MIS_TAKEOFF_ALT, so an omitted argument climbs
+        # to PX4's 2.5 m default no matter what was asked for.
         print(f"Taking off to {takeoff_alt_m:.1f} m…")
-        ctrl.takeoff(takeoff_alt_m, timeout_s=5.0)
+        ctrl.takeoff_via_mode(altitude_m=takeoff_alt_m, timeout_s=5.0)
 
-        # Wait for altitude to reach target.
-        deadline = time.monotonic() + 15.0
-        while time.monotonic() < deadline:
-            tel = ctrl.get_telemetry()
-            if tel.local_position is not None:
-                alt = -tel.local_position[2]  # NED z is down; flip
-                if abs(alt - takeoff_alt_m) < 1.5:
-                    print(f"  Reached {alt:.2f} m")
-                    break
-            time.sleep(0.2)
+        # An ack is not liftoff, so measure.  This used to fall through on
+        # timeout, which let the pipeline print "Landed." and then
+        # "✓ Flight pipeline complete" for a drone that never left the ground.
+        # Tight enough that the vehicle has to have levelled off: a ±1.5 m
+        # window is satisfied on the way up, so it reported "Reached 3.60 m"
+        # for a climb that was still in progress.
+        alt = _wait_for_altitude(
+            ctrl,
+            lambda a: abs(a - takeoff_alt_m) < 0.5,
+            timeout_s=30.0,
+            what=f"climb to {takeoff_alt_m:.1f} m",
+        )
+        print(f"  Reached {alt:.2f} m")
 
         print(f"Hovering for {hover_secs:.1f} s…")
         time.sleep(hover_secs)
 
         print("Landing…")
-        ctrl.land(timeout_s=5.0)
+        ctrl.land_via_mode(timeout_s=5.0)
+        _wait_for_altitude(
+            ctrl,
+            lambda a: a < 0.5,
+            timeout_s=60.0,
+            what="descend to the ground",
+        )
+        print("  Landed.")
 
-        # Wait until back on the ground.
-        deadline = time.monotonic() + 30.0
-        while time.monotonic() < deadline:
-            tel = ctrl.get_telemetry()
-            if tel.local_position is not None and -tel.local_position[2] < 0.5:
-                print("  Landed.")
-                break
-            time.sleep(0.5)
-
+        # PX4 disarms itself once it declares the landing complete
+        # (COM_DISARM_LAND), and refuses any disarm before then with
+        # "Disarming denied: not landed" — which is what our own descent check
+        # raced, since 0.5 m above ground is still flying as far as PX4 is
+        # concerned.  So wait for it to stand down on its own, and only insist
+        # if it hasn't.
         print("Disarming…")
-        ctrl.disarm(timeout_s=5.0)
+        if not _wait_until_disarmed(ctrl, timeout_s=15.0):
+            ctrl.disarm(timeout_s=5.0)
     except MavlinkError as exc:
         raise RuntimeError(f"MAVLink flight failed: {exc}") from exc
     finally:
@@ -782,13 +913,15 @@ def main() -> int:
         print(f"\n{exc}", file=sys.stderr)
         return 2
     finally:
-        if px4_proc is not None and px4_proc.poll() is None:
-            print("Terminating PX4 SITL…")
-            px4_proc.terminate()
-            try:
-                px4_proc.wait(timeout=10.0)
-            except subprocess.TimeoutExpired:
-                px4_proc.kill()
+        if px4_proc is not None:
+            if px4_proc.poll() is None:
+                print("Terminating PX4 SITL…")
+                _terminate_process_group(px4_proc)
+            # Gazebo is not in PX4's process group and survives it, so it
+            # has to be stopped by name — otherwise it free-runs for hours
+            # and the next run inherits its world.
+            print("Stopping Gazebo…")
+            sim_processes.stop_simulation()
 
     _banner("✓ Flight pipeline complete")
     return 0

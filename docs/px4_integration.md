@@ -336,7 +336,39 @@ terminal. The PX4 console (`pxh>`) prompt should be visible. If PX4
 exited (e.g. due to a build error), the UDP port 14540 won't have a
 listener.
 
-Check: `ss -ulnp | grep 14540` — should show PX4 bound.
+Check: `ss -ulnp | grep 14580` — should show PX4 bound.
+
+Note the direction. PX4's onboard link is *"udp port 14580 remote port
+14540"*: it **binds 14580 and sends to 14540**. Nothing listens on 14540
+until a GCS or offboard app binds it. Probing by sending a datagram *to*
+14540 and waiting for a reply can only ever time out.
+
+### Arming denied — read the reason, don't guess
+
+Always get the reason from PX4 itself before theorising:
+
+```bash
+ulog_messages ~/repos/PX4-Autopilot/build/px4_sitl_default/rootfs/log/<date>/<newest>.ulg \
+    | grep -viE "perf|excluded"
+```
+
+That prints the `health_and_arming_checks` line naming the failed check.
+`MAV_STATE_UNINIT` in the heartbeat is *not* a separate problem: PX4 sets
+it whenever the vehicle is disarmed and preflight is not passing, so it
+tells you nothing beyond "some check is failing".
+
+**"Preflight Fail: No connection to the GCS"** means your MAVLink client
+is not sending heartbeats. Airframes we generate set `NAV_DLL_ACT 2`
+(data-link-loss → land), as does PX4's own `gz_x500`, and that makes a
+GCS connection a *precondition for arming*. pymavlink does not emit
+heartbeats on its own — a client that only listens will never arm.
+`MavlinkController` sends `MAV_TYPE_GCS` at 1 Hz for exactly this reason.
+
+Force-arm does not get you around it: `Commander.cpp` calls
+`arm(reason, cmd.from_external || !forced)`, and `from_external` is true
+for anything arriving on a link, so an external arm always runs the full
+preflight gate. The 21196 magic number only skips checks for
+internally-generated commands.
 
 ### Drone won't lift off
 
@@ -346,11 +378,81 @@ hasn't converged — wait 5-10 seconds for sensors to settle, then retry.
 GPS lock is required; SITL provides it instantly but if it isn't,
 check `commander preflight_check` in the PX4 console.
 
+### Drone lifts off, then tumbles a few seconds later
+
+`Preflight Fail: Attitude failure (roll)` mid-flight is not a preflight
+problem — it is PX4's `FailureDetector` reporting that the vehicle actually
+exceeded `FD_FAIL_R` (60° by default). Read it as "the controller lost the
+aircraft", and suspect the model's mass properties before the gains.
+
+The tell is hover throttle. Compare what the vehicle actually hovers at
+against the `MPC_THR_HOVER` its airframe was generated with:
+
+```bash
+# The four motor commands in a steady hover
+python3 - <<'PY'
+from pyulog import ULog
+u = ULog('<newest>.ulg')
+mot = {x.name: x for x in u.data_list}['actuator_motors'].data
+print([round(mot[f'control[{i}]'][-200], 3) for i in range(4)])
+PY
+
+grep MPC_THR_HOVER ~/repos/PX4-Autopilot/ROMFS/px4fmu_common/init.d-posix/airframes/<id>_gz_<model>
+```
+
+They should agree to within a couple of percent — the generator derives the
+one from the same mass that produced the other. If the vehicle hovers
+*higher* than its airframe expects, the SDF is heavier than the manifest, and
+the usual reason is a link with no `<inertial>`:
+
+```bash
+python3 -c "
+import xml.etree.ElementTree as ET
+for lk in ET.parse('model.sdf').getroot().find('model').findall('link'):
+    i = lk.find('inertial')
+    print(lk.get('name'), 'MISSING <inertial>' if i is None else i.findtext('mass'))"
+```
+
+An omitted `<inertial>` is not a massless link. SDF's defaults are **1 kg and
+a unit inertia tensor** (`/usr/share/sdformat/1.10/inertial.sdf`), so a frame
+link that leaves it out welds a phantom body to the airframe — on a 1.4 kg
+quadrotor, 71% of its mass and sixty times its roll inertia. The vehicle then
+has roughly a sixtieth of the roll authority its gains assume: it lifts off
+fine, drifts, saturates all four motors trying to correct, and rolls over.
+
+### Takeoff climbs to 2.5 m regardless of the altitude requested
+
+`Using default takeoff altitude: 2.50 m` in the PX4 log. AUTO_TAKEOFF has no
+altitude of its own; with no mission item it uses `MIS_TAKEOFF_ALT`. Pass
+`altitude_m=` to `MavlinkController.takeoff_via_mode`, which sets that
+parameter before switching mode. `MAV_CMD_NAV_TAKEOFF`'s param7 does not work
+here — PX4 v1.17 acks that command and ignores it.
+
 ### Multiple gz sim worlds running
 
-If you have lingering gz sim processes from other work, PX4 may attach
-to the wrong world. List with `ps -ef | grep gz-sim-main`, kill the
-ones you don't need, and restart `make px4_sitl gz_x500`.
+PX4 does not start a Gazebo server if one is already running: `px4-rc.gzsim`
+greps `gz topic -l` for the first `/world/*/clock` and, finding one,
+attaches to it and overwrites `PX4_GZ_WORLD`. It also never stops the
+server it starts — that is spawned from a transient shell and reparented
+to init, so it outlives PX4 and is not reachable by signalling PX4's
+process group.
+
+This matters more than it sounds. `gz_env.sh` is sourced *only* on the
+branch that starts a new server, and PX4's `default.sdf` contains no
+`<plugin>` tags at all — every sensor system is injected via
+`GZ_SIM_SERVER_CONFIG_PATH`. A world PX4 inherits rather than starts can
+therefore have no IMU, GPS or barometer, and PX4 will attach, spawn the
+model, and silently never receive a sample.
+
+`INFO [init] gazebo already running world: <name>` in the PX4 startup
+output is the one line that tells you reuse happened. To start clean:
+
+```bash
+python3 examples/quadrotor_camera_drone/flight_lab.py stop
+```
+
+which is `examples/quadrotor_camera_drone/sim_processes.py` — it stops
+PX4 and Gazebo by name and clears `/tmp/px4-sock-0` and `/tmp/px4_lock-0`.
 
 ## Verification staircase
 

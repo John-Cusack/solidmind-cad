@@ -5563,11 +5563,48 @@ def serve() -> int:
             _send(_rpc_error(rpc_id, -32603, f"Internal error: {e}"))
 
 
+def _install_engine_cleanup() -> None:
+    """Make the engines we start die with us.
+
+    ``sim_engine_manager.shutdown_all`` has always said "Call at server
+    exit" in its docstring and has always been tested — but nothing called
+    it, so every engine outlived the server that spawned it.  Isaac holds
+    ~5 GB and a GPU; a leaked one is not a tidiness problem.
+
+    It also breaks the *next* server: engine handles live only in memory,
+    so a restarted server has no way to reach the previous instance's
+    engines.  It TCP-pings them, sees them answering, and reports
+    ``already_running`` — quietly binding a fresh session to a stale sim.
+    """
+    import atexit
+    import signal as _signal
+
+    from server import sim_engine_manager
+
+    atexit.register(sim_engine_manager.shutdown_all)
+
+    def _terminate(signum: int, _frame: Any) -> None:
+        # atexit does not run on a signal, so drain here and then restore
+        # default behaviour so the exit status still reflects the signal.
+        sim_engine_manager.shutdown_all()
+        _signal.signal(signum, _signal.SIG_DFL)
+        _signal.raise_signal(signum)
+
+    for sig in (_signal.SIGTERM, _signal.SIGINT):
+        try:
+            _signal.signal(sig, _terminate)
+        except (ValueError, OSError):
+            # Not on the main thread (embedded use) — atexit still covers
+            # the normal path.
+            pass
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="SolidMind CAD MCP server over stdio.")
     parser.add_argument("--serve", action="store_true", help="Run the stdio server (default).")
     parser.parse_args(argv)
 
+    _install_engine_cleanup()
     raise SystemExit(serve())
 
 
