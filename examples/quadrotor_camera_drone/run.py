@@ -660,6 +660,20 @@ def launch_px4_sim(
 # ---------------------------------------------------------------------------
 
 
+def _wait_until_disarmed(ctrl: Any, *, timeout_s: float) -> bool:
+    """Wait for PX4 to disarm itself after landing.
+
+    Returns whether it did, so the caller can fall back to an explicit
+    disarm rather than treating the timeout as a failure.
+    """
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        if not ctrl.get_telemetry().armed:
+            return True
+        time.sleep(0.2)
+    return False
+
+
 def _wait_for_altitude(
     ctrl: Any,
     reached: Any,
@@ -732,15 +746,21 @@ def fly_takeoff_hover_land(takeoff_alt_m: float, hover_secs: float) -> None:
         # command and then ignores it — the vehicle sits armed on the ground
         # until "Disarmed by preflight inaction" ~10 s later.  MavlinkController
         # documents this and provides the mode switch; use it.
+        # The altitude has to be passed: AUTO_TAKEOFF has no altitude of its
+        # own and falls back to MIS_TAKEOFF_ALT, so an omitted argument climbs
+        # to PX4's 2.5 m default no matter what was asked for.
         print(f"Taking off to {takeoff_alt_m:.1f} m…")
-        ctrl.takeoff_via_mode(timeout_s=5.0)
+        ctrl.takeoff_via_mode(altitude_m=takeoff_alt_m, timeout_s=5.0)
 
         # An ack is not liftoff, so measure.  This used to fall through on
         # timeout, which let the pipeline print "Landed." and then
         # "✓ Flight pipeline complete" for a drone that never left the ground.
+        # Tight enough that the vehicle has to have levelled off: a ±1.5 m
+        # window is satisfied on the way up, so it reported "Reached 3.60 m"
+        # for a climb that was still in progress.
         alt = _wait_for_altitude(
             ctrl,
-            lambda a: abs(a - takeoff_alt_m) < 1.5,
+            lambda a: abs(a - takeoff_alt_m) < 0.5,
             timeout_s=30.0,
             what=f"climb to {takeoff_alt_m:.1f} m",
         )
@@ -759,8 +779,15 @@ def fly_takeoff_hover_land(takeoff_alt_m: float, hover_secs: float) -> None:
         )
         print("  Landed.")
 
+        # PX4 disarms itself once it declares the landing complete
+        # (COM_DISARM_LAND), and refuses any disarm before then with
+        # "Disarming denied: not landed" — which is what our own descent check
+        # raced, since 0.5 m above ground is still flying as far as PX4 is
+        # concerned.  So wait for it to stand down on its own, and only insist
+        # if it hasn't.
         print("Disarming…")
-        ctrl.disarm(timeout_s=5.0)
+        if not _wait_until_disarmed(ctrl, timeout_s=15.0):
+            ctrl.disarm(timeout_s=5.0)
     except MavlinkError as exc:
         raise RuntimeError(f"MAVLink flight failed: {exc}") from exc
     finally:

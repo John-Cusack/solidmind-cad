@@ -24,7 +24,7 @@ import os
 import re
 import struct
 import xml.etree.ElementTree as ET
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -34,6 +34,23 @@ from server.motion_models import JointType, Mechanism
 # Default density for mass estimation when only volume is available (kg/m^3).
 # PLA plastic — conservative for simulation stability.
 _DEFAULT_DENSITY_KG_M3 = 1250.0
+
+# Inertial properties for links that are pure coordinate frames: the
+# ground-clearance ``base_link`` we insert, and the fallback ``write_urdf``
+# uses for any link that reaches it with no mass.
+#
+# These MUST be emitted explicitly.  An omitted ``<inertial>`` does not mean
+# "massless": SDF defines the defaults as mass 1.0 kg and ixx=iyy=izz=1.0
+# kg·m² (``/usr/share/sdformat/1.10/inertial.sdf``).  A 1.4 kg quadrotor that
+# skipped this picked up a phantom body heavier than two thirds of the drone
+# and *sixty times* its roll inertia, welded to the chassis — it lifted off at
+# 0.80 throttle instead of the 0.569 its airframe was tuned for, then saturated
+# every motor and tumbled.  Nothing warned; the numbers were simply defaults.
+#
+# Small enough to be irrelevant next to any real part, large enough to keep the
+# mass matrix comfortably positive-definite for DART/ODE.
+_FRAME_LINK_MASS_KG = 1e-6
+_FRAME_LINK_INERTIA = (1e-9, 0.0, 0.0, 1e-9, 0.0, 1e-9)
 
 
 @dataclass(frozen=True, slots=True)
@@ -731,37 +748,53 @@ def build_sim_model(
             mapped_names.add(key2)
     unmapped = [e for k, e in manifest_by_name.items() if k not in mapped_names]
 
-    for link in links:
-        if link.is_root and link.mesh_path is None and unmapped:
-            # Try to find the chassis/body mesh among unmapped entries
-            best = None
-            for entry in unmapped:
-                name_lower = entry["name"].lower()
-                if "chassis" in name_lower or "body" in name_lower or "base" in name_lower:
-                    best = entry
-                    break
-            if best is None:
-                best = unmapped[0]  # last resort: first unmapped mesh
-            link.mesh_path = best.get("mesh_path")
-            plc = best.get("placement", {})
-            pos = plc.get("position", [0.0, 0.0, 0.0])
-            link.position = (pos[0], pos[1], pos[2])
-            quat = plc.get("rotation_quat", [1.0, 0.0, 0.0, 0.0])
-            link.rotation_quat = (quat[0], quat[1], quat[2], quat[3])
-            link_placement[link.name] = (link.position, link.rotation_quat)
-            # Compute inertia from bbox if available
-            bbox_mm = best.get("bbox_mm")
-            volume_mm3 = best.get("volume_mm3")
-            if link.inertia is None and bbox_mm is not None and len(bbox_mm) == 3:
-                mass = link.mass_kg
-                if mass is None and volume_mm3 is not None and volume_mm3 > 0:
-                    mass = (volume_mm3 * 1e-9) * _DEFAULT_DENSITY_KG_M3
-                    link.mass_kg = mass
-                if mass is not None and mass > 0:
-                    dx_m = bbox_mm[0] / 1000.0
-                    dy_m = bbox_mm[1] / 1000.0
-                    dz_m = bbox_mm[2] / 1000.0
-                    link.inertia = _box_inertia(mass, dx_m, dy_m, dz_m)
+    # SimLink is frozen, so the fallback builds a replacement rather than
+    # assigning through the original.  It used to assign, which raised
+    # FrozenInstanceError every time this branch was taken — and it is taken on
+    # a cold document, where FreeCAD's body names don't yet line up with the
+    # mechanism's part ids.  The whole export died there.
+    for index, link in enumerate(links):
+        if not (link.is_root and link.mesh_path is None and unmapped):
+            continue
+        # Try to find the chassis/body mesh among unmapped entries
+        best = None
+        for entry in unmapped:
+            name_lower = entry["name"].lower()
+            if "chassis" in name_lower or "body" in name_lower or "base" in name_lower:
+                best = entry
+                break
+        if best is None:
+            best = unmapped[0]  # last resort: first unmapped mesh
+
+        plc = best.get("placement", {})
+        pos = plc.get("position", [0.0, 0.0, 0.0])
+        quat = plc.get("rotation_quat", [1.0, 0.0, 0.0, 0.0])
+        position = (pos[0], pos[1], pos[2])
+        rotation_quat = (quat[0], quat[1], quat[2], quat[3])
+
+        # Compute inertia from bbox if available
+        mass = link.mass_kg
+        inertia = link.inertia
+        bbox_mm = best.get("bbox_mm")
+        volume_mm3 = best.get("volume_mm3")
+        if inertia is None and bbox_mm is not None and len(bbox_mm) == 3:
+            if mass is None and volume_mm3 is not None and volume_mm3 > 0:
+                mass = (volume_mm3 * 1e-9) * _DEFAULT_DENSITY_KG_M3
+            if mass is not None and mass > 0:
+                inertia = _box_inertia(
+                    mass, bbox_mm[0] / 1000.0, bbox_mm[1] / 1000.0, bbox_mm[2] / 1000.0
+                )
+
+        link = replace(
+            link,
+            mesh_path=best.get("mesh_path"),
+            position=position,
+            rotation_quat=rotation_quat,
+            mass_kg=mass,
+            inertia=inertia,
+        )
+        links[index] = link
+        link_placement[link.name] = (position, rotation_quat)
 
     # Index drives by joint_id for O(1) lookup (Bug 3)
     drives_by_joint: dict[str, Any] = {}
@@ -1192,8 +1225,15 @@ def build_sim_model(
     if ground_clearance_m is not None and ground_clearance_m > 0:
         root_link = next((link for link in links if link.is_root), None)
         if root_link is not None:
-            # Insert base_link as the new root (empty link, no mesh)
-            base_link = SimLink(name="base_link", is_root=True)
+            # Insert base_link as the new root: no mesh, and a negligible but
+            # *explicit* inertial — see _FRAME_LINK_MASS_KG for why leaving it
+            # off is not the same as leaving it out.
+            base_link = SimLink(
+                name="base_link",
+                is_root=True,
+                mass_kg=_FRAME_LINK_MASS_KG,
+                inertia=_FRAME_LINK_INERTIA,
+            )
 
             # Demote the original root link
             links = [
@@ -1300,19 +1340,20 @@ def write_urdf(
             c_mesh.set("filename", mesh_filename)
             c_mesh.set("scale", "0.001 0.001 0.001")  # FreeCAD mm -> URDF m
 
-        # Inertial (optional)
+        # Inertial — always emitted.  A link with no mass of its own still gets
+        # one, because leaving the element out hands the consumer's default
+        # body to the vehicle rather than nothing (see _FRAME_LINK_MASS_KG).
         if link.mass_kg is not None:
-            inertial = ET.SubElement(link_el, "inertial")
-            mass_el = ET.SubElement(inertial, "mass")
-            mass_el.set("value", _fmt(link.mass_kg))
-            if link.inertia is not None:
-                inertia_el = ET.SubElement(inertial, "inertia")
-                inertia_el.set("ixx", _fmt(link.inertia[0]))
-                inertia_el.set("ixy", _fmt(link.inertia[1]))
-                inertia_el.set("ixz", _fmt(link.inertia[2]))
-                inertia_el.set("iyy", _fmt(link.inertia[3]))
-                inertia_el.set("iyz", _fmt(link.inertia[4]))
-                inertia_el.set("izz", _fmt(link.inertia[5]))
+            mass, inertia = link.mass_kg, link.inertia
+        else:
+            mass, inertia = _FRAME_LINK_MASS_KG, _FRAME_LINK_INERTIA
+        inertial = ET.SubElement(link_el, "inertial")
+        ET.SubElement(inertial, "mass").set("value", _fmt(mass))
+        if inertia is not None:
+            inertia_el = ET.SubElement(inertial, "inertia")
+            keys = ("ixx", "ixy", "ixz", "iyy", "iyz", "izz")
+            for key, value in zip(keys, inertia, strict=True):
+                inertia_el.set(key, _fmt(value))
 
     for joint in model.joints:
         joint_el = ET.SubElement(robot, "joint", name=joint.name, type=joint.joint_type)
@@ -1523,10 +1564,29 @@ def validate_urdf(path: str) -> list[Finding]:
         has_collision = lel.find("collision") is not None
         has_inertial = lel.find("inertial") is not None
 
-        # Skip root/base links that are intentionally empty (e.g. base_link)
-        # A link is considered "content-bearing" if it has any geometry or is a
-        # child in a joint (i.e. not the root).
+        # Geometry is only expected of content-bearing links — those with any
+        # geometry already, or that are a child in a joint (i.e. not the root).
+        # An empty root frame like base_link legitimately has neither.
         is_content_bearing = has_visual or has_collision or lname in child_links
+
+        # <inertial>, by contrast, is expected of *every* link, root frames
+        # included.  Omitting it does not make a link massless — URDF and SDF
+        # both fill in a default body (SDF: 1 kg, unit inertia tensor), which
+        # silently becomes part of the vehicle.  This check used to skip
+        # non-content-bearing links, and that exemption is exactly how a 1 kg
+        # phantom rode along on every drone we exported.
+        if not has_inertial:
+            findings.append(
+                Finding(
+                    rule_id="urdf.missing_inertial",
+                    severity=Severity.WARN,
+                    message=(
+                        f"Link '{lname}' has no <inertial> element — it will be "
+                        "given the format's default mass and inertia, not zero"
+                    ),
+                    field=f"link/{lname}/inertial",
+                )
+            )
 
         if is_content_bearing:
             if not has_visual:
@@ -1545,15 +1605,6 @@ def validate_urdf(path: str) -> list[Finding]:
                         severity=Severity.WARN,
                         message=f"Link '{lname}' has no <collision> element",
                         field=f"link/{lname}/collision",
-                    )
-                )
-            if not has_inertial:
-                findings.append(
-                    Finding(
-                        rule_id="urdf.missing_inertial",
-                        severity=Severity.WARN,
-                        message=f"Link '{lname}' has no <inertial> element",
-                        field=f"link/{lname}/inertial",
                     )
                 )
 

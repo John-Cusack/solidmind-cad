@@ -1108,6 +1108,60 @@ class TestWriteUrdf(unittest.TestCase):
         self.assertEqual(inertia.attrib["izz"], "0.03")
 
 
+class TestUnmappedRootMeshFallback(unittest.TestCase):
+    """The root link picks up its mesh when body names don't match part ids.
+
+    This is the cold-document path: FreeCAD's body names have not yet been
+    aligned with the mechanism's part ids, so the root link comes out with no
+    mesh and the fallback below has to claim one. It used to assign through a
+    frozen SimLink, so reaching it raised FrozenInstanceError and killed the
+    whole export.
+    """
+
+    def test_root_link_adopts_the_unmapped_mesh(self) -> None:
+        mechanism = Mechanism(
+            name="drone",
+            parts=(
+                PartNode(id="chassis", body_name="chassis", is_ground=True),
+                PartNode(id="rotor", body_name="rotor", mass_kg=0.05),
+            ),
+            joints=(
+                JointEdge(
+                    id="spin",
+                    joint_type=JointType.REVOLUTE,
+                    parent_part="chassis",
+                    child_part="rotor",
+                    origin=(100.0, 0.0, 0.0),
+                ),
+            ),
+            drives=(),
+        )
+        manifest = [
+            {
+                # Deliberately not "chassis": this is the mismatch.
+                "name": "Body_Chassis_001",
+                "mesh_path": "/m/chassis.stl",
+                "placement": {"position": [1.0, 2.0, 3.0], "rotation_quat": [1, 0, 0, 0]},
+                "bbox_mm": [200, 200, 20],
+                "volume_mm3": 800000.0,
+            },
+            {
+                "name": "rotor",
+                "mesh_path": "/m/rotor.stl",
+                "placement": {"position": [100, 0, 0], "rotation_quat": [1, 0, 0, 0]},
+                "bbox_mm": [190, 20, 3],
+            },
+        ]
+
+        model = build_sim_model(mechanism, manifest)
+
+        root = next(lk for lk in model.links if lk.is_root)
+        self.assertEqual(root.mesh_path, "/m/chassis.stl")
+        self.assertEqual(root.position, (1.0, 2.0, 3.0))
+        self.assertIsNotNone(root.mass_kg, "mass should be estimated from the adopted volume")
+        self.assertIsNotNone(root.inertia, "inertia should be derived from the adopted bbox")
+
+
 class TestGroundClearance(unittest.TestCase):
     """Ground clearance: base_link insertion when ground_clearance_m is set."""
 
@@ -1207,6 +1261,72 @@ class TestGroundClearance(unittest.TestCase):
         self.assertEqual(joints[0].attrib["type"], "fixed")
         origin = joints[0].find("origin")
         self.assertIn("0.125", origin.attrib["xyz"])
+
+    def test_base_link_declares_a_negligible_mass(self) -> None:
+        """The frame link must state its (near-zero) mass, not leave it out.
+
+        An absent mass is not zero mass: SDF reads a missing ``<inertial>`` as
+        1 kg with a unit inertia tensor, which on a 1.4 kg quadrotor is a
+        phantom heavier than the payload and 60x its roll inertia.
+        """
+        model = build_sim_model(
+            self._make_mechanism(),
+            self._make_manifest(),
+            ground_clearance_m=0.125,
+        )
+        base = model.links[0]
+        self.assertEqual(base.name, "base_link")
+        self.assertIsNotNone(base.mass_kg)
+        self.assertGreater(base.mass_kg, 0.0)
+        self.assertLess(base.mass_kg, 1e-3)
+        self.assertIsNotNone(base.inertia)
+        for moment in (base.inertia[0], base.inertia[3], base.inertia[5]):
+            self.assertGreater(moment, 0.0)
+            self.assertLess(moment, 1e-6)
+
+    def test_urdf_frame_link_carries_an_inertial(self) -> None:
+        """The emitted URDF spells out base_link's inertial rather than omitting it."""
+        model = build_sim_model(
+            self._make_mechanism(),
+            self._make_manifest(),
+            ground_clearance_m=0.125,
+        )
+        with tempfile.NamedTemporaryFile(suffix=".urdf", delete=False) as f:
+            path = f.name
+        write_urdf(model, path)
+
+        base = ET.parse(path).getroot().findall("link")[0]
+        self.assertEqual(base.attrib["name"], "base_link")
+        inertial = base.find("inertial")
+        self.assertIsNotNone(inertial, "base_link emitted without <inertial>")
+        self.assertLess(float(inertial.find("mass").attrib["value"]), 1e-3)
+        self.assertIsNotNone(inertial.find("inertia"))
+
+    def test_validator_flags_a_link_with_no_inertial(self) -> None:
+        """A frame link with no <inertial> is reported, root or not."""
+        urdf = (
+            '<robot name="r">'
+            '<link name="base_link"/>'
+            '<link name="chassis">'
+            '<visual><geometry><box size="1 1 1"/></geometry></visual>'
+            '<collision><geometry><box size="1 1 1"/></geometry></collision>'
+            '<inertial><mass value="1.0"/>'
+            '<inertia ixx="1" ixy="0" ixz="0" iyy="1" iyz="0" izz="1"/></inertial>'
+            "</link>"
+            '<joint name="j" type="fixed">'
+            '<parent link="base_link"/><child link="chassis"/></joint>'
+            "</robot>"
+        )
+        with tempfile.NamedTemporaryFile("w", suffix=".urdf", delete=False) as f:
+            f.write(urdf)
+            path = f.name
+
+        flagged = [
+            f
+            for f in validate_urdf(path)
+            if f.rule_id == "urdf.missing_inertial" and "base_link" in f.message
+        ]
+        self.assertEqual(len(flagged), 1, "base_link's missing <inertial> went unreported")
 
     def test_zero_clearance_no_base_link(self) -> None:
         """ground_clearance_m=0 doesn't add base_link."""

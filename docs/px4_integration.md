@@ -378,6 +378,56 @@ hasn't converged — wait 5-10 seconds for sensors to settle, then retry.
 GPS lock is required; SITL provides it instantly but if it isn't,
 check `commander preflight_check` in the PX4 console.
 
+### Drone lifts off, then tumbles a few seconds later
+
+`Preflight Fail: Attitude failure (roll)` mid-flight is not a preflight
+problem — it is PX4's `FailureDetector` reporting that the vehicle actually
+exceeded `FD_FAIL_R` (60° by default). Read it as "the controller lost the
+aircraft", and suspect the model's mass properties before the gains.
+
+The tell is hover throttle. Compare what the vehicle actually hovers at
+against the `MPC_THR_HOVER` its airframe was generated with:
+
+```bash
+# The four motor commands in a steady hover
+python3 - <<'PY'
+from pyulog import ULog
+u = ULog('<newest>.ulg')
+mot = {x.name: x for x in u.data_list}['actuator_motors'].data
+print([round(mot[f'control[{i}]'][-200], 3) for i in range(4)])
+PY
+
+grep MPC_THR_HOVER ~/repos/PX4-Autopilot/ROMFS/px4fmu_common/init.d-posix/airframes/<id>_gz_<model>
+```
+
+They should agree to within a couple of percent — the generator derives the
+one from the same mass that produced the other. If the vehicle hovers
+*higher* than its airframe expects, the SDF is heavier than the manifest, and
+the usual reason is a link with no `<inertial>`:
+
+```bash
+python3 -c "
+import xml.etree.ElementTree as ET
+for lk in ET.parse('model.sdf').getroot().find('model').findall('link'):
+    i = lk.find('inertial')
+    print(lk.get('name'), 'MISSING <inertial>' if i is None else i.findtext('mass'))"
+```
+
+An omitted `<inertial>` is not a massless link. SDF's defaults are **1 kg and
+a unit inertia tensor** (`/usr/share/sdformat/1.10/inertial.sdf`), so a frame
+link that leaves it out welds a phantom body to the airframe — on a 1.4 kg
+quadrotor, 71% of its mass and sixty times its roll inertia. The vehicle then
+has roughly a sixtieth of the roll authority its gains assume: it lifts off
+fine, drifts, saturates all four motors trying to correct, and rolls over.
+
+### Takeoff climbs to 2.5 m regardless of the altitude requested
+
+`Using default takeoff altitude: 2.50 m` in the PX4 log. AUTO_TAKEOFF has no
+altitude of its own; with no mission item it uses `MIS_TAKEOFF_ALT`. Pass
+`altitude_m=` to `MavlinkController.takeoff_via_mode`, which sets that
+parameter before switching mode. `MAV_CMD_NAV_TAKEOFF`'s param7 does not work
+here — PX4 v1.17 acks that command and ignores it.
+
 ### Multiple gz sim worlds running
 
 PX4 does not start a Gazebo server if one is already running: `px4-rc.gzsim`
