@@ -33,7 +33,7 @@ def _handle_sigterm(signum: int, frame: Any) -> None:
     _CANCELLED = True
 
 
-def _build_coarse_variants(study: Study) -> list[Variant]:
+def build_coarse_variants(study: Study) -> list[Variant]:
     """Build cartesian product of coarse variable expansions."""
     names: list[str] = []
     value_lists: list[list[Any]] = []
@@ -53,7 +53,7 @@ def _build_coarse_variants(study: Study) -> list[Variant]:
     return variants
 
 
-def _build_refined_variants(study: Study, center_params: dict[str, Any]) -> list[Variant]:
+def build_refined_variants(study: Study, center_params: dict[str, Any]) -> list[Variant]:
     """Build refined grid around center_params."""
     names: list[str] = []
     value_lists: list[list[Any]] = []
@@ -99,7 +99,7 @@ def _evaluate_variant(
     variant.solver_time_s = round(time.monotonic() - t0, 4)
 
 
-def _satisfies_constraints(
+def satisfies_constraints(
     variant: Variant,
     study: Study,
 ) -> bool:
@@ -115,9 +115,9 @@ def _satisfies_constraints(
     return True
 
 
-def _rank_variants(variants: list[Variant], study: Study) -> list[Variant]:
+def rank_variants(variants: list[Variant], study: Study) -> list[Variant]:
     """Rank variants by primary metric, filtering by constraints."""
-    feasible = [v for v in variants if v.status == "done" and _satisfies_constraints(v, study)]
+    feasible = [v for v in variants if v.status == "done" and satisfies_constraints(v, study)]
     metric = study.objective.primary_metric
     reverse = study.objective.direction == "maximize"
     return sorted(
@@ -125,6 +125,14 @@ def _rank_variants(variants: list[Variant], study: Study) -> list[Variant]:
         key=lambda v: v.metrics.get(metric, float("-inf") if reverse else float("inf")),
         reverse=reverse,
     )
+
+
+# Backward-compatible aliases (the helpers were private before the driver seam
+# made them shared with server/study_drivers.py).
+_build_coarse_variants = build_coarse_variants
+_build_refined_variants = build_refined_variants
+_rank_variants = rank_variants
+_satisfies_constraints = satisfies_constraints
 
 
 def run_study(study_id: str, *, root: Path | None = None) -> None:
@@ -137,7 +145,7 @@ def run_study(study_id: str, *, root: Path | None = None) -> None:
 
     # --- Phase 1: Coarse sweep ---
     study.status = StudyStatus.RUNNING_COARSE
-    study.coarse_variants = _build_coarse_variants(study)
+    study.coarse_variants = build_coarse_variants(study)
     save_study(study, root=root)
 
     for variant in study.coarse_variants:
@@ -152,7 +160,7 @@ def run_study(study_id: str, *, root: Path | None = None) -> None:
     save_study(study, root=root)
 
     # Find best coarse result
-    ranked_coarse = _rank_variants(study.coarse_variants, study)
+    ranked_coarse = rank_variants(study.coarse_variants, study)
     if not ranked_coarse:
         study.status = StudyStatus.FAILED
         study.error = "No feasible coarse variants found"
@@ -163,7 +171,7 @@ def run_study(study_id: str, *, root: Path | None = None) -> None:
 
     # --- Phase 2: Refined sweep ---
     study.status = StudyStatus.RUNNING_REFINED
-    study.refined_variants = _build_refined_variants(study, best_coarse.params)
+    study.refined_variants = build_refined_variants(study, best_coarse.params)
     save_study(study, root=root)
 
     for variant in study.refined_variants:
@@ -176,7 +184,7 @@ def run_study(study_id: str, *, root: Path | None = None) -> None:
 
     # --- Rank all variants ---
     all_variants = study.coarse_variants + study.refined_variants
-    ranked = _rank_variants(all_variants, study)
+    ranked = rank_variants(all_variants, study)
     if ranked:
         study.best_variant_id = ranked[0].variant_id
 
@@ -201,6 +209,14 @@ def main(argv: list[str] | None = None) -> None:
     signal.signal(signal.SIGTERM, _handle_sigterm)
 
     try:
+        study = load_study(args.study_id, root=args.root)
+        if study.driver:
+            # Design-graph driver mode: durable job + evaluator subprocesses.
+            # Same spawn argv as legacy studies; dispatch is data-driven.
+            from server.study_driver_runner import run_driver_study  # noqa: PLC0415
+
+            run_driver_study(args.study_id, root=args.root)
+            return
         run_study(args.study_id, root=args.root)
     except Exception:
         log.exception("Study %s failed", args.study_id)

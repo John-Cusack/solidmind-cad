@@ -11,6 +11,10 @@ import sys
 import time
 from typing import Any
 
+from server import artifact_store, jobs
+from server.dg_binding import Binding, BindingError, validate_bindings
+from server.dg_store import DesignGraphError, load_revision
+from server.study_drivers import DRIVERS
 from server.study_models import (
     DesignVariable,
     ObjectiveConfig,
@@ -35,6 +39,54 @@ def _error_result(code: str, message: str) -> dict[str, Any]:
     return {"ok": False, "error": {"code": code, "message": message}}
 
 
+def _probe_value(var: DesignVariable) -> Any:
+    """A representative value for create-time binding validation."""
+    if var.var_type == "categorical":
+        return var.categories[0] if var.categories else ""
+    if var.min_val is not None:
+        return var.min_val
+    if var.pinned_values:
+        return var.pinned_values[0]
+    return 0.0
+
+
+def _validate_driver_mode(
+    driver: str,
+    revision: str | None,
+    dvars: list[DesignVariable],
+) -> dict[str, Any] | str:
+    """Driver-mode create checks. Returns the resolved revision id, or an
+    error-envelope dict."""
+    if driver not in DRIVERS:
+        return _error_result(
+            "INVALID_INPUT", f"Unknown driver {driver!r}; expected one of {sorted(DRIVERS)}"
+        )
+    if not revision:
+        return _error_result("INVALID_INPUT", "Driver-mode studies require a revision")
+    missing = [v.name for v in dvars if v.path is None]
+    if missing:
+        return _error_result(
+            "INVALID_INPUT", f"Driver-mode variables need a binding path: {missing}"
+        )
+    try:
+        resolved = artifact_store.resolve(revision)
+        structure, params, _manifest = load_revision(resolved)
+    except (artifact_store.ArtifactError, DesignGraphError) as exc:
+        return _error_result("NOT_FOUND", f"Revision {revision!r}: {exc}")
+
+    # Layer-1 binding validation at create time — fail fast; the evaluator
+    # re-checks authoritatively at run time.
+    try:
+        validate_bindings(
+            structure,
+            params,
+            [Binding(v.path, _probe_value(v)) for v in dvars if v.path is not None],
+        )
+    except BindingError as exc:
+        return _error_result(exc.code, str(exc))
+    return resolved
+
+
 def study_create(
     name: str,
     variables: list[dict[str, Any]],
@@ -42,6 +94,10 @@ def study_create(
     objective: dict[str, Any],
     fixed_params: dict[str, Any] | None = None,
     geometry_script: str | None = None,
+    driver: str | None = None,
+    revision: str | None = None,
+    scenario: str | None = None,
+    models: list[str] | None = None,
 ) -> dict[str, Any]:
     """Define a new parametric study. Returns study_id and execution plan.
 
@@ -78,20 +134,30 @@ def study_create(
     except (KeyError, TypeError) as exc:
         return _error_result("INVALID_INPUT", f"Invalid objective config: {exc}")
 
-    # Validate solver availability
-    try:
-        s = get_solver(solver_cfg.solver_type)
-    except KeyError as exc:
-        return _error_result("UNKNOWN_SOLVER", str(exc))
+    resolved_revision: str | None = None
+    if driver is not None:
+        outcome = _validate_driver_mode(driver, revision, dvars)
+        if isinstance(outcome, dict):
+            return outcome
+        resolved_revision = outcome
+        est_per_variant = 1.0
+        pipeline_desc = "design-graph evaluator (analytic tier)"
+    else:
+        # Legacy solver mode: validate solver availability and params.
+        try:
+            s = get_solver(solver_cfg.solver_type)
+        except KeyError as exc:
+            return _error_result("UNKNOWN_SOLVER", str(exc))
 
-    # Validate params against solver
-    errors = s.validate_params(
-        params={},
-        fixed=fixed_params or {},
-        config_params=solver_cfg.params,
-    )
-    if errors:
-        return _error_result("SOLVER_VALIDATION", "; ".join(errors))
+        errors = s.validate_params(
+            params={},
+            fixed=fixed_params or {},
+            config_params=solver_cfg.params,
+        )
+        if errors:
+            return _error_result("SOLVER_VALIDATION", "; ".join(errors))
+        est_per_variant = s.estimate_per_variant_s(solver_cfg.params)
+        pipeline_desc = s.describe_pipeline()
 
     study = Study(
         id=Study.new_id(),
@@ -100,6 +166,10 @@ def study_create(
         solver=solver_cfg,
         objective=obj_cfg,
         fixed_params=fixed_params or {},
+        driver=driver,
+        revision=resolved_revision,
+        scenario=scenario,
+        models=models,
     )
 
     # Save study first to create the directory
@@ -133,7 +203,6 @@ def study_create(
         refined_count *= r
 
     # Time estimates
-    est_per_variant = s.estimate_per_variant_s(solver_cfg.params)
     coarse_time_s = coarse_count * est_per_variant
     refined_time_s = refined_count * est_per_variant
     total_time_s = coarse_time_s + refined_time_s
@@ -150,7 +219,8 @@ def study_create(
         "study_id": study.id,
         "execution_plan": {
             "solver": solver_cfg.solver_type,
-            "pipeline_per_variant": s.describe_pipeline(),
+            **({"driver": driver} if driver is not None else {}),
+            "pipeline_per_variant": pipeline_desc,
             "phase_1_coarse": {
                 "variant_count": coarse_count,
                 "est_per_variant_s": est_per_variant,
@@ -281,6 +351,30 @@ def study_status(study_id: str) -> dict[str, Any]:
         result["error"] = study.error
     if study.pid is not None:
         result["pid"] = study.pid
+
+    # Driver-mode studies carry a durable job record; report runner liveness
+    # and recover a study whose runner died (re-running is cheap — completed
+    # evaluations replay from the result cache).
+    if study.job_id is not None:
+        try:
+            job = jobs.load_job(study.job_id)
+        except jobs.JobError:
+            job = None
+        if job is not None:
+            alive = jobs.is_alive(job)
+            result["job_id"] = study.job_id
+            result["runner_alive"] = alive
+            running_states = (StudyStatus.RUNNING_COARSE, StudyStatus.RUNNING_REFINED)
+            if not alive and job.status is jobs.JobStatus.RUNNING:
+                jobs.finish(study.job_id, jobs.JobStatus.FAILED, error="orphaned")
+            if not alive and study.status in running_states:
+                study.status = StudyStatus.FAILED
+                study.error = (
+                    "runner died — re-run to resume (completed evaluations replay from cache)"
+                )
+                save_study(study)
+                result["status"] = study.status.value
+                result["error"] = study.error
     return result
 
 
@@ -335,6 +429,23 @@ def study_cancel(study_id: str) -> dict[str, Any]:
         return _error_result("NOT_FOUND", f"Study {study_id!r} not found")
 
     study = load_study(study_id)
+
+    # Driver-mode: the cancel flag reaches the runner even between signals,
+    # and request_cancel only signals a PID it has verified is still ours.
+    if study.job_id is not None:
+        try:
+            jobs.request_cancel(study.job_id)
+        except jobs.JobError:
+            pass
+        else:
+            return {
+                "ok": True,
+                "study_id": study_id,
+                "signal_sent": "SIGTERM",
+                "job_id": study.job_id,
+                "pid": study.pid,
+            }
+
     if study.pid is None:
         return _error_result("NO_PROCESS", "Study has no runner PID recorded")
 
