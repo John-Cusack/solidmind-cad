@@ -228,6 +228,11 @@ from server.tools_design import (
     design_update_part,
     design_verify_build,
 )
+from server.tools_dgraph import (
+    dgraph_get_revision,
+    dgraph_import_brief,
+    dgraph_list_revisions,
+)
 from server.tools_fastener import cad_fastener_spec
 from server.tools_fastener_build import cad_bolt, cad_find_holes, cad_nut
 from server.tools_geometry import (
@@ -3014,6 +3019,14 @@ def _study_tool_list() -> list[dict[str, Any]]:
                                 "fine_step": {"type": "number"},
                                 "categories": {"type": "array", "items": {"type": "string"}},
                                 "pinned_values": {"type": "array", "items": {"type": "number"}},
+                                "path": {
+                                    "type": "string",
+                                    "description": (
+                                        "RFC 6901 binding path into the design-graph params doc "
+                                        "(required for driver-mode studies), e.g. "
+                                        "/parts/latch_sear/specs/fillet_mm"
+                                    ),
+                                },
                             },
                             "required": ["name", "var_type"],
                         },
@@ -3024,7 +3037,7 @@ def _study_tool_list() -> list[dict[str, Any]]:
                         "properties": {
                             "solver_type": {
                                 "type": "string",
-                                "enum": ["mock", "bemt_xfoil", "openfoam", "chrono"],
+                                "enum": ["mock", "bemt_xfoil", "openfoam", "chrono", "evaluator"],
                             },
                             "params": {"type": "object"},
                             "timeout_s": {"type": "number"},
@@ -3054,6 +3067,28 @@ def _study_tool_list() -> list[dict[str, Any]]:
                             "Script reads params JSON from sys.argv[1], exports STL to sys.argv[2]. "
                             "Runs in FreeCAD headless mode (FreeCADCmd)."
                         ),
+                    },
+                    "driver": {
+                        "type": "string",
+                        "enum": ["grid", "dakota"],
+                        "description": (
+                            "Design-graph driver mode: search strategy driving the evaluator CLI. "
+                            "Requires 'revision' and a binding 'path' on every variable; "
+                            "use solver_type 'evaluator'."
+                        ),
+                    },
+                    "revision": {
+                        "type": "string",
+                        "description": "Design-graph revision id (or ref name) to evaluate",
+                    },
+                    "scenario": {
+                        "type": "string",
+                        "description": "Evaluation scenario (driver mode), e.g. latch_hold / latch_catch",
+                    },
+                    "models": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Evaluator stages to run (driver mode), e.g. ['analytic_latch']",
                     },
                 },
                 "required": ["name", "variables", "solver", "objective"],
@@ -3137,6 +3172,59 @@ def _study_tool_list() -> list[dict[str, Any]]:
                     "variant_id": {"type": "string", "description": "Variant ID"},
                 },
                 "required": ["study_id", "variant_id"],
+                "additionalProperties": False,
+            },
+        },
+    ]
+
+
+def _dgraph_tool_list() -> list[dict[str, Any]]:
+    """Design-graph tools (content-addressed revisions for driver-mode studies)."""
+    return [
+        {
+            "name": "dgraph.import_brief",
+            "description": (
+                "Import a design.brief/v1 JSON file as design-graph revision zero. "
+                "Returns the content-addressed revision_id used by driver-mode studies "
+                "(study.create with driver + revision + per-variable binding paths)."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "brief_path": {
+                        "type": "string",
+                        "description": "Path to a design.brief/v1 JSON file",
+                    },
+                },
+                "required": ["brief_path"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "dgraph.get_revision",
+            "description": (
+                "Inspect a design-graph revision: manifest parent, structure summary "
+                "(components, interfaces, materials, declared parameter paths), and the "
+                "full params document."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "revision": {
+                        "type": "string",
+                        "description": "Revision id (sha256) or dg_revisions ref name",
+                    },
+                },
+                "required": ["revision"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "dgraph.list_revisions",
+            "description": "List all committed design-graph revisions (id, parent, created_at, meta).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {},
                 "additionalProperties": False,
             },
         },
@@ -5233,6 +5321,7 @@ def _tool_list() -> list[dict[str, Any]]:
         + _knowledge_tool_list()
         + _geometry_tool_list()
         + _study_tool_list()
+        + _dgraph_tool_list()
         + _motion_tool_list()
         + _rl_tool_list()
         + _design_tool_list()
@@ -5371,6 +5460,12 @@ _STUDY_DISPATCH: dict[str, Any] = {
     "study.get_variant": study_get_variant,
 }
 
+_DGRAPH_DISPATCH: dict[str, Any] = {
+    "dgraph.import_brief": dgraph_import_brief,
+    "dgraph.get_revision": dgraph_get_revision,
+    "dgraph.list_revisions": dgraph_list_revisions,
+}
+
 _MOTION_DISPATCH: dict[str, Any] = {
     "motion.define_mechanism": motion_define_mechanism,
     "motion.list_mechanisms": motion_list_mechanisms,
@@ -5454,6 +5549,7 @@ def _call_tool(name: str, arguments: dict[str, Any]) -> Any:
         or _KNOWLEDGE_DISPATCH.get(name)
         or _GEOMETRY_DISPATCH.get(name)
         or _STUDY_DISPATCH.get(name)
+        or _DGRAPH_DISPATCH.get(name)
         or _MOTION_DISPATCH.get(name)
         or _RL_DISPATCH.get(name)
         or _DESIGN_DISPATCH.get(name)

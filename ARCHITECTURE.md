@@ -196,6 +196,111 @@ Solver registry currently includes:
 - `openfoam`: partial pipeline (geometry stage implemented; solve stage currently stubbed).
 - `chrono`: dynamic metrics via Chrono daemon.
 
+### 7.1 Design-Graph Spine (driver mode)
+
+The tranche-1 spine of `docs/target-architecture.md`: content-addressed
+artifacts, pure functions between them. A study created with `driver` set
+routes through this path instead of the legacy solver loop; the public
+`study.*` surface is unchanged.
+
+Documents (all hashed `sha256(jcs.canonicalize(doc))`, **no float rounding** —
+unlike `compute_gir_hash`'s precision-10 normalization, because the analytic
+tier's audit standard is bit-exact):
+
+- `dg.structure/v1` — components, interfaces, frames, materials, and a
+  `ParamSpec` (path/unit/kind/validity-domain/provenance) for every bindable
+  leaf. Shape, never values.
+- `dg.params/v1` — values at stable RFC 6901 paths; leaves are
+  `{"value", "unit"}` objects and bindings replace only `value`.
+- `dg.revision/v1` — `{structure_hash, params_hash, parent}`; the revision id
+  is the manifest's content hash.
+- `eval.request/v1` / `eval.result/v1` — the evaluator contract. The request
+  hash (cache key) includes environment identity and per-stage model
+  identities; result bodies carry **no timestamps** (timing lives in variants
+  and job records).
+- `eval.materialized/v1` — every requested stage's derived inputs; its hash is
+  the output fingerprint used by the layered binding check.
+
+Modules:
+
+- CAS: `server/artifact_store.py` (`artifacts/objects|refs|lineage`, atomic
+  tmp+rename, self-verifying reads), `server/env_identity.py`.
+- Design graph: `server/dg_models.py`, `server/dg_store.py`,
+  `server/dg_import.py` (brief importer; revision zero), `server/dg_binding.py`
+  (layer 1 = unknown/undeclared/type-mismatch binding → hard fail before
+  materialization; layer 2 = applied binding with unchanged materialized
+  fingerprint → `flags.unchanged_fingerprint`, a zero-sensitivity signal).
+- Evaluator CLI: `python -m server.evaluator <request> <result>`; exit codes
+  0 ok (incl. cache replay), 1 internal, 2 binding hard-fail, 3 invalid
+  request/revision, 4 model error. Stages (`server/eval_stages.py`) are
+  identified models (`analytic_latch/v1`) in tiers (analytic now; field/world
+  reserved).
+- Driver seam: `server/study_drivers.py` (`StudyDriver` ABC, `GridDriver`
+  reusing the legacy grid builders, `DakotaDriver` gated on the binary),
+  `server/dakota_io.py` (params.in/results.out codecs + the
+  `python -m server.dakota_io fork` analysis-driver bridge, proven against a
+  fake Dakota double).
+- Durable jobs: `server/jobs.py` (PID + `/proc` start-ticks identity, enforced
+  transitions, cancel flag file, `recover_stale`),
+  `server/study_driver_runner.py` (evaluator subprocesses, SIGTERM→wait→SIGKILL
+  cancellation that reaches in-flight children). Restart recovery is re-run +
+  cache replay: completed evaluations are cache hits, so a crashed sweep
+  resumes at ~zero cost.
+
+MCP surface: `dgraph.import_brief` / `dgraph.get_revision` /
+`dgraph.list_revisions`, plus optional `driver`/`revision`/`scenario`/`models`
+on `study.create` (with per-variable binding `path` and the `evaluator`
+solver sentinel).
+
+### 7.2 The Decision Gate (tranche 2)
+
+Machinery that tests the architecture's central claim — that an LLM earns its
+place by compiling open-world engineering knowledge into executable,
+validity-checked model edits — and can falsify it.
+
+**Model registry** (`server/model_registry.py`). Stages are built from named
+*terms*; a model-chain artifact (`dg.models/v1`) says which are enabled. A
+chain with a term ablated changes that stage's `identity`, which is part of
+the evaluation cache key, so an ablated run can never replay a full model's
+result. Terms carry `calibrated`; uncalibrated ones (literature
+parameterizations) are reported on every result they touch.
+
+**Second domain** (`server/acoustics.py`, `analytic_acoustic_bearing` stage,
+`server/dg_acoustic.py`). Knapp–Carter TDOA variance, Kolmogorov 5/3
+turbulence coherence, a Ziv–Zakai-style threshold/ambiguity blend (the CRLB is
+a *local* bound — bound-only models are optimistic exactly at the coverage
+boundary), and bearings-only GDOP fusion. Node placements live in the design
+graph, because placement is the design variable of a detection mesh.
+
+**Diagnosis** (`server/diagnose.py`). `diagnose(results, study)` — a
+deterministic checklist: optimum at a bound, flat objective, no-op bindings
+(a *cluster* of unchanged fingerprints, never a single one), validity-domain
+hits, infeasibility, mass evaluation failure. It runs before any LLM and is
+the baseline the LLM arm has to beat.
+
+**Prescription** (`server/prescribe.py`). Four legal action forms — `patch`,
+`request_measurement`, `escalate`, `no_action` — with Addendum A.1 gates:
+design graph and study variables/bounds free; model registry
+calibration-gated; study objectives/constraints and scenario
+human-approval-gated. `apply_action` executes patches into new artifact
+revisions; gated patches without approval are refused, never dropped.
+
+**Benchmark** (`server/benchmark.py`). Problems across both domains covering
+four defect classes plus no-defect controls, scored against the Addendum A.2
+answer key. The *missing mechanism* class is seeded by **ablating** a term
+from a working chain (so the restoring patch executes immediately) and the
+ablated term is withheld from the catalog arms can see, keeping it an
+open-vocabulary proposal rather than a menu lookup. Scoring separates the
+controls row so the **false-alarm rate** — the number the gate turns on — is
+visible. The checklist baseline is recorded, not assumed:
+
+    hit rate 0.25, false-alarm rate 0.00
+
+It catches the parameterization defect and is blind to topology, wrong
+objectives, and missing mechanisms — on the ablated-physics problem it
+recommends *widening the bound*, pushing further into the model's blind spot.
+That asymmetry is what the LLM arm has to beat.
+
 ## 8. Knowledge Subsystem
 
 Modules:

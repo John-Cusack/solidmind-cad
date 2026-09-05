@@ -226,6 +226,10 @@ me_knowledge/sim_changes_summary.md
 # Parametric study outputs
 studies/
 
+# Content-addressed artifact store + durable job records (design-graph spine)
+artifacts/
+jobs/
+
 # SolidMind local data (server logs, session state)
 .solidmind/
 

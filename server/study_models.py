@@ -36,6 +36,8 @@ class DesignVariable:
     fine_step: float | None = None
     categories: tuple[str, ...] = ()
     pinned_values: tuple[float, ...] = ()
+    # Design-graph driver mode: RFC 6901 binding path for this variable.
+    path: str | None = None
 
     def expand_coarse(self) -> list[float | str]:
         """Generate coarse sweep values for this variable."""
@@ -105,6 +107,8 @@ class DesignVariable:
             d["categories"] = list(self.categories)
         if self.pinned_values:
             d["pinned_values"] = list(self.pinned_values)
+        if self.path is not None:
+            d["path"] = self.path
         return d
 
     @classmethod
@@ -118,6 +122,7 @@ class DesignVariable:
             fine_step=d.get("fine_step"),
             categories=tuple(d.get("categories", ())),
             pinned_values=tuple(d.get("pinned_values", ())),
+            path=d.get("path"),
         )
 
 
@@ -195,6 +200,10 @@ class Variant:
     metrics: dict[str, float] = dc_field(default_factory=dict)
     solver_time_s: float = 0.0
     error: str | None = None
+    # Design-graph driver mode: content hash of the evaluation result artifact
+    # and evaluator flags (e.g. unchanged_fingerprint).
+    result_hash: str | None = None
+    flags: dict[str, Any] = dc_field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {
@@ -207,6 +216,10 @@ class Variant:
         }
         if self.error:
             d["error"] = self.error
+        if self.result_hash is not None:
+            d["result_hash"] = self.result_hash
+        if self.flags:
+            d["flags"] = self.flags
         return d
 
     @classmethod
@@ -219,6 +232,8 @@ class Variant:
             metrics=d.get("metrics", {}),
             solver_time_s=d.get("solver_time_s", 0.0),
             error=d.get("error"),
+            result_hash=d.get("result_hash"),
+            flags=d.get("flags", {}),
         )
 
 
@@ -240,6 +255,12 @@ class Study:
     error: str | None = None
     started_at: float | None = None  # time.time() when run started
     finished_at: float | None = None
+    # Design-graph driver mode (all None for legacy solver studies).
+    driver: str | None = None
+    revision: str | None = None
+    scenario: str | None = None
+    models: list[str] | None = None
+    job_id: str | None = None
 
     @staticmethod
     def new_id() -> str:
@@ -267,6 +288,16 @@ class Study:
             d["started_at"] = self.started_at
         if self.finished_at is not None:
             d["finished_at"] = self.finished_at
+        if self.driver is not None:
+            d["driver"] = self.driver
+        if self.revision is not None:
+            d["revision"] = self.revision
+        if self.scenario is not None:
+            d["scenario"] = self.scenario
+        if self.models is not None:
+            d["models"] = self.models
+        if self.job_id is not None:
+            d["job_id"] = self.job_id
         return d
 
     @classmethod
@@ -286,4 +317,9 @@ class Study:
             error=d.get("error"),
             started_at=d.get("started_at"),
             finished_at=d.get("finished_at"),
+            driver=d.get("driver"),
+            revision=d.get("revision"),
+            scenario=d.get("scenario"),
+            models=d.get("models"),
+            job_id=d.get("job_id"),
         )
