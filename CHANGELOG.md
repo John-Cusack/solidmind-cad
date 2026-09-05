@@ -7,6 +7,33 @@ and this project aims to follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- **Design-graph spine (target-architecture tranche 1).** Content-addressed
+  artifact store (`artifacts/`, RFC 8785 canonical bytes, self-verifying,
+  environment identity in every cache key), design-graph revisions
+  (structure/params/manifest documents; `design.brief/v1` importer makes the
+  foam-dart brief revision zero), layered binding checks (unknown binding
+  hard-fails before materialization; an applied binding that leaves the
+  materialized fingerprint unchanged flags as a zero-sensitivity signal),
+  a file-driven evaluator CLI (`python -m server.evaluator`) with tiered
+  stages and result caching, a `StudyDriver` seam behind the unchanged
+  `study.*` tools (grid driver now; Dakota file protocol proven against a
+  fake double, binary integration to follow), durable job records with
+  PID+start-ticks process identity and cancellation that reaches in-flight
+  evaluator children, and `dgraph.*` MCP tools. The architecture contract is
+  committed at `docs/target-architecture.md` (+ Addendum A).
+- **Decision-gate machinery (target-architecture tranche 2).** A model
+  registry whose chains are content-addressed artifacts, so ablating a physics
+  term changes the stage identity and therefore the evaluation cache key; a
+  second analytic domain (outdoor acoustic bearing: Knapp–Carter delay
+  variance, turbulence coherence loss, a Ziv–Zakai threshold blend, bearings-
+  only GDOP fusion) so the benchmark spans a domain where open-world knowledge
+  is the claimed moat; a deterministic diagnosis checklist; typed prescription
+  actions with the Addendum A.1 patch gates; and the seeded-defect benchmark
+  with the Addendum A.2 answer key, hidden-registry ablation seeding, and
+  confusion-matrix scoring that breaks out the false-alarm rate. The
+  deterministic baseline is measured at hit rate 0.25 / false-alarm rate 0.00.
+
 ### Fixed
 - **Every exported drone carried a phantom 1 kg body.** `export_sim_package`
   inserts a `base_link` frame when `ground_clearance_m` is set, and left its
