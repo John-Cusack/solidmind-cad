@@ -1,0 +1,11 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+#
+# CodeRabbit is not a CI step. During a review it reads GitHub Checks results
+# from .github/workflows/ci.yml and suggests fixes for failures. Checks still
+# running when it stops waiting are skipped; comment `@coderabbitai fix-ci`
+# once CI has failed to get suggestions for those.
+
+reviews:
+  tools:
+    github-checks:
+      enabled: true
