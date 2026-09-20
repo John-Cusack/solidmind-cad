@@ -8,6 +8,11 @@ and this project aims to follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- Cached constant-property tetrahedral heat conduction with a consistent-capacity
+  BDF1 step, energy/residual reporting, boundary response operators and bounded
+  sparse factor caches (`server.analysis_linear_thermal`). Uses the existing
+  `fea` and `fea-cpu` extras. This numerical utility does not establish mold
+  filling, sealing, contact-model adequacy or a working injection cycle.
 - **Design-graph spine (target-architecture tranche 1).** Content-addressed
   artifact store (`artifacts/`, RFC 8785 canonical bytes, self-verifying,
   environment identity in every cache key), design-graph revisions
