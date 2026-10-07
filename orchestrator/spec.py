@@ -56,6 +56,11 @@ class FailureCode(str, Enum):
     # file.  INTERFACE_DIM_MISMATCH is claimed-vs-spec; this one is
     # claimed-vs-measured.  Raised by orchestrator/measure.py.
     MEASUREMENT_DRIFT = "MEASUREMENT_DRIFT"
+    # VERIFICATION_FAILED: independent STEP verification was requested
+    # but could not be performed (e.g. STEP import failure), so there is
+    # no measured evidence. Raised by runner.validate_results instead of
+    # silently falling back to worker-claimed values.
+    VERIFICATION_FAILED = "VERIFICATION_FAILED"
     CLEARANCE_COLLISION = "CLEARANCE_COLLISION"
     ENVELOPE_VIOLATION = "ENVELOPE_VIOLATION"
     ME_CHECK_FAIL = "ME_CHECK_FAIL"

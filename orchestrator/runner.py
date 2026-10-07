@@ -299,7 +299,10 @@ def validate_results(
         2. Independent re-measurement via ``measure.measure_worker_step``
            if ``verify_measurements`` is True
         3. ``interface_actuals`` from the worker's metadata.json
-           (trust mode — labelled ``measurement_source="claimed"``)
+           (trust mode — labelled ``measurement_source="claimed"``),
+           used only when ``verify_measurements`` is False.  A requested
+           verification that fails yields no measured evidence and fails
+           the report instead of falling back to claims.
     """
     from orchestrator.spec import FailureCode, WorkerResult
     from orchestrator.validator import ValidationReport, validate_worker_result
@@ -337,6 +340,8 @@ def validate_results(
         worker_measurements: dict[str, dict[str, float]] = {}
         measurement_source = "unknown"
         drift_failure = False
+        verification_failed = False
+        verification_error: str | None = None
 
         # 1. Explicit measurements arg — used when a caller has already
         #    measured externally (e.g. unit-test harnesses).
@@ -372,8 +377,13 @@ def validate_results(
                         worker_id,
                         verification.error,
                     )
-                    measurement_source = "claimed"
-                    worker_measurements = claimed_actuals
+                    # Verification was requested but produced no measured
+                    # evidence. Do NOT fall back to worker claims here:
+                    # trust mode is an explicit verify_measurements=False
+                    # choice, never a silent downgrade. The report is
+                    # forced to fail below.
+                    verification_failed = True
+                    verification_error = verification.error
                 else:
                     # Use the orchestrator-measured values as authoritative.
                     # Strip None entries so validate_dimensions treats them
@@ -389,8 +399,16 @@ def validate_results(
                     if verification.bbox_measured_mm:
                         actual_bbox = verification.bbox_measured_mm
 
-        # 3. Trust mode — fall back to the worker's own claims.
-        if not worker_measurements and claimed_actuals:
+        # 3. Trust mode — fall back to the worker's own claims. This is
+        # an explicit verify_measurements=False choice only: when
+        # verification was requested, missing or failed measurement stays
+        # missing so the report fails instead of passing on claims.
+        if (
+            not verify_measurements
+            and not verification_failed
+            and not worker_measurements
+            and claimed_actuals
+        ):
             worker_measurements = claimed_actuals
             measurement_source = "claimed"
 
@@ -402,6 +420,19 @@ def validate_results(
             actual_mass_kg=actual_mass,
             measurement_source=measurement_source,
         )
+
+        # A requested verification that produced no measured evidence
+        # fails the report: there is nothing to pass on.
+        if verification_failed:
+            if FailureCode.VERIFICATION_FAILED not in report.failure_codes:
+                report.failure_codes.append(FailureCode.VERIFICATION_FAILED)
+            report.overall_pass = False
+            report.notes.append(
+                "STEP verification failed for "
+                f"{worker_id}: {verification_error}; independent measurement "
+                "unavailable — verification was requested but not achieved, "
+                "so worker-claimed values were not used."
+            )
 
         # Tag drift failures on top of whatever validate_worker_result
         # produced. INTERFACE_DIM_MISMATCH is about claimed-vs-spec

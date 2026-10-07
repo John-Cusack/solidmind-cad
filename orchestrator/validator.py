@@ -17,6 +17,7 @@ from orchestrator.spec import (
     FailureCode,
     MasterSpec,
     Subsystem,
+    SubsystemKind,
     WorkerResult,
 )
 
@@ -219,9 +220,17 @@ def validate_worker_result(
         measurement_source=measurement_source,
     )
 
-    # Dimension checks
-    if measurements:
-        report.dimension_checks = validate_dimensions(spec, sub, measurements)
+    # Dimension and mass checks are evaluated whenever there is any
+    # evidence to check. validate_dimensions marks unmeasured required
+    # checkpoints as failed and validate_mass fails a budget with no
+    # measured mass, so required evidence cannot pass by omission. With
+    # no evidence at all the checks stay empty so _compute_overall
+    # records "No checks performed — cannot verify compliance".
+    has_evidence = (
+        bool(measurements) or bool(actual_bbox_mm) or actual_mass_kg is not None
+    )
+    if has_evidence:
+        report.dimension_checks = validate_dimensions(spec, sub, measurements or {})
         for dc in report.dimension_checks:
             dc.source = measurement_source
         if measurement_source == "claimed":
@@ -233,11 +242,15 @@ def validate_worker_result(
     if actual_bbox_mm:
         report.envelope_check = validate_envelope(sub, actual_bbox_mm)
 
-    # Mass check
+    # Mass check — evaluated whenever there is evidence to check.
+    # validate_mass passes when there is no budget and fails when a
+    # budget exists but no mass was measured.
     report.mass_kg = actual_mass_kg
     report.mass_budget_kg = sub.mass_budget_kg
-    if actual_mass_kg is not None:
-        report.mass_ok, _ = validate_mass(sub, actual_mass_kg)
+    if has_evidence:
+        report.mass_ok, mass_msg = validate_mass(sub, actual_mass_kg)
+        if sub.mass_budget_kg is not None and actual_mass_kg is None:
+            report.notes.append(f"mass not measured: {mass_msg}")
 
     # Skeleton constraint checks
     skeleton_checks = validate_skeleton_constraints(spec, sub, actual_bbox_mm)
@@ -365,8 +378,21 @@ def check_gate_g5(
     spec: MasterSpec,
     reports: list[ValidationReport],
 ) -> tuple[bool, list[str]]:
-    """G5: All subsystems pass geometry + assembly validation."""
+    """G5: All subsystems pass geometry + assembly validation.
+
+    An empty report set never passes, and every GENERATED subsystem in
+    the spec must have a report: missing evidence fails the gate instead
+    of passing by omission. (CATALOG/STANDARD subsystems are purchased,
+    not worker-built, so they need no validation report.)
+    """
     issues: list[str] = []
+    if not reports:
+        issues.append("G5: no validation reports — empty report set cannot pass")
+        return False, issues
+    reported = {r.subsystem_name for r in reports}
+    for sub in spec.subsystems:
+        if sub.kind == SubsystemKind.GENERATED and sub.name not in reported:
+            issues.append(f"{sub.name}: missing validation report")
     for r in reports:
         if not r.overall_pass:
             codes = ", ".join(fc.value for fc in r.failure_codes)
