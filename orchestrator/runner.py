@@ -303,6 +303,11 @@ def validate_results(
            used only when ``verify_measurements`` is False.  A requested
            verification that fails yields no measured evidence and fails
            the report instead of falling back to claims.
+
+    The bounding box and mass are labelled per field via
+    ``bbox_source`` / ``mass_source``: the bbox is ``"orchestrator"``
+    only when the re-import produced a real (non-sentinel) bbox, and the
+    mass is always the worker's claim.
     """
     from orchestrator.spec import FailureCode, WorkerResult
     from orchestrator.validator import ValidationReport, validate_worker_result
@@ -336,6 +341,8 @@ def validate_results(
         claimed_actuals = metadata.get("interface_actuals", {}) if metadata else {}
         actual_bbox = metadata.get("claimed_bounding_box_mm") if metadata else None
         actual_mass = metadata.get("claimed_mass_kg") if metadata else None
+        bbox_source = "claimed" if actual_bbox else "unknown"
+        mass_source = "claimed" if actual_mass is not None else "unknown"
 
         worker_measurements: dict[str, dict[str, float]] = {}
         measurement_source = "unknown"
@@ -398,6 +405,7 @@ def validate_results(
                     # Prefer the measured bbox if available.
                     if verification.bbox_measured_mm:
                         actual_bbox = verification.bbox_measured_mm
+                        bbox_source = "orchestrator"
 
         # 3. Trust mode — fall back to the worker's own claims. This is
         # an explicit verify_measurements=False choice only: when
@@ -419,6 +427,8 @@ def validate_results(
             actual_bbox_mm=actual_bbox,
             actual_mass_kg=actual_mass,
             measurement_source=measurement_source,
+            bbox_source=bbox_source,
+            mass_source=mass_source,
         )
 
         # A requested verification that produced no measured evidence

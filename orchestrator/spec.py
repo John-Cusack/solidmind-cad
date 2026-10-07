@@ -59,7 +59,8 @@ class FailureCode(str, Enum):
     # VERIFICATION_FAILED: independent STEP verification was requested
     # but could not be performed (e.g. STEP import failure), so there is
     # no measured evidence. Raised by runner.validate_results instead of
-    # silently falling back to worker-claimed values.
+    # silently falling back to worker-claimed values, and by the
+    # validator when a mass budget exists but no mass was reported.
     VERIFICATION_FAILED = "VERIFICATION_FAILED"
     CLEARANCE_COLLISION = "CLEARANCE_COLLISION"
     ENVELOPE_VIOLATION = "ENVELOPE_VIOLATION"

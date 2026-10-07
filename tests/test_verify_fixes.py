@@ -131,6 +131,66 @@ class TestVerifyFailureBlocksSuccess(unittest.TestCase):
         self.assertTrue(report.overall_pass)
 
 
+class TestClaimedFieldsLabelledInVerifyMode(unittest.TestCase):
+    """Verify mode must label worker-claimed bbox/mass as claimed, per field."""
+
+    def _validate_with(self, verification: MeasurementVerification):
+        with tempfile.TemporaryDirectory() as td:
+            run = init_run("claimed-fields", run_dir=Path(td) / "run")
+            run.spec = _make_spec()
+            out = Path(build_worker_prompts(run)[0]["output_dir"])
+            _write_worker_output(out)
+            with patch(
+                "orchestrator.measure.verify_worker_measurements",
+                return_value=verification,
+            ):
+                reports = validate_results(run, verify_measurements=True)
+        self.assertEqual(len(reports), 1)
+        return reports[0]
+
+    def test_sentinel_bbox_falls_back_to_claimed_label(self) -> None:
+        report = self._validate_with(
+            MeasurementVerification(
+                step_load_ok=True,
+                bbox_measured_mm=[],
+                interface_actuals_measured={
+                    "ifc1": {"bore_dia": 8.0, "bore_depth": 15.0}
+                },
+            )
+        )
+        self.assertEqual(report.measurement_source, "orchestrator")
+        self.assertEqual(report.bbox_source, "claimed")
+        self.assertEqual(report.mass_source, "claimed")
+        self.assertEqual(report.envelope_check.actual_bbox_mm, [19, 19, 9])
+        self.assertTrue(
+            any("bounding box is worker-claimed" in n for n in report.notes),
+            f"notes must name the claimed bbox; got {report.notes}",
+        )
+        self.assertTrue(
+            any("mass is worker-claimed" in n for n in report.notes),
+            f"notes must name the claimed mass; got {report.notes}",
+        )
+        self.assertTrue(report.overall_pass)
+
+    def test_measured_bbox_labelled_orchestrator(self) -> None:
+        report = self._validate_with(
+            MeasurementVerification(
+                step_load_ok=True,
+                bbox_measured_mm=[19, 18, 9],
+                interface_actuals_measured={
+                    "ifc1": {"bore_dia": 8.0, "bore_depth": 15.0}
+                },
+            )
+        )
+        self.assertEqual(report.bbox_source, "orchestrator")
+        self.assertEqual(report.mass_source, "claimed")
+        self.assertEqual(report.envelope_check.actual_bbox_mm, [19, 18, 9])
+        self.assertFalse(
+            any("bounding box is worker-claimed" in n for n in report.notes)
+        )
+        self.assertTrue(report.overall_pass)
+
+
 class TestMissingRequiredChecksFail(unittest.TestCase):
     """R2: unmeasured required checks must fail, not pass by omission."""
 
@@ -151,6 +211,8 @@ class TestMissingRequiredChecksFail(unittest.TestCase):
         )
         self.assertFalse(report.mass_ok)
         self.assertIn(FailureCode.INTERFACE_DIM_MISMATCH, report.failure_codes)
+        self.assertIn(FailureCode.VERIFICATION_FAILED, report.failure_codes)
+        self.assertNotIn(FailureCode.MASS_OVER_BUDGET, report.failure_codes)
 
     def test_missing_mass_with_budget_fails(self) -> None:
         spec = _make_spec()
@@ -167,6 +229,20 @@ class TestMissingRequiredChecksFail(unittest.TestCase):
             "mass budget present but mass unmeasured → fail",
         )
         self.assertFalse(report.mass_ok)
+        self.assertEqual(report.failure_codes, [FailureCode.VERIFICATION_FAILED])
+
+    def test_mass_over_budget_keeps_over_budget_code(self) -> None:
+        spec = _make_spec()
+        result = WorkerResult(subsystem_name="gear", worker_id="gear_0")
+        report = validate_worker_result(
+            spec,
+            result,
+            measurements={"ifc1": {"bore_dia": 8.005, "bore_depth": 15.0}},
+            actual_bbox_mm=[19, 18, 9],
+            actual_mass_kg=0.1,
+        )
+        self.assertFalse(report.overall_pass)
+        self.assertEqual(report.failure_codes, [FailureCode.MASS_OVER_BUDGET])
 
     def test_zero_evidence_keeps_no_checks_note(self) -> None:
         """No evidence at all keeps the 'No checks performed' report."""

@@ -94,6 +94,8 @@ class ValidationReport:
     failure_codes: list[FailureCode] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
     measurement_source: str = "unknown"  # "orchestrator" | "claimed" | "unknown"
+    bbox_source: str = "unknown"  # "orchestrator" | "claimed" | "unknown"
+    mass_source: str = "unknown"  # "orchestrator" | "claimed" | "unknown"
     skeleton_checks: list[SkeletonCheck] = field(default_factory=list)
 
 
@@ -194,6 +196,8 @@ def validate_worker_result(
     actual_bbox_mm: list[float] | None = None,
     actual_mass_kg: float | None = None,
     measurement_source: str = "unknown",
+    bbox_source: str = "unknown",
+    mass_source: str = "unknown",
 ) -> ValidationReport:
     """Run full validation on a worker result.
 
@@ -205,6 +209,8 @@ def validate_worker_result(
         measurement_source: "orchestrator" if measurements come from
             orchestrator-side cad_measure_between, "claimed" if from
             worker metadata.json, "unknown" otherwise.
+        bbox_source: Same labels, for ``actual_bbox_mm``.
+        mass_source: Same labels, for ``actual_mass_kg``.
     """
     sub = spec.get_subsystem(result.subsystem_name)
     if sub is None:
@@ -218,7 +224,14 @@ def validate_worker_result(
         subsystem_name=result.subsystem_name,
         worker_id=result.worker_id,
         measurement_source=measurement_source,
+        bbox_source=bbox_source,
+        mass_source=mass_source,
     )
+    for label, source in (("bounding box", bbox_source), ("mass", mass_source)):
+        if source == "claimed":
+            report.notes.append(
+                f"WARNING: {label} is worker-claimed, not orchestrator-verified"
+            )
 
     # Dimension and mass checks are evaluated whenever there is any
     # evidence to check. validate_dimensions marks unmeasured required
@@ -288,8 +301,13 @@ def _compute_overall(report: ValidationReport) -> None:
 
     if not report.mass_ok:
         report.overall_pass = False
-        if FailureCode.MASS_OVER_BUDGET not in report.failure_codes:
-            report.failure_codes.append(FailureCode.MASS_OVER_BUDGET)
+        mass_code = (
+            FailureCode.VERIFICATION_FAILED
+            if report.mass_kg is None
+            else FailureCode.MASS_OVER_BUDGET
+        )
+        if mass_code not in report.failure_codes:
+            report.failure_codes.append(mass_code)
 
     for cc in report.clearance_checks:
         if not cc.passed:
