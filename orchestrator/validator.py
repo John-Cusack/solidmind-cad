@@ -233,9 +233,7 @@ def validate_worker_result(
     )
     for label, source in (("bounding box", bbox_source), ("mass", mass_source)):
         if source == "claimed":
-            report.notes.append(
-                f"WARNING: {label} is worker-claimed, not orchestrator-verified"
-            )
+            report.notes.append(f"WARNING: {label} is worker-claimed, not orchestrator-verified")
 
     # Dimension and mass checks are evaluated whenever there is any
     # evidence to check. validate_dimensions marks unmeasured required
@@ -243,9 +241,7 @@ def validate_worker_result(
     # measured mass, so required evidence cannot pass by omission. With
     # no evidence at all the checks stay empty so _compute_overall
     # records "No checks performed — cannot verify compliance".
-    has_evidence = (
-        bool(measurements) or bool(actual_bbox_mm) or actual_mass_kg is not None
-    )
+    has_evidence = bool(measurements) or bool(actual_bbox_mm) or actual_mass_kg is not None
     if has_evidence:
         report.dimension_checks = validate_dimensions(spec, sub, measurements or {})
         for dc in report.dimension_checks:

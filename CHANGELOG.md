@@ -105,6 +105,18 @@ and this project aims to follow [Semantic Versioning](https://semver.org/).
 - **Docs: `ss -ulnp | grep 14540` never showed what it claimed.** PX4 binds
   14580 and *sends to* 14540, so nothing is listening there until a ground
   station binds it.
+- **Orchestrator verify mode silently became trust mode.** When
+  `validate_results(verify_measurements=True)` could not re-import a worker's
+  STEP, it fell back to the worker's own `interface_actuals` and passed on them
+  with only a warning. A failed verification now fails the report with the new
+  `FailureCode.VERIFICATION_FAILED` (retried at `BUILDING`); trust mode is only
+  ever an explicit `verify_measurements=False`. Required checks no longer pass
+  by omission either: an unmeasured dimension checkpoint, mass budget,
+  envelope, or skeleton reserved-volume/keepout check fails as
+  `VERIFICATION_FAILED`, and G5 rejects an empty report set or any generated
+  subsystem without a report. Reports now label the bounding box and mass
+  separately (`bbox_source`, `mass_source`), and the release BOM marks a
+  worker-claimed mass `[claimed]` instead of `[measured]`.
 
 ### Added
 - `examples/quadrotor_camera_drone/sim_processes.py` — PX4/Gazebo process

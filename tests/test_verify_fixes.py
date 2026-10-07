@@ -151,9 +151,7 @@ class TestClaimedFieldsLabelledInVerifyMode(unittest.TestCase):
             MeasurementVerification(
                 step_load_ok=True,
                 bbox_measured_mm=[],
-                interface_actuals_measured={
-                    "ifc1": {"bore_dia": 8.0, "bore_depth": 15.0}
-                },
+                interface_actuals_measured={"ifc1": {"bore_dia": 8.0, "bore_depth": 15.0}},
             )
         )
         self.assertEqual(report.measurement_source, "orchestrator")
@@ -175,17 +173,13 @@ class TestClaimedFieldsLabelledInVerifyMode(unittest.TestCase):
             MeasurementVerification(
                 step_load_ok=True,
                 bbox_measured_mm=[19, 18, 9],
-                interface_actuals_measured={
-                    "ifc1": {"bore_dia": 8.0, "bore_depth": 15.0}
-                },
+                interface_actuals_measured={"ifc1": {"bore_dia": 8.0, "bore_depth": 15.0}},
             )
         )
         self.assertEqual(report.bbox_source, "orchestrator")
         self.assertEqual(report.mass_source, "claimed")
         self.assertEqual(report.envelope_check.actual_bbox_mm, [19, 18, 9])
-        self.assertFalse(
-            any("bounding box is worker-claimed" in n for n in report.notes)
-        )
+        self.assertFalse(any("bounding box is worker-claimed" in n for n in report.notes))
         self.assertTrue(report.overall_pass)
 
 
@@ -195,9 +189,7 @@ class TestMissingRequiredChecksFail(unittest.TestCase):
     def test_bbox_only_fails_with_required_bores_and_mass(self) -> None:
         spec = _make_spec()
         result = WorkerResult(subsystem_name="gear", worker_id="gear_0")
-        report = validate_worker_result(
-            spec, result, actual_bbox_mm=[19, 19, 9]
-        )
+        report = validate_worker_result(spec, result, actual_bbox_mm=[19, 19, 9])
         self.assertFalse(
             report.overall_pass,
             "required bore checkpoints and mass budget unmeasured → fail",
@@ -296,9 +288,7 @@ class TestUnmeasuredBboxChecksFail(unittest.TestCase):
                 return_value=MeasurementVerification(
                     step_load_ok=True,
                     bbox_measured_mm=[],
-                    interface_actuals_measured={
-                        "ifc1": {"bore_dia": 8.0, "bore_depth": 15.0}
-                    },
+                    interface_actuals_measured={"ifc1": {"bore_dia": 8.0, "bore_depth": 15.0}},
                 ),
             ):
                 reports = validate_results(run, verify_measurements=True)
