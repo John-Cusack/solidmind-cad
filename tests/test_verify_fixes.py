@@ -20,6 +20,7 @@ from unittest.mock import patch
 from orchestrator.measure import MeasurementVerification
 from orchestrator.runner import build_worker_prompts, init_run, validate_results
 from orchestrator.spec import (
+    AssemblySkeleton,
     FailureCode,
     MasterSpec,
     Subsystem,
@@ -33,20 +34,16 @@ from orchestrator.validator import (
 from tests.test_validator import _make_spec
 
 
-def _write_worker_output(output_dir: Path) -> None:
+def _write_worker_output(output_dir: Path, *, claim_bbox: bool = True) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     (output_dir / "gear.step").write_text("deliberately fake; failure injection")
-    (output_dir / "metadata.json").write_text(
-        json.dumps(
-            {
-                "claimed_bounding_box_mm": [19, 19, 9],
-                "claimed_mass_kg": 0.04,
-                "interface_actuals": {
-                    "ifc1": {"bore_dia": 8.0, "bore_depth": 15.0}
-                },
-            }
-        )
-    )
+    metadata: dict = {
+        "claimed_mass_kg": 0.04,
+        "interface_actuals": {"ifc1": {"bore_dia": 8.0, "bore_depth": 15.0}},
+    }
+    if claim_bbox:
+        metadata["claimed_bounding_box_mm"] = [19, 19, 9]
+    (output_dir / "metadata.json").write_text(json.dumps(metadata))
 
 
 def _make_two_subsystem_spec() -> MasterSpec:
@@ -283,6 +280,74 @@ class TestMeasuredDimensionMismatch(unittest.TestCase):
         )
         self.assertFalse(report.overall_pass)
         self.assertEqual(report.failure_codes, [FailureCode.INTERFACE_DIM_MISMATCH])
+
+
+class TestUnmeasuredBboxChecksFail(unittest.TestCase):
+    """R2: envelope and skeleton checks with no bbox fail as unmeasured."""
+
+    def test_no_bbox_fails_envelope_through_runner(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            run = init_run("no-bbox", run_dir=Path(td) / "run")
+            run.spec = _make_spec()
+            out = Path(build_worker_prompts(run)[0]["output_dir"])
+            _write_worker_output(out, claim_bbox=False)
+            with patch(
+                "orchestrator.measure.verify_worker_measurements",
+                return_value=MeasurementVerification(
+                    step_load_ok=True,
+                    bbox_measured_mm=[],
+                    interface_actuals_measured={
+                        "ifc1": {"bore_dia": 8.0, "bore_depth": 15.0}
+                    },
+                ),
+            ):
+                reports = validate_results(run, verify_measurements=True)
+            ok, _ = check_gate_g5(run.spec, reports)
+        self.assertEqual(len(reports), 1)
+        report = reports[0]
+        self.assertEqual(report.bbox_source, "unknown")
+        self.assertFalse(report.overall_pass)
+        self.assertIsNotNone(report.envelope_check)
+        self.assertFalse(report.envelope_check.passed)
+        self.assertEqual(report.failure_codes, [FailureCode.VERIFICATION_FAILED])
+        self.assertFalse(ok)
+
+    def test_no_bbox_fails_skeleton_checks(self) -> None:
+        spec = _make_spec()
+        spec.skeleton = AssemblySkeleton(
+            reserved_volumes={"gear": {"origin": [0, 0, 0], "size": [20, 20, 10]}},
+            keepout_zones=[{"name": "motor", "origin": [50, 50, 0], "size": [5, 5, 5]}],
+        )
+        report = validate_worker_result(
+            spec,
+            WorkerResult(subsystem_name="gear", worker_id="gear_0"),
+            measurements={"ifc1": {"bore_dia": 8.005, "bore_depth": 15.0}},
+            actual_mass_kg=0.04,
+        )
+        self.assertFalse(report.overall_pass)
+        self.assertEqual(
+            {(sc.check, sc.passed, sc.measured) for sc in report.skeleton_checks},
+            {("reserved_volume", False, False), ("keepout_zone", False, False)},
+        )
+        self.assertEqual(report.failure_codes, [FailureCode.VERIFICATION_FAILED])
+
+    def test_bbox_outside_envelope_and_volume_keeps_violation_codes(self) -> None:
+        spec = _make_spec()
+        spec.skeleton = AssemblySkeleton(
+            reserved_volumes={"gear": {"origin": [0, 0, 0], "size": [20, 20, 10]}},
+        )
+        report = validate_worker_result(
+            spec,
+            WorkerResult(subsystem_name="gear", worker_id="gear_0"),
+            measurements={"ifc1": {"bore_dia": 8.005, "bore_depth": 15.0}},
+            actual_bbox_mm=[25, 25, 15],
+            actual_mass_kg=0.04,
+        )
+        self.assertFalse(report.overall_pass)
+        self.assertEqual(
+            report.failure_codes,
+            [FailureCode.ENVELOPE_VIOLATION, FailureCode.SKELETON_CONFLICT],
+        )
 
 
 class TestGateG5ReportCompleteness(unittest.TestCase):

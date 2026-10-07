@@ -75,6 +75,7 @@ class SkeletonCheck:
     passed: bool = False
     error: str = ""
     keepout: str = ""  # name of keepout zone, if applicable
+    measured: bool = True  # False when no bbox existed to check against
 
 
 @dataclass(slots=True)
@@ -152,6 +153,9 @@ def validate_envelope(
     )
     if not subsystem.envelope_mm:
         check.passed = True
+        return check
+    if not actual_bbox_mm:
+        check.error = "Bounding box not measured"
         return check
     if len(actual_bbox_mm) < 3 or len(subsystem.envelope_mm) < 3:
         check.error = "Incomplete bounding box data"
@@ -251,9 +255,9 @@ def validate_worker_result(
                 "WARNING: measurements are worker-claimed, not orchestrator-verified"
             )
 
-    # Envelope check
-    if actual_bbox_mm:
-        report.envelope_check = validate_envelope(sub, actual_bbox_mm)
+    # Envelope check — a required envelope with no bbox fails as unmeasured.
+    if has_evidence and (actual_bbox_mm or sub.envelope_mm):
+        report.envelope_check = validate_envelope(sub, actual_bbox_mm or [])
 
     # Mass check — evaluated whenever there is evidence to check.
     # validate_mass passes when there is no budget and fails when a
@@ -266,8 +270,8 @@ def validate_worker_result(
             report.notes.append(f"mass not measured: {mass_msg}")
 
     # Skeleton constraint checks
-    skeleton_checks = validate_skeleton_constraints(spec, sub, actual_bbox_mm)
-    report.skeleton_checks = skeleton_checks
+    if has_evidence:
+        report.skeleton_checks = validate_skeleton_constraints(spec, sub, actual_bbox_mm)
 
     # Determine overall pass/fail and failure codes
     _compute_overall(report)
@@ -302,7 +306,13 @@ def _compute_overall(report: ValidationReport) -> None:
 
     if report.envelope_check and not report.envelope_check.passed:
         report.overall_pass = False
-        report.failure_codes.append(FailureCode.ENVELOPE_VIOLATION)
+        env_code = (
+            FailureCode.ENVELOPE_VIOLATION
+            if report.envelope_check.actual_bbox_mm
+            else FailureCode.VERIFICATION_FAILED
+        )
+        if env_code not in report.failure_codes:
+            report.failure_codes.append(env_code)
 
     if not report.mass_ok:
         report.overall_pass = False
@@ -323,8 +333,11 @@ def _compute_overall(report: ValidationReport) -> None:
     for sc in report.skeleton_checks:
         if not sc.passed:
             report.overall_pass = False
-            if FailureCode.SKELETON_CONFLICT not in report.failure_codes:
-                report.failure_codes.append(FailureCode.SKELETON_CONFLICT)
+            sk_code = (
+                FailureCode.SKELETON_CONFLICT if sc.measured else FailureCode.VERIFICATION_FAILED
+            )
+            if sk_code not in report.failure_codes:
+                report.failure_codes.append(sk_code)
 
 
 # ---------------------------------------------------------------------------
@@ -337,7 +350,11 @@ def validate_skeleton_constraints(
     subsystem: Subsystem,
     actual_bbox_mm: list[float] | None,
 ) -> list[SkeletonCheck]:
-    """Check part bbox fits within reserved volume and avoids keepout zones."""
+    """Check part bbox fits within reserved volume and avoids keepout zones.
+
+    With no bbox at all, each check that would otherwise run fails as
+    unmeasured (``measured=False``) instead of being skipped.
+    """
     from orchestrator.skeleton import aabb_bounds, aabb_overlap
 
     checks: list[SkeletonCheck] = []
@@ -345,6 +362,30 @@ def validate_skeleton_constraints(
 
     # Check reserved volume
     reserved = sk.reserved_volumes.get(subsystem.name)
+    if reserved and not actual_bbox_mm:
+        rv_min, _ = aabb_bounds(reserved)
+        if rv_min is not None:
+            checks.append(
+                SkeletonCheck(
+                    check="reserved_volume",
+                    subsystem=subsystem.name,
+                    passed=False,
+                    error="Part bbox not measured",
+                    measured=False,
+                )
+            )
+            for ki, keepout in enumerate(sk.keepout_zones):
+                kname = keepout.get("name", f"keepout_{ki}")
+                checks.append(
+                    SkeletonCheck(
+                        check="keepout_zone",
+                        subsystem=subsystem.name,
+                        passed=False,
+                        error=f"Part bbox not measured; keepout zone '{kname}' unchecked",
+                        keepout=kname,
+                        measured=False,
+                    )
+                )
     if reserved and actual_bbox_mm and len(actual_bbox_mm) >= 3:
         rv_min, rv_max = aabb_bounds(reserved)
         if rv_min is not None and rv_max is not None:
