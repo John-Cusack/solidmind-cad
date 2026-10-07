@@ -60,7 +60,8 @@ class FailureCode(str, Enum):
     # but could not be performed (e.g. STEP import failure), so there is
     # no measured evidence. Raised by runner.validate_results instead of
     # silently falling back to worker-claimed values, and by the
-    # validator when a mass budget exists but no mass was reported.
+    # validator when a required dimension checkpoint or a mass budget
+    # has no measured value.
     VERIFICATION_FAILED = "VERIFICATION_FAILED"
     CLEARANCE_COLLISION = "CLEARANCE_COLLISION"
     ENVELOPE_VIOLATION = "ENVELOPE_VIOLATION"

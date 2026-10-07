@@ -91,9 +91,10 @@ class TestVerifyFailureBlocksSuccess(unittest.TestCase):
             "claimed",
             "a failed verification must not be labelled as claimed data",
         )
-        self.assertTrue(
+        self.assertEqual(
             report.failure_codes,
-            "a failed verification must carry failure evidence",
+            [FailureCode.VERIFICATION_FAILED],
+            "a failed verification must carry verification-failure evidence",
         )
         self.assertTrue(
             any("verif" in n.lower() or "step" in n.lower() for n in report.notes),
@@ -210,9 +211,7 @@ class TestMissingRequiredChecksFail(unittest.TestCase):
             "every unmeasured required checkpoint must fail",
         )
         self.assertFalse(report.mass_ok)
-        self.assertIn(FailureCode.INTERFACE_DIM_MISMATCH, report.failure_codes)
-        self.assertIn(FailureCode.VERIFICATION_FAILED, report.failure_codes)
-        self.assertNotIn(FailureCode.MASS_OVER_BUDGET, report.failure_codes)
+        self.assertEqual(report.failure_codes, [FailureCode.VERIFICATION_FAILED])
 
     def test_missing_mass_with_budget_fails(self) -> None:
         spec = _make_spec()
@@ -267,6 +266,23 @@ class TestMissingRequiredChecksFail(unittest.TestCase):
         )
         self.assertTrue(report.overall_pass)
         self.assertEqual(report.failure_codes, [])
+
+
+class TestMeasuredDimensionMismatch(unittest.TestCase):
+    """A measured out-of-tolerance dimension keeps INTERFACE_DIM_MISMATCH."""
+
+    def test_measured_mismatch_keeps_dim_code(self) -> None:
+        spec = _make_spec()
+        result = WorkerResult(subsystem_name="gear", worker_id="gear_0")
+        report = validate_worker_result(
+            spec,
+            result,
+            measurements={"ifc1": {"bore_dia": 9.0, "bore_depth": 15.0}},
+            actual_bbox_mm=[19, 18, 9],
+            actual_mass_kg=0.04,
+        )
+        self.assertFalse(report.overall_pass)
+        self.assertEqual(report.failure_codes, [FailureCode.INTERFACE_DIM_MISMATCH])
 
 
 class TestGateG5ReportCompleteness(unittest.TestCase):

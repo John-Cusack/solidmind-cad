@@ -292,8 +292,13 @@ def _compute_overall(report: ValidationReport) -> None:
     for dc in report.dimension_checks:
         if not dc.passed:
             report.overall_pass = False
-            if FailureCode.INTERFACE_DIM_MISMATCH not in report.failure_codes:
-                report.failure_codes.append(FailureCode.INTERFACE_DIM_MISMATCH)
+            dim_code = (
+                FailureCode.VERIFICATION_FAILED
+                if dc.measured_mm is None
+                else FailureCode.INTERFACE_DIM_MISMATCH
+            )
+            if dim_code not in report.failure_codes:
+                report.failure_codes.append(dim_code)
 
     if report.envelope_check and not report.envelope_check.passed:
         report.overall_pass = False
