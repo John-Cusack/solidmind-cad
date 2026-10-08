@@ -44,9 +44,17 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from orchestrator.materials import resolve_material
 from orchestrator.spec import Interface, Subsystem
 
 log = logging.getLogger(__name__)
+
+# Absolute dimension at/above which a bbox component is treated as
+# FreeCAD's uncomputed-BoundBox sentinel (±1e100), not a measurement.
+_SENTINEL_ABS = 1e50
+
+# mm³ per m³ — volume (mm³) × density (kg/m³) / this = mass (kg).
+_MM3_PER_M3 = 1.0e9
 
 
 # ---------------------------------------------------------------------------
@@ -64,6 +72,9 @@ class MeasurementVerification:
             imported STEP (x, y, z in mm).
         volume_measured_mm3: Solid volume measured from the imported
             STEP in mm³.
+        mass_measured_kg: Part mass computed as measured volume times
+            the subsystem material's density (``None`` when the volume
+            was not measured or the material is unknown).
         interface_actuals_measured: ``{ifc_id: {feature: mm}}`` —
             same shape as the ``measurements`` argument to
             ``validator.validate_worker_result``.  Features that
@@ -81,6 +92,7 @@ class MeasurementVerification:
     step_load_ok: bool
     bbox_measured_mm: list[float] = field(default_factory=list)
     volume_measured_mm3: float = 0.0
+    mass_measured_kg: float | None = None
     interface_actuals_measured: dict[str, dict[str, float | None]] = field(default_factory=dict)
     drift: dict[str, dict[str, float | None]] = field(default_factory=dict)
     drift_exceeds_tolerance: list[str] = field(default_factory=list)
@@ -558,6 +570,73 @@ def measure_worker_step(
 
 
 # ---------------------------------------------------------------------------
+# Measured bbox fallback + mass from volume
+# ---------------------------------------------------------------------------
+
+
+def _remeasure_bbox_from_live_shape(
+    cad: Any,
+    bbox_result: dict[str, Any],
+) -> list[float]:
+    """Re-read the bbox from the live imported shape after forcing evaluation.
+
+    ``cad_import_step`` reads ``shape.BoundBox`` immediately after
+    ``shape.read()``, which returns ±1e100 sentinels on most STEP files
+    (OpenCascade computes the box lazily). Walking the shape's faces via
+    ``cad_get_body_topology`` forces evaluation; ``cad_get_dimensions``
+    then reads the populated box. This is still a geometry measurement —
+    never a worker claim.
+
+    Returns the ``[x, y, z]`` dimensions, or ``[]`` when no sane bbox
+    could be measured.
+    """
+    doc = bbox_result.get("doc")
+    obj = bbox_result.get("object")
+    if not doc or not obj:
+        return []
+    try:
+        cad.cad_get_body_topology(body=obj, doc=doc)
+    except Exception as exc:
+        log.warning("bbox fallback topology walk failed: %s", exc)
+        return []
+    try:
+        dims = cad.cad_get_dimensions(object_name=obj, doc=doc)
+    except Exception as exc:
+        log.warning("bbox fallback get_dimensions failed: %s", exc)
+        return []
+    box = (dims.get("bounding_box") or {}) if isinstance(dims, dict) else {}
+    vals = [box.get("x_len"), box.get("y_len"), box.get("z_len")]
+    if any(v is None or float(v) < 0 or abs(float(v)) >= _SENTINEL_ABS for v in vals):
+        return []
+    return [float(v) for v in vals]
+
+
+def _mass_from_measured_volume(
+    volume_mm3: float,
+    subsystem: Subsystem,
+) -> float | None:
+    """Part mass as measured volume times material density.
+
+    ``volume_mm3`` comes from the shape's exact solid volume
+    (``shape.Volume`` is computed, not lazy, so it is unaffected by the
+    bbox sentinel). Returns None when the volume was not measured or
+    the subsystem material has no known density — the caller must treat
+    that as unmeasured, never substitute the worker's claimed mass.
+    """
+    if volume_mm3 <= 0:
+        return None
+    material = resolve_material(subsystem.material or "")
+    if material is None:
+        log.warning(
+            "mass unmeasured for %s: unknown material %r",
+            subsystem.name,
+            subsystem.material,
+        )
+        return None
+    return volume_mm3 * material.density_kg_m3 / _MM3_PER_M3
+
+
+# ---------------------------------------------------------------------------
 # Verification (measure + drift-detection)
 # ---------------------------------------------------------------------------
 
@@ -584,7 +663,10 @@ def verify_worker_measurements(
     Returns:
         A ``MeasurementVerification`` report with the measurements,
         drift ratios, and the list of interface IDs whose drift
-        exceeded the tolerance.
+        exceeded the tolerance. The bbox is always re-measured from
+        geometry (a 1e100-sentinel import triggers a fallback
+        measurement from the live shape, never a worker claim) and
+        the mass is measured volume times material density.
 
     Never raises.  STEP load failures are reported via
     ``step_load_ok=False`` and ``error``.
@@ -621,16 +703,24 @@ def verify_worker_measurements(
             object_name=f"VerifyBbox_{subsystem.id or subsystem.name}",
         )
         raw_bbox = bbox_result.get("bbox_mm") or []
-        if raw_bbox and all(abs(float(d)) < 1e50 for d in raw_bbox):
+        if raw_bbox and all(abs(float(d)) < _SENTINEL_ABS for d in raw_bbox):
             bbox = [float(d) for d in raw_bbox]
         else:
+            # Sentinel: force face evaluation on the live shape and
+            # re-read the bbox from geometry — never from worker claims.
             log.info(
-                "bbox_measured_mm sentinel for %s — leaving bbox empty so the "
-                "envelope check falls back to the worker's claimed bbox",
+                "bbox_mm sentinel for %s — re-measuring bbox from the "
+                "imported shape instead of the worker's claimed bbox",
                 subsystem.name,
             )
-            bbox = []
+            bbox = _remeasure_bbox_from_live_shape(cad, bbox_result)
+            if not bbox:
+                log.warning(
+                    "bbox unmeasured for %s: import and fallback both failed",
+                    subsystem.name,
+                )
         volume = float(bbox_result.get("volume_mm3") or 0.0)
+        mass_measured_kg = _mass_from_measured_volume(volume, subsystem)
     except Exception as exc:  # pragma: no cover - integration
         log.warning("bbox re-import failed: %s", exc)
         bbox = []
@@ -669,6 +759,7 @@ def verify_worker_measurements(
         step_load_ok=True,
         bbox_measured_mm=list(bbox),
         volume_measured_mm3=volume,
+        mass_measured_kg=mass_measured_kg,
         interface_actuals_measured=measurements,
         drift=drift,
         drift_exceeds_tolerance=exceeded,

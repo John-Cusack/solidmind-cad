@@ -2831,20 +2831,53 @@ def import_step(
     d.recompute()
 
     bb = shape.BoundBox
+    dims = [float(bb.XLength), float(bb.YLength), float(bb.ZLength)]
+    lo = [float(bb.XMin), float(bb.YMin), float(bb.ZMin)]
+    hi = [float(bb.XMax), float(bb.YMax), float(bb.ZMax)]
+    if any(abs(v) >= 1e50 for v in dims):
+        # Freshly-read STEP shapes usually report ±1e+100 BoundBox
+        # sentinels (OpenCascade computes the box lazily). Tessellate to
+        # force evaluation and derive a real measured box from the mesh
+        # vertices instead of returning the sentinels.
+        fallback = _tessellated_bbox(shape)
+        if fallback is not None:
+            (lo, hi, dims) = fallback
     return {
         "doc": d.Name,
         "object": obj.Name,
         "volume_mm3": float(shape.Volume),
-        "bbox_mm": [
-            float(bb.XLength),
-            float(bb.YLength),
-            float(bb.ZLength),
-        ],
-        "bbox_min_mm": [float(bb.XMin), float(bb.YMin), float(bb.ZMin)],
-        "bbox_max_mm": [float(bb.XMax), float(bb.YMax), float(bb.ZMax)],
+        "bbox_mm": dims,
+        "bbox_min_mm": lo,
+        "bbox_max_mm": hi,
         "num_faces": len(shape.Faces),
         "num_edges": len(shape.Edges),
     }
+
+
+def _tessellated_bbox(shape):
+    """Measured bbox from tessellation vertices, or None if unavailable.
+
+    Never raises: any failure returns None and the caller keeps the
+    (sentinel) BoundBox values, i.e. today's behavior.
+    """
+    try:
+        verts, _facets = shape.tessellate(0.01)
+        pts = []
+        for v in verts:
+            if hasattr(v, "x"):
+                pts.append((float(v.x), float(v.y), float(v.z)))
+            else:
+                pts.append((float(v[0]), float(v[1]), float(v[2])))
+        if not pts:
+            return None
+        xs = [p[0] for p in pts]
+        ys = [p[1] for p in pts]
+        zs = [p[2] for p in pts]
+        lo = [min(xs), min(ys), min(zs)]
+        hi = [max(xs), max(ys), max(zs)]
+        return (lo, hi, [hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]])
+    except Exception:
+        return None
 
 
 # ---------------------------------------------------------------------------

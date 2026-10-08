@@ -83,14 +83,20 @@ def build_variants(
             variant_index=_extract_variant_index(report.worker_id),
             feasible=report.overall_pass,
         )
-        # Copy measured values
-        if report.mass_kg is not None:
+        # Copy measured values. Provenance-gated: only orchestrator-measured
+        # mass/bbox flow into variant.measured — worker-claimed values stay
+        # out so scoring never ranks on untrusted numbers.
+        if report.mass_kg is not None and report.mass_source == "orchestrator":
             variant.measured["mass_kg"] = report.mass_kg
             variant.scores["mass"] = report.mass_kg
         for dc in report.dimension_checks:
             if dc.measured_mm is not None:
                 variant.measured[f"{dc.interface_id}/{dc.feature}"] = dc.measured_mm
-        if report.envelope_check and report.envelope_check.actual_bbox_mm:
+        if (
+            report.envelope_check
+            and report.envelope_check.actual_bbox_mm
+            and report.bbox_source == "orchestrator"
+        ):
             bbox = report.envelope_check.actual_bbox_mm
             if len(bbox) >= 3:
                 vol = bbox[0] * bbox[1] * bbox[2]

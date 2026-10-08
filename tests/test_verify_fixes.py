@@ -19,6 +19,7 @@ from unittest.mock import patch
 
 from orchestrator.measure import MeasurementVerification
 from orchestrator.runner import build_worker_prompts, init_run, validate_results
+from orchestrator.scorer import build_variants
 from orchestrator.spec import (
     AssemblySkeleton,
     FailureCode,
@@ -146,40 +147,48 @@ class TestClaimedFieldsLabelledInVerifyMode(unittest.TestCase):
         self.assertEqual(len(reports), 1)
         return reports[0]
 
-    def test_sentinel_bbox_falls_back_to_claimed_label(self) -> None:
+    def test_sentinel_without_fallback_fails_verify(self) -> None:
+        """Sentinel bbox with no fallback measurement fails, not claims.
+
+        Verify mode never substitutes the worker's claimed bbox/mass:
+        unmeasured required bbox and mass fail the report with
+        VERIFICATION_FAILED evidence.
+        """
         report = self._validate_with(
             MeasurementVerification(
                 step_load_ok=True,
                 bbox_measured_mm=[],
+                mass_measured_kg=None,
                 interface_actuals_measured={"ifc1": {"bore_dia": 8.0, "bore_depth": 15.0}},
             )
         )
         self.assertEqual(report.measurement_source, "orchestrator")
-        self.assertEqual(report.bbox_source, "claimed")
-        self.assertEqual(report.mass_source, "claimed")
-        self.assertEqual(report.envelope_check.actual_bbox_mm, [19, 19, 9])
-        self.assertTrue(
-            any("bounding box is worker-claimed" in n for n in report.notes),
-            f"notes must name the claimed bbox; got {report.notes}",
+        self.assertEqual(report.bbox_source, "unknown")
+        self.assertEqual(report.mass_source, "unknown")
+        self.assertEqual(report.envelope_check.actual_bbox_mm, [])
+        self.assertIsNone(report.mass_kg)
+        self.assertFalse(report.overall_pass)
+        self.assertEqual(report.failure_codes, [FailureCode.VERIFICATION_FAILED])
+        self.assertFalse(
+            any("worker-claimed" in n for n in report.notes),
+            f"verify mode must not use claims; got {report.notes}",
         )
-        self.assertTrue(
-            any("mass is worker-claimed" in n for n in report.notes),
-            f"notes must name the claimed mass; got {report.notes}",
-        )
-        self.assertTrue(report.overall_pass)
 
-    def test_measured_bbox_labelled_orchestrator(self) -> None:
+    def test_measured_bbox_and_mass_labelled_orchestrator(self) -> None:
         report = self._validate_with(
             MeasurementVerification(
                 step_load_ok=True,
                 bbox_measured_mm=[19, 18, 9],
+                mass_measured_kg=0.04,
                 interface_actuals_measured={"ifc1": {"bore_dia": 8.0, "bore_depth": 15.0}},
             )
         )
         self.assertEqual(report.bbox_source, "orchestrator")
-        self.assertEqual(report.mass_source, "claimed")
+        self.assertEqual(report.mass_source, "orchestrator")
         self.assertEqual(report.envelope_check.actual_bbox_mm, [19, 18, 9])
+        self.assertEqual(report.mass_kg, 0.04)
         self.assertFalse(any("bounding box is worker-claimed" in n for n in report.notes))
+        self.assertFalse(any("mass is worker-claimed" in n for n in report.notes))
         self.assertTrue(report.overall_pass)
 
 
@@ -384,6 +393,166 @@ class TestGateG5ReportCompleteness(unittest.TestCase):
         self.assertTrue(bracket_report.overall_pass)
         ok, issues = check_gate_g5(spec, [gear_report, bracket_report])
         self.assertTrue(ok, f"G5 failed: {issues}")
+
+
+class TestSentinelFallbackMeasurement(unittest.TestCase):
+    """Sentinel import bbox triggers a geometry fallback, never claims."""
+
+    def _verify(self, import_result, *, topology=None, dimensions=None, material="steel"):
+        import dataclasses
+
+        from orchestrator.measure import verify_worker_measurements
+
+        spec = _make_spec()
+        sub = spec.get_subsystem("gear")
+        if material != sub.material:
+            sub = dataclasses.replace(sub, material=material)
+        with (
+            patch(
+                "orchestrator.measure.measure_worker_step",
+                return_value={"ifc1": {"bore_dia": 8.0, "bore_depth": 15.0}},
+            ),
+            patch("server.tools_cad.cad_import_step", return_value=import_result) as imp,
+            patch("server.tools_cad.cad_get_body_topology", return_value=topology or {}) as topo,
+            patch(
+                "server.tools_cad.cad_get_dimensions", return_value=dimensions or {}
+            ) as dims,
+        ):
+            verification = verify_worker_measurements(
+                step_path=Path("gear.step"),
+                claimed={"ifc1": {"bore_dia": 8.0, "bore_depth": 15.0}},
+                subsystem=sub,
+                interfaces=list(spec.interfaces_for("gear")),
+            )
+        return verification, imp, topo, dims
+
+    def test_sentinel_triggers_fallback_bbox(self) -> None:
+        verification, _imp, topo, _dims = self._verify(
+            {
+                "doc": "step_import",
+                "object": "VerifyBbox_gear",
+                "volume_mm3": 5095.5,
+                "bbox_mm": [1e100, 1e100, 1e100],
+            },
+            dimensions={"bounding_box": {"x_len": 19.0, "y_len": 18.0, "z_len": 9.0}},
+        )
+        self.assertTrue(verification.step_load_ok)
+        self.assertEqual(verification.bbox_measured_mm, [19.0, 18.0, 9.0])
+        topo.assert_called_once()
+
+    def test_sane_import_bbox_needs_no_fallback(self) -> None:
+        verification, _imp, topo, _dims = self._verify(
+            {
+                "doc": "step_import",
+                "object": "VerifyBbox_gear",
+                "volume_mm3": 5095.5,
+                "bbox_mm": [19.0, 18.0, 9.0],
+            },
+        )
+        self.assertEqual(verification.bbox_measured_mm, [19.0, 18.0, 9.0])
+        topo.assert_not_called()
+
+    def test_fallback_failure_leaves_bbox_unmeasured(self) -> None:
+        with (
+            patch(
+                "orchestrator.measure.measure_worker_step",
+                return_value={"ifc1": {"bore_dia": 8.0}},
+            ),
+            patch(
+                "server.tools_cad.cad_import_step",
+                return_value={
+                    "doc": "step_import",
+                    "object": "VerifyBbox_gear",
+                    "volume_mm3": 5095.5,
+                    "bbox_mm": [1e100, 1e100, 1e100],
+                },
+            ),
+            patch(
+                "server.tools_cad.cad_get_body_topology",
+                side_effect=RuntimeError("socket down"),
+            ),
+        ):
+            from orchestrator.measure import verify_worker_measurements
+
+            spec = _make_spec()
+            verification = verify_worker_measurements(
+                step_path=Path("gear.step"),
+                claimed={},
+                subsystem=spec.get_subsystem("gear"),
+                interfaces=list(spec.interfaces_for("gear")),
+            )
+        self.assertEqual(verification.bbox_measured_mm, [])
+        # Volume is independent of the bbox sentinel, so mass still measures.
+        self.assertAlmostEqual(verification.mass_measured_kg, 0.04, places=6)
+
+    def test_mass_is_volume_times_density(self) -> None:
+        verification, _imp, _topo, _dims = self._verify(
+            {
+                "doc": "step_import",
+                "object": "VerifyBbox_gear",
+                "volume_mm3": 5095.5,  # steel: 5095.5e-9 m³ × 7850 kg/m³ ≈ 0.04 kg
+                "bbox_mm": [19.0, 18.0, 9.0],
+            },
+        )
+        self.assertAlmostEqual(verification.mass_measured_kg, 0.04, places=6)
+
+    def test_mass_unmeasured_for_unknown_material(self) -> None:
+        verification, _imp, _topo, _dims = self._verify(
+            {
+                "doc": "step_import",
+                "object": "VerifyBbox_gear",
+                "volume_mm3": 5095.5,
+                "bbox_mm": [19.0, 18.0, 9.0],
+            },
+            material="unobtainium",
+        )
+        self.assertIsNone(verification.mass_measured_kg)
+
+    def test_mass_unmeasured_for_zero_volume(self) -> None:
+        verification, _imp, _topo, _dims = self._verify(
+            {
+                "doc": "step_import",
+                "object": "VerifyBbox_gear",
+                "volume_mm3": 0.0,
+                "bbox_mm": [19.0, 18.0, 9.0],
+            },
+        )
+        self.assertIsNone(verification.mass_measured_kg)
+
+
+class TestScorerUsesMeasuredValues(unittest.TestCase):
+    """build_variants must not store claimed mass/bbox under measured."""
+
+    def _report(self, *, bbox_source: str, mass_source: str):
+        spec = _make_spec()
+        return spec, validate_worker_result(
+            spec,
+            WorkerResult(subsystem_name="gear", worker_id="gear_0"),
+            measurements={"ifc1": {"bore_dia": 8.005, "bore_depth": 15.0}},
+            actual_bbox_mm=[19, 19, 9],
+            actual_mass_kg=0.04,
+            measurement_source="orchestrator",
+            bbox_source=bbox_source,
+            mass_source=mass_source,
+        )
+
+    def test_claimed_mass_and_bbox_excluded(self) -> None:
+        spec, report = self._report(bbox_source="claimed", mass_source="claimed")
+        variants = build_variants(spec, [report])
+        variant = variants["gear"][0]
+        self.assertNotIn("mass_kg", variant.measured)
+        self.assertNotIn("mass", variant.scores)
+        self.assertNotIn("volume_mm3", variant.measured)
+        self.assertNotIn("volume_mm3", variant.scores)
+
+    def test_measured_mass_and_bbox_included(self) -> None:
+        spec, report = self._report(bbox_source="orchestrator", mass_source="orchestrator")
+        variants = build_variants(spec, [report])
+        variant = variants["gear"][0]
+        self.assertEqual(variant.measured["mass_kg"], 0.04)
+        self.assertEqual(variant.scores["mass"], 0.04)
+        self.assertEqual(variant.measured["volume_mm3"], 19 * 19 * 9)
+        self.assertEqual(variant.scores["volume_mm3"], 19 * 19 * 9)
 
 
 if __name__ == "__main__":

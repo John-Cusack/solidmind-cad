@@ -305,9 +305,13 @@ def validate_results(
            the report instead of falling back to claims.
 
     The bounding box and mass are labelled per field via
-    ``bbox_source`` / ``mass_source``: the bbox is ``"orchestrator"``
-    only when the re-import produced a real (non-sentinel) bbox, and the
-    mass is always the worker's claim.
+    ``bbox_source`` / ``mass_source``. In verify mode both come only
+    from the independent re-measurement — the bbox is ``"orchestrator"``
+    only when geometry produced a real (possibly fallback-measured)
+    bbox, and the mass is ``"orchestrator"`` only when it was computed
+    as measured volume times material density. Worker claims are never
+    substituted in verify mode: an unmeasured required bbox or mass
+    fails the report.
     """
     from orchestrator.spec import FailureCode, WorkerResult
     from orchestrator.validator import ValidationReport, validate_worker_result
@@ -339,10 +343,19 @@ def validate_results(
 
         metadata = rd.get("metadata", {})
         claimed_actuals = metadata.get("interface_actuals", {}) if metadata else {}
-        actual_bbox = metadata.get("claimed_bounding_box_mm") if metadata else None
-        actual_mass = metadata.get("claimed_mass_kg") if metadata else None
-        bbox_source = "claimed" if actual_bbox else "unknown"
-        mass_source = "claimed" if actual_mass is not None else "unknown"
+        if verify_measurements:
+            # Verify mode never trusts worker claims for bbox/mass.
+            # Unmeasured stays unmeasured ("unknown") and fails below
+            # instead of passing on claimed numbers.
+            actual_bbox = None
+            actual_mass = None
+            bbox_source = "unknown"
+            mass_source = "unknown"
+        else:
+            actual_bbox = metadata.get("claimed_bounding_box_mm") if metadata else None
+            actual_mass = metadata.get("claimed_mass_kg") if metadata else None
+            bbox_source = "claimed" if actual_bbox else "unknown"
+            mass_source = "claimed" if actual_mass is not None else "unknown"
 
         worker_measurements: dict[str, dict[str, float]] = {}
         measurement_source = "unknown"
@@ -402,10 +415,14 @@ def validate_results(
                     measurement_source = "orchestrator"
                     if verification.drift_exceeds_tolerance:
                         drift_failure = True
-                    # Prefer the measured bbox if available.
+                    # Measured bbox (direct or fallback-measured) only.
                     if verification.bbox_measured_mm:
                         actual_bbox = verification.bbox_measured_mm
                         bbox_source = "orchestrator"
+                    # Measured mass is volume times density — never the claim.
+                    if verification.mass_measured_kg is not None:
+                        actual_mass = verification.mass_measured_kg
+                        mass_source = "orchestrator"
 
         # 3. Trust mode — fall back to the worker's own claims. This is
         # an explicit verify_measurements=False choice only: when
