@@ -17,6 +17,7 @@ from orchestrator.spec import (
     FailureCode,
     MasterSpec,
     Subsystem,
+    SubsystemKind,
     WorkerResult,
 )
 
@@ -74,6 +75,7 @@ class SkeletonCheck:
     passed: bool = False
     error: str = ""
     keepout: str = ""  # name of keepout zone, if applicable
+    measured: bool = True  # False when no bbox existed to check against
 
 
 @dataclass(slots=True)
@@ -93,6 +95,8 @@ class ValidationReport:
     failure_codes: list[FailureCode] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
     measurement_source: str = "unknown"  # "orchestrator" | "claimed" | "unknown"
+    bbox_source: str = "unknown"  # "orchestrator" | "claimed" | "unknown"
+    mass_source: str = "unknown"  # "orchestrator" | "claimed" | "unknown"
     skeleton_checks: list[SkeletonCheck] = field(default_factory=list)
 
 
@@ -150,6 +154,9 @@ def validate_envelope(
     if not subsystem.envelope_mm:
         check.passed = True
         return check
+    if not actual_bbox_mm:
+        check.error = "Bounding box not measured"
+        return check
     if len(actual_bbox_mm) < 3 or len(subsystem.envelope_mm) < 3:
         check.error = "Incomplete bounding box data"
         return check
@@ -193,6 +200,8 @@ def validate_worker_result(
     actual_bbox_mm: list[float] | None = None,
     actual_mass_kg: float | None = None,
     measurement_source: str = "unknown",
+    bbox_source: str = "unknown",
+    mass_source: str = "unknown",
 ) -> ValidationReport:
     """Run full validation on a worker result.
 
@@ -204,6 +213,8 @@ def validate_worker_result(
         measurement_source: "orchestrator" if measurements come from
             orchestrator-side cad_measure_between, "claimed" if from
             worker metadata.json, "unknown" otherwise.
+        bbox_source: Same labels, for ``actual_bbox_mm``.
+        mass_source: Same labels, for ``actual_mass_kg``.
     """
     sub = spec.get_subsystem(result.subsystem_name)
     if sub is None:
@@ -217,11 +228,22 @@ def validate_worker_result(
         subsystem_name=result.subsystem_name,
         worker_id=result.worker_id,
         measurement_source=measurement_source,
+        bbox_source=bbox_source,
+        mass_source=mass_source,
     )
+    for label, source in (("bounding box", bbox_source), ("mass", mass_source)):
+        if source == "claimed":
+            report.notes.append(f"WARNING: {label} is worker-claimed, not orchestrator-verified")
 
-    # Dimension checks
-    if measurements:
-        report.dimension_checks = validate_dimensions(spec, sub, measurements)
+    # Dimension and mass checks are evaluated whenever there is any
+    # evidence to check. validate_dimensions marks unmeasured required
+    # checkpoints as failed and validate_mass fails a budget with no
+    # measured mass, so required evidence cannot pass by omission. With
+    # no evidence at all the checks stay empty so _compute_overall
+    # records "No checks performed — cannot verify compliance".
+    has_evidence = bool(measurements) or bool(actual_bbox_mm) or actual_mass_kg is not None
+    if has_evidence:
+        report.dimension_checks = validate_dimensions(spec, sub, measurements or {})
         for dc in report.dimension_checks:
             dc.source = measurement_source
         if measurement_source == "claimed":
@@ -229,19 +251,23 @@ def validate_worker_result(
                 "WARNING: measurements are worker-claimed, not orchestrator-verified"
             )
 
-    # Envelope check
-    if actual_bbox_mm:
-        report.envelope_check = validate_envelope(sub, actual_bbox_mm)
+    # Envelope check — a required envelope with no bbox fails as unmeasured.
+    if has_evidence and (actual_bbox_mm or sub.envelope_mm):
+        report.envelope_check = validate_envelope(sub, actual_bbox_mm or [])
 
-    # Mass check
+    # Mass check — evaluated whenever there is evidence to check.
+    # validate_mass passes when there is no budget and fails when a
+    # budget exists but no mass was measured.
     report.mass_kg = actual_mass_kg
     report.mass_budget_kg = sub.mass_budget_kg
-    if actual_mass_kg is not None:
-        report.mass_ok, _ = validate_mass(sub, actual_mass_kg)
+    if has_evidence:
+        report.mass_ok, mass_msg = validate_mass(sub, actual_mass_kg)
+        if sub.mass_budget_kg is not None and actual_mass_kg is None:
+            report.notes.append(f"mass not measured: {mass_msg}")
 
     # Skeleton constraint checks
-    skeleton_checks = validate_skeleton_constraints(spec, sub, actual_bbox_mm)
-    report.skeleton_checks = skeleton_checks
+    if has_evidence:
+        report.skeleton_checks = validate_skeleton_constraints(spec, sub, actual_bbox_mm)
 
     # Determine overall pass/fail and failure codes
     _compute_overall(report)
@@ -266,17 +292,33 @@ def _compute_overall(report: ValidationReport) -> None:
     for dc in report.dimension_checks:
         if not dc.passed:
             report.overall_pass = False
-            if FailureCode.INTERFACE_DIM_MISMATCH not in report.failure_codes:
-                report.failure_codes.append(FailureCode.INTERFACE_DIM_MISMATCH)
+            dim_code = (
+                FailureCode.VERIFICATION_FAILED
+                if dc.measured_mm is None
+                else FailureCode.INTERFACE_DIM_MISMATCH
+            )
+            if dim_code not in report.failure_codes:
+                report.failure_codes.append(dim_code)
 
     if report.envelope_check and not report.envelope_check.passed:
         report.overall_pass = False
-        report.failure_codes.append(FailureCode.ENVELOPE_VIOLATION)
+        env_code = (
+            FailureCode.ENVELOPE_VIOLATION
+            if report.envelope_check.actual_bbox_mm
+            else FailureCode.VERIFICATION_FAILED
+        )
+        if env_code not in report.failure_codes:
+            report.failure_codes.append(env_code)
 
     if not report.mass_ok:
         report.overall_pass = False
-        if FailureCode.MASS_OVER_BUDGET not in report.failure_codes:
-            report.failure_codes.append(FailureCode.MASS_OVER_BUDGET)
+        mass_code = (
+            FailureCode.VERIFICATION_FAILED
+            if report.mass_kg is None
+            else FailureCode.MASS_OVER_BUDGET
+        )
+        if mass_code not in report.failure_codes:
+            report.failure_codes.append(mass_code)
 
     for cc in report.clearance_checks:
         if not cc.passed:
@@ -287,8 +329,11 @@ def _compute_overall(report: ValidationReport) -> None:
     for sc in report.skeleton_checks:
         if not sc.passed:
             report.overall_pass = False
-            if FailureCode.SKELETON_CONFLICT not in report.failure_codes:
-                report.failure_codes.append(FailureCode.SKELETON_CONFLICT)
+            sk_code = (
+                FailureCode.SKELETON_CONFLICT if sc.measured else FailureCode.VERIFICATION_FAILED
+            )
+            if sk_code not in report.failure_codes:
+                report.failure_codes.append(sk_code)
 
 
 # ---------------------------------------------------------------------------
@@ -301,7 +346,11 @@ def validate_skeleton_constraints(
     subsystem: Subsystem,
     actual_bbox_mm: list[float] | None,
 ) -> list[SkeletonCheck]:
-    """Check part bbox fits within reserved volume and avoids keepout zones."""
+    """Check part bbox fits within reserved volume and avoids keepout zones.
+
+    With no bbox at all, each check that would otherwise run fails as
+    unmeasured (``measured=False``) instead of being skipped.
+    """
     from orchestrator.skeleton import aabb_bounds, aabb_overlap
 
     checks: list[SkeletonCheck] = []
@@ -309,6 +358,30 @@ def validate_skeleton_constraints(
 
     # Check reserved volume
     reserved = sk.reserved_volumes.get(subsystem.name)
+    if reserved and not actual_bbox_mm:
+        rv_min, _ = aabb_bounds(reserved)
+        if rv_min is not None:
+            checks.append(
+                SkeletonCheck(
+                    check="reserved_volume",
+                    subsystem=subsystem.name,
+                    passed=False,
+                    error="Part bbox not measured",
+                    measured=False,
+                )
+            )
+            for ki, keepout in enumerate(sk.keepout_zones):
+                kname = keepout.get("name", f"keepout_{ki}")
+                checks.append(
+                    SkeletonCheck(
+                        check="keepout_zone",
+                        subsystem=subsystem.name,
+                        passed=False,
+                        error=f"Part bbox not measured; keepout zone '{kname}' unchecked",
+                        keepout=kname,
+                        measured=False,
+                    )
+                )
     if reserved and actual_bbox_mm and len(actual_bbox_mm) >= 3:
         rv_min, rv_max = aabb_bounds(reserved)
         if rv_min is not None and rv_max is not None:
@@ -365,8 +438,21 @@ def check_gate_g5(
     spec: MasterSpec,
     reports: list[ValidationReport],
 ) -> tuple[bool, list[str]]:
-    """G5: All subsystems pass geometry + assembly validation."""
+    """G5: All subsystems pass geometry + assembly validation.
+
+    An empty report set never passes, and every GENERATED subsystem in
+    the spec must have a report: missing evidence fails the gate instead
+    of passing by omission. (CATALOG/STANDARD subsystems are purchased,
+    not worker-built, so they need no validation report.)
+    """
     issues: list[str] = []
+    if not reports:
+        issues.append("G5: no validation reports — empty report set cannot pass")
+        return False, issues
+    reported = {r.subsystem_name for r in reports}
+    for sub in spec.subsystems:
+        if sub.kind == SubsystemKind.GENERATED and sub.name not in reported:
+            issues.append(f"{sub.name}: missing validation report")
     for r in reports:
         if not r.overall_pass:
             codes = ", ".join(fc.value for fc in r.failure_codes)

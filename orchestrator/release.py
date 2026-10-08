@@ -51,11 +51,13 @@ def generate_bom(
 ) -> list[BOMLine]:
     """Generate BOM from the master spec subsystem list.
 
-    Uses measured mass from validation reports when available,
-    falling back to mass_budget_kg.
+    Uses the reported mass from validation reports when available,
+    labelled ``[measured]`` only when the report's ``mass_source`` is
+    ``"orchestrator"`` and ``[claimed]`` otherwise, falling back to
+    mass_budget_kg.
     """
-    # Build lookup of measured masses from winner variant's validation
-    measured_masses: dict[str, float] = {}
+    # Build lookup of reported masses from winner variant's validation
+    reported_masses: dict[str, tuple[float, str]] = {}
     if validation_reports:
         # Determine winner variants
         winner_variants: dict[str, int] = {}
@@ -72,14 +74,15 @@ def generate_bom(
                     if report.subsystem_name in winner_variants:
                         if variant_idx != winner_variants[report.subsystem_name]:
                             continue
-                measured_masses[report.subsystem_name] = report.mass_kg
+                reported_masses[report.subsystem_name] = (report.mass_kg, report.mass_source)
 
     lines: list[BOMLine] = []
     for i, sub in enumerate(spec.subsystems, start=1):
-        mass = measured_masses.get(sub.name)
+        reported = reported_masses.get(sub.name)
         notes = sub.description
-        if mass is not None:
-            notes_suffix = " [measured]"
+        if reported is not None:
+            mass, mass_source = reported
+            notes_suffix = " [measured]" if mass_source == "orchestrator" else " [claimed]"
         else:
             mass = sub.mass_budget_kg
             notes_suffix = " [budget]" if mass is not None else ""

@@ -148,6 +148,7 @@ class TestBomUsesMeasuredMass(unittest.TestCase):
                 subsystem_name="gear",
                 worker_id="gear_0",
                 mass_kg=0.042,
+                mass_source="orchestrator",
                 overall_pass=True,
             ),
         ]
@@ -155,6 +156,23 @@ class TestBomUsesMeasuredMass(unittest.TestCase):
         gear_line = next(line for line in bom if line.name == "gear")
         self.assertAlmostEqual(gear_line.mass_kg, 0.042)
         self.assertIn("measured", gear_line.notes)
+
+    def test_claimed_mass_not_labelled_measured(self) -> None:
+        spec = _make_spec()
+        reports = [
+            ValidationReport(
+                subsystem_name="gear",
+                worker_id="gear_0",
+                mass_kg=0.042,
+                mass_source="claimed",
+                overall_pass=True,
+            ),
+        ]
+        bom = generate_bom(spec, validation_reports=reports)
+        gear_line = next(line for line in bom if line.name == "gear")
+        self.assertAlmostEqual(gear_line.mass_kg, 0.042)
+        self.assertIn("[claimed]", gear_line.notes)
+        self.assertNotIn("measured", gear_line.notes)
 
     def test_budget_fallback(self) -> None:
         spec = _make_spec()
